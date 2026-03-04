@@ -1009,7 +1009,10 @@ mod tests {
     #[test]
     fn test_schema_record_validate_empty_tool_name_rejected() {
         let sr = SchemaRecord::new("", "hash", 1000);
-        assert!(sr.validate().unwrap_err().contains("tool_name must not be empty"));
+        assert!(sr
+            .validate()
+            .unwrap_err()
+            .contains("tool_name must not be empty"));
     }
 
     #[test]

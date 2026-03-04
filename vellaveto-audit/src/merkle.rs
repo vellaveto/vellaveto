@@ -575,7 +575,10 @@ mod tests {
         let data = [0xABu8; 32];
         let leaf = hash_leaf(&data);
         let internal = hash_internal(&data, &data);
-        assert_ne!(leaf, internal, "Leaf and internal hashes must differ (domain separation)");
+        assert_ne!(
+            leaf, internal,
+            "Leaf and internal hashes must differ (domain separation)"
+        );
     }
 
     #[test]
@@ -715,13 +718,8 @@ mod tests {
         let trusted_root = tree.root_hex().expect("root");
         for (idx, leaf) in leaves.iter().enumerate() {
             let proof = tree.generate_proof(idx as u64).expect("proof");
-            let result =
-                MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
-            assert!(
-                result.valid,
-                "Proof for leaf {} should verify",
-                idx
-            );
+            let result = MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
+            assert!(result.valid, "Proof for leaf {} should verify", idx);
         }
     }
 
@@ -736,8 +734,7 @@ mod tests {
         let trusted_root = tree.root_hex().expect("root");
         for (idx, leaf) in leaves.iter().enumerate() {
             let proof = tree.generate_proof(idx as u64).expect("proof");
-            let result =
-                MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
+            let result = MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
             assert!(
                 result.valid,
                 "Proof for leaf {} (5-leaf tree) should verify",
@@ -784,8 +781,7 @@ mod tests {
             siblings: vec![],
             root_hash: "0".repeat(64),
         };
-        let result =
-            MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
+        let result = MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
         assert!(!result.valid);
         assert!(result
             .failure_reason
@@ -802,8 +798,7 @@ mod tests {
             siblings: vec![],
             root_hash: "0".repeat(64),
         };
-        let result =
-            MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
+        let result = MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64)).expect("verify");
         assert!(!result.valid);
         assert!(result
             .failure_reason

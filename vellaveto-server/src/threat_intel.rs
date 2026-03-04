@@ -58,7 +58,10 @@ const MAX_INDICATOR_TAGS: usize = 50;
 const MAX_TAG_LEN: usize = 256;
 
 /// A threat indicator from intelligence feeds.
+// SECURITY (R234-SRV-4): Reject unknown fields from external threat feeds
+// to prevent attacker-injected fields from surviving deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ThreatIndicator {
     /// Indicator type (domain, ip, url, hash, etc.)
     pub indicator_type: IndicatorType,

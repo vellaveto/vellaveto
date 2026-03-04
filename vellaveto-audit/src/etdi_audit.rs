@@ -204,7 +204,10 @@ mod tests {
             assert!(reason.contains("invalid signature bytes"));
         }
         assert_eq!(entries[0].metadata["event"], "signature_failed");
-        assert_eq!(entries[0].metadata["failure_reason"], "invalid signature bytes");
+        assert_eq!(
+            entries[0].metadata["failure_reason"],
+            "invalid signature bytes"
+        );
     }
 
     #[tokio::test]

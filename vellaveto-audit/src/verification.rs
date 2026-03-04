@@ -571,7 +571,10 @@ mod tests {
             &log_path,
             format!(
                 "{}\n{}\n",
-                tokio::fs::read_to_string(&log_path).await.expect("read").trim(),
+                tokio::fs::read_to_string(&log_path)
+                    .await
+                    .expect("read")
+                    .trim(),
                 "this is not valid json"
             ),
         )
@@ -597,7 +600,10 @@ mod tests {
             .await
             .expect("write oversized");
 
-        let err = logger.load_entries().await.expect_err("should reject oversized");
+        let err = logger
+            .load_entries()
+            .await
+            .expect_err("should reject oversized");
         match err {
             AuditError::Validation(msg) => {
                 assert!(msg.contains("too large"), "unexpected msg: {msg}");
@@ -690,12 +696,15 @@ mod tests {
         let content = tokio::fs::read_to_string(&log_path).await.expect("read");
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
         if lines.len() >= 2 {
-            let mut entry: AuditEntry =
-                serde_json::from_str(&lines[1]).expect("parse entry");
-            entry.entry_hash = Some("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+            let mut entry: AuditEntry = serde_json::from_str(&lines[1]).expect("parse entry");
+            entry.entry_hash = Some(
+                "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            );
             lines[1] = serde_json::to_string(&entry).expect("serialize");
             let tampered = lines.join("\n") + "\n";
-            tokio::fs::write(&log_path, tampered).await.expect("write tampered");
+            tokio::fs::write(&log_path, tampered)
+                .await
+                .expect("write tampered");
         }
 
         let result = logger.verify_chain().await.expect("verify");
@@ -731,8 +740,7 @@ mod tests {
         let content = tokio::fs::read_to_string(&log_path).await.expect("read");
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
         if lines.len() >= 2 {
-            let mut entry: AuditEntry =
-                serde_json::from_str(&lines[1]).expect("parse entry");
+            let mut entry: AuditEntry = serde_json::from_str(&lines[1]).expect("parse entry");
             entry.timestamp = "2020-01-01T00:00:00Z".to_string();
             // Also fix the hash so the hash check passes but timestamp check fails
             // Actually the hash will be wrong too, but the timestamp check runs first
@@ -765,8 +773,7 @@ mod tests {
         let content = tokio::fs::read_to_string(&log_path).await.expect("read");
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
         if !lines.is_empty() {
-            let mut entry: AuditEntry =
-                serde_json::from_str(&lines[0]).expect("parse");
+            let mut entry: AuditEntry = serde_json::from_str(&lines[0]).expect("parse");
             entry.timestamp = "2026-03-01T12:00:00+05:30".to_string();
             lines[0] = serde_json::to_string(&entry).expect("serialize");
             tokio::fs::write(&log_path, lines.join("\n") + "\n")
@@ -829,10 +836,8 @@ mod tests {
         let content = tokio::fs::read_to_string(&log_path).await.expect("read");
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
         if lines.len() >= 2 {
-            let entry0: AuditEntry =
-                serde_json::from_str(&lines[0]).expect("parse");
-            let mut entry1: AuditEntry =
-                serde_json::from_str(&lines[1]).expect("parse");
+            let entry0: AuditEntry = serde_json::from_str(&lines[0]).expect("parse");
+            let mut entry1: AuditEntry = serde_json::from_str(&lines[1]).expect("parse");
             entry1.id = entry0.id.clone();
             lines[1] = serde_json::to_string(&entry1).expect("serialize");
             tokio::fs::write(&log_path, lines.join("\n") + "\n")
@@ -905,12 +910,18 @@ mod tests {
 
     #[test]
     fn test_strip_utc_suffix_z() {
-        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00Z"), "2026-03-01T12:00:00");
+        assert_eq!(
+            strip_utc_suffix("2026-03-01T12:00:00Z"),
+            "2026-03-01T12:00:00"
+        );
     }
 
     #[test]
     fn test_strip_utc_suffix_lowercase_z() {
-        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00z"), "2026-03-01T12:00:00");
+        assert_eq!(
+            strip_utc_suffix("2026-03-01T12:00:00z"),
+            "2026-03-01T12:00:00"
+        );
     }
 
     #[test]
@@ -923,7 +934,10 @@ mod tests {
 
     #[test]
     fn test_strip_utc_suffix_no_suffix() {
-        assert_eq!(strip_utc_suffix("2026-03-01T12:00:00"), "2026-03-01T12:00:00");
+        assert_eq!(
+            strip_utc_suffix("2026-03-01T12:00:00"),
+            "2026-03-01T12:00:00"
+        );
     }
 
     // ── Mixed Z and +00:00 ordering test ────────────────────────────
@@ -976,6 +990,9 @@ mod tests {
         }
 
         let result = logger.verify_chain().await.expect("verify");
-        assert!(result.valid, "Mixed UTC suffixes should be handled correctly");
+        assert!(
+            result.valid,
+            "Mixed UTC suffixes should be handled correctly"
+        );
     }
 }

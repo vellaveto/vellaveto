@@ -295,9 +295,7 @@ fn qualified_from_str(s: &str) -> QualifiedTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::topology::{
-        StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyGraph,
-    };
+    use crate::topology::{StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyGraph};
 
     fn make_topology(servers: Vec<StaticServerDecl>) -> TopologyGraph {
         TopologyGraph::from_static(servers).unwrap()
@@ -538,7 +536,9 @@ mod tests {
         let summary = diff.summary();
         // Should contain multiple change indicators
         assert!(
-            summary.contains("servers") || summary.contains("tools") || summary.contains("resources"),
+            summary.contains("servers")
+                || summary.contains("tools")
+                || summary.contains("resources"),
             "Summary should describe changes: {summary}"
         );
         assert!(diff.has_removals());
@@ -597,7 +597,8 @@ mod tests {
         assert!(diff.is_empty());
 
         // Adding just one data flow edge should make it non-empty
-        diff.added_data_flow_edges.push(("a".to_string(), "b".to_string()));
+        diff.added_data_flow_edges
+            .push(("a".to_string(), "b".to_string()));
         assert!(!diff.is_empty());
     }
 
@@ -624,7 +625,10 @@ mod tests {
         }]);
 
         let diff = t1.diff(&t2);
-        assert!(!diff.has_schema_changes(), "Only description changed, not schema");
+        assert!(
+            !diff.has_schema_changes(),
+            "Only description changed, not schema"
+        );
         assert!(
             diff.modified_tools[0].description_changed,
             "Description should be marked as changed"
@@ -653,6 +657,9 @@ mod tests {
         let names = graph.resource_names();
         let mut sorted = names.clone();
         sorted.sort();
-        assert_eq!(names, sorted, "resource_names() should return sorted results");
+        assert_eq!(
+            names, sorted,
+            "resource_names() should return sorted results"
+        );
     }
 }

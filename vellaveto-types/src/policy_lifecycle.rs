@@ -580,7 +580,10 @@ mod tests {
     fn test_policy_version_validate_empty_version_id_rejected() {
         let mut pv = valid_version();
         pv.version_id = String::new();
-        assert!(pv.validate().unwrap_err().contains("version_id must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("version_id must be non-empty"));
     }
 
     #[test]
@@ -594,7 +597,10 @@ mod tests {
     fn test_policy_version_validate_version_id_control_chars_rejected() {
         let mut pv = valid_version();
         pv.version_id = "ver\x00null".to_string();
-        assert!(pv.validate().unwrap_err().contains("version_id contains invalid"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("version_id contains invalid"));
     }
 
     // ── policy_id validation ────────────────────────────────────────────
@@ -603,7 +609,10 @@ mod tests {
     fn test_policy_version_validate_empty_policy_id_rejected() {
         let mut pv = valid_version();
         pv.policy_id = String::new();
-        assert!(pv.validate().unwrap_err().contains("policy_id must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("policy_id must be non-empty"));
     }
 
     #[test]
@@ -628,14 +637,20 @@ mod tests {
     fn test_policy_version_validate_empty_created_by_rejected() {
         let mut pv = valid_version();
         pv.created_by = String::new();
-        assert!(pv.validate().unwrap_err().contains("created_by must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("created_by must be non-empty"));
     }
 
     #[test]
     fn test_policy_version_validate_whitespace_only_created_by_rejected() {
         let mut pv = valid_version();
         pv.created_by = "   ".to_string();
-        assert!(pv.validate().unwrap_err().contains("created_by must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("created_by must be non-empty"));
     }
 
     // ── created_at timestamp validation ─────────────────────────────────
@@ -651,7 +666,10 @@ mod tests {
     fn test_policy_version_validate_empty_created_at_rejected() {
         let mut pv = valid_version();
         pv.created_at = String::new();
-        assert!(pv.validate().unwrap_err().contains("created_at must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("created_at must be non-empty"));
     }
 
     // ── comment bounds ──────────────────────────────────────────────────
@@ -667,7 +685,10 @@ mod tests {
     fn test_policy_version_validate_comment_control_chars_rejected() {
         let mut pv = valid_version();
         pv.comment = Some("note\x07bell".to_string());
-        assert!(pv.validate().unwrap_err().contains("comment contains invalid"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("comment contains invalid"));
     }
 
     // ── approvals overflow ──────────────────────────────────────────────
@@ -691,7 +712,10 @@ mod tests {
     fn test_policy_version_validate_staged_at_empty_when_present_rejected() {
         let mut pv = valid_version();
         pv.staged_at = Some(String::new());
-        assert!(pv.validate().unwrap_err().contains("staged_at must be non-empty"));
+        assert!(pv
+            .validate()
+            .unwrap_err()
+            .contains("staged_at must be non-empty"));
     }
 
     #[test]
@@ -720,7 +744,10 @@ mod tests {
             approved_at: "2025-06-01T12:00:00Z".to_string(),
             comment: None,
         };
-        assert!(pa.validate().unwrap_err().contains("approved_by must be non-empty"));
+        assert!(pa
+            .validate()
+            .unwrap_err()
+            .contains("approved_by must be non-empty"));
     }
 
     #[test]
@@ -750,7 +777,10 @@ mod tests {
             approved_at: "2025-06-01T12:00:00Z".to_string(),
             comment: Some("c".repeat(MAX_VERSION_COMMENT_LEN + 1)),
         };
-        assert!(pa.validate().unwrap_err().contains("approval comment exceeds"));
+        assert!(pa
+            .validate()
+            .unwrap_err()
+            .contains("approval comment exceeds"));
     }
 
     #[test]
@@ -760,7 +790,10 @@ mod tests {
             approved_at: "2025-06-01T12:00:00Z".to_string(),
             comment: Some("ok\x01bad".to_string()),
         };
-        assert!(pa.validate().unwrap_err().contains("approval comment contains invalid"));
+        assert!(pa
+            .validate()
+            .unwrap_err()
+            .contains("approval comment contains invalid"));
     }
 
     // ── PolicyVersionDiff::validate() ───────────────────────────────────

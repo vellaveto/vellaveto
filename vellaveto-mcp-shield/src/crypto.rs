@@ -143,7 +143,13 @@ impl EncryptedAuditStore {
     /// Append an encrypted entry to the store file.
     pub fn write_encrypted_entry(&self, plaintext: &[u8]) -> Result<(), ShieldError> {
         let encrypted = self.encrypt(plaintext)?;
-        let len = (encrypted.len() as u32).to_le_bytes();
+        // SECURITY (R234-SHIELD-5): Use try_from instead of `as u32` to prevent
+        // silent truncation on entries larger than 4 GB.
+        let len = u32::try_from(encrypted.len())
+            .map_err(|_| {
+                ShieldError::Encryption("encrypted entry too large for u32 length".to_string())
+            })?
+            .to_le_bytes();
 
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -154,6 +160,10 @@ impl EncryptedAuditStore {
         file.write_all(&encrypted).map_err(ShieldError::Io)?;
         Ok(())
     }
+
+    /// Maximum number of entries to read from the store.
+    /// Prevents unbounded memory growth from a maliciously large store file.
+    const MAX_STORE_ENTRIES: usize = 100_000;
 
     /// Read and decrypt all entries from the store.
     pub fn read_all_entries(&self) -> Result<Vec<Vec<u8>>, ShieldError> {
@@ -166,6 +176,14 @@ impl EncryptedAuditStore {
         let mut entries = Vec::new();
         let mut offset = header_len;
         while offset + 4 <= data.len() {
+            // SECURITY (R234-SHIELD-10): Bound entry count to prevent DoS from
+            // a maliciously crafted store file with millions of small entries.
+            if entries.len() >= Self::MAX_STORE_ENTRIES {
+                return Err(ShieldError::Decryption(format!(
+                    "store contains more than {} entries (possible corruption or attack)",
+                    Self::MAX_STORE_ENTRIES
+                )));
+            }
             let len = u32::from_le_bytes(
                 data[offset..offset + 4]
                     .try_into()
@@ -207,7 +225,8 @@ impl EncryptedAuditStore {
                 let len = u32::try_from(encrypted.len()).map_err(|_| {
                     ShieldError::Encryption("encrypted entry too large for u32 length".to_string())
                 })?;
-                file.write_all(&len.to_le_bytes()).map_err(ShieldError::Io)?;
+                file.write_all(&len.to_le_bytes())
+                    .map_err(ShieldError::Io)?;
                 file.write_all(&encrypted).map_err(ShieldError::Io)?;
             }
         }

@@ -1694,10 +1694,7 @@ mod tests {
 
     #[test]
     fn test_dpop_htu_match_host_only_no_path() {
-        assert!(dpop_htu_match(
-            "https://example.com",
-            "https://example.com"
-        ));
+        assert!(dpop_htu_match("https://example.com", "https://example.com"));
     }
 
     // ── DpopConfig defaults ───────────────────────────────────────────

@@ -558,10 +558,7 @@ mod tests {
         }
     }
 
-    fn make_none_of_constraint(
-        param: &str,
-        values: Vec<serde_json::Value>,
-    ) -> CompiledConstraint {
+    fn make_none_of_constraint(param: &str, values: Vec<serde_json::Value>) -> CompiledConstraint {
         CompiledConstraint::NoneOf {
             param: param.to_string(),
             values,

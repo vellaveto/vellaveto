@@ -163,12 +163,28 @@ impl QuerySanitizer {
     }
 
     /// Clear all PII mappings. Call this when a session ends.
+    ///
+    /// SECURITY (R234-SHIELD-12): Recover from lock poisoning via `into_inner()`
+    /// and log the event. Silently skipping clear on poisoning would leave stale
+    /// PII mappings from a previous (crashed) session.
     pub fn clear(&self) {
-        if let Ok(mut mappings) = self.mappings.lock() {
-            mappings.clear();
+        match self.mappings.lock() {
+            Ok(mut mappings) => mappings.clear(),
+            Err(poisoned) => {
+                tracing::error!(
+                    "SECURITY: sanitizer mappings lock poisoned during clear — recovering"
+                );
+                poisoned.into_inner().clear();
+            }
         }
-        if let Ok(mut seq) = self.sequence.lock() {
-            *seq = 0;
+        match self.sequence.lock() {
+            Ok(mut seq) => *seq = 0,
+            Err(poisoned) => {
+                tracing::error!(
+                    "SECURITY: sanitizer sequence lock poisoned during clear — recovering"
+                );
+                *poisoned.into_inner() = 0;
+            }
         }
     }
 

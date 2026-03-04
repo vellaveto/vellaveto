@@ -772,10 +772,7 @@ mod tests {
 
     #[test]
     fn test_describe_value_array_empty() {
-        assert_eq!(
-            PolicyEngine::describe_value(&json!([])),
-            "array(0 items)"
-        );
+        assert_eq!(PolicyEngine::describe_value(&json!([])), "array(0 items)");
     }
 
     #[test]
@@ -788,10 +785,7 @@ mod tests {
 
     #[test]
     fn test_describe_value_object_empty() {
-        assert_eq!(
-            PolicyEngine::describe_value(&json!({})),
-            "object(0 keys)"
-        );
+        assert_eq!(PolicyEngine::describe_value(&json!({})), "object(0 keys)");
     }
 
     #[test]

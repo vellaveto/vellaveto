@@ -403,7 +403,8 @@ mod tests {
         // FIND-084: Fullwidth digits should be normalized before PII scanning.
         // Fullwidth "1" is U+FF11, "2" is U+FF12, etc.
         // Build a fullwidth SSN-like pattern: 123-45-6789 in fullwidth digits.
-        let fullwidth_ssn = "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
+        let fullwidth_ssn =
+            "\u{FF11}\u{FF12}\u{FF13}-\u{FF14}\u{FF15}-\u{FF16}\u{FF17}\u{FF18}\u{FF19}";
         let input = json!({"data": fullwidth_ssn});
         let result = redact_keys_and_patterns(&input);
         // NFKC normalizes fullwidth digits to ASCII, so the SSN pattern should match
@@ -507,11 +508,7 @@ mod tests {
         for &key in SENSITIVE_PARAM_KEYS {
             let input = json!({key: "some_value"});
             let result = redact_keys_and_patterns(&input);
-            assert_eq!(
-                result[key], REDACTED,
-                "Key '{}' should be redacted",
-                key
-            );
+            assert_eq!(result[key], REDACTED, "Key '{}' should be redacted", key);
         }
     }
 

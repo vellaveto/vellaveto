@@ -313,7 +313,11 @@ mod tests {
         .await;
         // Should be capped at MAX_FALLBACK_RETRIES (10) + 1 = 11
         if let Err(FallbackError::AllFailed { attempts, .. }) = result {
-            assert!(attempts <= 11, "retries should be capped at MAX_FALLBACK_RETRIES + 1, got {}", attempts);
+            assert!(
+                attempts <= 11,
+                "retries should be capped at MAX_FALLBACK_RETRIES + 1, got {}",
+                attempts
+            );
         } else {
             panic!("Expected AllFailed error");
         }

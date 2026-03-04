@@ -113,6 +113,13 @@ impl ContextIsolator {
     /// Text should already be PII-sanitized before calling this.
     pub fn record(&self, session_id: &str, role: &str, text: &str) -> Result<(), ShieldError> {
         Self::validate_session_id(session_id)?;
+        // SECURITY (R234-SHIELD-9): Validate role parameter for dangerous chars.
+        // Only "user" and "assistant" are valid roles.
+        if role != "user" && role != "assistant" {
+            return Err(ShieldError::Config(
+                "context role must be 'user' or 'assistant'".to_string(),
+            ));
+        }
         if text.len() > MAX_CONTEXT_ENTRY_LEN {
             return Err(ShieldError::Config(format!(
                 "context entry too large ({} bytes, max {})",

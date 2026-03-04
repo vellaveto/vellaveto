@@ -2246,7 +2246,12 @@ mod tests {
     }
 
     /// Helper: create a Conditional policy with given conditions JSON.
-    fn conditional_policy(id: &str, name: &str, priority: i32, conditions: serde_json::Value) -> Policy {
+    fn conditional_policy(
+        id: &str,
+        name: &str,
+        priority: i32,
+        conditions: serde_json::Value,
+    ) -> Policy {
         Policy {
             id: id.to_string(),
             name: name.to_string(),
@@ -2336,10 +2341,7 @@ mod tests {
 
     #[test]
     fn test_compile_policies_stable_sort_by_id_at_same_priority_and_type() {
-        let policies = vec![
-            allow_policy("b:*", "B", 10),
-            allow_policy("a:*", "A", 10),
-        ];
+        let policies = vec![allow_policy("b:*", "B", 10), allow_policy("a:*", "A", 10)];
         let compiled = PolicyEngine::compile_policies(&policies, false).unwrap();
         // Same priority, same type -> sort by id ascending
         assert_eq!(compiled[0].policy.id, "a:*");
@@ -2615,7 +2617,9 @@ mod tests {
         let result = PolicyEngine::compile_policies(&[policy], false);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors[0].reason.contains("start_hour and end_hour must differ"));
+        assert!(errors[0]
+            .reason
+            .contains("start_hour and end_hour must differ"));
     }
 
     #[test]
@@ -2881,7 +2885,9 @@ mod tests {
         let result = PolicyEngine::compile_policies(&[policy], false);
         assert!(result.is_err());
         let errors = result.unwrap_err();
-        assert!(errors[0].reason.contains("parameter_constraints must be an array"));
+        assert!(errors[0]
+            .reason
+            .contains("parameter_constraints must be an array"));
     }
 
     #[test]

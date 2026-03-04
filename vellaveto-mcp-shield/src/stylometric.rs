@@ -365,14 +365,11 @@ fn remove_multiword_filler(text: &str, filler: &str) -> String {
     while i < text.len() {
         // Extract the same number of bytes from the original text as the filler,
         // but compare via lowercase of that specific slice (not a pre-computed global lowercase).
-        if i + filler_byte_len <= text.len()
-            && text.is_char_boundary(i + filler_byte_len)
-        {
+        if i + filler_byte_len <= text.len() && text.is_char_boundary(i + filler_byte_len) {
             let candidate = &text[i..i + filler_byte_len];
             if candidate.to_lowercase() == filler_lower {
                 // Check word boundaries (ASCII-only, since filler words are ASCII)
-                let before_ok =
-                    i == 0 || !text.as_bytes()[i - 1].is_ascii_alphanumeric();
+                let before_ok = i == 0 || !text.as_bytes()[i - 1].is_ascii_alphanumeric();
                 let after_ok = i + filler_byte_len >= text.len()
                     || !text.as_bytes()[i + filler_byte_len].is_ascii_alphanumeric();
                 if before_ok && after_ok {

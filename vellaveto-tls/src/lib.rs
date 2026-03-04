@@ -307,7 +307,10 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
                 let before = provider.cipher_suites.len();
                 provider.cipher_suites.retain(|suite| {
                     let name = format!("{:?}", suite.suite());
-                    config.cipher_suites.iter().any(|allowed| name.contains(allowed.as_str()))
+                    config
+                        .cipher_suites
+                        .iter()
+                        .any(|allowed| name.contains(allowed.as_str()))
                 });
                 let after = provider.cipher_suites.len();
                 if provider.cipher_suites.is_empty() {

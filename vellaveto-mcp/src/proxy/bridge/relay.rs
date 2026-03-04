@@ -451,7 +451,8 @@ impl ProxyBridge {
 
         // Phase 71 (R233-DLP-1): Initialize cross-call DLP tracker if enabled.
         if self.cross_call_dlp_enabled {
-            state.cross_call_dlp = Some(crate::inspection::cross_call_dlp::CrossCallDlpTracker::new());
+            state.cross_call_dlp =
+                Some(crate::inspection::cross_call_dlp::CrossCallDlpTracker::new());
             tracing::info!("Cross-call DLP tracker: ENABLED");
         }
 
@@ -904,7 +905,12 @@ impl ProxyBridge {
                 );
                 dlp_findings.push(crate::inspection::dlp::DlpFinding {
                     pattern_name: "sharded_exfiltration".to_string(),
-                    location: format!("tools/call.{} ({} bytes across {} fragments)", tool_name, cumulative_bytes, tracker.fragment_count()),
+                    location: format!(
+                        "tools/call.{} ({} bytes across {} fragments)",
+                        tool_name,
+                        cumulative_bytes,
+                        tracker.fragment_count()
+                    ),
                 });
             }
         }

@@ -177,7 +177,15 @@ impl IdempotencyStore {
     }
 
     /// Extract and validate an idempotency key from request headers.
-    pub fn extract_key(&self, headers: &HeaderMap) -> Result<Option<String>, IdempotencyError> {
+    ///
+    /// SECURITY (R234-SRV-6): When `tenant_id` is provided, the key is prefixed
+    /// with `{tenant_id}:` to prevent cross-tenant response caching. Without this,
+    /// two tenants submitting the same idempotency key would share cached responses.
+    pub fn extract_key(
+        &self,
+        headers: &HeaderMap,
+        tenant_id: Option<&str>,
+    ) -> Result<Option<String>, IdempotencyError> {
         let key = match headers.get(IDEMPOTENCY_KEY_HEADER) {
             Some(value) => value,
             None => return Ok(None),
@@ -205,7 +213,13 @@ impl IdempotencyStore {
             ));
         }
 
-        Ok(Some(key_str.to_string()))
+        // SECURITY (R234-SRV-6): Tenant-scope the key to prevent cross-tenant leakage.
+        let scoped_key = match tenant_id {
+            Some(tid) => format!("{tid}:{key_str}"),
+            None => key_str.to_string(),
+        };
+
+        Ok(Some(scoped_key))
     }
 
     /// Try to acquire a lock for processing a request with the given key.
@@ -577,10 +591,7 @@ mod tests {
         let store = IdempotencyStore::new(test_config());
         let mut headers = HeaderMap::new();
         let key = "a".repeat(64); // max_key_length = 64 in test_config
-        headers.insert(
-            IDEMPOTENCY_KEY_HEADER,
-            HeaderValue::from_str(&key).unwrap(),
-        );
+        headers.insert(IDEMPOTENCY_KEY_HEADER, HeaderValue::from_str(&key).unwrap());
         let result = store.extract_key(&headers).unwrap();
         assert_eq!(result, Some(key));
     }

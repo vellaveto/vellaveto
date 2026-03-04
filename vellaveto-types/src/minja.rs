@@ -1435,11 +1435,8 @@ mod tests {
 
     #[test]
     fn test_memory_namespace_validate_read_allowed_overflow_rejected() {
-        let mut ns = MemoryNamespace::new(
-            "ns-2".into(),
-            "owner".into(),
-            "2025-01-01T00:00:00Z".into(),
-        );
+        let mut ns =
+            MemoryNamespace::new("ns-2".into(), "owner".into(), "2025-01-01T00:00:00Z".into());
         ns.read_allowed = vec!["a".to_string(); MemoryNamespace::MAX_ACL_ENTRIES + 1];
         assert!(ns.validate().unwrap_err().contains("read_allowed"));
     }
@@ -1469,6 +1466,9 @@ mod tests {
             approved: None,
             resolved_at: None,
         };
-        assert!(req.validate().unwrap_err().contains("requester_agent length"));
+        assert!(req
+            .validate()
+            .unwrap_err()
+            .contains("requester_agent length"));
     }
 }

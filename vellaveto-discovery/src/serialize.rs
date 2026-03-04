@@ -513,10 +513,7 @@ mod tests {
         let graph = make_simple_topology();
         // Empty string should match everything (every name/description contains "")
         let matches = graph.tools_matching_capability("");
-        assert!(
-            !matches.is_empty(),
-            "Empty keyword should match all tools"
-        );
+        assert!(!matches.is_empty(), "Empty keyword should match all tools");
     }
 
     #[test]

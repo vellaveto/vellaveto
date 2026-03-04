@@ -673,7 +673,11 @@ mod tests {
                 assert_eq!(metadata[key], "test");
             } else {
                 // Should not have been inserted
-                assert!(metadata.get(key).is_none(), "Reserved key '{}' was inserted", key);
+                assert!(
+                    metadata.get(key).is_none(),
+                    "Reserved key '{}' was inserted",
+                    key
+                );
             }
         }
     }

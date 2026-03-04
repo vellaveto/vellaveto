@@ -1175,7 +1175,10 @@ mod tests {
             timestamp: Some("2026-03-04T17:00:00Z".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1217,7 +1220,10 @@ mod tests {
             timestamp: Some("2026-03-04T12:00:00Z".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1231,7 +1237,10 @@ mod tests {
             timestamp: Some("2026-03-04T10:00:00Z".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1296,7 +1305,10 @@ mod tests {
             call_counts: cc,
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1315,7 +1327,10 @@ mod tests {
             call_counts: cc,
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     // ── 3. Previous action requirements ──────────────────────────────────
@@ -1343,7 +1358,10 @@ mod tests {
             previous_actions: vec!["other_action".to_string()],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "deploy", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "deploy", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1370,7 +1388,10 @@ mod tests {
             previous_actions: vec!["read_secret".to_string()],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "http_request", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1383,7 +1404,10 @@ mod tests {
             previous_actions: vec!["list_files".to_string()],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Allow));
+        assert!(matches!(
+            eval(&engine, "http_request", &ctx),
+            Verdict::Allow
+        ));
     }
 
     #[test]
@@ -1397,7 +1421,10 @@ mod tests {
             previous_actions: vec!["READ_SECRET".to_string()],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "http_request", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "http_request", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     // ── 4. Agent ID matching ─────────────────────────────────────────────
@@ -1425,7 +1452,10 @@ mod tests {
             agent_id: Some("agent-beta".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1438,7 +1468,10 @@ mod tests {
             agent_id: Some("rogue-agent".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1452,7 +1485,10 @@ mod tests {
             agent_id: None,
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1510,7 +1546,10 @@ mod tests {
             call_chain: vec![mk_entry("a1"), mk_entry("a2")],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1569,7 +1608,10 @@ mod tests {
             session_state: Some("suspended".to_string()),
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     // ── 7. MaxCallsInWindow ──────────────────────────────────────────────
@@ -1605,7 +1647,10 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]
@@ -1623,7 +1668,10 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     // ── 8. Fail-closed: empty conditions / missing fields ────────────────
@@ -1676,7 +1724,10 @@ mod tests {
             verification_tier: Some(vellaveto_types::VerificationTier::EmailVerified), // level 1
             ..Default::default()
         };
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     // ── 9. Deputy validation / delegation depth ──────────────────────────
@@ -1689,7 +1740,10 @@ mod tests {
         ));
         // No agent_identity, no agent_id -> no principal
         let ctx = EvaluationContext::default();
-        assert!(matches!(eval(&engine, "read_file", &ctx), Verdict::Deny { .. }));
+        assert!(matches!(
+            eval(&engine, "read_file", &ctx),
+            Verdict::Deny { .. }
+        ));
     }
 
     #[test]

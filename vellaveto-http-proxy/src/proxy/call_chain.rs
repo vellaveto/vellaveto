@@ -546,10 +546,7 @@ mod tests {
     fn test_jsonrpc_id_key_exact_max_length_string_accepted() {
         let exact_string = "x".repeat(MAX_JSONRPC_ID_KEY_LEN);
         let id = Value::String(exact_string.clone());
-        assert_eq!(
-            jsonrpc_id_key(&id),
-            Some(format!("s:{}", exact_string))
-        );
+        assert_eq!(jsonrpc_id_key(&id), Some(format!("s:{}", exact_string)));
     }
 
     #[test]
@@ -718,12 +715,7 @@ mod tests {
 
     #[test]
     fn test_build_current_agent_entry_without_hmac() {
-        let entry = build_current_agent_entry(
-            Some("my-agent"),
-            "read_file",
-            "execute",
-            None,
-        );
+        let entry = build_current_agent_entry(Some("my-agent"), "read_file", "execute", None);
         assert_eq!(entry.agent_id, "my-agent");
         assert_eq!(entry.tool, "read_file");
         assert_eq!(entry.function, "execute");
@@ -736,12 +728,7 @@ mod tests {
     #[test]
     fn test_build_current_agent_entry_with_hmac() {
         let key = [0xABu8; 32];
-        let entry = build_current_agent_entry(
-            Some("my-agent"),
-            "read_file",
-            "execute",
-            Some(&key),
-        );
+        let entry = build_current_agent_entry(Some("my-agent"), "read_file", "execute", Some(&key));
         assert_eq!(entry.agent_id, "my-agent");
         assert!(entry.hmac.is_some());
         assert_eq!(entry.verified, Some(true));
@@ -759,12 +746,7 @@ mod tests {
     #[test]
     fn test_build_current_agent_entry_hmac_verifies() {
         let key = [0x42u8; 32];
-        let entry = build_current_agent_entry(
-            Some("test-agent"),
-            "my_tool",
-            "my_func",
-            Some(&key),
-        );
+        let entry = build_current_agent_entry(Some("test-agent"), "my_tool", "my_func", Some(&key));
         let content = call_chain_entry_signing_content(&entry);
         let hmac_hex = entry.hmac.as_ref().unwrap();
         assert!(verify_call_chain_hmac(&key, &content, hmac_hex).unwrap());
@@ -870,10 +852,7 @@ mod tests {
             "function": "execute",
             "timestamp": "2026-01-01T00:00:00Z"
         }]);
-        headers.insert(
-            super::X_UPSTREAM_AGENTS,
-            chain.to_string().parse().unwrap(),
-        );
+        headers.insert(super::X_UPSTREAM_AGENTS, chain.to_string().parse().unwrap());
         let limits = vellaveto_config::LimitsConfig::default();
         assert!(validate_call_chain_header(&headers, &limits).is_ok());
     }
@@ -881,10 +860,7 @@ mod tests {
     #[test]
     fn test_validate_call_chain_header_invalid_json_rejected() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            super::X_UPSTREAM_AGENTS,
-            "not valid json".parse().unwrap(),
-        );
+        headers.insert(super::X_UPSTREAM_AGENTS, "not valid json".parse().unwrap());
         let limits = vellaveto_config::LimitsConfig::default();
         let err = validate_call_chain_header(&headers, &limits).unwrap_err();
         assert!(err.contains("not valid JSON"));
@@ -901,10 +877,7 @@ mod tests {
             "function": "execute",
             "timestamp": "2026-01-01T00:00:00Z"
         }]);
-        headers.insert(
-            super::X_UPSTREAM_AGENTS,
-            chain.to_string().parse().unwrap(),
-        );
+        headers.insert(super::X_UPSTREAM_AGENTS, chain.to_string().parse().unwrap());
         let err = validate_call_chain_header(&headers, &limits).unwrap_err();
         assert!(err.contains("size limit"));
     }
@@ -918,10 +891,7 @@ mod tests {
             {"agent_id": "a2", "tool": "t2", "function": "f2", "timestamp": "2026-01-01T00:00:01Z"}
         ]);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            super::X_UPSTREAM_AGENTS,
-            chain.to_string().parse().unwrap(),
-        );
+        headers.insert(super::X_UPSTREAM_AGENTS, chain.to_string().parse().unwrap());
         let err = validate_call_chain_header(&headers, &limits).unwrap_err();
         assert!(err.contains("entry limit"));
     }

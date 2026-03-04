@@ -320,9 +320,7 @@ impl SamlState {
         // SECURITY (R234-SRV-2): Fail-closed — require NotOnOrAfter on Conditions.
         // An attacker could strip NotOnOrAfter to create a perpetually valid assertion.
         let not_on_or_after = conditions.attribute("NotOnOrAfter").ok_or_else(|| {
-            IamError::Saml(
-                "SAML Conditions NotOnOrAfter missing (fail-closed)".to_string(),
-            )
+            IamError::Saml("SAML Conditions NotOnOrAfter missing (fail-closed)".to_string())
         })?;
         let timestamp = parse_saml_timestamp(not_on_or_after)?;
         if now >= timestamp {

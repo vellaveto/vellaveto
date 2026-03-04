@@ -903,11 +903,7 @@ mod tests {
         for fb in &["deny", "allow", "pattern_match"] {
             let mut config = SemanticGuardrailsConfig::default();
             config.fallback_on_timeout = fb.to_string();
-            assert!(
-                config.validate().is_ok(),
-                "should accept fallback '{}'",
-                fb
-            );
+            assert!(config.validate().is_ok(), "should accept fallback '{}'", fb);
         }
     }
 

@@ -833,7 +833,10 @@ mod tests {
     fn test_data_governance_record_validate_empty_tool_rejected() {
         let mut dgr = valid_dgr();
         dgr.tool = String::new();
-        assert!(dgr.validate().unwrap_err().contains("tool must not be empty"));
+        assert!(dgr
+            .validate()
+            .unwrap_err()
+            .contains("tool must not be empty"));
     }
 
     #[test]

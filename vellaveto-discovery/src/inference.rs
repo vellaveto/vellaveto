@@ -717,8 +717,7 @@ mod tests {
         for i in 0..20 {
             tools.push(StaticToolDecl {
                 name: format!("file_search_{i}"),
-                description: "Search for files matching a pattern. Returns file paths."
-                    .to_string(),
+                description: "Search for files matching a pattern. Returns file paths.".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {

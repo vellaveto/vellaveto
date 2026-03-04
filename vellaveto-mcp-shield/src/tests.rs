@@ -958,9 +958,18 @@ fn test_stylometric_level2_cjk_with_fillers() {
     assert!(result.contains('我'), "CJK char 我 should be preserved");
     assert!(result.contains('需'), "CJK char 需 should be preserved");
     assert!(result.contains('理'), "CJK char 理 should be preserved");
-    assert!(!result.contains("basically"), "filler 'basically' should be removed");
-    assert!(!result.contains("sort of"), "filler 'sort of' should be removed");
-    assert!(!result.contains("you know"), "filler 'you know' should be removed");
+    assert!(
+        !result.contains("basically"),
+        "filler 'basically' should be removed"
+    );
+    assert!(
+        !result.contains("sort of"),
+        "filler 'sort of' should be removed"
+    );
+    assert!(
+        !result.contains("you know"),
+        "filler 'you know' should be removed"
+    );
     // Verify valid UTF-8 output (would panic on invalid)
     let _: Vec<char> = result.chars().collect();
 }
@@ -1664,7 +1673,10 @@ async fn test_merkle_root_changes_with_each_entry() {
     let root2 = manager.merkle_root().unwrap();
 
     // Root must change after appending a new entry
-    assert_ne!(root1, root2, "Merkle root should change with each new entry");
+    assert_ne!(
+        root1, root2,
+        "Merkle root should change with each new entry"
+    );
 }
 
 #[tokio::test]
@@ -1723,7 +1735,10 @@ fn test_crypto_corrupted_ciphertext_detected() {
 
     // Decryption must fail — Poly1305 tag verification detects corruption
     let result = store.decrypt(&encrypted);
-    assert!(result.is_err(), "corrupted ciphertext should fail decryption");
+    assert!(
+        result.is_err(),
+        "corrupted ciphertext should fail decryption"
+    );
 }
 
 #[test]
@@ -1796,8 +1811,7 @@ fn test_crypto_wrong_key_fails_gracefully() {
     let path = dir.path().join("test.enc");
 
     // Write with one passphrase
-    let store1 =
-        crate::crypto::EncryptedAuditStore::new(path.clone(), "correct-pass").unwrap();
+    let store1 = crate::crypto::EncryptedAuditStore::new(path.clone(), "correct-pass").unwrap();
     store1.write_encrypted_entry(b"secret data").unwrap();
     store1.write_encrypted_entry(b"more secret data").unwrap();
 
@@ -1833,7 +1847,10 @@ fn test_r234_shield3_whitespace_only_passphrase_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("vault.enc");
     let result = crate::crypto::EncryptedAuditStore::new(path, "   \t\n  ");
-    assert!(result.is_err(), "whitespace-only passphrase should be rejected");
+    assert!(
+        result.is_err(),
+        "whitespace-only passphrase should be rejected"
+    );
 }
 
 // R234-SHIELD-4: Session ID validation
@@ -1841,7 +1858,10 @@ fn test_r234_shield3_whitespace_only_passphrase_rejected() {
 fn test_r234_shield4_session_isolator_rejects_control_chars() {
     let isolator = crate::session_isolator::SessionIsolator::new();
     let result = isolator.sanitize_in_session("ses\x00sion", "hello");
-    assert!(result.is_err(), "control chars in session_id should be rejected");
+    assert!(
+        result.is_err(),
+        "control chars in session_id should be rejected"
+    );
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("control or format"),
@@ -1860,7 +1880,10 @@ fn test_r234_shield4_session_isolator_rejects_empty_id() {
 fn test_r234_shield4_context_isolator_rejects_control_chars() {
     let isolator = crate::context_isolation::ContextIsolator::new();
     let result = isolator.record("ses\x01sion", "user", "hello");
-    assert!(result.is_err(), "control chars in session_id should be rejected");
+    assert!(
+        result.is_err(),
+        "control chars in session_id should be rejected"
+    );
 }
 
 #[test]
@@ -1868,14 +1891,20 @@ fn test_r234_shield4_context_isolator_rejects_bidi_override() {
     let isolator = crate::context_isolation::ContextIsolator::new();
     // U+202E is Right-to-Left Override (Unicode format char)
     let result = isolator.record("ses\u{202E}sion", "user", "hello");
-    assert!(result.is_err(), "bidi override in session_id should be rejected");
+    assert!(
+        result.is_err(),
+        "bidi override in session_id should be rejected"
+    );
 }
 
 #[test]
 fn test_r234_shield4_context_get_recent_rejects_dangerous_id() {
     let isolator = crate::context_isolation::ContextIsolator::new();
     let result = isolator.get_recent_context("bad\x07id", 10);
-    assert!(result.is_err(), "control chars should be rejected in get_recent_context");
+    assert!(
+        result.is_err(),
+        "control chars should be rejected in get_recent_context"
+    );
 }
 
 // R234-SHIELD-1: Credential status persistence
@@ -1898,8 +1927,14 @@ fn test_r234_shield1_consume_persists_status() {
     let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
     let vault2 = crate::credential_vault::CredentialVault::new(store2, 10, 5).unwrap();
     let status = vault2.status();
-    assert_eq!(status.available, 0, "no credentials should be available after consume + reload");
-    assert_eq!(status.active, 1, "consumed credential should be active after reload");
+    assert_eq!(
+        status.available, 0,
+        "no credentials should be available after consume + reload"
+    );
+    assert_eq!(
+        status.active, 1,
+        "consumed credential should be active after reload"
+    );
 }
 
 #[test]
@@ -1920,7 +1955,10 @@ fn test_r234_shield1_mark_consumed_persists_status() {
     let status = vault2.status();
     assert_eq!(status.available, 0);
     assert_eq!(status.active, 0);
-    assert_eq!(status.consumed, 1, "credential should be consumed after reload");
+    assert_eq!(
+        status.consumed, 1,
+        "credential should be consumed after reload"
+    );
 }
 
 // R234-SHIELD-2: StoredVaultEntry deny_unknown_fields
@@ -1948,5 +1986,8 @@ fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
     // Loading the vault should fail on the unknown field
     let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
     let result = crate::credential_vault::CredentialVault::new(store2, 10, 5);
-    assert!(result.is_err(), "unknown fields in StoredVaultEntry should be rejected");
+    assert!(
+        result.is_err(),
+        "unknown fields in StoredVaultEntry should be rejected"
+    );
 }

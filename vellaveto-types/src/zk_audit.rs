@@ -490,7 +490,10 @@ mod tests {
         let mut bp = valid_batch_proof();
         bp.entry_count = 5; // range is (1,10) -> expected 10
         let err = bp.validate().unwrap_err();
-        assert!(err.contains("does not match entry_range span"), "got: {err}");
+        assert!(
+            err.contains("does not match entry_range span"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -505,15 +508,24 @@ mod tests {
     fn test_zk_batch_proof_validate_hash_fields_control_chars_rejected() {
         let mut bp = valid_batch_proof();
         bp.first_prev_hash = "hash\x02bad".to_string();
-        assert!(bp.validate().unwrap_err().contains("first_prev_hash contains control"));
+        assert!(bp
+            .validate()
+            .unwrap_err()
+            .contains("first_prev_hash contains control"));
 
         let mut bp2 = valid_batch_proof();
         bp2.final_entry_hash = "hash\x03bad".to_string();
-        assert!(bp2.validate().unwrap_err().contains("final_entry_hash contains control"));
+        assert!(bp2
+            .validate()
+            .unwrap_err()
+            .contains("final_entry_hash contains control"));
 
         let mut bp3 = valid_batch_proof();
         bp3.merkle_root = "root\x04bad".to_string();
-        assert!(bp3.validate().unwrap_err().contains("merkle_root contains control"));
+        assert!(bp3
+            .validate()
+            .unwrap_err()
+            .contains("merkle_root contains control"));
     }
 
     // ── ZkVerifyResult::validate() ──────────────────────────────────────
@@ -551,7 +563,10 @@ mod tests {
             verified_at: "2025-01-01T00:00:00Z".to_string(),
             error: Some("err\x00msg".to_string()),
         };
-        assert!(vr.validate().unwrap_err().contains("error contains control"));
+        assert!(vr
+            .validate()
+            .unwrap_err()
+            .contains("error contains control"));
     }
 
     // ── ZkSchedulerStatus::validate() ───────────────────────────────────

@@ -1183,10 +1183,7 @@ mod tests {
     fn test_extract_tenant_from_subdomain_suffix_attack_rejected() {
         // SECURITY (FIND-R202-005): suffix-matching attack prevention
         assert_eq!(
-            extract_tenant_from_subdomain(
-                "evil-vellaveto.example.com",
-                "vellaveto.example.com"
-            ),
+            extract_tenant_from_subdomain("evil-vellaveto.example.com", "vellaveto.example.com"),
             None
         );
     }
@@ -1202,10 +1199,7 @@ mod tests {
             None
         );
         assert_eq!(
-            extract_tenant_from_subdomain(
-                "_admin_.vellaveto.example.com",
-                "vellaveto.example.com"
-            ),
+            extract_tenant_from_subdomain("_admin_.vellaveto.example.com", "vellaveto.example.com"),
             None
         );
     }
@@ -1213,10 +1207,7 @@ mod tests {
     #[test]
     fn test_extract_tenant_from_subdomain_empty_subdomain() {
         assert_eq!(
-            extract_tenant_from_subdomain(
-                ".vellaveto.example.com",
-                "vellaveto.example.com"
-            ),
+            extract_tenant_from_subdomain(".vellaveto.example.com", "vellaveto.example.com"),
             None
         );
     }
@@ -1224,10 +1215,7 @@ mod tests {
     #[test]
     fn test_extract_tenant_from_subdomain_base_domain_with_leading_dot() {
         assert_eq!(
-            extract_tenant_from_subdomain(
-                "acme.vellaveto.example.com",
-                ".vellaveto.example.com"
-            ),
+            extract_tenant_from_subdomain("acme.vellaveto.example.com", ".vellaveto.example.com"),
             Some("acme".to_string())
         );
     }

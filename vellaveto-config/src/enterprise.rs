@@ -1187,9 +1187,7 @@ mod tests {
     #[test]
     fn test_threat_intel_validate_too_many_ioc_types_rejected() {
         let mut config = ThreatIntelConfig::default();
-        config.ioc_types = (0..=MAX_IOC_TYPES)
-            .map(|i| format!("type_{}", i))
-            .collect();
+        config.ioc_types = (0..=MAX_IOC_TYPES).map(|i| format!("type_{}", i)).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("ioc_types"));
     }

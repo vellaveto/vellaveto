@@ -1366,7 +1366,9 @@ mod tests {
         let policy = make_policy("*", "approval", PolicyType::Allow);
         let conditions = json!({ "require_approval": true });
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         assert!(matches!(result.unwrap(), Verdict::RequireApproval { .. }));
     }
@@ -1377,7 +1379,9 @@ mod tests {
         let policy = make_policy("*", "no-secret", PolicyType::Allow);
         let conditions = json!({ "forbidden_parameters": ["password"] });
         let action = Action::new("tool", "func", json!({ "password": "abc" }));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         match result.unwrap() {
             Verdict::Deny { reason } => assert!(reason.contains("forbidden")),
@@ -1391,7 +1395,9 @@ mod tests {
         let policy = make_policy("*", "need-token", PolicyType::Allow);
         let conditions = json!({ "required_parameters": ["api_key"] });
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         match result.unwrap() {
             Verdict::Deny { reason } => assert!(reason.contains("Required parameter")),
@@ -1408,11 +1414,8 @@ mod tests {
         for _ in 0..15 {
             deep = json!({"nested": deep});
         }
-        let result = engine.evaluate_conditions(
-            &Action::new("tool", "func", json!({})),
-            &policy,
-            &deep,
-        );
+        let result =
+            engine.evaluate_conditions(&Action::new("tool", "func", json!({})), &policy, &deep);
         assert!(result.is_err());
     }
 
@@ -1422,7 +1425,9 @@ mod tests {
         let policy = make_policy("*", "continue", PolicyType::Allow);
         let conditions = json!({ "on_no_match": "continue" });
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         // on_no_match="continue" -> None (skip to next policy)
         assert!(result.is_none());
     }
@@ -1433,7 +1438,9 @@ mod tests {
         let policy = make_policy("*", "empty", PolicyType::Allow);
         let conditions = json!({});
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         assert!(matches!(result.unwrap(), Verdict::Allow));
     }
@@ -1456,7 +1463,9 @@ mod tests {
         let policy = make_policy("*", "bad-config", PolicyType::Allow);
         let conditions = json!({ "forbidden_parameters": "not-an-array" });
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         match result.unwrap() {
             Verdict::Deny { reason } => assert!(reason.contains("Malformed")),
@@ -1470,7 +1479,9 @@ mod tests {
         let policy = make_policy("*", "bad-config", PolicyType::Allow);
         let conditions = json!({ "required_parameters": 42 });
         let action = Action::new("tool", "func", json!({}));
-        let result = engine.evaluate_conditions(&action, &policy, &conditions).unwrap();
+        let result = engine
+            .evaluate_conditions(&action, &policy, &conditions)
+            .unwrap();
         assert!(result.is_some());
         match result.unwrap() {
             Verdict::Deny { reason } => assert!(reason.contains("Malformed")),

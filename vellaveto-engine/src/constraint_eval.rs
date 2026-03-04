@@ -596,10 +596,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_compiled_conditions_forbidden_param_present_deny() {
-        let policy = make_conditional_policy(
-            "no-secret",
-            json!({ "forbidden_parameters": ["secret"] }),
-        );
+        let policy =
+            make_conditional_policy("no-secret", json!({ "forbidden_parameters": ["secret"] }));
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
         let action = Action::new("tool", "func", json!({ "secret": "value" }));
         let cp = &engine.compiled_policies[0];
@@ -615,10 +613,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_compiled_conditions_forbidden_param_absent_allow() {
-        let policy = make_conditional_policy(
-            "no-secret",
-            json!({ "forbidden_parameters": ["secret"] }),
-        );
+        let policy =
+            make_conditional_policy("no-secret", json!({ "forbidden_parameters": ["secret"] }));
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
         let action = Action::new("tool", "func", json!({ "name": "safe" }));
         let cp = &engine.compiled_policies[0];
@@ -631,10 +627,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_compiled_conditions_required_param_missing_deny() {
-        let policy = make_conditional_policy(
-            "need-token",
-            json!({ "required_parameters": ["token"] }),
-        );
+        let policy =
+            make_conditional_policy("need-token", json!({ "required_parameters": ["token"] }));
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
         let action = Action::new("tool", "func", json!({}));
         let cp = &engine.compiled_policies[0];
@@ -650,10 +644,8 @@ mod tests {
 
     #[test]
     fn test_evaluate_compiled_conditions_required_param_present_allow() {
-        let policy = make_conditional_policy(
-            "need-token",
-            json!({ "required_parameters": ["token"] }),
-        );
+        let policy =
+            make_conditional_policy("need-token", json!({ "required_parameters": ["token"] }));
         let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
         let action = Action::new("tool", "func", json!({ "token": "abc123" }));
         let cp = &engine.compiled_policies[0];

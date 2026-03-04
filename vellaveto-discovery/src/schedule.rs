@@ -370,10 +370,7 @@ mod tests {
         let config = RecrawlConfig::default();
         let scheduler = RecrawlScheduler::new(crawler, guard, config.clone());
 
-        assert_eq!(
-            scheduler.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(scheduler.consecutive_failures.load(Ordering::Relaxed), 0);
         assert!(scheduler.on_change.is_none());
         assert!(scheduler.on_audit.is_none());
         assert_eq!(scheduler.config.interval, config.interval);
@@ -434,10 +431,7 @@ mod tests {
         let result = scheduler.trigger_recrawl("test-reason").await;
         assert!(result.is_ok());
         // Consecutive failures should be reset to 0 after success
-        assert_eq!(
-            scheduler.consecutive_failures.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(scheduler.consecutive_failures.load(Ordering::Relaxed), 0);
     }
 
     #[tokio::test]
@@ -496,9 +490,9 @@ mod tests {
         // that has servers in the guard but none in the probe will work
         // but produce a different topology (triggering a change, not a failure).
         // To test failure, we use a probe that fails on list_servers.
-        use async_trait::async_trait;
         use crate::error::DiscoveryError;
         use crate::topology::ServerCapabilities;
+        use async_trait::async_trait;
 
         struct FailingProbe;
         #[async_trait]
@@ -509,10 +503,7 @@ mod tests {
             async fn list_tools(&self, _: &str) -> Result<Vec<ToolInfo>, DiscoveryError> {
                 Ok(vec![])
             }
-            async fn list_resources(
-                &self,
-                _: &str,
-            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+            async fn list_resources(&self, _: &str) -> Result<Vec<ResourceInfo>, DiscoveryError> {
                 Ok(vec![])
             }
             async fn server_capabilities(
@@ -533,18 +524,12 @@ mod tests {
         // First failure
         let r1 = scheduler.trigger_recrawl("test").await;
         assert!(r1.is_err());
-        assert_eq!(
-            scheduler.consecutive_failures.load(Ordering::Relaxed),
-            1
-        );
+        assert_eq!(scheduler.consecutive_failures.load(Ordering::Relaxed), 1);
 
         // Second failure
         let r2 = scheduler.trigger_recrawl("test").await;
         assert!(r2.is_err());
-        assert_eq!(
-            scheduler.consecutive_failures.load(Ordering::Relaxed),
-            2
-        );
+        assert_eq!(scheduler.consecutive_failures.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]

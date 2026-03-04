@@ -512,10 +512,7 @@ mod tests {
 
     #[test]
     fn test_static_probe_new_with_servers() {
-        let probe = StaticProbe::new(vec![
-            make_server_decl("s1", 2),
-            make_server_decl("s2", 1),
-        ]);
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 2), make_server_decl("s2", 1)]);
         assert_eq!(probe.server_count(), 2);
     }
 
@@ -536,10 +533,7 @@ mod tests {
 
     #[test]
     fn test_static_probe_remove_server_exists() {
-        let probe = StaticProbe::new(vec![
-            make_server_decl("s1", 1),
-            make_server_decl("s2", 1),
-        ]);
+        let probe = StaticProbe::new(vec![make_server_decl("s1", 1), make_server_decl("s2", 1)]);
         assert!(probe.remove_server("s1"));
         assert_eq!(probe.server_count(), 1);
     }
@@ -688,10 +682,7 @@ mod tests {
                     reason: "fail".to_string(),
                 })
             }
-            async fn list_resources(
-                &self,
-                _: &str,
-            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+            async fn list_resources(&self, _: &str) -> Result<Vec<ResourceInfo>, DiscoveryError> {
                 Ok(vec![])
             }
             async fn server_capabilities(
@@ -735,10 +726,7 @@ mod tests {
                 tokio::time::sleep(Duration::from_secs(5)).await;
                 Ok(vec![])
             }
-            async fn list_resources(
-                &self,
-                _: &str,
-            ) -> Result<Vec<ResourceInfo>, DiscoveryError> {
+            async fn list_resources(&self, _: &str) -> Result<Vec<ResourceInfo>, DiscoveryError> {
                 Ok(vec![])
             }
             async fn server_capabilities(
