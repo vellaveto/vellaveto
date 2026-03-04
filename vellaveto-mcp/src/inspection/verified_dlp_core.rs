@@ -107,11 +107,7 @@ pub fn can_track_field(
 /// # Property D5
 /// When `old_total < old_buffer_len` (inconsistent state):
 ///   `result == new_buffer_len` (saturating_sub floors at 0)
-pub fn update_total_bytes(
-    old_total: usize,
-    old_buffer_len: usize,
-    new_buffer_len: usize,
-) -> usize {
+pub fn update_total_bytes(old_total: usize, old_buffer_len: usize, new_buffer_len: usize) -> usize {
     old_total
         .saturating_sub(old_buffer_len)
         .saturating_add(new_buffer_len)
@@ -126,10 +122,7 @@ pub fn update_total_bytes(
 /// If `secret_len <= 2 * overlap_size` and the secret is split at any
 /// byte boundary between two consecutive calls, the combined region
 /// `(prev_tail ++ current_value)` contains the entire secret.
-pub fn compute_overlap_region_size(
-    prev_tail_len: usize,
-    current_value_len: usize,
-) -> usize {
+pub fn compute_overlap_region_size(prev_tail_len: usize, current_value_len: usize) -> usize {
     prev_tail_len.saturating_add(current_value_len)
 }
 
@@ -426,10 +419,7 @@ mod tests {
     #[test]
     fn test_d6_overlap_region_saturating() {
         // No overflow
-        assert_eq!(
-            compute_overlap_region_size(usize::MAX, 1),
-            usize::MAX
-        );
+        assert_eq!(compute_overlap_region_size(usize::MAX, 1), usize::MAX);
     }
 
     // === Exhaustive property: D6 for all splits of small secrets ===
@@ -444,7 +434,13 @@ mod tests {
         for secret_len in 2..=max_secret {
             for split_point in 1..secret_len {
                 assert!(
-                    overlap_covers_secret(prev_len, curr_len, overlap_size, secret_len, split_point),
+                    overlap_covers_secret(
+                        prev_len,
+                        curr_len,
+                        overlap_size,
+                        secret_len,
+                        split_point
+                    ),
                     "Failed for secret_len={secret_len}, split_point={split_point}"
                 );
             }

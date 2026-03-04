@@ -170,11 +170,7 @@ impl CrossCallDlpTracker {
         }
 
         // D3/D5: Update total bytes using verified core (saturating arithmetic)
-        let old_buf_len = self
-            .buffers
-            .get(field_path)
-            .map(|b| b.len())
-            .unwrap_or(0);
+        let old_buf_len = self.buffers.get(field_path).map(|b| b.len()).unwrap_or(0);
 
         // D1/D2: Extract tail at valid UTF-8 boundary using verified core
         let (start, end) = verified_dlp_core::extract_tail(value_bytes, self.overlap_size);
@@ -183,11 +179,8 @@ impl CrossCallDlpTracker {
         let mut buf = VecDeque::with_capacity(tail.len());
         buf.extend(tail);
 
-        self.total_bytes = verified_dlp_core::update_total_bytes(
-            self.total_bytes,
-            old_buf_len,
-            buf.len(),
-        );
+        self.total_bytes =
+            verified_dlp_core::update_total_bytes(self.total_bytes, old_buf_len, buf.len());
         self.buffers.insert(field_path.to_string(), buf);
     }
 
