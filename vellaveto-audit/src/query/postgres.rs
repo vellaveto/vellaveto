@@ -901,10 +901,7 @@ mod tests {
             ..Default::default()
         };
         let clauses = build_filter_clauses(&params);
-        assert!(
-            clauses.contains("verdict_type = $1"),
-            "got: {clauses}"
-        );
+        assert!(clauses.contains("verdict_type = $1"), "got: {clauses}");
     }
 
     #[test]
@@ -961,13 +958,22 @@ mod tests {
     #[test]
     fn test_validate_table_name_control_chars_rejected() {
         let err = validate_table_name("audit\ttable").unwrap_err().to_string();
-        assert!(err.contains("alphanumeric"), "tabs should be rejected: {err}");
+        assert!(
+            err.contains("alphanumeric"),
+            "tabs should be rejected: {err}"
+        );
 
         let err = validate_table_name("audit\ntable").unwrap_err().to_string();
-        assert!(err.contains("alphanumeric"), "newlines should be rejected: {err}");
+        assert!(
+            err.contains("alphanumeric"),
+            "newlines should be rejected: {err}"
+        );
 
         let err = validate_table_name("audit\0table").unwrap_err().to_string();
-        assert!(err.contains("alphanumeric"), "null bytes should be rejected: {err}");
+        assert!(
+            err.contains("alphanumeric"),
+            "null bytes should be rejected: {err}"
+        );
     }
 
     #[test]

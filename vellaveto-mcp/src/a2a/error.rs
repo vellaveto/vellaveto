@@ -199,19 +199,11 @@ mod tests {
             json_rpc::SHADOW_AGENT_DETECTED as i32
         );
         assert_eq!(
-            A2aError::MessageTooLarge {
-                size: 100,
-                max: 50
-            }
-            .code(),
+            A2aError::MessageTooLarge { size: 100, max: 50 }.code(),
             json_rpc::MESSAGE_TOO_LARGE as i32
         );
         assert_eq!(
-            A2aError::ResponseTooLarge {
-                size: 100,
-                max: 50
-            }
-            .code(),
+            A2aError::ResponseTooLarge { size: 100, max: 50 }.code(),
             json_rpc::MESSAGE_TOO_LARGE as i32
         );
         assert_eq!(
@@ -302,8 +294,7 @@ mod tests {
     /// Verify From<io::Error> conversion.
     #[test]
     fn test_error_from_io_error() {
-        let io_err =
-            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+        let io_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
         let a2a_err: A2aError = io_err.into();
         assert!(matches!(a2a_err, A2aError::Io(_)));
         assert!(a2a_err.to_string().contains("refused"));

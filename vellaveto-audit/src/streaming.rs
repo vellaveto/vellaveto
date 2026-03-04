@@ -2901,10 +2901,7 @@ mod tests {
         match result {
             Err(e) => {
                 let err = e.to_string();
-                assert!(
-                    err.contains("endpoint not configured"),
-                    "got: {err}"
-                );
+                assert!(err.contains("endpoint not configured"), "got: {err}");
             }
             Ok(_) => panic!("Expected error for empty endpoint"),
         }

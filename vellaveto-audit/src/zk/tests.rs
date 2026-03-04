@@ -1313,14 +1313,9 @@ fn test_circuit_large_chain_satisfied() {
     let first_prev = prev_hashes[0];
     let final_hash = entry_hashes[9];
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        10,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(10, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();
@@ -1338,14 +1333,9 @@ fn test_circuit_tampered_middle_entry_unsatisfied() {
 
     entry_hashes[2] = Fr::from(77777u64);
 
-    let circuit = AuditChainCircuit::with_witnesses(
-        5,
-        first_prev,
-        final_hash,
-        entry_hashes,
-        prev_hashes,
-    )
-    .unwrap();
+    let circuit =
+        AuditChainCircuit::with_witnesses(5, first_prev, final_hash, entry_hashes, prev_hashes)
+            .unwrap();
 
     let cs = ConstraintSystem::<Fr>::new_ref();
     circuit.generate_constraints(cs.clone()).unwrap();

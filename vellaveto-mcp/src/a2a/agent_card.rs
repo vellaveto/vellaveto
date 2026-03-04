@@ -1631,7 +1631,9 @@ mod tests {
         let mut card = sample_agent_card();
         card.default_output_modes = vec!["m".repeat(65)];
         let err = validate_agent_card(&card).unwrap_err();
-        assert!(err.to_string().contains("default_output_modes element length"));
+        assert!(err
+            .to_string()
+            .contains("default_output_modes element length"));
     }
 
     #[test]

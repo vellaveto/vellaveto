@@ -92,11 +92,7 @@ impl CrossCallDlpTracker {
     ///
     /// At field capacity, new fields skip overlap tracking but still return
     /// findings from per-call scanning (handled by the caller).
-    pub fn scan_with_overlap(
-        &mut self,
-        field_path: &str,
-        current_value: &str,
-    ) -> Vec<DlpFinding> {
+    pub fn scan_with_overlap(&mut self, field_path: &str, current_value: &str) -> Vec<DlpFinding> {
         // Fast path: empty value — nothing to scan or buffer
         if current_value.is_empty() {
             return Vec::new();
@@ -105,9 +101,10 @@ impl CrossCallDlpTracker {
         let mut findings = Vec::new();
 
         // Retrieve previous overlap buffer for this field
-        let previous_tail = self.buffers.get(field_path).map(|buf| {
-            buf.iter().copied().collect::<Vec<u8>>()
-        });
+        let previous_tail = self
+            .buffers
+            .get(field_path)
+            .map(|buf| buf.iter().copied().collect::<Vec<u8>>());
 
         // If we have previous overlap, build the combined string and scan
         if let Some(ref tail_bytes) = previous_tail {
@@ -118,10 +115,8 @@ impl CrossCallDlpTracker {
                     let overlap_len = tail_str.len();
 
                     // Scan the combined string
-                    let combined_findings = dlp::scan_text_for_secrets(
-                        &combined,
-                        &format!("{field_path}(cross-call)"),
-                    );
+                    let combined_findings =
+                        dlp::scan_text_for_secrets(&combined, &format!("{field_path}(cross-call)"));
 
                     // Only report findings that span the overlap boundary.
                     // Findings entirely within current_value will be caught
@@ -237,9 +232,9 @@ mod tests {
         // The combined string "...AKIA" + "IOSFODNN7EXAMPLE..." should trigger AWS key detection
         // Either findings1 or findings2 should detect it, or the per-call scan catches it
         let all_findings: Vec<_> = findings1.into_iter().chain(findings2).collect();
-        let has_aws = all_findings.iter().any(|f| {
-            f.pattern_name.contains("aws") || f.location.contains("cross-call")
-        });
+        let has_aws = all_findings
+            .iter()
+            .any(|f| f.pattern_name.contains("aws") || f.location.contains("cross-call"));
         // The cross-call scan combines the tail of part1 with part2,
         // forming "...AKIA" + "IOSFODNN7EXAMPLE..." which matches the AWS pattern
         assert!(
@@ -341,9 +336,9 @@ mod tests {
         let _ = tracker.scan_with_overlap("content", part1);
         let findings2 = tracker.scan_with_overlap("content", part2);
 
-        let has_key = findings2.iter().any(|f| {
-            f.pattern_name.contains("private_key") || f.location.contains("cross-call")
-        });
+        let has_key = findings2
+            .iter()
+            .any(|f| f.pattern_name.contains("private_key") || f.location.contains("cross-call"));
         assert!(
             has_key,
             "Expected private key detection from cross-call overlap, got: {:?}",

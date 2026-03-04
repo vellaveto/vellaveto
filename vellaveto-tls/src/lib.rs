@@ -123,9 +123,8 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
 /// Load a private key from a PEM file.
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
     // PrivateKeyDer::from_pem_file handles PKCS#1, PKCS#8, and SEC1 key formats
-    PrivateKeyDer::from_pem_file(path).map_err(|e| {
-        TlsError::PrivateKey(format!("Failed to read private key from {path:?}: {e}"))
-    })
+    PrivateKeyDer::from_pem_file(path)
+        .map_err(|e| TlsError::PrivateKey(format!("Failed to read private key from {path:?}: {e}")))
 }
 
 /// Load CA certificates for client verification.

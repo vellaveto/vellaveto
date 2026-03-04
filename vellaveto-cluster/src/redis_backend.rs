@@ -1026,14 +1026,20 @@ mod tests {
     #[test]
     fn test_rate_limit_key_format() {
         let b = make_backend("vellaveto:");
-        assert_eq!(b.test_rate_limit_key("per_ip", "10.0.0.1"), "vellaveto:rl:per_ip:10.0.0.1");
+        assert_eq!(
+            b.test_rate_limit_key("per_ip", "10.0.0.1"),
+            "vellaveto:rl:per_ip:10.0.0.1"
+        );
     }
 
     #[test]
     fn test_key_construction_custom_prefix() {
         let b = make_backend("prod-us-east:");
         assert_eq!(b.test_approval_key("id1"), "prod-us-east:approval:id1");
-        assert_eq!(b.test_rate_limit_key("burst", "user"), "prod-us-east:rl:burst:user");
+        assert_eq!(
+            b.test_rate_limit_key("burst", "user"),
+            "prod-us-east:rl:burst:user"
+        );
     }
 
     // Key prefix validation
@@ -1046,7 +1052,11 @@ mod tests {
 
     #[test]
     fn test_new_overlong_prefix_rejected() {
-        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, &"x".repeat(129)));
+        let msg = err_str(RedisBackend::new(
+            "redis://127.0.0.1:6379",
+            1,
+            &"x".repeat(129),
+        ));
         assert!(msg.contains("exceeds maximum"));
     }
 
@@ -1057,19 +1067,31 @@ mod tests {
 
     #[test]
     fn test_new_prefix_with_control_char_rejected() {
-        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "prefix\x00bad:"));
+        let msg = err_str(RedisBackend::new(
+            "redis://127.0.0.1:6379",
+            1,
+            "prefix\x00bad:",
+        ));
         assert!(msg.contains("control characters"));
     }
 
     #[test]
     fn test_new_prefix_with_hash_tag_brace_rejected() {
-        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "prefix{slot}:"));
+        let msg = err_str(RedisBackend::new(
+            "redis://127.0.0.1:6379",
+            1,
+            "prefix{slot}:",
+        ));
         assert!(msg.contains("hash tag characters"));
     }
 
     #[test]
     fn test_new_prefix_with_unicode_format_char_rejected() {
-        let msg = err_str(RedisBackend::new("redis://127.0.0.1:6379", 1, "vellaveto\u{200B}:"));
+        let msg = err_str(RedisBackend::new(
+            "redis://127.0.0.1:6379",
+            1,
+            "vellaveto\u{200B}:",
+        ));
         assert!(msg.contains("Unicode format characters"));
     }
 
@@ -1149,7 +1171,10 @@ mod tests {
     #[test]
     fn test_validate_approval_id_unicode_format_char_rejected() {
         let r = validate_approval_id_for_redis(&format!("id\u{FEFF}bad"));
-        assert!(r.unwrap_err().to_string().contains("Unicode format characters"));
+        assert!(r
+            .unwrap_err()
+            .to_string()
+            .contains("Unicode format characters"));
     }
 
     // Resolver identity validation
@@ -1215,7 +1240,10 @@ mod tests {
     #[test]
     fn test_validate_rate_limit_param_unicode_format_rejected() {
         let r = validate_rate_limit_param("key", "val\u{200B}ue");
-        assert!(r.unwrap_err().to_string().contains("Unicode format characters"));
+        assert!(r
+            .unwrap_err()
+            .to_string()
+            .contains("Unicode format characters"));
     }
 
     #[test]
@@ -1334,7 +1362,10 @@ mod tests {
         let a = make_action("tool", "func");
         let h = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
         assert_eq!(h.len(), 64, "SHA-256 hex digest must be 64 chars");
-        assert!(h.chars().all(|c| c.is_ascii_hexdigit()), "Hash must be valid hex");
+        assert!(
+            h.chars().all(|c| c.is_ascii_hexdigit()),
+            "Hash must be valid hex"
+        );
     }
 
     // Constants sanity checks

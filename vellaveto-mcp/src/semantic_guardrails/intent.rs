@@ -892,9 +892,7 @@ mod tests {
     fn test_intent_classification_validate_too_many_risks() {
         let ic = IntentClassification {
             confidence: 0.5,
-            detected_risks: (0..51)
-                .map(|_| RiskCategory::PolicyViolation)
-                .collect(),
+            detected_risks: (0..51).map(|_| RiskCategory::PolicyViolation).collect(),
             ..Default::default()
         };
         assert!(ic.validate().is_err());

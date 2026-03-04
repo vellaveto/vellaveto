@@ -49,6 +49,7 @@ COPY vellaveto-mcp-shield/Cargo.toml vellaveto-mcp-shield/
 COPY vellaveto-http-proxy-shield/Cargo.toml vellaveto-http-proxy-shield/
 COPY vellaveto-canary/Cargo.toml vellaveto-canary/
 COPY vellaveto-shield/Cargo.toml vellaveto-shield/
+COPY vellaveto-tls/Cargo.toml vellaveto-tls/
 COPY vellaveto-engine/benches vellaveto-engine/benches/
 COPY vellaveto-audit/benches vellaveto-audit/benches/
 COPY vellaveto-mcp/benches vellaveto-mcp/benches/
@@ -61,7 +62,7 @@ RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
     vellaveto-server/src vellaveto-http-proxy/src vellaveto-proxy/src \
     vellaveto-operator/src vellaveto-integration/src mcpsec/src \
     vellaveto-mcp-shield/src vellaveto-http-proxy-shield/src \
-    vellaveto-canary/src vellaveto-shield/src \
+    vellaveto-canary/src vellaveto-shield/src vellaveto-tls/src \
     && echo "pub fn dummy() {}" > vellaveto-types/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-engine/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-audit/src/lib.rs \
@@ -80,7 +81,8 @@ RUN mkdir -p vellaveto-types/src vellaveto-engine/src vellaveto-audit/src \
     && echo "pub fn dummy() {}" > vellaveto-mcp-shield/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-http-proxy-shield/src/lib.rs \
     && echo "pub fn dummy() {}" > vellaveto-canary/src/lib.rs \
-    && echo "fn main() {}" > vellaveto-shield/src/main.rs
+    && echo "fn main() {}" > vellaveto-shield/src/main.rs \
+    && echo "pub fn dummy() {}" > vellaveto-tls/src/lib.rs
 
 # Build dependencies only (for layer caching)
 RUN RUST_TARGET="$(cat /tmp/rust-target)" \
@@ -110,6 +112,7 @@ COPY vellaveto-mcp-shield/src vellaveto-mcp-shield/src/
 COPY vellaveto-http-proxy-shield/src vellaveto-http-proxy-shield/src/
 COPY vellaveto-canary/src vellaveto-canary/src/
 COPY vellaveto-shield/src vellaveto-shield/src/
+COPY vellaveto-tls/src vellaveto-tls/src/
 
 # Copy preset config files (embedded at compile time via include_str! in vellaveto-proxy/src/presets.rs)
 COPY vellaveto-proxy/presets vellaveto-proxy/presets/

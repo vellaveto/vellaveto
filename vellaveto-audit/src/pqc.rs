@@ -370,8 +370,7 @@ mod tests {
         let (pk, sk) = generate_ml_dsa_keypair().unwrap();
         let msg = b"data with empty context";
         let sig = ml_dsa_sign(&sk, msg, b"").unwrap();
-        ml_dsa_verify(&pk, msg, &sig, b"")
-            .expect("Empty context should be valid per FIPS 204");
+        ml_dsa_verify(&pk, msg, &sig, b"").expect("Empty context should be valid per FIPS 204");
     }
 
     /// Large message sign/verify works (ensure no internal size limit).
