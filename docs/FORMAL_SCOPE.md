@@ -99,7 +99,7 @@ see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
 | Evaluation determinism (K8) | proof_evaluation_deterministic | Verified |
 | Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
 
-**Total: 141 verification instances across 6 tools (40 TLA+ + 10 Alloy + 30 Lean + 43 Coq + 9 Kani + 9 Verus).**
+**Total: 155 verification instances across 6 tools (40 TLA+ + 10 Alloy + 30 Lean + 43 Coq + 9 Kani + 23 Verus).**
 
 ### Verus Deductive Verification (9 proofs, V1-V8, ALL inputs)
 
@@ -127,6 +127,35 @@ Verus proves these properties for **ALL** possible inputs via Z3 SMT:
 
 Verification tool: Verus 0.2026.03.01 + Z3 4.12.5. Result: **9 verified, 0 errors.**
 
+### Verus DLP Buffer Arithmetic (`verified_dlp_core.rs`, 14 proofs, D1-D6)
+
+Production code: `vellaveto-mcp/src/inspection/verified_dlp_core.rs`
+Verus-annotated: `formal/verus/verified_dlp_core.rs`
+
+Pure buffer arithmetic functions for cross-call DLP, factored from
+`cross_call_dlp.rs` for verification. Functions: `extract_tail`,
+`can_track_field`, `update_total_bytes`. The production code is called
+by `CrossCallDlpTracker::update_buffer()` for all buffer management.
+32 unit tests cover D1-D6 directly.
+
+Verus proves these properties for **ALL** possible inputs via Z3 SMT:
+
+| ID | Property | Verus Status | Test Coverage |
+|----|----------|-------------|--------------|
+| D1 | UTF-8 char boundary safety | Verified | 4 tests |
+| D2 | Single buffer size bounded | Verified | 4 tests |
+| D3 | Total byte accounting correct | Verified | 3 tests |
+| D4 | Capacity check fail-closed | Verified | 4 tests |
+| D5 | No arithmetic underflow | Verified | 4 tests |
+| D6 | Overlap completeness | Verified | 7 tests |
+
+Proof lemmas: `lemma_continuation_not_boundary` (bit_vector),
+`lemma_non_continuation_is_boundary` (bit_vector),
+`overlap_completeness_lemma`, `lemma_capacity_fail_closed`,
+`lemma_ascii_all_boundaries`.
+
+Verification tool: Verus 0.2026.03.01 + Z3 4.12.5. Result: **14 verified, 0 errors.**
+
 ### Planned Expansions
 
 See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the roadmap:
@@ -134,7 +163,7 @@ See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the roadmap:
 | Phase | Tool | New Properties | Target |
 |-------|------|---------------|--------|
 | 1 | Verus | V1-V8 (core verdict, ALL inputs) | **DONE** |
-| 2 | Verus | D1-D6 (DLP buffer arithmetic, ALL inputs) | vellaveto-mcp verified_dlp_core.rs |
+| 2 | Verus | D1-D6 (DLP buffer arithmetic, ALL inputs) | **DONE** |
 | 3 | Kani | K10-K34 (sort, equivalence, TLS) | 34 total harnesses |
 
 ---
@@ -201,7 +230,7 @@ triggered on `formal/**` path changes and weekly schedule:
 | Lean 4 (5 files) | `lean` | elan + lake |
 | Coq (8 files) | `coq` | apt coq package |
 | Kani (9 harnesses) | `kani` | cargo-kani + CBMC |
-| Verus (9 proofs) | `verus` | Verus 0.2026.03.01 + Z3 4.12.5 |
+| Verus (23 proofs) | `verus` | Verus 0.2026.03.01 + Z3 4.12.5 |
 | Alloy (2 models) | Local only | Requires Alloy Analyzer JAR |
 
 The CI also verifies zero `sorry` (Lean) and zero `Admitted` (Coq) markers.

@@ -29,6 +29,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::dlp::{self, DlpFinding};
+use super::verified_dlp_core;
 
 /// Default overlap buffer size per field (bytes).
 /// Covers the longest known secret prefix (AWS key: 20 chars) plus encoding margin.
@@ -144,12 +145,21 @@ impl CrossCallDlpTracker {
     }
 
     /// Update the overlap buffer for a field with the tail of the given value.
+    ///
+    /// Uses verified_dlp_core functions for buffer arithmetic (D1-D5).
     fn update_buffer(&mut self, field_path: &str, value: &str) {
         let value_bytes = value.as_bytes();
-        let tail_size = value_bytes.len().min(self.overlap_size);
 
-        // Check if this is a new field and we're at capacity
-        if !self.buffers.contains_key(field_path) && self.buffers.len() >= self.max_fields {
+        // D4: Check capacity using verified core
+        if !self.buffers.contains_key(field_path)
+            && !verified_dlp_core::can_track_field(
+                self.buffers.len(),
+                self.max_fields,
+                self.total_bytes,
+                value_bytes.len().min(self.overlap_size),
+                self.max_fields.saturating_mul(self.overlap_size),
+            )
+        {
             tracing::warn!(
                 field_path = %field_path,
                 tracked_fields = self.buffers.len(),
@@ -159,25 +169,25 @@ impl CrossCallDlpTracker {
             return;
         }
 
-        // Remove old buffer bytes from total
-        if let Some(old_buf) = self.buffers.get(field_path) {
-            self.total_bytes = self.total_bytes.saturating_sub(old_buf.len());
-        }
+        // D3/D5: Update total bytes using verified core (saturating arithmetic)
+        let old_buf_len = self
+            .buffers
+            .get(field_path)
+            .map(|b| b.len())
+            .unwrap_or(0);
 
-        // Find a valid UTF-8 start boundary for the tail
-        let start = value_bytes.len().saturating_sub(tail_size);
-        let mut adjusted_start = start;
-        while adjusted_start < value_bytes.len()
-            && !is_utf8_char_boundary(value_bytes[adjusted_start])
-        {
-            adjusted_start = adjusted_start.saturating_add(1);
-        }
+        // D1/D2: Extract tail at valid UTF-8 boundary using verified core
+        let (start, end) = verified_dlp_core::extract_tail(value_bytes, self.overlap_size);
+        let tail = &value_bytes[start..end];
 
-        let tail = &value_bytes[adjusted_start..];
         let mut buf = VecDeque::with_capacity(tail.len());
         buf.extend(tail);
 
-        self.total_bytes = self.total_bytes.saturating_add(buf.len());
+        self.total_bytes = verified_dlp_core::update_total_bytes(
+            self.total_bytes,
+            old_buf_len,
+            buf.len(),
+        );
         self.buffers.insert(field_path.to_string(), buf);
     }
 
@@ -202,13 +212,6 @@ impl Default for CrossCallDlpTracker {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Check if a byte is a UTF-8 character boundary.
-/// Continuation bytes have the form 10xxxxxx (0x80-0xBF).
-fn is_utf8_char_boundary(b: u8) -> bool {
-    // A byte is a char boundary if it's NOT a continuation byte
-    (b & 0xC0) != 0x80
 }
 
 #[cfg(test)]

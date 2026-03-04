@@ -147,7 +147,7 @@ jobs:
         run: cargo kani
 
   verus:
-    name: "Verus (verified core — V1-V8)"
+    name: "Verus (23 proofs — V1-V8, D1-D6)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -167,8 +167,14 @@ jobs:
           unzip -q verus.zip -d verus-bin
           chmod +x verus-bin/verus-x86-linux/verus
 
-      - name: Run Verus verification (V1-V8)
+      - name: Run Verus verification (V1-V8, core verdict)
         run: |
           echo "=== Verus: verified_core (V1-V8, ALL inputs) ==="
           verus-bin/verus-x86-linux/verus --triggers-mode silent \
             formal/verus/verified_core.rs
+
+      - name: Run Verus verification (D1-D6, DLP buffer)
+        run: |
+          echo "=== Verus: verified_dlp_core (D1-D6, ALL inputs) ==="
+          verus-bin/verus-x86-linux/verus --triggers-mode silent \
+            formal/verus/verified_dlp_core.rs

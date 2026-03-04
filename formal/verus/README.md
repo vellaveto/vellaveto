@@ -5,7 +5,7 @@ arithmetic using [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
 
-### Core Verdict Logic (`verified_core.rs`)
+### Core Verdict Logic (`verified_core.rs`) — 9 proofs, V1-V8
 
 Properties proven for ALL possible inputs (not bounded):
 
@@ -23,7 +23,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 Priority-dependent properties (V6, V7) require a sortedness precondition that
 will be proven by a Kani harness (K19) in Phase 3.
 
-### Proof Lemmas
+#### Proof Lemmas
 
 | Lemma | What It Proves |
 |-------|---------------|
@@ -31,15 +31,40 @@ will be proven by a Kani harness (K19) in Phase 3.
 | `lemma_all_unmatched_is_deny` | All unmatched entries -> final verdict is Deny |
 | `lemma_skip_continues` | Consecutive Continue outcomes can be skipped (induction helper) |
 
+### DLP Buffer Arithmetic (`verified_dlp_core.rs`) — 14 proofs, D1-D6
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| D1 | UTF-8 char boundary safety | `extract_tail` never returns start in mid-character |
+| D2 | Single buffer size bounded | Extracted tail never exceeds `max_size` bytes |
+| D3 | Total byte accounting correct | `update_total_bytes` maintains consistency |
+| D4 | Capacity check fail-closed | At `max_fields`, `can_track_field` returns false |
+| D5 | No arithmetic underflow | Saturating subtraction prevents wrapping |
+| D6 | Overlap completeness | Secret <= 2 * overlap split at any byte is fully covered |
+
+Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_continuation_not_boundary` | Continuation bytes (0x80-0xBF) are NOT char boundaries (bit_vector) |
+| `lemma_non_continuation_is_boundary` | Non-continuation bytes are char boundaries (bit_vector) |
+| `overlap_completeness_lemma` | Combined scan buffer covers entire split secret |
+| `lemma_capacity_fail_closed` | At max_fields, can_track_field is always false |
+| `lemma_ascii_all_boundaries` | For ASCII input, all bytes are char boundaries |
+
 ## Production Code Correspondence
 
-The production code lives at `vellaveto-engine/src/verified_core.rs`.
-The Verus-annotated version lives here at `formal/verus/verified_core.rs`.
+| Verus File | Production File | Wiring |
+|-----------|----------------|--------|
+| `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
+| `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
 
 The executable logic is identical — Verus annotations (`ensures`, `requires`,
 `invariant`, `decreases`, `proof fn`) are erased during normal compilation.
-The production code uses `debug_assert` to validate that every verdict
-decision agrees with the verified core.
 
 ## How to Verify
 
@@ -50,16 +75,24 @@ curl -sSL -o verus.zip \
   "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
+
+# Core verdict (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
+
+# DLP buffer arithmetic (14 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
 # Option 2: From source
 git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
 verus formal/verus/verified_core.rs
+verus formal/verus/verified_dlp_core.rs
 ```
 
-Expected output: `verification results:: 9 verified, 0 errors`
+Expected output:
+- `verified_core.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
 
 ## Trust Boundary
 
@@ -72,6 +105,7 @@ Verus trusts:
 
 Verus does NOT verify:
 - The wrapper code that builds `ResolvedMatch` from policies and actions
+- The `HashMap` wrapper in `cross_call_dlp.rs` (lookup table, not security logic)
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 

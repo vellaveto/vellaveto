@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 2 — Verus Cross-Call DLP Buffer Verification (14 verified, 0 errors):**
+  `vellaveto-mcp/src/inspection/verified_dlp_core.rs` — pure buffer arithmetic functions
+  (`extract_tail`, `can_track_field`, `update_total_bytes`) factored from `cross_call_dlp.rs`.
+  `formal/verus/verified_dlp_core.rs` — Verus-annotated version proving D1-D6 (UTF-8 boundary
+  safety, buffer size bounds, byte accounting, capacity fail-closed, no underflow, overlap
+  completeness) for ALL possible inputs via Z3 SMT. 5 proof lemmas including bit_vector proofs
+  for UTF-8 continuation byte classification. 32 unit tests. `CrossCallDlpTracker` wired to
+  use verified core functions. Total: 155 verification instances across 6 tools.
+
 - **Phase 1 — Verus Core Verdict Verification (9 verified, 0 errors):**
   `vellaveto-engine/src/verified_core.rs` — `ResolvedMatch` abstraction factors pure verdict
   computation from String/HashMap/serde. `formal/verus/verified_core.rs` — Verus-annotated
