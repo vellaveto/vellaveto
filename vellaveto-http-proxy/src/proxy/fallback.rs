@@ -32,11 +32,7 @@ impl fmt::Display for FallbackError {
             Self::AllFailed {
                 attempts,
                 last_error,
-            } => write!(
-                f,
-                "all {} fallback attempt(s) failed: {}",
-                attempts, last_error
-            ),
+            } => write!(f, "all {attempts} fallback attempt(s) failed: {last_error}"),
             Self::NoFallback => write!(f, "no fallback transports configured"),
         }
     }
@@ -109,8 +105,7 @@ pub async fn forward_with_fallback(
                 if let Some(len) = resp.content_length() {
                     if len as usize > MAX_RESPONSE_BODY_BYTES {
                         last_error = format!(
-                            "response body too large: {} bytes (max {})",
-                            len, MAX_RESPONSE_BODY_BYTES
+                            "response body too large: {len} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                         );
                         continue;
                     }
@@ -131,8 +126,7 @@ pub async fn forward_with_fallback(
                                 > MAX_RESPONSE_BODY_BYTES
                             {
                                 last_error = format!(
-                                    "response body too large: >{} bytes (max {})",
-                                    MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES
+                                    "response body too large: >{MAX_RESPONSE_BODY_BYTES} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                                 );
                                 body_too_large = true;
                                 break;
@@ -141,7 +135,7 @@ pub async fn forward_with_fallback(
                         }
                         Ok(None) => break,
                         Err(e) => {
-                            last_error = format!("response body read error: {}", e);
+                            last_error = format!("response body read error: {e}");
                             body_too_large = true;
                             break;
                         }
@@ -165,7 +159,7 @@ pub async fn forward_with_fallback(
                 });
             }
             Err(e) => {
-                last_error = format!("request error: {}", e);
+                last_error = format!("request error: {e}");
             }
         }
     }
@@ -191,7 +185,7 @@ mod tests {
             attempts: 3,
             last_error: "connection refused".to_string(),
         };
-        let display = format!("{}", err);
+        let display = format!("{err}");
         assert!(display.contains("3 fallback attempt(s) failed"));
         assert!(display.contains("connection refused"));
     }
@@ -199,7 +193,7 @@ mod tests {
     #[test]
     fn test_fallback_error_no_fallback_display() {
         let err = FallbackError::NoFallback;
-        let display = format!("{}", err);
+        let display = format!("{err}");
         assert_eq!(display, "no fallback transports configured");
     }
 
@@ -209,7 +203,7 @@ mod tests {
             attempts: 1,
             last_error: "timeout".to_string(),
         };
-        let display = format!("{}", err);
+        let display = format!("{err}");
         assert!(display.contains("1 fallback attempt(s) failed"));
     }
 
@@ -315,8 +309,7 @@ mod tests {
         if let Err(FallbackError::AllFailed { attempts, .. }) = result {
             assert!(
                 attempts <= 11,
-                "retries should be capped at MAX_FALLBACK_RETRIES + 1, got {}",
-                attempts
+                "retries should be capped at MAX_FALLBACK_RETRIES + 1, got {attempts}"
             );
         } else {
             panic!("Expected AllFailed error");

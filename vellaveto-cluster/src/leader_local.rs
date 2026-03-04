@@ -88,7 +88,7 @@ impl LeaderElection for LocalLeaderElection {
         let mut guard = self
             .acquired_at
             .lock()
-            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {}", e)))?;
+            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {e}")))?;
         // SECURITY (FIND-R44-044): Set timestamp BEFORE setting AtomicBool to true.
         // This ensures observers always see a valid timestamp when is_leader() returns true.
         *guard = Some(now);
@@ -106,7 +106,7 @@ impl LeaderElection for LocalLeaderElection {
         let mut guard = self
             .acquired_at
             .lock()
-            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {}", e)))?;
+            .map_err(|e| ClusterError::Backend(format!("Leader election mutex poisoned: {e}")))?;
         // SECURITY (FIND-R44-044): Set AtomicBool to false BEFORE clearing the timestamp.
         // This ensures observers never see is_leader()=true with a None timestamp.
         self.is_leader.store(false, Ordering::SeqCst);
@@ -263,7 +263,7 @@ mod tests {
                     "timestamp should be set when is_leader is true"
                 );
             }
-            other => panic!("expected Leader status after acquire, got {:?}", other),
+            other => panic!("expected Leader status after acquire, got {other:?}"),
         }
     }
 
@@ -281,7 +281,7 @@ mod tests {
             LeaderStatus::Follower { .. } => {
                 // Correct: after release, status is Follower
             }
-            other => panic!("expected Follower status after release, got {:?}", other),
+            other => panic!("expected Follower status after release, got {other:?}"),
         }
     }
 
@@ -295,14 +295,14 @@ mod tests {
                 LeaderStatus::Leader { since } => {
                     assert!(!since.is_empty());
                 }
-                other => panic!("expected Leader, got {:?}", other),
+                other => panic!("expected Leader, got {other:?}"),
             }
 
             le.release().await.unwrap();
             assert!(!le.is_leader());
             match le.current_status() {
                 LeaderStatus::Follower { .. } => {}
-                other => panic!("expected Follower, got {:?}", other),
+                other => panic!("expected Follower, got {other:?}"),
             }
         }
     }
@@ -316,8 +316,7 @@ mod tests {
         let err = LocalLeaderElection::new(String::new()).unwrap_err();
         assert!(
             err.to_string().contains("must not be empty"),
-            "Expected empty instance_id error, got: {}",
-            err,
+            "Expected empty instance_id error, got: {err}",
         );
     }
 
@@ -327,8 +326,7 @@ mod tests {
         let err = LocalLeaderElection::new(long_id).unwrap_err();
         assert!(
             err.to_string().contains("exceeds maximum"),
-            "Expected length error, got: {}",
-            err,
+            "Expected length error, got: {err}",
         );
     }
 
@@ -337,8 +335,7 @@ mod tests {
         let err = LocalLeaderElection::new("test\n-0".to_string()).unwrap_err();
         assert!(
             err.to_string().contains("control"),
-            "Expected control char error, got: {}",
-            err,
+            "Expected control char error, got: {err}",
         );
     }
 

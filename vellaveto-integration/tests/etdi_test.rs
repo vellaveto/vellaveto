@@ -422,7 +422,7 @@ fn test_version_pin_hash_drift() {
                 assert_eq!(alert.drift_type, "hash_mismatch");
                 assert!(alert.blocking);
             }
-            _ => panic!("Expected HashDrift, got {:?}", result),
+            _ => panic!("Expected HashDrift, got {result:?}"),
         }
     });
 }

@@ -110,7 +110,7 @@ impl GatewayConfig {
         let mut default_count = 0u32;
         for (i, backend) in self.backends.iter().enumerate() {
             if backend.id.is_empty() {
-                return Err(format!("gateway.backends[{}].id must not be empty", i));
+                return Err(format!("gateway.backends[{i}].id must not be empty"));
             }
             // SECURITY (FIND-R43-004): Validate backend ID length and characters.
             // Backend IDs are used as HashMap keys, metric labels, and log fields.

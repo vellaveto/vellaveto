@@ -83,8 +83,7 @@ fn example_config_evaluates_correctly_through_engine() {
     let verdict = engine.evaluate_action(&bash_action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "bash execute should be denied by example config. Got: {:?}",
-        verdict
+        "bash execute should be denied by example config. Got: {verdict:?}"
     );
 
     // file:read should be allowed (priority 10 allow)
@@ -92,7 +91,6 @@ fn example_config_evaluates_correctly_through_engine() {
     let verdict = engine.evaluate_action(&read_action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "file:read should be allowed by example config. Got: {:?}",
-        verdict
+        "file:read should be allowed by example config. Got: {verdict:?}"
     );
 }

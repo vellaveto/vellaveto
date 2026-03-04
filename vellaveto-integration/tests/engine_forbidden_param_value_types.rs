@@ -158,11 +158,10 @@ fn second_forbidden_param_present_is_denied() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("secret"),
-                "Denial reason should name 'secret', got: {}",
-                reason
+                "Denial reason should name 'secret', got: {reason}"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -178,10 +177,9 @@ fn first_forbidden_param_in_list_triggers_denial() {
             // The engine iterates forbidden params in order, so "alpha" should trigger first
             assert!(
                 reason.contains("alpha"),
-                "First forbidden param should trigger, got: {}",
-                reason
+                "First forbidden param should trigger, got: {reason}"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }

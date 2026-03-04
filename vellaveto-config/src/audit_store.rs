@@ -216,16 +216,14 @@ impl AuditStoreConfig {
                     || host_lower == "metadata.google.internal"
                 {
                     return Err(format!(
-                        "audit_store.database_url host '{}' is a private/loopback address",
-                        host
+                        "audit_store.database_url host '{host}' is a private/loopback address"
                     ));
                 }
                 // SECURITY (FIND-R200-007): Reject percent-encoded hostnames that
                 // could bypass text-based hostname checks after URL decoding.
                 if host.contains('%') {
                     return Err(format!(
-                        "audit_store.database_url host '{}' contains percent-encoding",
-                        host
+                        "audit_store.database_url host '{host}' contains percent-encoding"
                     ));
                 }
                 // Check IPv4 private/loopback ranges.
@@ -236,23 +234,20 @@ impl AuditStoreConfig {
                         || ip.is_unspecified()
                     {
                         return Err(format!(
-                            "audit_store.database_url host '{}' is a private/loopback address",
-                            host
+                            "audit_store.database_url host '{host}' is a private/loopback address"
                         ));
                     }
                     // Cloud metadata endpoint 169.254.169.254.
                     if ip.octets()[0] == 169 && ip.octets()[1] == 254 {
                         return Err(format!(
-                            "audit_store.database_url host '{}' is a link-local/metadata address",
-                            host
+                            "audit_store.database_url host '{host}' is a link-local/metadata address"
                         ));
                     }
                 }
                 if let Ok(ip6) = host.parse::<std::net::Ipv6Addr>() {
                     if ip6.is_loopback() || ip6.is_unspecified() {
                         return Err(format!(
-                            "audit_store.database_url host '{}' is a private/loopback address",
-                            host
+                            "audit_store.database_url host '{host}' is a private/loopback address"
                         ));
                     }
                     // SECURITY (FIND-R200-001): Check IPv6-mapped IPv4 addresses
@@ -264,8 +259,7 @@ impl AuditStoreConfig {
                             || ipv4.is_unspecified()
                         {
                             return Err(format!(
-                                "audit_store.database_url host '{}' is a private/loopback address (IPv6-mapped IPv4)",
-                                host
+                                "audit_store.database_url host '{host}' is a private/loopback address (IPv6-mapped IPv4)"
                             ));
                         }
                     }
@@ -274,14 +268,12 @@ impl AuditStoreConfig {
                     let segments = ip6.segments();
                     if (segments[0] & 0xfe00) == 0xfc00 {
                         return Err(format!(
-                            "audit_store.database_url host '{}' is an IPv6 unique-local address",
-                            host
+                            "audit_store.database_url host '{host}' is an IPv6 unique-local address"
                         ));
                     }
                     if (segments[0] & 0xffc0) == 0xfe80 {
                         return Err(format!(
-                            "audit_store.database_url host '{}' is an IPv6 link-local address",
-                            host
+                            "audit_store.database_url host '{host}' is an IPv6 link-local address"
                         ));
                     }
                 }

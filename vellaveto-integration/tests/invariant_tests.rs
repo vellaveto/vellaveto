@@ -50,8 +50,7 @@ fn action_roundtrip_preserves_equality() {
         let deserialized: Action = serde_json::from_str(&serialized).unwrap();
         assert_eq!(
             action, &deserialized,
-            "Roundtrip failed for action: {:?}",
-            action
+            "Roundtrip failed for action: {action:?}"
         );
     }
 }
@@ -82,8 +81,7 @@ fn verdict_roundtrip_preserves_equality() {
         let deserialized: Verdict = serde_json::from_str(&serialized).unwrap();
         assert_eq!(
             verdict, &deserialized,
-            "Roundtrip failed for verdict: {:?}",
-            verdict
+            "Roundtrip failed for verdict: {verdict:?}"
         );
     }
 }
@@ -122,8 +120,7 @@ fn policy_type_roundtrip_preserves_equality() {
         let deserialized: PolicyType = serde_json::from_str(&serialized).unwrap();
         assert_eq!(
             pt, &deserialized,
-            "Roundtrip failed for policy type: {:?}",
-            pt
+            "Roundtrip failed for policy type: {pt:?}"
         );
     }
 }
@@ -135,7 +132,7 @@ fn policy_roundtrip_with_various_priorities() {
     for &pri in &priorities {
         let policy = Policy {
             id: "test:roundtrip".to_string(),
-            name: format!("priority-{}", pri),
+            name: format!("priority-{pri}"),
             policy_type: PolicyType::Deny,
             priority: pri,
             path_rules: None,
@@ -166,8 +163,7 @@ fn empty_policies_always_deny_for_any_action() {
         let verdict = engine.evaluate_action(action, &[]).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Empty policies should deny for action: {:?}",
-            action
+            "Empty policies should deny for action: {action:?}"
         );
     }
 }
@@ -199,8 +195,7 @@ fn wildcard_allow_always_allows() {
         let verdict = engine.evaluate_action(action, &policy).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Wildcard allow should allow action: {:?}",
-            action
+            "Wildcard allow should allow action: {action:?}"
         );
     }
 }
@@ -227,8 +222,7 @@ fn wildcard_deny_always_denies() {
         let verdict = engine.evaluate_action(action, &policy).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Wildcard deny should deny action: {:?}",
-            action
+            "Wildcard deny should deny action: {action:?}"
         );
     }
 }
@@ -275,9 +269,7 @@ fn higher_priority_always_wins_over_lower() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Priority {} allow should beat priority {} deny",
-            high,
-            low
+            "Priority {high} allow should beat priority {low} deny"
         );
 
         // High-priority deny vs low-priority allow  deny wins
@@ -302,9 +294,7 @@ fn higher_priority_always_wins_over_lower() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Priority {} deny should beat priority {} allow",
-            high,
-            low
+            "Priority {high} deny should beat priority {low} allow"
         );
     }
 }
@@ -343,8 +333,7 @@ fn deny_overrides_allow_at_every_priority_level() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Deny should override allow at priority {}",
-            pri
+            "Deny should override allow at priority {pri}"
         );
     }
 }
@@ -407,8 +396,8 @@ fn thousand_non_matching_then_one_match() {
 
     let mut policies: Vec<Policy> = (0..1000)
         .map(|i| Policy {
-            id: format!("nomatch_{}:nomatch_{}", i, i),
-            name: format!("miss-{}", i),
+            id: format!("nomatch_{i}:nomatch_{i}"),
+            name: format!("miss-{i}"),
             policy_type: PolicyType::Allow,
             priority: 10,
             path_rules: None,
@@ -439,7 +428,7 @@ fn thousand_matching_policies_highest_wins() {
     let mut policies: Vec<Policy> = (0..999)
         .map(|i| Policy {
             id: "*".to_string(),
-            name: format!("deny-{}", i),
+            name: format!("deny-{i}"),
             policy_type: PolicyType::Deny,
             priority: i,
             path_rules: None,

@@ -37,7 +37,7 @@ fn empty_policies_deny_reason_is_exact() {
                 "Empty policies must produce exact reason string"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -65,7 +65,7 @@ fn no_matching_policy_deny_reason_is_exact() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "No matching policy");
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -92,7 +92,7 @@ fn deny_policy_reason_includes_policy_name() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "Denied by policy 'Block Everything'");
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -121,7 +121,7 @@ fn require_approval_reason_includes_policy_name() {
         Verdict::RequireApproval { reason } => {
             assert_eq!(reason, "Approval required by policy 'Needs Human Review'");
         }
-        other => panic!("Expected RequireApproval, got {:?}", other),
+        other => panic!("Expected RequireApproval, got {other:?}"),
     }
 }
 
@@ -153,7 +153,7 @@ fn forbidden_param_reason_includes_param_and_policy_name() {
                 "Parameter 'secret' is forbidden by policy 'No Secrets'"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -185,7 +185,7 @@ fn required_param_missing_reason_format() {
                 "Required parameter 'token' missing (policy 'Auth Required')"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -219,7 +219,6 @@ fn condition_depth_11_returns_error() {
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("nesting depth"),
-        "Error should mention nesting depth: {}",
-        err_msg
+        "Error should mention nesting depth: {err_msg}"
     );
 }

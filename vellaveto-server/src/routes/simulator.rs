@@ -180,14 +180,13 @@ fn compile_from_toml_bounded(
             max_len
         ));
     }
-    let config =
-        PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
+    let config = PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {e}"))?;
     // SECURITY (FIND-R104-001): Validate config before converting to policies.
     // Without this, unbounded collections, invalid float ranges, SSRF webhooks,
     // and other semantically invalid configs bypass PolicyConfig::validate().
     config
         .validate()
-        .map_err(|e| format!("Config validation error: {}", e))?;
+        .map_err(|e| format!("Config validation error: {e}"))?;
     let mut policies = config.to_policies();
     // SECURITY (FIND-R46-001): Cap policy count.
     if policies.len() > MAX_POLICY_COUNT {
@@ -253,7 +252,7 @@ pub async fn simulate_evaluate(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid action: {}", e),
+                error: format!("Invalid action: {e}"),
             }),
         ));
     }
@@ -373,10 +372,10 @@ pub async fn simulate_batch(
             results.push(BatchResult {
                 action_index: i,
                 verdict: Verdict::Deny {
-                    reason: format!("Invalid action: {}", e),
+                    reason: format!("Invalid action: {e}"),
                 },
                 trace: None,
-                error: Some(format!("Validation failed: {}", e)),
+                error: Some(format!("Validation failed: {e}")),
             });
             errors += 1;
             continue;
@@ -466,7 +465,7 @@ pub async fn simulate_validate(
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(ErrorResponse {
-                        error: format!("Config parse error (tried TOML and JSON): {}", toml_err),
+                        error: format!("Config parse error (tried TOML and JSON): {toml_err}"),
                     }),
                 ));
             }
@@ -480,7 +479,7 @@ pub async fn simulate_validate(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Config validation error: {}", e),
+                error: format!("Config validation error: {e}"),
             }),
         ));
     }
@@ -536,7 +535,7 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'before' config parse error: {}", e),
+                error: format!("'before' config parse error: {e}"),
             }),
         )
     })?;
@@ -545,7 +544,7 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'after' config parse error: {}", e),
+                error: format!("'after' config parse error: {e}"),
             }),
         )
     })?;
@@ -555,7 +554,7 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'before' config validation error: {}", e),
+                error: format!("'before' config validation error: {e}"),
             }),
         )
     })?;
@@ -563,7 +562,7 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'after' config validation error: {}", e),
+                error: format!("'after' config validation error: {e}"),
             }),
         )
     })?;
@@ -851,7 +850,7 @@ priority = 200
     #[test]
     fn test_batch_max_exceeded() {
         let actions: Vec<Action> = (0..101)
-            .map(|i| Action::new(format!("tool{}", i), "fn", serde_json::json!({})))
+            .map(|i| Action::new(format!("tool{i}"), "fn", serde_json::json!({})))
             .collect();
         assert!(actions.len() > MAX_BATCH_ACTIONS);
     }

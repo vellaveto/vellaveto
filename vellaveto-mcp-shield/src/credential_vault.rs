@@ -86,8 +86,7 @@ impl CredentialVault {
 
         if entries.len() >= MAX_VAULT_ENTRIES {
             return Err(ShieldError::Config(format!(
-                "vault capacity exhausted (max {})",
-                MAX_VAULT_ENTRIES
+                "vault capacity exhausted (max {MAX_VAULT_ENTRIES})"
             )));
         }
 
@@ -188,7 +187,7 @@ impl CredentialVault {
             .map(|e| {
                 let stored = StoredVaultEntry {
                     credential: e.credential.clone(),
-                    status: e.status.clone(),
+                    status: e.status,
                 };
                 serde_json::to_vec(&stored)
                     .map_err(|err| ShieldError::Encryption(format!("vault entry serialize: {err}")))

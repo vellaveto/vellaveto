@@ -45,8 +45,7 @@ fn classical_only_removes_pq_and_hybrid_groups() {
     );
     assert!(
         groups.iter().all(|g| !is_pq_or_hybrid_named_group(*g)),
-        "classical_only must exclude PQ/hybrid groups: {:?}",
-        groups
+        "classical_only must exclude PQ/hybrid groups: {groups:?}"
     );
 }
 
@@ -62,8 +61,7 @@ fn hybrid_preferred_prioritizes_pq_when_available() {
     if has_pq {
         assert!(
             is_pq_or_hybrid_named_group(groups[0]),
-            "hybrid_preferred should place PQ/hybrid first when available: {:?}",
-            groups
+            "hybrid_preferred should place PQ/hybrid first when available: {groups:?}"
         );
     }
 }
@@ -80,8 +78,7 @@ fn hybrid_required_when_supported_enforces_or_falls_back() {
     if has_pq {
         assert!(
             groups.iter().all(|g| is_pq_or_hybrid_named_group(*g)),
-            "when PQ/hybrid exists, only PQ/hybrid groups should remain: {:?}",
-            groups
+            "when PQ/hybrid exists, only PQ/hybrid groups should remain: {groups:?}"
         );
     }
 }

@@ -202,16 +202,16 @@ impl SchemaLineageTracker {
             // Check for removed or changed fields
             for key in old_obj.keys() {
                 if !new_obj.contains_key(key) {
-                    changes.push(format!("-{}", key));
+                    changes.push(format!("-{key}"));
                 } else if old_obj.get(key) != new_obj.get(key) {
-                    changes.push(format!("~{}", key));
+                    changes.push(format!("~{key}"));
                 }
             }
 
             // Check for added fields
             for key in new_obj.keys() {
                 if !old_obj.contains_key(key) {
-                    changes.push(format!("+{}", key));
+                    changes.push(format!("+{key}"));
                 }
             }
         }
@@ -687,7 +687,7 @@ mod tests {
             let tracker = Arc::clone(&tracker);
             handles.push(thread::spawn(move || {
                 for j in 0..20 {
-                    let tool = format!("tool_{}_{}", i, j);
+                    let tool = format!("tool_{i}_{j}");
                     let schema = json!({"thread": i, "iteration": j});
                     tracker.observe_schema(&tool, &schema);
                 }
@@ -714,7 +714,7 @@ mod tests {
 
         // Pre-populate
         for i in 0..10 {
-            tracker.observe_schema(&format!("tool{}", i), &schema);
+            tracker.observe_schema(&format!("tool{i}"), &schema);
         }
 
         let mut handles = vec![];
@@ -867,7 +867,7 @@ mod tests {
             let tracker = Arc::clone(&tracker);
             handles.push(thread::spawn(move || {
                 for j in 0..50 {
-                    let tool = format!("tool_{}_{}", i, j);
+                    let tool = format!("tool_{i}_{j}");
                     let schema = json!({"id": tool});
                     tracker.observe_schema(&tool, &schema);
                 }
@@ -911,11 +911,10 @@ mod tests {
             ObservationResult::MinorChange { similarity } => {
                 assert!(
                     similarity > 0.0 && similarity < 1.0,
-                    "Similarity should be between 0 and 1, got {}",
-                    similarity
+                    "Similarity should be between 0 and 1, got {similarity}"
                 );
             }
-            other => panic!("Expected MinorChange, got {:?}", other),
+            other => panic!("Expected MinorChange, got {other:?}"),
         }
     }
 

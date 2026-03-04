@@ -416,7 +416,7 @@ mod tests {
     async fn test_fix6_line_too_long_rejected() {
         // Fix #6: Lines exceeding MAX_LINE_LENGTH must be rejected
         let long_payload = "x".repeat(MAX_LINE_LENGTH + 100);
-        let data = format!("{}\n", long_payload);
+        let data = format!("{long_payload}\n");
         let cursor = Cursor::new(data.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
@@ -424,8 +424,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, FramingError::LineTooLong(_)),
-            "Expected LineTooLong, got {:?}",
-            err
+            "Expected LineTooLong, got {err:?}"
         );
     }
 
@@ -528,8 +527,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, FramingError::DuplicateKeys(ref k) if k == "a"),
-            "Expected DuplicateKeys(\"a\"), got {:?}",
-            err
+            "Expected DuplicateKeys(\"a\"), got {err:?}"
         );
     }
 
@@ -600,7 +598,7 @@ mod tests {
         // NOT a fragment of the oversized line.
         let long_payload = "x".repeat(MAX_LINE_LENGTH + 100);
         let valid_msg = r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#;
-        let data = format!("{}\n{}\n", long_payload, valid_msg);
+        let data = format!("{long_payload}\n{valid_msg}\n");
         let cursor = Cursor::new(data.into_bytes());
         let mut reader = BufReader::new(cursor);
 
@@ -621,14 +619,13 @@ mod tests {
     #[tokio::test]
     async fn test_r230_case_folding_smuggle_method() {
         let data = r#"{"jsonrpc":"2.0","id":1,"Method":"tools/call","params":{}}"#;
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
-            "Should reject 'Method' as case-folding smuggle: {:?}",
-            result
+            "Should reject 'Method' as case-folding smuggle: {result:?}"
         );
     }
 
@@ -636,14 +633,13 @@ mod tests {
     #[tokio::test]
     async fn test_r230_case_folding_smuggle_params() {
         let data = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","PARAMS":{}}"#;
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
-            "Should reject 'PARAMS' as case-folding smuggle: {:?}",
-            result
+            "Should reject 'PARAMS' as case-folding smuggle: {result:?}"
         );
     }
 
@@ -651,14 +647,13 @@ mod tests {
     #[tokio::test]
     async fn test_r230_case_folding_exact_lowercase_passes() {
         let data = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#;
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             result.is_ok(),
-            "Exact lowercase keys should pass: {:?}",
-            result
+            "Exact lowercase keys should pass: {result:?}"
         );
     }
 
@@ -666,14 +661,13 @@ mod tests {
     #[tokio::test]
     async fn test_r230_case_folding_custom_keys_allowed() {
         let data = r#"{"jsonrpc":"2.0","id":1,"method":"ping","customField":"value"}"#;
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             result.is_ok(),
-            "Custom keys with mixed case should pass: {:?}",
-            result
+            "Custom keys with mixed case should pass: {result:?}"
         );
     }
 
@@ -682,14 +676,13 @@ mod tests {
     #[tokio::test]
     async fn test_r231_unicode_confusable_long_s_smuggle() {
         let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"param\u{017F}\":{}}";
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
-            "U+017F in 'param\u{017F}' should be rejected: {:?}",
-            result
+            "U+017F in 'param\u{017F}' should be rejected: {result:?}"
         );
     }
 
@@ -697,14 +690,13 @@ mod tests {
     #[tokio::test]
     async fn test_r231_unicode_confusable_kelvin_non_jsonrpc_passes() {
         let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"temp\u{212A}ey\":1}";
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             result.is_ok(),
-            "Kelvin sign in non-JSON-RPC key should pass: {:?}",
-            result
+            "Kelvin sign in non-JSON-RPC key should pass: {result:?}"
         );
     }
 
@@ -712,14 +704,13 @@ mod tests {
     #[tokio::test]
     async fn test_r231_unicode_confusable_long_s_result_smuggle() {
         let data = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"re\u{017F}ult\":{}}";
-        let input = format!("{}\n", data);
+        let input = format!("{data}\n");
         let cursor = Cursor::new(input.into_bytes());
         let mut reader = BufReader::new(cursor);
         let result = read_message(&mut reader).await;
         assert!(
             matches!(result, Err(FramingError::CaseFoldingSmuggle(_))),
-            "U+017F smuggling 'result' should be rejected: {:?}",
-            result
+            "U+017F smuggling 'result' should be rejected: {result:?}"
         );
     }
 }

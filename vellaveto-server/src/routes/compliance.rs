@@ -1001,6 +1001,17 @@ pub async fn evidence_pack(
 /// from very large audit logs with many unique agent/session combinations.
 const MAX_AGENT_SESSION_PAIRS: usize = 50_000;
 
+/// Validate the format query parameter for compliance endpoints.
+/// Returns the validated format string ("json" or "html") or an error.
+#[cfg(test)]
+fn validate_format_param(format: Option<&str>) -> Result<&'static str, &'static str> {
+    match format {
+        Some("html") => Ok("html"),
+        Some("json") | None => Ok("json"),
+        Some(_) => Err("format must be 'json' or 'html'"),
+    }
+}
+
 /// Collect least-agency data for all (agent_id, session_id) pairs observed in
 /// audit entries within the review period.
 fn collect_least_agency_data(
@@ -1052,4 +1063,262 @@ fn collect_least_agency_data(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_period_days tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_parse_period_days_valid_with_suffix() {
+        assert_eq!(parse_period_days("30d").unwrap(), 30);
+        assert_eq!(parse_period_days("1d").unwrap(), 1);
+        assert_eq!(parse_period_days("366d").unwrap(), 366);
+        assert_eq!(parse_period_days("7D").unwrap(), 7);
+    }
+
+    #[test]
+    fn test_parse_period_days_valid_without_suffix() {
+        assert_eq!(parse_period_days("90").unwrap(), 90);
+        assert_eq!(parse_period_days("1").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_parse_period_days_trims_whitespace() {
+        assert_eq!(parse_period_days("  30d  ").unwrap(), 30);
+        assert_eq!(parse_period_days(" 7 ").unwrap(), 7);
+    }
+
+    #[test]
+    fn test_parse_period_days_empty_string_rejected() {
+        let err = parse_period_days("").unwrap_err();
+        assert_eq!(err, "Empty period string");
+    }
+
+    #[test]
+    fn test_parse_period_days_whitespace_only_rejected() {
+        let err = parse_period_days("   ").unwrap_err();
+        assert_eq!(err, "Empty period string");
+    }
+
+    #[test]
+    fn test_parse_period_days_zero_rejected() {
+        let err = parse_period_days("0d").unwrap_err();
+        assert_eq!(err, "Period must be at least 1 day");
+    }
+
+    #[test]
+    fn test_parse_period_days_exceeds_max_rejected() {
+        let err = parse_period_days("367d").unwrap_err();
+        assert_eq!(err, "Period exceeds maximum allowed");
+    }
+
+    #[test]
+    fn test_parse_period_days_invalid_number_rejected() {
+        let err = parse_period_days("abcd").unwrap_err();
+        assert!(err.contains("must be a number"));
+    }
+
+    #[test]
+    fn test_parse_period_days_negative_rejected() {
+        let err = parse_period_days("-5d").unwrap_err();
+        assert!(err.contains("must be a number"));
+    }
+
+    #[test]
+    fn test_parse_period_days_too_long_rejected() {
+        let long = "1".repeat(21);
+        let err = parse_period_days(&long).unwrap_err();
+        assert_eq!(err, "Invalid period: value too long");
+    }
+
+    #[test]
+    fn test_parse_period_days_boundary_max() {
+        // MAX_PERIOD_DAYS is 366
+        assert_eq!(parse_period_days("366d").unwrap(), 366);
+    }
+
+    // ── validate_format_param tests ──────────────────────────────────────
+
+    #[test]
+    fn test_validate_format_param_json_default() {
+        assert_eq!(validate_format_param(None).unwrap(), "json");
+    }
+
+    #[test]
+    fn test_validate_format_param_json_explicit() {
+        assert_eq!(validate_format_param(Some("json")).unwrap(), "json");
+    }
+
+    #[test]
+    fn test_validate_format_param_html() {
+        assert_eq!(validate_format_param(Some("html")).unwrap(), "html");
+    }
+
+    #[test]
+    fn test_validate_format_param_invalid_rejected() {
+        let err = validate_format_param(Some("xml")).unwrap_err();
+        assert!(err.contains("format must be"));
+    }
+
+    #[test]
+    fn test_validate_format_param_empty_string_rejected() {
+        let err = validate_format_param(Some("")).unwrap_err();
+        assert!(err.contains("format must be"));
+    }
+
+    // ── default_true tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_default_true_returns_true() {
+        assert!(default_true());
+    }
+
+    // ── ReportCache tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_report_cache_initially_empty() {
+        let cache = ReportCache::new();
+        assert!(cache.get().is_none());
+    }
+
+    #[test]
+    fn test_report_cache_set_then_get() {
+        let cache = ReportCache::new();
+        let value = serde_json::json!({"status": "ok"});
+        cache.set(value.clone());
+        let got = cache.get().unwrap();
+        assert_eq!(got, value);
+    }
+
+    #[test]
+    fn test_report_cache_overwrites_previous() {
+        let cache = ReportCache::new();
+        cache.set(serde_json::json!({"v": 1}));
+        cache.set(serde_json::json!({"v": 2}));
+        let got = cache.get().unwrap();
+        assert_eq!(got["v"], 2);
+    }
+
+    // ── EVIDENCE_PACK_FRAMEWORKS allowlist tests ────────────────────────
+
+    #[test]
+    fn test_evidence_pack_frameworks_contains_expected() {
+        assert!(EVIDENCE_PACK_FRAMEWORKS.contains(&"dora"));
+        assert!(EVIDENCE_PACK_FRAMEWORKS.contains(&"nis2"));
+        assert!(EVIDENCE_PACK_FRAMEWORKS.contains(&"iso42001"));
+        assert!(EVIDENCE_PACK_FRAMEWORKS.contains(&"eu-ai-act"));
+    }
+
+    #[test]
+    fn test_evidence_pack_frameworks_rejects_unknown() {
+        assert!(!EVIDENCE_PACK_FRAMEWORKS.contains(&"pci-dss"));
+        assert!(!EVIDENCE_PACK_FRAMEWORKS.contains(&"hipaa"));
+        assert!(!EVIDENCE_PACK_FRAMEWORKS.contains(&""));
+    }
+
+    // ── ComplianceStatusQuery serde tests ────────────────────────────────
+
+    #[test]
+    fn test_compliance_status_query_defaults() {
+        let q: ComplianceStatusQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.include_nist);
+        assert!(q.include_iso);
+    }
+
+    #[test]
+    fn test_compliance_status_query_explicit_false() {
+        let q: ComplianceStatusQuery =
+            serde_json::from_str(r#"{"include_nist":false,"include_iso":false}"#).unwrap();
+        assert!(!q.include_nist);
+        assert!(!q.include_iso);
+    }
+
+    #[test]
+    fn test_compliance_status_query_denies_unknown_fields() {
+        let result: Result<ComplianceStatusQuery, _> =
+            serde_json::from_str(r#"{"include_nist":true,"bogus":42}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Soc2EvidenceQuery serde tests ────────────────────────────────────
+
+    #[test]
+    fn test_soc2_evidence_query_defaults() {
+        let q: Soc2EvidenceQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.category.is_none());
+    }
+
+    #[test]
+    fn test_soc2_evidence_query_with_category() {
+        let q: Soc2EvidenceQuery = serde_json::from_str(r#"{"category":"CC1"}"#).unwrap();
+        assert_eq!(q.category.as_deref(), Some("CC1"));
+    }
+
+    #[test]
+    fn test_soc2_evidence_query_denies_unknown_fields() {
+        let result: Result<Soc2EvidenceQuery, _> =
+            serde_json::from_str(r#"{"category":"CC1","extra":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── AccessReviewQuery serde tests ────────────────────────────────────
+
+    #[test]
+    fn test_access_review_query_defaults() {
+        let q: AccessReviewQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.period.is_none());
+        assert!(q.format.is_none());
+        assert!(q.agent_id.is_none());
+    }
+
+    #[test]
+    fn test_access_review_query_denies_unknown_fields() {
+        let result: Result<AccessReviewQuery, _> =
+            serde_json::from_str(r#"{"period":"30d","unknown":1}"#);
+        assert!(result.is_err());
+    }
+
+    // ── EvidencePackQuery serde tests ────────────────────────────────────
+
+    #[test]
+    fn test_evidence_pack_query_defaults() {
+        let q: EvidencePackQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.format.is_none());
+    }
+
+    #[test]
+    fn test_evidence_pack_query_denies_unknown_fields() {
+        let result: Result<EvidencePackQuery, _> =
+            serde_json::from_str(r#"{"format":"json","bogus":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_compliance_cache_ttl_is_reasonable() {
+        assert!(COMPLIANCE_CACHE_TTL_SECS > 0);
+        assert!(COMPLIANCE_CACHE_TTL_SECS <= 3600); // Not more than 1 hour
+    }
+
+    #[test]
+    fn test_max_agent_id_query_len_is_bounded() {
+        assert!(MAX_AGENT_ID_QUERY_LEN > 0);
+        assert!(MAX_AGENT_ID_QUERY_LEN <= 1024);
+    }
+
+    #[test]
+    fn test_max_period_days_is_bounded() {
+        assert!(MAX_PERIOD_DAYS >= 1);
+        assert!(MAX_PERIOD_DAYS <= 366);
+    }
+
+    #[test]
+    fn test_max_agent_session_pairs_is_bounded() {
+        assert!(MAX_AGENT_SESSION_PAIRS > 0);
+        assert!(MAX_AGENT_SESSION_PAIRS <= 100_000);
+    }
 }

@@ -115,8 +115,7 @@ impl ProjectorConfig {
         if let Some(tokens) = self.max_schema_tokens {
             if tokens == 0 || tokens > MAX_SCHEMA_TOKENS {
                 return Err(format!(
-                    "projector.max_schema_tokens must be 1..={}, got {}",
-                    MAX_SCHEMA_TOKENS, tokens
+                    "projector.max_schema_tokens must be 1..={MAX_SCHEMA_TOKENS}, got {tokens}"
                 ));
             }
         }

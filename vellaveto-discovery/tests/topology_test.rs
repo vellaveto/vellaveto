@@ -314,7 +314,7 @@ fn test_server_resources() {
 #[test]
 fn test_debug_format() {
     let graph = TopologyGraph::from_static(vec![make_fs_server()]).unwrap();
-    let debug = format!("{:?}", graph);
+    let debug = format!("{graph:?}");
     assert!(debug.contains("TopologyGraph"));
     assert!(debug.contains("node_count"));
 }

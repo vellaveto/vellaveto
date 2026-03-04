@@ -198,7 +198,7 @@ impl MemorySecurityConfig {
         // Delegate to namespace config
         self.namespaces
             .validate()
-            .map_err(|e| format!("memory.{}", e))?;
+            .map_err(|e| format!("memory.{e}"))?;
         Ok(())
     }
 }
@@ -601,7 +601,7 @@ impl NhiConfig {
         // Per-string validation for Vec<String> fields
         for (i, at) in self.attestation_types.iter().enumerate() {
             if at.is_empty() {
-                return Err(format!("nhi.attestation_types[{}] must not be empty", i));
+                return Err(format!("nhi.attestation_types[{i}] must not be empty"));
             }
             if at.len() > MAX_NHI_STRING_FIELD_LEN {
                 return Err(format!(
@@ -613,16 +613,14 @@ impl NhiConfig {
             }
             if vellaveto_types::has_dangerous_chars(at) {
                 return Err(format!(
-                    "nhi.attestation_types[{}] contains control or format characters",
-                    i
+                    "nhi.attestation_types[{i}] contains control or format characters"
                 ));
             }
         }
         for (i, td) in self.additional_trust_domains.iter().enumerate() {
             if td.is_empty() {
                 return Err(format!(
-                    "nhi.additional_trust_domains[{}] must not be empty",
-                    i
+                    "nhi.additional_trust_domains[{i}] must not be empty"
                 ));
             }
             if td.len() > MAX_NHI_STRING_FIELD_LEN {
@@ -635,14 +633,13 @@ impl NhiConfig {
             }
             if vellaveto_types::has_dangerous_chars(td) {
                 return Err(format!(
-                    "nhi.additional_trust_domains[{}] contains control or format characters",
-                    i
+                    "nhi.additional_trust_domains[{i}] contains control or format characters"
                 ));
             }
         }
         for (i, tag) in self.privileged_tags.iter().enumerate() {
             if tag.is_empty() {
-                return Err(format!("nhi.privileged_tags[{}] must not be empty", i));
+                return Err(format!("nhi.privileged_tags[{i}] must not be empty"));
             }
             if tag.len() > MAX_NHI_STRING_FIELD_LEN {
                 return Err(format!(
@@ -654,8 +651,7 @@ impl NhiConfig {
             }
             if vellaveto_types::has_dangerous_chars(tag) {
                 return Err(format!(
-                    "nhi.privileged_tags[{}] contains control or format characters",
-                    i
+                    "nhi.privileged_tags[{i}] contains control or format characters"
                 ));
             }
         }
@@ -978,8 +974,7 @@ impl DpopConfig {
         for (i, alg) in self.allowed_algorithms.iter().enumerate() {
             if alg.is_empty() {
                 return Err(format!(
-                    "nhi.dpop.allowed_algorithms[{}] must not be empty",
-                    i
+                    "nhi.dpop.allowed_algorithms[{i}] must not be empty"
                 ));
             }
             if alg.len() > MAX_DPOP_ALGORITHM_LEN {
@@ -992,8 +987,7 @@ impl DpopConfig {
             }
             if vellaveto_types::has_dangerous_chars(alg) {
                 return Err(format!(
-                    "nhi.dpop.allowed_algorithms[{}] contains control or format characters",
-                    i
+                    "nhi.dpop.allowed_algorithms[{i}] contains control or format characters"
                 ));
             }
         }
@@ -1162,7 +1156,7 @@ mod tests {
         for isolation in &["session", "agent", "shared"] {
             let mut config = NamespaceConfig::default();
             config.default_isolation = isolation.to_string();
-            assert!(config.validate().is_ok(), "should accept '{}'", isolation);
+            assert!(config.validate().is_ok(), "should accept '{isolation}'");
         }
     }
 
@@ -1286,7 +1280,7 @@ mod tests {
     fn test_nhi_validate_too_many_attestation_types_rejected() {
         let mut config = NhiConfig::default();
         config.attestation_types = (0..=MAX_NHI_ATTESTATION_TYPES)
-            .map(|i| format!("type_{}", i))
+            .map(|i| format!("type_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("attestation_types"));
@@ -1448,7 +1442,7 @@ mod tests {
     fn test_dpop_validate_too_many_algorithms_rejected() {
         let mut config = DpopConfig::default();
         config.allowed_algorithms = (0..=MAX_DPOP_ALGORITHMS)
-            .map(|i| format!("ALG{}", i))
+            .map(|i| format!("ALG{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allowed_algorithms"));

@@ -250,11 +250,10 @@ fn scenario_data_exfiltration_prevention() {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains("credentials"),
-                    "Should mention 'credentials': {}",
-                    reason
+                    "Should mention 'credentials': {reason}"
                 );
             }
-            other => panic!("Should deny action with credentials param, got {:?}", other),
+            other => panic!("Should deny action with credentials param, got {other:?}"),
         }
         logger.log_entry(&dangerous, &v2, json!({})).await.unwrap();
 
@@ -272,11 +271,10 @@ fn scenario_data_exfiltration_prevention() {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains("api_key"),
-                    "Should mention 'api_key': {}",
-                    reason
+                    "Should mention 'api_key': {reason}"
                 );
             }
-            other => panic!("Should deny action with api_key param, got {:?}", other),
+            other => panic!("Should deny action with api_key param, got {other:?}"),
         }
         logger.log_entry(&api_leak, &v3, json!({})).await.unwrap();
 
@@ -326,7 +324,7 @@ fn scenario_first_matching_policy_wins() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         match &verdict {
             Verdict::RequireApproval { .. } => {} // Higher priority conditional wins
-            other => panic!("Higher priority conditional should win, got {:?}", other),
+            other => panic!("Higher priority conditional should win, got {other:?}"),
         }
         logger
             .log_entry(&action, &verdict, json!({}))
@@ -338,10 +336,7 @@ fn scenario_first_matching_policy_wins() {
         let verdict2 = engine.evaluate_action(&action2, &policies).unwrap();
         match &verdict2 {
             Verdict::RequireApproval { .. } => {}
-            other => panic!(
-                "file:write should match file:* conditional, got {:?}",
-                other
-            ),
+            other => panic!("file:write should match file:* conditional, got {other:?}"),
         }
         logger
             .log_entry(&action2, &verdict2, json!({}))
@@ -377,9 +372,9 @@ fn scenario_no_policies_denies_everything() {
             let verdict = engine.evaluate_action(action, &no_policies).unwrap();
             match &verdict {
                 Verdict::Deny { reason } => {
-                    assert!(reason.contains("No policies"), "Reason: {}", reason);
+                    assert!(reason.contains("No policies"), "Reason: {reason}");
                 }
-                other => panic!("Empty policy set should deny, got {:?}", other),
+                other => panic!("Empty policy set should deny, got {other:?}"),
             }
             logger.log_entry(action, &verdict, json!({})).await.unwrap();
         }

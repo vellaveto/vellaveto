@@ -132,7 +132,7 @@ fn report_counts_match_written_verdicts_exactly() {
                 .log_entry(
                     &a,
                     &Verdict::Deny {
-                        reason: format!("r{}", i),
+                        reason: format!("r{i}"),
                     },
                     json!({}),
                 )

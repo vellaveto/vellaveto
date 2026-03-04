@@ -326,7 +326,7 @@ fn scan_tool_descriptions_inner(
         {
             let name_injection = inspect_for_injection(name);
             for pattern in name_injection {
-                let label = format!("tool_name_injection:{}", pattern);
+                let label = format!("tool_name_injection:{pattern}");
                 if !all_matches.contains(&label) {
                     all_matches.push(label);
                 }
@@ -411,7 +411,7 @@ fn scan_tool_descriptions_inner(
             // Flag descriptions containing 2+ imperative LLM-targeting patterns.
             let imperative_matches = scan_for_imperative_instructions(text);
             for pattern in imperative_matches {
-                let label = format!("imperative:{}", pattern);
+                let label = format!("imperative:{pattern}");
                 if !all_matches.contains(&label) {
                     all_matches.push(label);
                 }
@@ -421,7 +421,7 @@ fn scan_tool_descriptions_inner(
             // Flag descriptions using persuasive language to bias tool selection.
             let pref_matches = scan_for_preference_manipulation(text);
             for pattern in pref_matches {
-                let label = format!("preference_manipulation:{}", pattern);
+                let label = format!("preference_manipulation:{pattern}");
                 if !all_matches.contains(&label) {
                     all_matches.push(label);
                 }
@@ -434,7 +434,7 @@ fn scan_tool_descriptions_inner(
         if let Some(schema) = tool.get("inputSchema") {
             let exfil_params = scan_for_exfiltration_params(schema);
             for param_name in exfil_params {
-                let label = format!("exfiltration_param:{}", param_name);
+                let label = format!("exfiltration_param:{param_name}");
                 if !all_matches.contains(&label) {
                     all_matches.push(label);
                 }
@@ -723,13 +723,11 @@ mod tests {
             texts
                 .iter()
                 .any(|t| t == "ignore all previous instructions"),
-            "Property name 'ignore all previous instructions' should be collected; got: {:?}",
-            texts
+            "Property name 'ignore all previous instructions' should be collected; got: {texts:?}"
         );
         assert!(
             texts.iter().any(|t| t == "normal_field"),
-            "Property name 'normal_field' should also be collected; got: {:?}",
-            texts
+            "Property name 'normal_field' should also be collected; got: {texts:?}"
         );
     }
 
@@ -828,8 +826,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "not schema description should be collected; got: {:?}",
-            texts
+            "not schema description should be collected; got: {texts:?}"
         );
     }
 
@@ -848,8 +845,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "patternProperties schema description should be collected; got: {:?}",
-            texts
+            "patternProperties schema description should be collected; got: {texts:?}"
         );
     }
 
@@ -868,8 +864,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "dependentSchemas description should be collected; got: {:?}",
-            texts
+            "dependentSchemas description should be collected; got: {texts:?}"
         );
     }
 
@@ -886,8 +881,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "prefixItems description should be collected; got: {:?}",
-            texts
+            "prefixItems description should be collected; got: {texts:?}"
         );
     }
 
@@ -904,8 +898,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "contains description should be collected; got: {:?}",
-            texts
+            "contains description should be collected; got: {texts:?}"
         );
     }
 
@@ -922,8 +915,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "unevaluatedProperties must be scanned; got: {:?}",
-            texts
+            "unevaluatedProperties must be scanned; got: {texts:?}"
         );
     }
 
@@ -940,8 +932,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "unevaluatedItems must be scanned; got: {:?}",
-            texts
+            "unevaluatedItems must be scanned; got: {texts:?}"
         );
     }
 
@@ -958,8 +949,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "propertyNames must be scanned; got: {:?}",
-            texts
+            "propertyNames must be scanned; got: {texts:?}"
         );
     }
 
@@ -977,8 +967,7 @@ mod tests {
         collect_schema_descriptions(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "contentSchema must be scanned; got: {:?}",
-            texts
+            "contentSchema must be scanned; got: {texts:?}"
         );
     }
 
@@ -1217,8 +1206,7 @@ mod tests {
             .count();
         assert!(
             exfil_count >= 2,
-            "Should detect both chain_of_thought and conversation_history, got {}",
-            exfil_count
+            "Should detect both chain_of_thought and conversation_history, got {exfil_count}"
         );
     }
 
@@ -1241,8 +1229,7 @@ mod tests {
         let findings = scan_tool_descriptions(&response);
         assert!(
             findings.is_empty(),
-            "Normal params should not trigger exfiltration: {:?}",
-            findings
+            "Normal params should not trigger exfiltration: {findings:?}"
         );
     }
 
@@ -1402,8 +1389,7 @@ mod tests {
         // A normal tool with a clean name and clean description should have no findings
         assert!(
             findings.is_empty(),
-            "Normal tool should have no findings: {:?}",
-            findings
+            "Normal tool should have no findings: {findings:?}"
         );
     }
 }

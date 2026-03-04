@@ -49,7 +49,7 @@ async fn log_multiple_entries_preserves_order() {
     let (logger, _dir) = setup_logger();
 
     for i in 0..5 {
-        let action = sample_action("tool", &format!("action_{}", i));
+        let action = sample_action("tool", &format!("action_{i}"));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"index": i}))
             .await
@@ -103,7 +103,7 @@ async fn logger_handles_concurrent_writes() {
         handles.push(tokio::spawn(async move {
             let action = Action::new(
                 "tool".to_string(),
-                format!("concurrent_{}", i),
+                format!("concurrent_{i}"),
                 json!({"thread": i}),
             );
             lg.log_entry(&action, &Verdict::Allow, json!({}))

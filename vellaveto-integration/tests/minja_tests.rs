@@ -299,7 +299,7 @@ fn test_namespace_isolation_enforced() {
             vellaveto_types::MemoryAccessDecision::Deny { reason } => {
                 assert!(reason.contains("not allowed"));
             }
-            _ => panic!("Expected Deny, got {:?}", decision),
+            _ => panic!("Expected Deny, got {decision:?}"),
         }
     });
 }
@@ -395,7 +395,7 @@ fn test_statistics_tracking() {
 
         // Record some entries
         for i in 0..5 {
-            let content = format!("Test content number {} for statistics tracking", i);
+            let content = format!("Test content number {i} for statistics tracking");
             manager
                 .record_response(&content, "test_tool", Some("session-1"), Some("agent-1"))
                 .await;
@@ -485,7 +485,7 @@ fn test_namespace_capacity_limit() {
         // Create up to the limit
         for i in 0..3 {
             manager
-                .create_namespace(&format!("ns-{}", i), "agent-1")
+                .create_namespace(&format!("ns-{i}"), "agent-1")
                 .await
                 .expect("Should create namespace");
         }
@@ -530,7 +530,7 @@ fn test_integrity_verification() {
 
         // Record some entries
         for i in 0..3 {
-            let content = format!("Content for integrity verification test number {}", i);
+            let content = format!("Content for integrity verification test number {i}");
             manager
                 .record_response(
                     &content,

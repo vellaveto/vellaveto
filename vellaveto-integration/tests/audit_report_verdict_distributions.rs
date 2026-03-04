@@ -82,7 +82,7 @@ fn report_all_denies() {
         let a = action();
         for i in 0..15 {
             let v = Verdict::Deny {
-                reason: format!("reason_{}", i),
+                reason: format!("reason_{i}"),
             };
             logger.log_entry(&a, &v, json!({})).await.unwrap();
         }
@@ -103,7 +103,7 @@ fn report_all_require_approval() {
         let a = action();
         for i in 0..10 {
             let v = Verdict::RequireApproval {
-                reason: format!("approval_{}", i),
+                reason: format!("approval_{i}"),
             };
             logger.log_entry(&a, &v, json!({})).await.unwrap();
         }

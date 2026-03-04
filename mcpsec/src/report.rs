@@ -18,8 +18,7 @@ pub fn to_json(result: &BenchmarkResult) -> String {
         Err(e) => {
             let escaped = e.to_string().replace('\\', "\\\\").replace('"', "\\\"");
             format!(
-                "{{\"error\":\"failed to serialize benchmark result\",\"details\":\"{}\"}}",
-                escaped
+                "{{\"error\":\"failed to serialize benchmark result\",\"details\":\"{escaped}\"}}"
             )
         }
     }
@@ -74,7 +73,7 @@ pub fn to_markdown(result: &BenchmarkResult) -> String {
     for attack in &result.attacks {
         if attack.class != current_class {
             current_class = attack.class.clone();
-            md.push_str(&format!("### {}\n\n", current_class));
+            md.push_str(&format!("### {current_class}\n\n"));
             md.push_str("| ID | Name | Result | Latency |\n");
             md.push_str("|----|------|--------|---------|\n");
         }

@@ -233,10 +233,10 @@ fn traverse_json_strings_impl<F>(
                 // SECURITY (R42-MCP-1): Optionally scan object keys for injection patterns.
                 if include_keys {
                     *count = count.saturating_add(1);
-                    let key_path = format!("{}.<key>", path);
+                    let key_path = format!("{path}.<key>");
                     callback(&key_path, key);
                 }
-                let child_path = format!("{}.{}", path, key);
+                let child_path = format!("{path}.{key}");
                 traverse_json_strings_impl(
                     val,
                     &child_path,
@@ -252,7 +252,7 @@ fn traverse_json_strings_impl<F>(
                 if *count >= MAX_TRAVERSE_ELEMENTS {
                     break;
                 }
-                let child_path = format!("{}[{}]", path, i);
+                let child_path = format!("{path}[{i}]");
                 traverse_json_strings_impl(
                     val,
                     &child_path,
@@ -293,24 +293,24 @@ where
         for (i, item) in content.iter().enumerate() {
             // content[].text
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                callback(&format!("result.content[{}].text", i), text);
+                callback(&format!("result.content[{i}].text"), text);
             }
             // content[].resource.text
             if let Some(resource) = item.get("resource") {
                 if let Some(text) = resource.get("text").and_then(|t| t.as_str()) {
-                    callback(&format!("result.content[{}].resource.text", i), text);
+                    callback(&format!("result.content[{i}].resource.text"), text);
                 }
                 // content[].resource.blob (base64)
                 if let Some(blob) = resource.get("blob").and_then(|b| b.as_str()) {
                     if let Some(decoded) = super::util::try_base64_decode(blob) {
-                        callback(&format!("result.content[{}].resource.blob", i), &decoded);
+                        callback(&format!("result.content[{i}].resource.blob"), &decoded);
                     }
                 }
             }
             // content[].annotations
             if let Some(annotations) = item.get("annotations") {
                 let raw = annotations.to_string();
-                callback(&format!("result.content[{}].annotations", i), &raw);
+                callback(&format!("result.content[{i}].annotations"), &raw);
             }
         }
     }
@@ -602,8 +602,7 @@ mod tests {
             strings
                 .iter()
                 .any(|(p, s)| p.contains("<key>") && s.contains("<|im_start|>")),
-            "Should include injection key names; got: {:?}",
-            strings
+            "Should include injection key names; got: {strings:?}"
         );
     }
 

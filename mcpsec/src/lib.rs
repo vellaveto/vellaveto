@@ -148,3 +148,163 @@ pub async fn run_benchmark(config: &BenchmarkConfig) -> BenchmarkResult {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gateway_config_construction() {
+        let cfg = GatewayConfig {
+            base_url: "http://localhost:3000".to_string(),
+            evaluate_path: "/api/evaluate".to_string(),
+            auth_header: Some("test-token".to_string()),
+        };
+        assert_eq!(cfg.base_url, "http://localhost:3000");
+        assert_eq!(cfg.evaluate_path, "/api/evaluate");
+        assert_eq!(cfg.auth_header.as_deref(), Some("test-token"));
+    }
+
+    #[test]
+    fn test_gateway_config_no_auth() {
+        let cfg = GatewayConfig {
+            base_url: "https://gw.example.com".to_string(),
+            evaluate_path: "/evaluate".to_string(),
+            auth_header: None,
+        };
+        assert!(cfg.auth_header.is_none());
+    }
+
+    #[test]
+    fn test_output_format_equality() {
+        assert_eq!(OutputFormat::Json, OutputFormat::Json);
+        assert_eq!(OutputFormat::Markdown, OutputFormat::Markdown);
+        assert_ne!(OutputFormat::Json, OutputFormat::Markdown);
+    }
+
+    #[test]
+    fn test_benchmark_config_construction() {
+        let cfg = BenchmarkConfig {
+            gateway: GatewayConfig {
+                base_url: "http://localhost:3000".to_string(),
+                evaluate_path: "/api/evaluate".to_string(),
+                auth_header: None,
+            },
+            format: OutputFormat::Json,
+            timeout_secs: 30,
+            concurrency: 4,
+        };
+        assert_eq!(cfg.timeout_secs, 30);
+        assert_eq!(cfg.concurrency, 4);
+        assert_eq!(cfg.format, OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_attack_result_serialization_roundtrip() {
+        let result = AttackResult {
+            attack_id: "A1.1".to_string(),
+            name: "Classic injection".to_string(),
+            class: "Prompt Injection".to_string(),
+            passed: true,
+            latency_ns: 42_000,
+            details: "Blocked correctly".to_string(),
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: AttackResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.attack_id, "A1.1");
+        assert_eq!(parsed.name, "Classic injection");
+        assert!(parsed.passed);
+        assert_eq!(parsed.latency_ns, 42_000);
+    }
+
+    #[test]
+    fn test_property_score_serialization_roundtrip() {
+        let score = PropertyScore {
+            property_id: "P4".to_string(),
+            name: "Injection Resistance".to_string(),
+            score: 85.5,
+            tests_passed: 17,
+            tests_total: 20,
+        };
+        let json = serde_json::to_string(&score).unwrap();
+        let parsed: PropertyScore = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.property_id, "P4");
+        assert_eq!(parsed.score, 85.5);
+        assert_eq!(parsed.tests_passed, 17);
+        assert_eq!(parsed.tests_total, 20);
+    }
+
+    #[test]
+    fn test_benchmark_summary_serialization_roundtrip() {
+        let summary = BenchmarkSummary {
+            total_tests: 64,
+            passed: 50,
+            failed: 14,
+            skipped: 0,
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let parsed: BenchmarkSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.total_tests, 64);
+        assert_eq!(parsed.passed, 50);
+        assert_eq!(parsed.failed, 14);
+        assert_eq!(parsed.skipped, 0);
+    }
+
+    #[test]
+    fn test_benchmark_result_serialization_roundtrip() {
+        let result = BenchmarkResult {
+            framework: "MCPSEC".to_string(),
+            version: "1.0.0".to_string(),
+            timestamp: "2026-03-01T00:00:00Z".to_string(),
+            gateway: "http://localhost:3000".to_string(),
+            gateway_version: "6.0.0".to_string(),
+            overall_score: 75.0,
+            tier: 3,
+            tier_name: "Strong".to_string(),
+            properties: vec![],
+            attacks: vec![],
+            summary: BenchmarkSummary {
+                total_tests: 0,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+            },
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: BenchmarkResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.framework, "MCPSEC");
+        assert_eq!(parsed.version, "1.0.0");
+        assert_eq!(parsed.overall_score, 75.0);
+        assert_eq!(parsed.tier, 3);
+        assert_eq!(parsed.tier_name, "Strong");
+    }
+
+    #[test]
+    fn test_attack_result_debug_format() {
+        let result = AttackResult {
+            attack_id: "A2.1".to_string(),
+            name: "Schema poisoning".to_string(),
+            class: "Schema Integrity".to_string(),
+            passed: false,
+            latency_ns: 100_000,
+            details: "Not detected".to_string(),
+        };
+        let debug = format!("{result:?}");
+        assert!(debug.contains("A2.1"));
+        assert!(debug.contains("Schema poisoning"));
+    }
+
+    #[test]
+    fn test_benchmark_summary_failed_plus_passed_equals_total() {
+        let summary = BenchmarkSummary {
+            total_tests: 64,
+            passed: 50,
+            failed: 14,
+            skipped: 0,
+        };
+        assert_eq!(
+            summary.passed + summary.failed + summary.skipped,
+            summary.total_tests
+        );
+    }
+}

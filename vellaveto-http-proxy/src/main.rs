@@ -313,7 +313,7 @@ async fn main() -> Result<()> {
 
     // Load and compile policies
     let policy_config = PolicyConfig::load_file(&args.config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
     // SEC-006: Validate DLP patterns compile at startup (fail-closed).
     // If any pattern is invalid, fail immediately rather than silently skipping
@@ -333,8 +333,7 @@ async fn main() -> Result<()> {
     if let Err(error) = vellaveto_mcp::inspection::validate_injection_patterns() {
         tracing::error!("Injection pattern compilation failed: {}", error);
         anyhow::bail!(
-            "Injection pattern validation failed: {}. Injection detection unavailable.",
-            error
+            "Injection pattern validation failed: {error}. Injection detection unavailable."
         );
     }
 
@@ -694,7 +693,7 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     // Fail-closed: invalid gateway config prevents startup
-                    return Err(anyhow::anyhow!("Gateway config error: {}", e));
+                    return Err(anyhow::anyhow!("Gateway config error: {e}"));
                 }
             }
         } else {
@@ -716,7 +715,7 @@ async fn main() -> Result<()> {
                     Some(Arc::new(engine))
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("ABAC config error: {}", e));
+                    return Err(anyhow::anyhow!("ABAC config error: {e}"));
                 }
             }
         } else {
@@ -989,7 +988,7 @@ async fn main() -> Result<()> {
     // Start HTTP server
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
-        .context(format!("Failed to bind to {}", bind_addr))?;
+        .context(format!("Failed to bind to {bind_addr}"))?;
 
     tracing::info!(
         "Vellaveto HTTP proxy listening on {} → upstream {}",

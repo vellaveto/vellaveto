@@ -128,7 +128,7 @@ impl WebhookExporter {
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
             .map_err(|e| {
-                ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e))
+                ObservabilityError::Configuration(format!("Failed to create HTTP client: {e}"))
             })?;
 
         Ok(Self { config, client })
@@ -154,10 +154,10 @@ impl WebhookExporter {
         let (body, content_encoding) = if self.config.compress {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
             encoder.write_all(&json).map_err(|e| {
-                ObservabilityError::Serialization(format!("Compression failed: {}", e))
+                ObservabilityError::Serialization(format!("Compression failed: {e}"))
             })?;
             let compressed = encoder.finish().map_err(|e| {
-                ObservabilityError::Serialization(format!("Compression failed: {}", e))
+                ObservabilityError::Serialization(format!("Compression failed: {e}"))
             })?;
             (compressed, Some("gzip"))
         } else {
@@ -196,8 +196,7 @@ impl WebhookExporter {
             Ok(())
         } else if status.as_u16() == 401 || status.as_u16() == 403 {
             Err(ObservabilityError::AuthError(format!(
-                "Authentication failed: {}",
-                status
+                "Authentication failed: {status}"
             )))
         } else if status.as_u16() == 429 {
             // SECURITY (FIND-R46-004): Cap Retry-After at 300 seconds to prevent
@@ -446,7 +445,7 @@ mod tests {
         let spans: Vec<SecuritySpan> = (0..10)
             .map(|i| {
                 let mut s = span.clone();
-                s.span_id = format!("span-{}", i);
+                s.span_id = format!("span-{i}");
                 s
             })
             .collect();
@@ -607,7 +606,7 @@ mod tests {
         // Generate a large number of spans
         let spans: Vec<SecuritySpan> = (0..100)
             .map(|i| SecuritySpan {
-                span_id: format!("span-{}", i),
+                span_id: format!("span-{i}"),
                 parent_span_id: if i > 0 {
                     Some(format!("span-{}", i - 1))
                 } else {
@@ -615,7 +614,7 @@ mod tests {
                 },
                 trace_id: "trace-large".to_string(),
                 span_kind: SpanKind::Tool,
-                name: format!("operation_{}", i),
+                name: format!("operation_{i}"),
                 start_time: "2024-01-01T00:00:00Z".to_string(),
                 end_time: "2024-01-01T00:00:01Z".to_string(),
                 duration_ms: 100 + i as u64,
@@ -623,7 +622,7 @@ mod tests {
                 verdict: VerdictSummary {
                     outcome: if i % 3 == 0 { "deny" } else { "allow" }.to_string(),
                     reason: if i % 3 == 0 {
-                        Some(format!("Reason for span {}", i))
+                        Some(format!("Reason for span {i}"))
                     } else {
                         None
                     },

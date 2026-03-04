@@ -668,7 +668,7 @@ mod tests {
         let d = empty_discovery();
         // Fill beyond limit — should not panic or grow unbounded
         for i in 0..MAX_UNREGISTERED_AGENTS + 100 {
-            d.observe_request(&format!("agent-{}", i), "tool", None);
+            d.observe_request(&format!("agent-{i}"), "tool", None);
         }
         // All are unregistered since registered_agents is empty
         // but bounded at MAX_UNREGISTERED_AGENTS
@@ -709,7 +709,7 @@ mod tests {
         let d = empty_discovery();
         // Fill to capacity
         for i in 0..MAX_REGISTERED_AGENTS {
-            d.register_agent(&format!("agent-{}", i));
+            d.register_agent(&format!("agent-{i}"));
         }
         // Verify at capacity
         assert!(d.is_agent_registered("agent-0"));
@@ -741,7 +741,7 @@ mod tests {
         let d = empty_discovery();
         // Fill to capacity
         for i in 0..MAX_REGISTERED_AGENTS {
-            d.register_agent(&format!("agent-{}", i));
+            d.register_agent(&format!("agent-{i}"));
         }
         // Re-registering an existing agent should succeed (idempotent)
         d.register_agent("agent-0");
@@ -943,7 +943,7 @@ mod tests {
         let d = empty_discovery();
         // Fill to capacity
         for i in 0..MAX_UNREGISTERED_AGENTS {
-            d.observe_request(&format!("agent-{}", i), "tool", None);
+            d.observe_request(&format!("agent-{i}"), "tool", None);
         }
         assert_eq!(d.unregistered_agent_count(), MAX_UNREGISTERED_AGENTS);
 
@@ -962,7 +962,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..MAX_UNAPPROVED_TOOLS {
-            d.observe_request("agent", &format!("tool-{}", i), None);
+            d.observe_request("agent", &format!("tool-{i}"), None);
         }
         assert_eq!(d.unapproved_tool_count(), MAX_UNAPPROVED_TOOLS);
 
@@ -979,7 +979,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..MAX_UNKNOWN_SERVERS {
-            d.observe_request("agent", "tool", Some(&format!("srv-{}", i)));
+            d.observe_request("agent", "tool", Some(&format!("srv-{i}")));
         }
         assert_eq!(d.unknown_server_count(), MAX_UNKNOWN_SERVERS);
 

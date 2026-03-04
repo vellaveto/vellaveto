@@ -541,8 +541,7 @@ impl WorkflowTracker {
                     session_id: session_id.to_string(),
                     alert_type: WorkflowAlertType::ExfiltrationChain,
                     description: format!(
-                        "Repeated access to sensitive resource: {} ({} times)",
-                        resource, count
+                        "Repeated access to sensitive resource: {resource} ({count} times)"
                     ),
                     involved_actions: vec![resource.clone()],
                     severity: 4,
@@ -980,12 +979,11 @@ mod tests {
 
         // Fill the workflow to exactly MAX_WORKFLOW_ACTIONS
         for i in 0..MAX_WORKFLOW_ACTIONS {
-            let action = create_action("tool", &format!("action_{}", i));
+            let action = create_action("tool", &format!("action_{i}"));
             let result = tracker.record_step("session1", "workflow1", &action);
             assert!(
                 matches!(result, StepResult::Recorded { .. }),
-                "Step {} should be recorded",
-                i
+                "Step {i} should be recorded"
             );
         }
 
@@ -1067,8 +1065,7 @@ mod tests {
         let result3 = tracker.record_step("session3", "workflow1", &action);
         assert!(
             matches!(result3, StepResult::BudgetExceeded { .. }),
-            "FIND-R115-023: New session beyond max_sessions must be rejected in record_step, got: {:?}",
-            result3
+            "FIND-R115-023: New session beyond max_sessions must be rejected in record_step, got: {result3:?}"
         );
 
         // Session count should still be 2
@@ -1099,8 +1096,7 @@ mod tests {
         let result = tracker.record_step("session1", "workflow3", &action);
         assert!(
             matches!(result, StepResult::BudgetExceeded { .. }),
-            "FIND-R115-023: New workflow beyond max_workflows_per_session must be rejected in record_step, got: {:?}",
-            result
+            "FIND-R115-023: New workflow beyond max_workflows_per_session must be rejected in record_step, got: {result:?}"
         );
 
         // Workflow count should still be 2
@@ -1126,8 +1122,7 @@ mod tests {
         let result = tracker.record_step("session1", "workflow1", &action);
         assert!(
             matches!(result, StepResult::Recorded { step_count: 2, .. }),
-            "Existing session must still accept steps, got: {:?}",
-            result
+            "Existing session must still accept steps, got: {result:?}"
         );
     }
 
@@ -1148,8 +1143,7 @@ mod tests {
         let result = tracker.record_step("session1", "workflow1", &action);
         assert!(
             matches!(result, StepResult::Recorded { step_count: 2, .. }),
-            "Existing workflow must still accept steps, got: {:?}",
-            result
+            "Existing workflow must still accept steps, got: {result:?}"
         );
     }
 }

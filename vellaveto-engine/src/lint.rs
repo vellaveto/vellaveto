@@ -254,8 +254,7 @@ impl PolicyLinter {
                         severity: LintSeverity::Warning,
                         policy_id: policy.id.clone(),
                         message: format!(
-                            "Blocked pattern '{}' is a prefix of allowed pattern '{}' — the allowed pattern is unreachable",
-                            blocked, allowed
+                            "Blocked pattern '{blocked}' is a prefix of allowed pattern '{allowed}' — the allowed pattern is unreachable"
                         ),
                         suggestion: Some(
                             "Remove the unreachable allowed pattern or restructure the rules".to_string(),
@@ -925,7 +924,7 @@ mod tests {
     fn test_lint_l011_large_policy_set() {
         let linter = PolicyLinter::new();
         let policies: Vec<Policy> = (0..501)
-            .map(|i| make_deny_policy(&format!("tool{}:fn", i), &format!("Policy {}", i), i))
+            .map(|i| make_deny_policy(&format!("tool{i}:fn"), &format!("Policy {i}"), i))
             .collect();
         let report = linter.lint(&policies);
         assert!(report.findings.iter().any(|f| f.rule_id == "L011"));
@@ -935,7 +934,7 @@ mod tests {
     fn test_lint_l011_small_policy_set_no_finding() {
         let linter = PolicyLinter::new();
         let policies: Vec<Policy> = (0..10)
-            .map(|i| make_deny_policy(&format!("tool{}:fn", i), &format!("Policy {}", i), i))
+            .map(|i| make_deny_policy(&format!("tool{i}:fn"), &format!("Policy {i}"), i))
             .collect();
         let report = linter.lint(&policies);
         assert!(!report.findings.iter().any(|f| f.rule_id == "L011"));

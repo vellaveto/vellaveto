@@ -306,8 +306,7 @@ impl OutputSecurityAnalyzer {
                 stego_type: SteganographyType::Whitespace,
                 confidence: (count as f32 / 10.0).min(1.0),
                 description: format!(
-                    "Detected {} zero-width characters potentially hiding data",
-                    count
+                    "Detected {count} zero-width characters potentially hiding data"
                 ),
                 offset: first_offset,
                 length: Some(count),
@@ -362,8 +361,7 @@ impl OutputSecurityAnalyzer {
                 stego_type: SteganographyType::Homoglyph,
                 confidence: (homoglyph_count as f32 / 20.0).min(1.0),
                 description: format!(
-                    "Detected {} potential homoglyph characters in mostly ASCII text",
-                    homoglyph_count
+                    "Detected {homoglyph_count} potential homoglyph characters in mostly ASCII text"
                 ),
                 offset: first_offset,
                 length: Some(homoglyph_count),
@@ -410,8 +408,7 @@ impl OutputSecurityAnalyzer {
                 stego_type: SteganographyType::InvisibleCharacters,
                 confidence: (count as f32 / 15.0).min(1.0),
                 description: format!(
-                    "Detected {} invisible Unicode characters that may hide data",
-                    count
+                    "Detected {count} invisible Unicode characters that may hide data"
                 ),
                 offset: first_offset,
                 length: Some(count),
@@ -440,7 +437,7 @@ impl OutputSecurityAnalyzer {
             return Some(SteganographyAlert {
                 stego_type: SteganographyType::ControlCharacters,
                 confidence: (suspicious_count as f32 / 10.0).min(1.0),
-                description: format!("Detected {} unusual control characters", suspicious_count),
+                description: format!("Detected {suspicious_count} unusual control characters"),
                 offset: first_offset,
                 length: Some(suspicious_count),
             });
@@ -813,7 +810,7 @@ mod tests {
         } else {
             // If not abnormal, at least verify it's close to threshold
             if let EntropyResult::Normal { entropy } = analyzer.check_entropy(high_entropy) {
-                assert!(entropy > 4.0, "Expected high entropy, got {}", entropy);
+                assert!(entropy > 4.0, "Expected high entropy, got {entropy}");
             }
         }
     }
@@ -959,7 +956,7 @@ mod tests {
         let analyzer = OutputSecurityAnalyzer::new();
         // Fill baselines to capacity
         for i in 0..100 {
-            analyzer.update_baseline(&format!("sess_{}", i), 4.0);
+            analyzer.update_baseline(&format!("sess_{i}"), 4.0);
         }
         // Existing sessions can still be updated
         analyzer.update_baseline("sess_0", 4.5);

@@ -266,7 +266,7 @@ policy_type = "Allow"
     let result = PolicyConfig::load_file(path.to_str().unwrap());
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("unsupported extension"), "error: {}", err);
+    assert!(err.contains("unsupported extension"), "error: {err}");
 }
 
 #[test]
@@ -958,8 +958,8 @@ policy_type = "Allow"
     .unwrap();
     config.audit.custom_pii_patterns = (0..=MAX_CUSTOM_PII_PATTERNS)
         .map(|i| CustomPiiPattern {
-            name: format!("pat_{}", i),
-            pattern: format!("pattern{}", i),
+            name: format!("pat_{i}"),
+            pattern: format!("pattern{i}"),
         })
         .collect();
     let err = config.validate().unwrap_err();
@@ -980,7 +980,7 @@ policy_type = "Allow"
     )
     .unwrap();
     config.injection.extra_patterns = (0..=MAX_EXTRA_INJECTION_PATTERNS)
-        .map(|i| format!("pattern {}", i))
+        .map(|i| format!("pattern {i}"))
         .collect();
     let err = config.validate().unwrap_err();
     assert!(err.contains("extra_patterns"));
@@ -1004,8 +1004,7 @@ policy_type = "Allow"
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("dlp.extra_patterns") && err.contains("invalid regex"),
-        "Error should mention dlp.extra_patterns and invalid regex: {}",
-        err
+        "Error should mention dlp.extra_patterns and invalid regex: {err}"
     );
 }
 
@@ -1028,8 +1027,7 @@ policy_type = "Allow"
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("audit.custom_pii_patterns") && err.contains("invalid regex"),
-        "Error should mention audit.custom_pii_patterns and invalid regex: {}",
-        err
+        "Error should mention audit.custom_pii_patterns and invalid regex: {err}"
     );
 }
 
@@ -1143,7 +1141,7 @@ fn test_validate_rejects_too_many_policies() {
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {
-            name: format!("p{}", i),
+            name: format!("p{i}"),
             tool_pattern: "*".to_string(),
             function_pattern: "*".to_string(),
             policy_type: PolicyType::Allow,
@@ -1165,8 +1163,7 @@ fn test_validate_rejects_hybrid_kex_policy_when_tls_disabled() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.kex_policy requires tls.mode"),
-        "expected tls mode validation error, got: {}",
-        err
+        "expected tls mode validation error, got: {err}"
     );
 }
 
@@ -1181,8 +1178,7 @@ fn test_validate_rejects_hybrid_kex_policy_without_tls13() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("requires tls.min_version = \"1.3\""),
-        "expected tls13 requirement error, got: {}",
-        err
+        "expected tls13 requirement error, got: {err}"
     );
 }
 
@@ -1204,8 +1200,7 @@ fn test_validate_rejects_invalid_min_tls_version() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.min_version must be"),
-        "expected min tls version validation error, got: {}",
-        err
+        "expected min tls version validation error, got: {err}"
     );
 }
 
@@ -1249,8 +1244,8 @@ policy_type = "Allow"
     // Exactly at the limit should pass
     config.audit.custom_pii_patterns = (0..MAX_CUSTOM_PII_PATTERNS)
         .map(|i| CustomPiiPattern {
-            name: format!("pat_{}", i),
-            pattern: format!("pattern{}", i),
+            name: format!("pat_{i}"),
+            pattern: format!("pattern{i}"),
         })
         .collect();
     assert!(config.validate().is_ok());
@@ -1276,8 +1271,7 @@ fn test_validate_rejects_nan_trust_threshold() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("trust_threshold must be in [0.0, 1.0]"),
-        "NaN should be rejected, got: {}",
-        err
+        "NaN should be rejected, got: {err}"
     );
 }
 
@@ -1288,8 +1282,7 @@ fn test_validate_rejects_infinity_trust_threshold() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("trust_threshold must be in [0.0, 1.0]"),
-        "Infinity should be rejected, got: {}",
-        err
+        "Infinity should be rejected, got: {err}"
     );
 }
 
@@ -1300,8 +1293,7 @@ fn test_validate_rejects_out_of_range_trust_threshold() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("[0.0, 1.0]"),
-        "1.5 should be out of range, got: {}",
-        err
+        "1.5 should be out of range, got: {err}"
     );
 }
 
@@ -1312,8 +1304,7 @@ fn test_validate_rejects_http_webhook_url() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("HTTPS"),
-        "HTTP scheme should be rejected, got: {}",
-        err
+        "HTTP scheme should be rejected, got: {err}"
     );
 }
 
@@ -1324,8 +1315,7 @@ fn test_validate_rejects_localhost_webhook_url() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost"),
-        "Localhost should be rejected, got: {}",
-        err
+        "Localhost should be rejected, got: {err}"
     );
 }
 
@@ -1336,8 +1326,7 @@ fn test_validate_rejects_loopback_webhook_url() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost"),
-        "Loopback should be rejected, got: {}",
-        err
+        "Loopback should be rejected, got: {err}"
     );
 }
 
@@ -1358,8 +1347,7 @@ fn test_validate_rejects_opa_endpoint_without_http_scheme() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("opa.endpoint must start with http:// or https://"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -1374,8 +1362,7 @@ fn test_validate_rejects_opa_http_endpoint_when_require_https() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("opa.require_https=true requires opa.endpoint to use https://"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -1412,8 +1399,7 @@ fn test_validate_rejects_opa_endpoint_with_userinfo() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("must not include URL userinfo credentials"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -1425,7 +1411,7 @@ fn test_validate_rejects_opa_endpoint_without_host() {
     config.opa.bundle_path = None;
 
     let err = config.validate().unwrap_err();
-    assert!(err.contains("must be a valid URL"), "got: {}", err);
+    assert!(err.contains("must be a valid URL"), "got: {err}");
 }
 
 // SECURITY (R43-OPA-1): fail_open requires explicit acknowledgment
@@ -1441,8 +1427,7 @@ fn test_validate_rejects_opa_fail_open_without_acknowledgment() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("fail_open_acknowledged"),
-        "fail_open=true without acknowledgment should be rejected, got: {}",
-        err
+        "fail_open=true without acknowledgment should be rejected, got: {err}"
     );
 }
 
@@ -1484,8 +1469,7 @@ fn test_validate_rejects_webhook_url_userinfo_bypass() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost"),
-        "Webhook URL with @localhost should be rejected, got: {}",
-        err
+        "Webhook URL with @localhost should be rejected, got: {err}"
     );
 }
 
@@ -1497,8 +1481,7 @@ fn test_validate_rejects_webhook_url_userinfo_127() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost"),
-        "Webhook URL with @127.0.0.1 should be rejected, got: {}",
-        err
+        "Webhook URL with @127.0.0.1 should be rejected, got: {err}"
     );
 }
 
@@ -1510,8 +1493,7 @@ fn test_validate_rejects_persistence_path_traversal() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains(".."),
-        "Persistence path with traversal should be rejected, got: {}",
-        err
+        "Persistence path with traversal should be rejected, got: {err}"
     );
 }
 
@@ -1531,8 +1513,7 @@ fn test_validate_rejects_webhook_ipv6_loopback() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost") || err.contains("loopback"),
-        "Webhook URL with [::1] should be rejected, got: {}",
-        err
+        "Webhook URL with [::1] should be rejected, got: {err}"
     );
 }
 
@@ -1544,8 +1525,7 @@ fn test_validate_rejects_webhook_ipv6_malformed() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("malformed IPv6"),
-        "Webhook URL with malformed IPv6 should be rejected, got: {}",
-        err
+        "Webhook URL with malformed IPv6 should be rejected, got: {err}"
     );
 }
 
@@ -1557,8 +1537,7 @@ fn test_validate_persistence_path_traversal_via_components() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains(".."),
-        "Persistence path with redundant-component traversal should be rejected, got: {}",
-        err
+        "Persistence path with redundant-component traversal should be rejected, got: {err}"
     );
 }
 
@@ -1569,8 +1548,7 @@ fn test_validate_rejects_excessive_batch_size() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("batch_size"),
-        "Excessive batch_size should be rejected, got: {}",
-        err
+        "Excessive batch_size should be rejected, got: {err}"
     );
 }
 
@@ -1582,8 +1560,7 @@ fn test_validate_rejects_zero_batch_size() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("batch_size") && err.contains("> 0"),
-        "Zero batch_size should be rejected, got: {}",
-        err
+        "Zero batch_size should be rejected, got: {err}"
     );
 }
 
@@ -1595,8 +1572,7 @@ fn test_validate_rejects_oversized_disabled_pattern() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("disabled_patterns") && err.contains("max length"),
-        "Oversized disabled_pattern should be rejected, got: {}",
-        err
+        "Oversized disabled_pattern should be rejected, got: {err}"
     );
 }
 
@@ -1608,8 +1584,7 @@ fn test_validate_rejects_empty_extra_pattern() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("extra_patterns") && err.contains("empty"),
-        "Empty extra_pattern should be rejected, got: {}",
-        err
+        "Empty extra_pattern should be rejected, got: {err}"
     );
 }
 
@@ -1751,8 +1726,7 @@ fn test_validate_rejects_webhook_ipv4_mapped_ipv6() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv4-mapped IPv6 cloud metadata address should be rejected, got: {}",
-        err
+        "IPv4-mapped IPv6 cloud metadata address should be rejected, got: {err}"
     );
 }
 
@@ -1764,8 +1738,7 @@ fn test_validate_rejects_webhook_ipv4_mapped_ipv6_rfc1918() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv4-mapped IPv6 RFC 1918 address should be rejected, got: {}",
-        err
+        "IPv4-mapped IPv6 RFC 1918 address should be rejected, got: {err}"
     );
 }
 
@@ -1778,8 +1751,7 @@ fn test_validate_rejects_webhook_ipv6_link_local_non_zero_bits() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv6 link-local fea0::1 should be rejected, got: {}",
-        err
+        "IPv6 link-local fea0::1 should be rejected, got: {err}"
     );
 }
 
@@ -1791,8 +1763,7 @@ fn test_validate_rejects_webhook_ipv6_link_local_febf() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv6 link-local febf::1 should be rejected, got: {}",
-        err
+        "IPv6 link-local febf::1 should be rejected, got: {err}"
     );
 }
 
@@ -1807,8 +1778,7 @@ fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_link_local() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv6 zone-id link-local fe80::1%eth0 should be rejected, got: {}",
-        err
+        "IPv6 zone-id link-local fe80::1%eth0 should be rejected, got: {err}"
     );
 }
 
@@ -1823,8 +1793,7 @@ fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_loopback() {
             || err.contains("loopback")
             || err.contains("private")
             || err.contains("internal"),
-        "IPv6 zone-id loopback ::1%lo should be rejected, got: {}",
-        err
+        "IPv6 zone-id loopback ::1%lo should be rejected, got: {err}"
     );
 }
 
@@ -1840,8 +1809,7 @@ fn test_r40_sup_2_webhook_rejects_ipv6_percent_encoded_zone_id() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv6 percent-encoded zone-id fe80::1%%25eth0 should be rejected, got: {}",
-        err
+        "IPv6 percent-encoded zone-id fe80::1%%25eth0 should be rejected, got: {err}"
     );
 }
 
@@ -1853,8 +1821,7 @@ fn test_r40_sup_2_webhook_rejects_ipv6_zone_id_ula() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "IPv6 zone-id ULA fc00::1%eth0 should be rejected, got: {}",
-        err
+        "IPv6 zone-id ULA fc00::1%eth0 should be rejected, got: {err}"
     );
 }
 
@@ -1905,21 +1872,19 @@ fn test_r39_sup_3_compute_hash_nonexistent_file_returns_error() {
 fn test_r39_sup_4_validate_rejects_too_many_allowed_servers() {
     let mut config = minimal_config();
     for i in 0..=MAX_ALLOWED_SERVERS {
-        config.supply_chain.allowed_servers.insert(
-            format!("/usr/local/bin/server-{}", i),
-            format!("{:064x}", i),
-        );
+        config
+            .supply_chain
+            .allowed_servers
+            .insert(format!("/usr/local/bin/server-{i}"), format!("{i:064x}"));
     }
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("supply_chain.allowed_servers"),
-        "Expected supply_chain.allowed_servers error, got: {}",
-        err
+        "Expected supply_chain.allowed_servers error, got: {err}"
     );
     assert!(
-        err.contains(&format!("{}", MAX_ALLOWED_SERVERS)),
-        "Error should mention the max limit, got: {}",
-        err
+        err.contains(&format!("{MAX_ALLOWED_SERVERS}")),
+        "Error should mention the max limit, got: {err}"
     );
 }
 
@@ -1927,10 +1892,10 @@ fn test_r39_sup_4_validate_rejects_too_many_allowed_servers() {
 fn test_r39_sup_4_validate_accepts_allowed_servers_at_limit() {
     let mut config = minimal_config();
     for i in 0..MAX_ALLOWED_SERVERS {
-        config.supply_chain.allowed_servers.insert(
-            format!("/usr/local/bin/server-{}", i),
-            format!("{:064x}", i),
-        );
+        config
+            .supply_chain
+            .allowed_servers
+            .insert(format!("/usr/local/bin/server-{i}"), format!("{i:064x}"));
     }
     // Exactly at the limit should pass
     assert!(config.validate().is_ok());
@@ -1946,8 +1911,7 @@ fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_link_local() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal") || err.contains("IPv6"),
-        "Percent-encoded IPv6 link-local should be rejected, got: {}",
-        err
+        "Percent-encoded IPv6 link-local should be rejected, got: {err}"
     );
 }
 
@@ -1959,8 +1923,7 @@ fn test_r41_sup_3_webhook_rejects_percent_encoded_ipv6_loopback() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost") || err.contains("loopback") || err.contains("private"),
-        "Percent-encoded IPv6 loopback should be rejected, got: {}",
-        err
+        "Percent-encoded IPv6 loopback should be rejected, got: {err}"
     );
 }
 
@@ -1972,8 +1935,7 @@ fn test_r41_sup_3_webhook_rejects_lowercase_percent_encoded_brackets() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal") || err.contains("IPv6"),
-        "Lowercase percent-encoded IPv6 link-local should be rejected, got: {}",
-        err
+        "Lowercase percent-encoded IPv6 link-local should be rejected, got: {err}"
     );
 }
 
@@ -1988,8 +1950,7 @@ fn test_r42_cfg_1_webhook_rejects_percent_encoded_localhost() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost") || err.contains("loopback"),
-        "Percent-encoded 'localhost' should be rejected, got: {}",
-        err
+        "Percent-encoded 'localhost' should be rejected, got: {err}"
     );
 }
 
@@ -2002,8 +1963,7 @@ fn test_r42_cfg_1_webhook_rejects_percent_encoded_127_0_0_1() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost") || err.contains("loopback") || err.contains("private"),
-        "Percent-encoded '127.0.0.1' should be rejected, got: {}",
-        err
+        "Percent-encoded '127.0.0.1' should be rejected, got: {err}"
     );
 }
 
@@ -2016,8 +1976,7 @@ fn test_r42_cfg_1_webhook_rejects_mixed_case_percent_encoded_localhost() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("localhost") || err.contains("loopback"),
-        "Mixed-case percent-encoded 'LOCALHOST' should be rejected, got: {}",
-        err
+        "Mixed-case percent-encoded 'LOCALHOST' should be rejected, got: {err}"
     );
 }
 
@@ -2030,8 +1989,7 @@ fn test_r42_cfg_1_webhook_rejects_percent_encoded_private_ip() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("private") || err.contains("internal"),
-        "Percent-encoded cloud metadata IP should be rejected, got: {}",
-        err
+        "Percent-encoded cloud metadata IP should be rejected, got: {err}"
     );
 }
 
@@ -2045,8 +2003,7 @@ fn test_r41_sup_7_persistence_path_rejects_absolute_etc_passwd() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("relative path"),
-        "Absolute path /etc/passwd should be rejected, got: {}",
-        err
+        "Absolute path /etc/passwd should be rejected, got: {err}"
     );
 }
 
@@ -2057,8 +2014,7 @@ fn test_r41_sup_7_persistence_path_rejects_absolute_tmp() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("relative path"),
-        "Absolute path /tmp/file should be rejected, got: {}",
-        err
+        "Absolute path /tmp/file should be rejected, got: {err}"
     );
 }
 
@@ -2069,8 +2025,7 @@ fn test_r41_sup_7_persistence_path_rejects_absolute_cron() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("relative path"),
-        "Absolute path /etc/cron.d/backdoor should be rejected, got: {}",
-        err
+        "Absolute path /etc/cron.d/backdoor should be rejected, got: {err}"
     );
 }
 
@@ -2133,7 +2088,7 @@ fn test_validate_rejects_behavioral_alpha_zero() {
     config.behavioral.enabled = true;
     config.behavioral.alpha = 0.0;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    assert!(err.contains("behavioral.alpha"), "got: {err}");
 }
 
 #[test]
@@ -2142,7 +2097,7 @@ fn test_validate_rejects_behavioral_alpha_negative() {
     config.behavioral.enabled = true;
     config.behavioral.alpha = -0.1;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    assert!(err.contains("behavioral.alpha"), "got: {err}");
 }
 
 #[test]
@@ -2151,7 +2106,7 @@ fn test_validate_rejects_behavioral_alpha_above_one() {
     config.behavioral.enabled = true;
     config.behavioral.alpha = 1.01;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    assert!(err.contains("behavioral.alpha"), "got: {err}");
 }
 
 #[test]
@@ -2160,7 +2115,7 @@ fn test_validate_rejects_behavioral_alpha_nan() {
     config.behavioral.enabled = true;
     config.behavioral.alpha = f64::NAN;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.alpha"), "got: {}", err);
+    assert!(err.contains("behavioral.alpha"), "got: {err}");
 }
 
 #[test]
@@ -2169,7 +2124,7 @@ fn test_validate_rejects_behavioral_threshold_zero() {
     config.behavioral.enabled = true;
     config.behavioral.threshold = 0.0;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.threshold"), "got: {}", err);
+    assert!(err.contains("behavioral.threshold"), "got: {err}");
 }
 
 #[test]
@@ -2178,7 +2133,7 @@ fn test_validate_rejects_behavioral_threshold_nan() {
     config.behavioral.enabled = true;
     config.behavioral.threshold = f64::NAN;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.threshold"), "got: {}", err);
+    assert!(err.contains("behavioral.threshold"), "got: {err}");
 }
 
 #[test]
@@ -2186,7 +2141,7 @@ fn test_validate_rejects_behavioral_max_agents_too_large() {
     let mut config = minimal_config();
     config.behavioral.max_agents = MAX_BEHAVIORAL_AGENTS + 1;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("behavioral.max_agents"), "got: {}", err);
+    assert!(err.contains("behavioral.max_agents"), "got: {err}");
 }
 
 #[test]
@@ -2194,11 +2149,7 @@ fn test_validate_rejects_behavioral_max_tools_too_large() {
     let mut config = minimal_config();
     config.behavioral.max_tools_per_agent = MAX_BEHAVIORAL_TOOLS_PER_AGENT + 1;
     let err = config.validate().unwrap_err();
-    assert!(
-        err.contains("behavioral.max_tools_per_agent"),
-        "got: {}",
-        err
-    );
+    assert!(err.contains("behavioral.max_tools_per_agent"), "got: {err}");
 }
 
 #[test]
@@ -2254,7 +2205,7 @@ fn test_validate_rejects_data_flow_max_findings_too_large() {
     let mut config = minimal_config();
     config.data_flow.max_findings = MAX_DATA_FLOW_FINDINGS + 1;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("data_flow.max_findings"), "got: {}", err);
+    assert!(err.contains("data_flow.max_findings"), "got: {err}");
 }
 
 #[test]
@@ -2264,8 +2215,7 @@ fn test_validate_rejects_data_flow_max_fingerprints_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("data_flow.max_fingerprints_per_pattern"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -2323,7 +2273,7 @@ fn test_validate_rejects_semantic_threshold_zero() {
     config.semantic_detection.enabled = true;
     config.semantic_detection.threshold = 0.0;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("semantic_detection.threshold"), "got: {}", err);
+    assert!(err.contains("semantic_detection.threshold"), "got: {err}");
 }
 
 #[test]
@@ -2332,7 +2282,7 @@ fn test_validate_rejects_semantic_threshold_nan() {
     config.semantic_detection.enabled = true;
     config.semantic_detection.threshold = f64::NAN;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("semantic_detection.threshold"), "got: {}", err);
+    assert!(err.contains("semantic_detection.threshold"), "got: {err}");
 }
 
 #[test]
@@ -2341,20 +2291,19 @@ fn test_validate_rejects_semantic_threshold_above_one() {
     config.semantic_detection.enabled = true;
     config.semantic_detection.threshold = 1.5;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("semantic_detection.threshold"), "got: {}", err);
+    assert!(err.contains("semantic_detection.threshold"), "got: {err}");
 }
 
 #[test]
 fn test_validate_rejects_semantic_too_many_templates() {
     let mut config = minimal_config();
     config.semantic_detection.extra_templates = (0..=MAX_SEMANTIC_EXTRA_TEMPLATES)
-        .map(|i| format!("template {}", i))
+        .map(|i| format!("template {i}"))
         .collect();
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("semantic_detection.extra_templates"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -2838,7 +2787,7 @@ fn test_transport_config_stdio_relative_path_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("absolute path"), "got: {}", err);
+    assert!(err.contains("absolute path"), "got: {err}");
 }
 
 // FIND-R41-002: stdio_command with shell metacharacters rejected
@@ -2858,8 +2807,7 @@ fn test_transport_config_stdio_metacharacters_rejected() {
         };
         assert!(
             config.validate().is_err(),
-            "expected rejection for command: {}",
-            cmd
+            "expected rejection for command: {cmd}"
         );
     }
 }
@@ -2870,14 +2818,14 @@ fn test_transport_config_overrides_count_bounded() {
     use vellaveto_types::TransportProtocol;
     let mut overrides = std::collections::HashMap::new();
     for i in 0..101 {
-        overrides.insert(format!("tool_{}", i), vec![TransportProtocol::Http]);
+        overrides.insert(format!("tool_{i}"), vec![TransportProtocol::Http]);
     }
     let config = TransportConfig {
         transport_overrides: overrides,
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("101 entries"), "got: {}", err);
+    assert!(err.contains("101 entries"), "got: {err}");
 }
 
 // FIND-R41-014: transport_overrides empty key rejected
@@ -2891,7 +2839,7 @@ fn test_transport_config_overrides_empty_key_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("empty key"), "got: {}", err);
+    assert!(err.contains("empty key"), "got: {err}");
 }
 
 // FIND-R41-014: transport_overrides null byte in key rejected
@@ -2906,7 +2854,7 @@ fn test_transport_config_overrides_null_byte_rejected() {
     };
     let err = config.validate().unwrap_err();
     // FIND-R44-007: Now caught by broader ASCII control character check.
-    assert!(err.contains("control"), "got: {}", err);
+    assert!(err.contains("control"), "got: {err}");
 }
 
 #[test]
@@ -3011,7 +2959,7 @@ fn test_gateway_backend_transport_urls_bad_scheme_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("invalid URL scheme"), "got: {}", err);
+    assert!(err.contains("invalid URL scheme"), "got: {err}");
 }
 
 // FIND-R41-008: WebSocket transport_url requires ws:// or wss://
@@ -3035,7 +2983,7 @@ fn test_gateway_backend_transport_urls_ws_scheme_validated() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("invalid URL scheme"), "got: {}", err);
+    assert!(err.contains("invalid URL scheme"), "got: {err}");
 }
 
 // ═══════════════════════════════════════════════════
@@ -3114,7 +3062,7 @@ fn test_gateway_config_validate_duplicate_ids() {
         },
     ];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("duplicate id"), "got: {}", err);
+    assert!(err.contains("duplicate id"), "got: {err}");
 }
 
 #[test]
@@ -3129,7 +3077,7 @@ fn test_gateway_config_validate_zero_weight() {
         transport_urls: std::collections::HashMap::new(),
     }];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("weight must be >= 1"), "got: {}", err);
+    assert!(err.contains("weight must be >= 1"), "got: {err}");
 }
 
 #[test]
@@ -3227,7 +3175,7 @@ fn test_abac_validation_duplicate_policy_ids() {
     };
     config.abac.policies = vec![policy.clone(), policy];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("duplicate id"), "got: {}", err);
+    assert!(err.contains("duplicate id"), "got: {err}");
 }
 
 #[test]
@@ -3236,7 +3184,7 @@ fn test_abac_validation_too_many_policies() {
     config.abac.enabled = true;
     config.abac.policies = (0..513)
         .map(|i| vellaveto_types::AbacPolicy {
-            id: format!("p{}", i),
+            id: format!("p{i}"),
             description: "test".to_string(),
             effect: vellaveto_types::AbacEffect::Permit,
             priority: 0,
@@ -3247,7 +3195,7 @@ fn test_abac_validation_too_many_policies() {
         })
         .collect();
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max is 512"), "got: {}", err);
+    assert!(err.contains("max is 512"), "got: {err}");
 }
 
 #[test]
@@ -3257,7 +3205,7 @@ fn test_abac_validation_invalid_risk_threshold() {
     config.abac.continuous_auth.enabled = true;
     config.abac.continuous_auth.risk_threshold = 1.5;
     let err = config.validate().unwrap_err();
-    assert!(err.contains("risk_threshold"), "got: {}", err);
+    assert!(err.contains("risk_threshold"), "got: {err}");
 }
 
 #[test]
@@ -3267,7 +3215,7 @@ fn test_abac_disabled_skips_validation() {
     // Invalid: too many policies, but validation should skip because disabled
     config.abac.policies = (0..600)
         .map(|i| vellaveto_types::AbacPolicy {
-            id: format!("p{}", i),
+            id: format!("p{i}"),
             description: "test".to_string(),
             effect: vellaveto_types::AbacEffect::Permit,
             priority: 0,
@@ -3522,7 +3470,7 @@ fn test_governance_config_registered_agents_defaults_empty() {
 #[test]
 fn test_governance_config_validation_rejects_too_many_registered_agents() {
     let config = GovernanceConfig {
-        registered_agents: (0..10_001).map(|i| format!("agent-{}", i)).collect(),
+        registered_agents: (0..10_001).map(|i| format!("agent-{i}")).collect(),
         ..GovernanceConfig::default()
     };
     let result = config.validate();
@@ -3881,8 +3829,7 @@ fn test_deployment_dns_name_ssrf_localhost_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected loopback rejection: {}",
-        err
+        "expected loopback rejection: {err}"
     );
 }
 
@@ -3894,8 +3841,7 @@ fn test_deployment_dns_name_ssrf_127_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected loopback rejection: {}",
-        err
+        "expected loopback rejection: {err}"
     );
 }
 
@@ -3907,8 +3853,7 @@ fn test_deployment_dns_name_ssrf_127_subnet_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected loopback rejection: {}",
-        err
+        "expected loopback rejection: {err}"
     );
 }
 
@@ -3920,8 +3865,7 @@ fn test_deployment_dns_name_ssrf_aws_metadata_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("metadata") || err.contains("link-local"),
-        "expected metadata rejection: {}",
-        err
+        "expected metadata rejection: {err}"
     );
 }
 
@@ -3933,8 +3877,7 @@ fn test_deployment_dns_name_ssrf_gcp_metadata_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("metadata") || err.contains("internal"),
-        "expected metadata rejection: {}",
-        err
+        "expected metadata rejection: {err}"
     );
 }
 
@@ -3946,8 +3889,7 @@ fn test_deployment_dns_name_ssrf_link_local_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("link-local"),
-        "expected link-local rejection: {}",
-        err
+        "expected link-local rejection: {err}"
     );
 }
 
@@ -3959,8 +3901,7 @@ fn test_deployment_dns_name_ssrf_zero_address_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected loopback rejection: {}",
-        err
+        "expected loopback rejection: {err}"
     );
 }
 
@@ -3972,8 +3913,7 @@ fn test_deployment_dns_name_ssrf_ipv6_loopback_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected loopback rejection: {}",
-        err
+        "expected loopback rejection: {err}"
     );
 }
 
@@ -3985,8 +3925,7 @@ fn test_deployment_dns_name_ssrf_internal_suffix_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("metadata") || err.contains("internal"),
-        "expected internal rejection: {}",
-        err
+        "expected internal rejection: {err}"
     );
 }
 
@@ -4006,7 +3945,7 @@ fn test_deployment_instance_id_leading_dot_rejected() {
         ..crate::DeploymentConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+    assert!(err.contains("dot"), "expected dot rejection: {err}");
 }
 
 #[test]
@@ -4016,7 +3955,7 @@ fn test_deployment_instance_id_trailing_dot_rejected() {
         ..crate::DeploymentConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+    assert!(err.contains("dot"), "expected dot rejection: {err}");
 }
 
 #[test]
@@ -4028,8 +3967,7 @@ fn test_deployment_instance_id_consecutive_dots_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("consecutive dots"),
-        "expected consecutive dots rejection: {}",
-        err
+        "expected consecutive dots rejection: {err}"
     );
 }
 
@@ -4040,7 +3978,7 @@ fn test_deployment_instance_id_dot_only_rejected() {
         ..crate::DeploymentConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+    assert!(err.contains("dot"), "expected dot rejection: {err}");
 }
 
 #[test]
@@ -4050,7 +3988,7 @@ fn test_deployment_instance_id_double_dot_only_rejected() {
         ..crate::DeploymentConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("dot"), "expected dot rejection: {}", err);
+    assert!(err.contains("dot"), "expected dot rejection: {err}");
 }
 
 #[test]
@@ -4071,8 +4009,7 @@ fn test_deployment_dns_name_case_insensitive_ssrf_check() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("loopback"),
-        "expected case-insensitive loopback rejection: {}",
-        err
+        "expected case-insensitive loopback rejection: {err}"
     );
 }
 
@@ -4084,8 +4021,7 @@ fn test_deployment_dns_name_azure_metadata_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("link-local") || err.contains("metadata"),
-        "expected metadata/link-local rejection: {}",
-        err
+        "expected metadata/link-local rejection: {err}"
     );
 }
 
@@ -4107,8 +4043,7 @@ fn test_deployment_effective_instance_id_hostname_valid() {
         eid.chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
             || eid == "vellaveto-unknown",
-        "effective_instance_id should be DNS-safe, got '{}'",
-        eid
+        "effective_instance_id should be DNS-safe, got '{eid}'"
     );
 }
 
@@ -4234,8 +4169,7 @@ fn test_gateway_backend_url_scheme_validation() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("http://") || err.contains("https://"),
-        "expected scheme error: {}",
-        err
+        "expected scheme error: {err}"
     );
 }
 
@@ -4256,8 +4190,7 @@ fn test_gateway_backend_url_valid_schemes() {
         };
         assert!(
             config.validate().is_ok(),
-            "valid scheme {} should pass",
-            scheme
+            "valid scheme {scheme} should pass"
         );
     }
 }
@@ -4281,8 +4214,7 @@ fn test_transport_overrides_wildcard_with_others_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("wildcard"),
-        "expected wildcard rejection: {}",
-        err
+        "expected wildcard rejection: {err}"
     );
 }
 
@@ -4317,11 +4249,7 @@ fn test_transport_overrides_duplicate_protocols_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(
-        err.contains("duplicate"),
-        "expected duplicate error: {}",
-        err
-    );
+    assert!(err.contains("duplicate"), "expected duplicate error: {err}");
 }
 
 /// FIND-R42-015: Duplicate protocols in upstream_priorities rejected.
@@ -4336,11 +4264,7 @@ fn test_upstream_priorities_duplicate_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(
-        err.contains("duplicate"),
-        "expected duplicate error: {}",
-        err
-    );
+    assert!(err.contains("duplicate"), "expected duplicate error: {err}");
 }
 
 // ═══════════════════════════════════════════════════
@@ -4361,8 +4285,7 @@ fn test_r43_001_stdio_command_validated_when_disabled() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("shell metacharacters"),
-        "expected shell metacharacter rejection: {}",
-        err
+        "expected shell metacharacter rejection: {err}"
     );
 }
 
@@ -4377,8 +4300,7 @@ fn test_r43_001_stdio_command_relative_path_rejected_when_disabled() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("absolute path"),
-        "expected absolute path rejection: {}",
-        err
+        "expected absolute path rejection: {err}"
     );
 }
 
@@ -4429,8 +4351,7 @@ fn test_r43_003_restricted_transports_duplicate_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("duplicate") && err.contains("restricted_transports"),
-        "expected restricted_transports duplicate error: {}",
-        err
+        "expected restricted_transports duplicate error: {err}"
     );
 }
 
@@ -4464,8 +4385,7 @@ fn test_r43_004_backend_id_too_long_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("max length"),
-        "expected max length error: {}",
-        err
+        "expected max length error: {err}"
     );
 }
 
@@ -4486,8 +4406,7 @@ fn test_r43_004_backend_id_non_ascii_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("invalid characters"),
-        "expected invalid characters error: {}",
-        err
+        "expected invalid characters error: {err}"
     );
 }
 
@@ -4508,8 +4427,7 @@ fn test_r43_004_backend_id_spaces_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("invalid characters"),
-        "expected invalid characters error: {}",
-        err
+        "expected invalid characters error: {err}"
     );
 }
 
@@ -4528,7 +4446,7 @@ fn test_r43_004_backend_id_valid_characters_pass() {
             }],
             ..Default::default()
         };
-        assert!(config.validate().is_ok(), "valid ID '{}' should pass", id);
+        assert!(config.validate().is_ok(), "valid ID '{id}' should pass");
     }
 }
 
@@ -4558,8 +4476,7 @@ fn test_r43_005_duplicate_tool_prefix_across_backends_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("duplicate tool_prefix"),
-        "expected duplicate tool_prefix error: {}",
-        err
+        "expected duplicate tool_prefix error: {err}"
     );
 }
 
@@ -4580,8 +4497,7 @@ fn test_r43_005_duplicate_tool_prefix_within_backend_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("duplicate tool_prefix"),
-        "expected duplicate tool_prefix error: {}",
-        err
+        "expected duplicate tool_prefix error: {err}"
     );
 }
 
@@ -4602,8 +4518,7 @@ fn test_r43_005_empty_tool_prefix_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tool_prefixes") && err.contains("must not be empty"),
-        "expected empty tool_prefix error: {}",
-        err
+        "expected empty tool_prefix error: {err}"
     );
 }
 
@@ -4624,8 +4539,7 @@ fn test_r43_005_tool_prefix_too_long_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("max length"),
-        "expected max length error: {}",
-        err
+        "expected max length error: {err}"
     );
 }
 
@@ -4667,7 +4581,7 @@ fn test_stdio_command_null_byte_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("null byte"), "got: {}", err);
+    assert!(err.contains("null byte"), "got: {err}");
 }
 
 /// FIND-R44-006: Backend URL with mixed-case scheme accepted.
@@ -4728,7 +4642,7 @@ fn test_transport_overrides_control_chars_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control"), "got: {}", err);
+    assert!(err.contains("control"), "got: {err}");
 }
 
 /// FIND-R44-007: Glob key with DEL (0x7F) rejected.
@@ -4744,7 +4658,7 @@ fn test_transport_overrides_del_char_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("control"), "got: {}", err);
+    assert!(err.contains("control"), "got: {err}");
 }
 
 // ═══════════════════════════════════════════════════
@@ -4768,7 +4682,7 @@ fn test_streamable_http_config_max_event_id_length_zero_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_event_id_length"), "got: {}", err);
+    assert!(err.contains("max_event_id_length"), "got: {err}");
 }
 
 #[test]
@@ -4778,7 +4692,7 @@ fn test_streamable_http_config_max_event_id_length_over_512_rejected() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_event_id_length"), "got: {}", err);
+    assert!(err.contains("max_event_id_length"), "got: {err}");
 }
 
 #[test]
@@ -4788,7 +4702,7 @@ fn test_streamable_http_config_max_event_id_length_boundary_accepted() {
             max_event_id_length: len,
             ..Default::default()
         };
-        assert!(config.validate().is_ok(), "len={} should be valid", len);
+        assert!(config.validate().is_ok(), "len={len} should be valid");
     }
 }
 
@@ -4814,7 +4728,7 @@ fn test_streamable_http_config_sse_retry_ms_bounds() {
             sse_retry_ms: Some(ms),
             ..Default::default()
         };
-        assert!(config.validate().is_ok(), "ms={} should be valid", ms);
+        assert!(config.validate().is_ok(), "ms={ms} should be valid");
     }
 }
 
@@ -4882,7 +4796,7 @@ fn test_discovery_config_validate_max_results_zero() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_results"), "got: {}", err);
+    assert!(err.contains("max_results"), "got: {err}");
 }
 
 #[test]
@@ -4892,7 +4806,7 @@ fn test_discovery_config_validate_max_results_exceeds() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_results"), "got: {}", err);
+    assert!(err.contains("max_results"), "got: {err}");
 }
 
 #[test]
@@ -4902,7 +4816,7 @@ fn test_discovery_config_validate_ttl_zero() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("default_ttl_secs"), "got: {}", err);
+    assert!(err.contains("default_ttl_secs"), "got: {err}");
 }
 
 #[test]
@@ -4912,7 +4826,7 @@ fn test_discovery_config_validate_ttl_exceeds() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("default_ttl_secs"), "got: {}", err);
+    assert!(err.contains("default_ttl_secs"), "got: {err}");
 }
 
 #[test]
@@ -4922,7 +4836,7 @@ fn test_discovery_config_validate_index_entries_zero() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_index_entries"), "got: {}", err);
+    assert!(err.contains("max_index_entries"), "got: {err}");
 }
 
 #[test]
@@ -4932,7 +4846,7 @@ fn test_discovery_config_validate_index_entries_exceeds() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_index_entries"), "got: {}", err);
+    assert!(err.contains("max_index_entries"), "got: {err}");
 }
 
 #[test]
@@ -4942,7 +4856,7 @@ fn test_discovery_config_validate_min_relevance_nan() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("min_relevance_score"), "got: {}", err);
+    assert!(err.contains("min_relevance_score"), "got: {err}");
 }
 
 #[test]
@@ -4952,7 +4866,7 @@ fn test_discovery_config_validate_min_relevance_negative() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("min_relevance_score"), "got: {}", err);
+    assert!(err.contains("min_relevance_score"), "got: {err}");
 }
 
 #[test]
@@ -4962,7 +4876,7 @@ fn test_discovery_config_validate_min_relevance_exceeds_one() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("min_relevance_score"), "got: {}", err);
+    assert!(err.contains("min_relevance_score"), "got: {err}");
 }
 
 #[test]
@@ -4972,7 +4886,7 @@ fn test_discovery_config_validate_token_budget_zero() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("token_budget"), "got: {}", err);
+    assert!(err.contains("token_budget"), "got: {err}");
 }
 
 #[test]
@@ -4982,7 +4896,7 @@ fn test_discovery_config_validate_token_budget_exceeds() {
         ..crate::DiscoveryConfig::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("token_budget"), "got: {}", err);
+    assert!(err.contains("token_budget"), "got: {err}");
 }
 
 #[test]
@@ -5055,7 +4969,7 @@ fn test_discovery_config_policy_config_validate_rejects_invalid() {
     "#;
     let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
     let err = config.validate().unwrap_err();
-    assert!(err.contains("discovery"), "got: {}", err);
+    assert!(err.contains("discovery"), "got: {err}");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5100,7 +5014,7 @@ fn test_projector_config_validate_invalid_family() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("default_model_family"), "got: {}", err);
+    assert!(err.contains("default_model_family"), "got: {err}");
 }
 
 #[test]
@@ -5110,7 +5024,7 @@ fn test_projector_config_validate_max_schema_tokens_zero() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_schema_tokens"), "got: {}", err);
+    assert!(err.contains("max_schema_tokens"), "got: {err}");
 }
 
 #[test]
@@ -5120,7 +5034,7 @@ fn test_projector_config_validate_max_schema_tokens_exceeds() {
         ..Default::default()
     };
     let err = config.validate().unwrap_err();
-    assert!(err.contains("max_schema_tokens"), "got: {}", err);
+    assert!(err.contains("max_schema_tokens"), "got: {err}");
 }
 
 #[test]
@@ -5208,7 +5122,7 @@ fn test_projector_config_policy_config_validate_rejects_invalid() {
     "#;
     let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
     let err = config.validate().unwrap_err();
-    assert!(err.contains("projector"), "got: {}", err);
+    assert!(err.contains("projector"), "got: {err}");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -5315,8 +5229,7 @@ fn test_validate_rejects_behavioral_min_sessions_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("behavioral.min_sessions"),
-        "expected min_sessions error, got: {}",
-        err
+        "expected min_sessions error, got: {err}"
     );
 }
 
@@ -5328,8 +5241,7 @@ fn test_validate_accepts_behavioral_min_sessions_at_max() {
     if let Err(e) = &result {
         assert!(
             !e.contains("behavioral.min_sessions"),
-            "min_sessions=10000 should be accepted, got: {}",
-            e
+            "min_sessions=10000 should be accepted, got: {e}"
         );
     }
 }
@@ -5343,8 +5255,7 @@ fn test_validate_rejects_cross_agent_empty_trusted_agent() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("trusted_agents") && err.contains("must not be empty"),
-        "expected empty trusted_agent error, got: {}",
-        err
+        "expected empty trusted_agent error, got: {err}"
     );
 }
 
@@ -5355,8 +5266,7 @@ fn test_validate_rejects_cross_agent_trusted_agent_too_long() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("trusted_agents") && err.contains("exceeds max length"),
-        "expected length error, got: {}",
-        err
+        "expected length error, got: {err}"
     );
 }
 
@@ -5367,8 +5277,7 @@ fn test_validate_rejects_cross_agent_trusted_agent_control_chars() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("trusted_agents") && err.contains("control"),
-        "expected control char error, got: {}",
-        err
+        "expected control char error, got: {err}"
     );
 }
 
@@ -5379,8 +5288,7 @@ fn test_validate_rejects_cross_agent_max_privilege_gap_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("max_privilege_gap"),
-        "expected max_privilege_gap error, got: {}",
-        err
+        "expected max_privilege_gap error, got: {err}"
     );
 }
 
@@ -5392,8 +5300,7 @@ fn test_validate_accepts_cross_agent_max_privilege_gap_at_max() {
     if let Err(e) = &result {
         assert!(
             !e.contains("max_privilege_gap"),
-            "max_privilege_gap=10 should be accepted, got: {}",
-            e
+            "max_privilege_gap=10 should be accepted, got: {e}"
         );
     }
 }
@@ -5406,8 +5313,7 @@ fn test_validate_accepts_cross_agent_valid_trusted_agents() {
     if let Err(e) = &result {
         assert!(
             !e.contains("trusted_agents"),
-            "valid trusted_agents should be accepted, got: {}",
-            e
+            "valid trusted_agents should be accepted, got: {e}"
         );
     }
 }
@@ -5421,8 +5327,7 @@ fn test_validate_rejects_schema_poisoning_min_observations_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("schema_poisoning.min_observations"),
-        "expected min_observations error, got: {}",
-        err
+        "expected min_observations error, got: {err}"
     );
 }
 
@@ -5434,8 +5339,7 @@ fn test_validate_accepts_schema_poisoning_min_observations_at_max() {
     if let Err(e) = &result {
         assert!(
             !e.contains("schema_poisoning.min_observations"),
-            "min_observations=10000 should be accepted, got: {}",
-            e
+            "min_observations=10000 should be accepted, got: {e}"
         );
     }
 }
@@ -5449,8 +5353,7 @@ fn test_validate_rejects_semantic_min_text_length_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("semantic_detection.min_text_length"),
-        "expected min_text_length error, got: {}",
-        err
+        "expected min_text_length error, got: {err}"
     );
 }
 
@@ -5462,8 +5365,7 @@ fn test_validate_accepts_semantic_min_text_length_at_max() {
     if let Err(e) = &result {
         assert!(
             !e.contains("semantic_detection.min_text_length"),
-            "min_text_length=100000 should be accepted, got: {}",
-            e
+            "min_text_length=100000 should be accepted, got: {e}"
         );
     }
 }
@@ -5475,8 +5377,7 @@ fn test_validate_rejects_semantic_template_too_long() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("extra_templates") && err.contains("exceeds max length"),
-        "expected template length error, got: {}",
-        err
+        "expected template length error, got: {err}"
     );
 }
 
@@ -5487,8 +5388,7 @@ fn test_validate_rejects_semantic_template_empty() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("extra_templates") && err.contains("must not be empty"),
-        "expected empty template error, got: {}",
-        err
+        "expected empty template error, got: {err}"
     );
 }
 
@@ -5499,8 +5399,7 @@ fn test_validate_rejects_semantic_template_control_chars() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("extra_templates") && err.contains("control"),
-        "expected control char error, got: {}",
-        err
+        "expected control char error, got: {err}"
     );
 }
 
@@ -5515,8 +5414,7 @@ fn test_validate_accepts_semantic_valid_templates() {
     if let Err(e) = &result {
         assert!(
             !e.contains("extra_templates"),
-            "valid templates should be accepted, got: {}",
-            e
+            "valid templates should be accepted, got: {e}"
         );
     }
 }
@@ -5530,8 +5428,7 @@ fn test_validate_rejects_memory_trust_decay_rate_nan() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.trust_decay_rate"),
-        "expected trust_decay_rate error, got: {}",
-        err
+        "expected trust_decay_rate error, got: {err}"
     );
 }
 
@@ -5542,8 +5439,7 @@ fn test_validate_rejects_memory_trust_decay_rate_negative() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.trust_decay_rate"),
-        "expected trust_decay_rate error, got: {}",
-        err
+        "expected trust_decay_rate error, got: {err}"
     );
 }
 
@@ -5554,8 +5450,7 @@ fn test_validate_rejects_memory_trust_threshold_nan() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.trust_threshold"),
-        "expected trust_threshold error, got: {}",
-        err
+        "expected trust_threshold error, got: {err}"
     );
 }
 
@@ -5566,8 +5461,7 @@ fn test_validate_rejects_memory_trust_threshold_out_of_range() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.trust_threshold"),
-        "expected trust_threshold error, got: {}",
-        err
+        "expected trust_threshold error, got: {err}"
     );
 }
 
@@ -5578,8 +5472,7 @@ fn test_validate_rejects_memory_trust_threshold_negative() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.trust_threshold"),
-        "expected trust_threshold error, got: {}",
-        err
+        "expected trust_threshold error, got: {err}"
     );
 }
 
@@ -5590,8 +5483,7 @@ fn test_validate_rejects_memory_max_entries_per_session_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.max_entries_per_session"),
-        "expected max_entries_per_session error, got: {}",
-        err
+        "expected max_entries_per_session error, got: {err}"
     );
 }
 
@@ -5602,8 +5494,7 @@ fn test_validate_rejects_memory_max_provenance_nodes_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.max_provenance_nodes"),
-        "expected max_provenance_nodes error, got: {}",
-        err
+        "expected max_provenance_nodes error, got: {err}"
     );
 }
 
@@ -5614,8 +5505,7 @@ fn test_validate_rejects_memory_max_fingerprints_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.max_fingerprints"),
-        "expected max_fingerprints error, got: {}",
-        err
+        "expected max_fingerprints error, got: {err}"
     );
 }
 
@@ -5626,8 +5516,7 @@ fn test_validate_rejects_memory_max_age_hours_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.max_memory_age_hours"),
-        "expected max_memory_age_hours error, got: {}",
-        err
+        "expected max_memory_age_hours error, got: {err}"
     );
 }
 
@@ -5639,8 +5528,7 @@ fn test_validate_rejects_memory_max_age_hours_zero_when_enabled() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("max_memory_age_hours must be > 0 when enabled"),
-        "expected zero-age-when-enabled error, got: {}",
-        err
+        "expected zero-age-when-enabled error, got: {err}"
     );
 }
 
@@ -5653,8 +5541,7 @@ fn test_validate_accepts_memory_max_age_hours_zero_when_disabled() {
     if let Err(e) = &result {
         assert!(
             !e.contains("max_memory_age_hours must be > 0 when enabled"),
-            "zero age when disabled should be accepted, got: {}",
-            e
+            "zero age when disabled should be accepted, got: {e}"
         );
     }
 }
@@ -5666,8 +5553,7 @@ fn test_validate_rejects_memory_namespaces_max_too_large() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("memory_security.namespaces.max_namespaces"),
-        "expected max_namespaces error, got: {}",
-        err
+        "expected max_namespaces error, got: {err}"
     );
 }
 
@@ -5679,8 +5565,7 @@ fn test_validate_rejects_memory_namespaces_invalid_isolation() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("default_isolation"),
-        "expected isolation error, got: {}",
-        err
+        "expected isolation error, got: {err}"
     );
 }
 
@@ -5694,9 +5579,7 @@ fn test_validate_accepts_memory_namespaces_valid_isolations() {
         if let Err(e) = &result {
             assert!(
                 !e.contains("default_isolation"),
-                "isolation '{}' should be accepted, got: {}",
-                isolation,
-                e
+                "isolation '{isolation}' should be accepted, got: {e}"
             );
         }
     }
@@ -5709,8 +5592,7 @@ fn test_validate_accepts_memory_defaults() {
     if let Err(e) = &result {
         assert!(
             !e.contains("memory_security"),
-            "default memory_security should be accepted, got: {}",
-            e
+            "default memory_security should be accepted, got: {e}"
         );
     }
 }
@@ -6215,7 +6097,7 @@ fn test_multimodal_negative_ocr_confidence() {
 #[test]
 fn test_multimodal_too_many_content_types() {
     let config = crate::MultimodalPolicyConfig {
-        content_types: (0..25).map(|i| format!("Type{}", i)).collect(),
+        content_types: (0..25).map(|i| format!("Type{i}")).collect(),
         ..Default::default()
     };
     assert!(config.validate().is_err());
@@ -6240,8 +6122,8 @@ fn test_known_tool_names_empty_entry_rejected() {
     let mut config = minimal_config();
     config.known_tool_names = vec!["".to_string()];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
-    assert!(err.contains("empty"), "err: {}", err);
+    assert!(err.contains("known_tool_names[0]"), "err: {err}");
+    assert!(err.contains("empty"), "err: {err}");
 }
 
 #[test]
@@ -6249,8 +6131,8 @@ fn test_known_tool_names_too_long_rejected() {
     let mut config = minimal_config();
     config.known_tool_names = vec!["a".repeat(257)];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
-    assert!(err.contains("exceeds max length"), "err: {}", err);
+    assert!(err.contains("known_tool_names[0]"), "err: {err}");
+    assert!(err.contains("exceeds max length"), "err: {err}");
 }
 
 #[test]
@@ -6258,8 +6140,8 @@ fn test_known_tool_names_control_char_rejected() {
     let mut config = minimal_config();
     config.known_tool_names = vec!["tool\x00name".to_string()];
     let err = config.validate().unwrap_err();
-    assert!(err.contains("known_tool_names[0]"), "err: {}", err);
-    assert!(err.contains("control"), "err: {}", err);
+    assert!(err.contains("known_tool_names[0]"), "err: {err}");
+    assert!(err.contains("control"), "err: {err}");
 }
 
 #[test]
@@ -6278,8 +6160,7 @@ fn test_persistence_path_null_byte_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("control") || err.contains("null bytes"),
-        "err: {}",
-        err
+        "err: {err}"
     );
 }
 
@@ -6290,8 +6171,7 @@ fn test_persistence_path_control_char_rejected() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("control") || err.contains("null bytes"),
-        "err: {}",
-        err
+        "err: {err}"
     );
 }
 
@@ -6301,8 +6181,8 @@ fn test_persistence_path_too_long_rejected() {
     // 4097 bytes — just over the 4096-byte limit
     config.tool_registry.persistence_path = "a".repeat(4097);
     let err = config.validate().unwrap_err();
-    assert!(err.contains("persistence_path"), "err: {}", err);
-    assert!(err.contains("exceeds max length"), "err: {}", err);
+    assert!(err.contains("persistence_path"), "err: {err}");
+    assert!(err.contains("exceeds max length"), "err: {err}");
 }
 
 // ── FIND-R81-CFG-001: TlsConfig cipher_suites bounds ──────────────────────
@@ -6310,12 +6190,11 @@ fn test_persistence_path_too_long_rejected() {
 #[test]
 fn test_validate_rejects_too_many_cipher_suites() {
     let mut config = minimal_config();
-    config.tls.cipher_suites = (0..65).map(|i| format!("TLS_SUITE_{}", i)).collect();
+    config.tls.cipher_suites = (0..65).map(|i| format!("TLS_SUITE_{i}")).collect();
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.cipher_suites") && err.contains("max is 64"),
-        "expected cipher_suites count error, got: {}",
-        err
+        "expected cipher_suites count error, got: {err}"
     );
 }
 
@@ -6326,8 +6205,7 @@ fn test_validate_rejects_empty_cipher_suite_entry() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.cipher_suites[0]") && err.contains("is empty"),
-        "expected empty cipher suite error, got: {}",
-        err
+        "expected empty cipher suite error, got: {err}"
     );
 }
 
@@ -6338,8 +6216,7 @@ fn test_validate_rejects_oversized_cipher_suite_entry() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.cipher_suites[0]") && err.contains("exceeds maximum 128"),
-        "expected cipher suite length error, got: {}",
-        err
+        "expected cipher suite length error, got: {err}"
     );
 }
 
@@ -6350,8 +6227,7 @@ fn test_validate_rejects_cipher_suite_with_control_chars() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("tls.cipher_suites[0]") && err.contains("control"),
-        "expected cipher suite control char error, got: {}",
-        err
+        "expected cipher suite control char error, got: {err}"
     );
 }
 
@@ -6376,8 +6252,7 @@ fn test_a2a_validate_rejects_empty_auth_method() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("allowed_auth_methods") && err.contains("empty string"),
-        "expected empty auth method error, got: {}",
-        err
+        "expected empty auth method error, got: {err}"
     );
 }
 
@@ -6390,8 +6265,7 @@ fn test_a2a_validate_rejects_empty_task_operation() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("allowed_task_operations") && err.contains("empty string"),
-        "expected empty task operation error, got: {}",
-        err
+        "expected empty task operation error, got: {err}"
     );
 }
 
@@ -6418,8 +6292,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("control") || err.contains("format characters"),
-        "expected control/format char rejection, got: {}",
-        err
+        "expected control/format char rejection, got: {err}"
     );
 
     // Bidi override (\u{202E}) embedded in an auth method name
@@ -6430,8 +6303,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     let err2 = config2.validate().unwrap_err();
     assert!(
         err2.contains("control") || err2.contains("format characters"),
-        "expected control/format char rejection, got: {}",
-        err2
+        "expected control/format char rejection, got: {err2}"
     );
 
     // BOM (\u{FEFF}) at the start of an auth method name
@@ -6442,8 +6314,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     let err3 = config3.validate().unwrap_err();
     assert!(
         err3.contains("control") || err3.contains("format characters"),
-        "expected control/format char rejection, got: {}",
-        err3
+        "expected control/format char rejection, got: {err3}"
     );
 
     // ASCII control character (tab) in an auth method name
@@ -6454,8 +6325,7 @@ fn test_allowed_auth_methods_rejects_control_chars() {
     let err4 = config4.validate().unwrap_err();
     assert!(
         err4.contains("control"),
-        "expected control char rejection for tab, got: {}",
-        err4
+        "expected control char rejection for tab, got: {err4}"
     );
 }
 
@@ -6471,8 +6341,7 @@ fn test_label_selector_rejects_control_chars() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("control"),
-        "expected ASCII control char rejection, got: {}",
-        err
+        "expected ASCII control char rejection, got: {err}"
     );
 
     // Unicode format character (zero-width space) in label_selector
@@ -6481,8 +6350,7 @@ fn test_label_selector_rejects_control_chars() {
     let err2 = config2.validate().unwrap_err();
     assert!(
         err2.contains("format"),
-        "expected Unicode format char rejection, got: {}",
-        err2
+        "expected Unicode format char rejection, got: {err2}"
     );
 
     // Bidi override in label_selector
@@ -6491,8 +6359,7 @@ fn test_label_selector_rejects_control_chars() {
     let err3 = config3.validate().unwrap_err();
     assert!(
         err3.contains("format"),
-        "expected Unicode format char rejection, got: {}",
-        err3
+        "expected Unicode format char rejection, got: {err3}"
     );
 }
 
@@ -6504,13 +6371,11 @@ fn test_label_selector_rejects_too_long() {
     let err = config.validate().unwrap_err();
     assert!(
         err.contains("exceeds maximum"),
-        "expected length rejection, got: {}",
-        err
+        "expected length rejection, got: {err}"
     );
     assert!(
         err.contains("label_selector"),
-        "expected label_selector in error, got: {}",
-        err
+        "expected label_selector in error, got: {err}"
     );
 
     // Exactly at the limit should be accepted
@@ -6678,7 +6543,7 @@ fn test_nhi_config_attestation_types_empty_entry() {
 #[test]
 fn test_nhi_config_privileged_tags_too_many() {
     let cfg = crate::memory_nhi::NhiConfig {
-        privileged_tags: (0..51).map(|i| format!("tag-{}", i)).collect(),
+        privileged_tags: (0..51).map(|i| format!("tag-{i}")).collect(),
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
@@ -7163,7 +7028,7 @@ fn test_dpop_config_algorithms_control_chars() {
 #[test]
 fn test_dpop_config_too_many_algorithms() {
     let cfg = crate::memory_nhi::DpopConfig {
-        allowed_algorithms: (0..25).map(|i| format!("ALG{}", i)).collect(),
+        allowed_algorithms: (0..25).map(|i| format!("ALG{i}")).collect(),
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
@@ -7219,7 +7084,7 @@ fn test_policy_rule_validate_name_unicode_format_char() {
         network_rules: None,
     };
     let err = rule.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 #[test]
@@ -7235,7 +7100,7 @@ fn test_policy_rule_validate_tool_pattern_unicode_format_char() {
         network_rules: None,
     };
     let err = rule.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 #[test]
@@ -7245,7 +7110,7 @@ fn test_extension_config_allowed_ext_unicode_format_char() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 #[test]
@@ -7255,7 +7120,7 @@ fn test_nhi_config_attestation_types_unicode_format_char() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 #[test]
@@ -7265,7 +7130,7 @@ fn test_dpop_config_algorithms_unicode_format_char() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 #[test]
@@ -7276,7 +7141,7 @@ fn test_verification_config_plc_url_unicode_format_char() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("format characters"), "got: {}", err);
+    assert!(err.contains("format characters"), "got: {err}");
 }
 
 // NamespaceConfig::validate() tests
@@ -7293,7 +7158,7 @@ fn test_namespace_config_invalid_isolation() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("default_isolation"), "got: {}", err);
+    assert!(err.contains("default_isolation"), "got: {err}");
 }
 
 #[test]
@@ -7303,7 +7168,7 @@ fn test_namespace_config_max_namespaces_exceeds_cap() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("max_namespaces"), "got: {}", err);
+    assert!(err.contains("max_namespaces"), "got: {err}");
 }
 
 #[test]
@@ -7314,7 +7179,7 @@ fn test_namespace_config_isolation_unicode_format_char() {
     };
     let err = cfg.validate().unwrap_err();
     // Will fail on the known-values check since "session\u{200B}" != "session"
-    assert!(err.contains("default_isolation"), "got: {}", err);
+    assert!(err.contains("default_isolation"), "got: {err}");
 }
 
 // MemorySecurityConfig::validate() bounds tests
@@ -7325,7 +7190,7 @@ fn test_memory_security_config_max_memory_age_exceeds_cap() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("max_memory_age_hours"), "got: {}", err);
+    assert!(err.contains("max_memory_age_hours"), "got: {err}");
 }
 
 #[test]
@@ -7335,7 +7200,7 @@ fn test_memory_security_config_max_entries_exceeds_cap() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("max_entries_per_session"), "got: {}", err);
+    assert!(err.contains("max_entries_per_session"), "got: {err}");
 }
 
 #[test]
@@ -7345,7 +7210,7 @@ fn test_memory_security_config_max_provenance_exceeds_cap() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("max_provenance_nodes"), "got: {}", err);
+    assert!(err.contains("max_provenance_nodes"), "got: {err}");
 }
 
 #[test]
@@ -7355,7 +7220,7 @@ fn test_memory_security_config_max_fingerprints_exceeds_cap() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("max_fingerprints"), "got: {}", err);
+    assert!(err.contains("max_fingerprints"), "got: {err}");
 }
 
 #[test]
@@ -7365,8 +7230,7 @@ fn test_memory_security_config_propagates_namespace_error() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("memory.namespaces.default_isolation"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -7374,11 +7238,11 @@ fn test_memory_security_config_propagates_namespace_error() {
 #[test]
 fn test_manifest_config_trusted_keys_too_many() {
     let cfg = crate::manifest::ManifestConfig {
-        trusted_keys: (0..65).map(|i| format!("{:064x}", i)).collect(),
+        trusted_keys: (0..65).map(|i| format!("{i:064x}")).collect(),
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("trusted_keys"), "got: {}", err);
+    assert!(err.contains("trusted_keys"), "got: {err}");
 }
 
 #[test]
@@ -7390,8 +7254,7 @@ fn test_manifest_config_trusted_keys_empty_entry() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("trusted_keys") && err.contains("must not be empty"),
-        "got: {}",
-        err
+        "got: {err}"
     );
 }
 
@@ -7402,7 +7265,7 @@ fn test_manifest_config_trusted_keys_non_hex() {
         ..Default::default()
     };
     let err = cfg.validate().unwrap_err();
-    assert!(err.contains("hex-encoded"), "got: {}", err);
+    assert!(err.contains("hex-encoded"), "got: {err}");
 }
 
 #[test]
@@ -7465,16 +7328,14 @@ fn test_threat_intel_config_debug_redacts_api_key() {
         api_key: Some("super-secret-key".to_string()),
         ..Default::default()
     };
-    let debug = format!("{:?}", cfg);
+    let debug = format!("{cfg:?}");
     assert!(
         !debug.contains("super-secret-key"),
-        "API key should be redacted: {}",
-        debug
+        "API key should be redacted: {debug}"
     );
     assert!(
         debug.contains("REDACTED"),
-        "Should show [REDACTED]: {}",
-        debug
+        "Should show [REDACTED]: {debug}"
     );
 }
 
@@ -7508,7 +7369,7 @@ fn test_tool_manifest_debug_redacts_signature() {
         created_at: Some("2026-01-01T00:00:00Z".to_string()),
         verifying_key: Some("aabbccdd".to_string()),
     };
-    let debug = format!("{:?}", manifest);
+    let debug = format!("{manifest:?}");
     assert!(
         !debug.contains("deadbeef01234567"),
         "Debug output must not contain raw signature"
@@ -7552,8 +7413,7 @@ fn test_tool_manifest_load_pinned_rejects_too_many_tools() {
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("exceeds maximum"),
-        "Error should mention exceeds maximum, got: {}",
-        err
+        "Error should mention exceeds maximum, got: {err}"
     );
 }
 
@@ -7570,13 +7430,11 @@ fn test_rag_defense_config_validate_cache_ttl_too_large() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("cache_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("exceeds maximum"),
-        "Error should mention limit: {}",
-        err
+        "Error should mention limit: {err}"
     );
 }
 
@@ -7589,8 +7447,7 @@ fn test_rag_defense_config_validate_cache_max_size_too_large() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("cache_max_size"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
 }
 
@@ -7601,13 +7458,11 @@ fn test_rag_defense_config_validate_max_retrieval_results_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("max_retrieval_results"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7618,8 +7473,7 @@ fn test_rag_defense_config_validate_max_tokens_per_retrieval_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("max_tokens_per_retrieval"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
 }
 
@@ -7630,8 +7484,7 @@ fn test_rag_defense_config_validate_max_claims_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("max_claims"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
 }
 
@@ -7642,13 +7495,11 @@ fn test_rag_defense_config_validate_max_claims_too_large() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("max_claims"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("exceeds maximum"),
-        "Error should mention limit: {}",
-        err
+        "Error should mention limit: {err}"
     );
 }
 
@@ -7674,13 +7525,11 @@ fn test_rag_defense_config_validate_cache_ttl_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("cache_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7693,13 +7542,11 @@ fn test_nhi_config_credential_ttl_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("credential_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7712,13 +7559,11 @@ fn test_nhi_config_max_credential_ttl_zero() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("max_credential_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7736,13 +7581,11 @@ fn test_spiffe_svid_cache_ttl_zero_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("svid_cache_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7762,13 +7605,11 @@ fn test_threat_intel_cache_ttl_zero_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("cache_ttl_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7789,13 +7630,11 @@ fn test_threat_intel_refresh_interval_zero_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("refresh_interval_secs"),
-        "Error should mention field: {}",
-        err
+        "Error should mention field: {err}"
     );
     assert!(
         err.contains("must be > 0"),
-        "Error should mention > 0: {}",
-        err
+        "Error should mention > 0: {err}"
     );
 }
 
@@ -7813,8 +7652,7 @@ fn test_validate_webhook_url_http_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("HTTPS"),
-        "HTTP webhook should require HTTPS, got: {}",
-        err
+        "HTTP webhook should require HTTPS, got: {err}"
     );
 }
 
@@ -7849,8 +7687,7 @@ fn test_validate_webhook_url_ftp_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("HTTPS"),
-        "ftp:// webhook should be rejected with HTTPS message, got: {}",
-        err
+        "ftp:// webhook should be rejected with HTTPS message, got: {err}"
     );
 }
 
@@ -7865,8 +7702,7 @@ fn test_cluster_redis_url_invalid_scheme_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis://") || err.contains("rediss://"),
-        "invalid scheme should be rejected, got: {}",
-        err
+        "invalid scheme should be rejected, got: {err}"
     );
 }
 
@@ -7879,8 +7715,7 @@ fn test_cluster_redis_url_file_scheme_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis://") || err.contains("rediss://"),
-        "file:// scheme should be rejected, got: {}",
-        err
+        "file:// scheme should be rejected, got: {err}"
     );
 }
 
@@ -7911,8 +7746,7 @@ fn test_cluster_pool_size_zero_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis_pool_size") && err.contains(">= 1"),
-        "zero pool size should be rejected, got: {}",
-        err
+        "zero pool size should be rejected, got: {err}"
     );
 }
 
@@ -7925,8 +7759,7 @@ fn test_cluster_pool_size_too_large_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("redis_pool_size") && err.contains("exceeds maximum"),
-        "oversized pool size should be rejected, got: {}",
-        err
+        "oversized pool size should be rejected, got: {err}"
     );
 }
 
@@ -7952,8 +7785,7 @@ fn test_cluster_key_prefix_with_open_brace_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("hash tag"),
-        "Expected 'hash tag' error, got: {}",
-        err
+        "Expected 'hash tag' error, got: {err}"
     );
 }
 
@@ -7966,8 +7798,7 @@ fn test_cluster_key_prefix_with_close_brace_rejected() {
     let err = cfg.validate().unwrap_err();
     assert!(
         err.contains("hash tag"),
-        "Expected 'hash tag' error, got: {}",
-        err
+        "Expected 'hash tag' error, got: {err}"
     );
 }
 
@@ -8623,7 +8454,7 @@ fn test_audit_store_config_debug_redacts_url() {
         database_url: Some("postgres://secret:hunter2@host/db".to_string()),
         ..Default::default()
     };
-    let debug_output = format!("{:?}", cfg);
+    let debug_output = format!("{cfg:?}");
     assert!(
         !debug_output.contains("hunter2"),
         "password leaked in Debug: {debug_output}"

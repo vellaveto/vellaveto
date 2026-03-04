@@ -232,18 +232,14 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
     let host_stripped = host.trim_end_matches('.');
     let loopbacks = ["localhost", "127.0.0.1", "::1", "0.0.0.0"];
     if loopbacks.contains(&host_stripped) {
-        return Err(format!(
-            "must not target localhost/loopback, got '{}'",
-            host
-        ));
+        return Err(format!("must not target localhost/loopback, got '{host}'"));
     }
 
     // Reject private IPv4 ranges
     if let Ok(ip) = host.parse::<std::net::Ipv4Addr>() {
         if is_ssrf_private_ipv4(&ip) {
             return Err(format!(
-                "must not target private/internal IPs, got '{}'",
-                host
+                "must not target private/internal IPs, got '{host}'"
             ));
         }
     }
@@ -261,8 +257,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             || (segs[0] & 0xff00) == 0xff00;
         if is_private {
             return Err(format!(
-                "must not target private/internal IPv6 ranges, got '{}'",
-                host
+                "must not target private/internal IPv6 ranges, got '{host}'"
             ));
         }
 
@@ -284,8 +279,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&mapped) {
                 return Err(format!(
-                    "must not target IPv4-mapped private addresses, got '{}'",
-                    host
+                    "must not target IPv4-mapped private addresses, got '{host}'"
                 ));
             }
         }
@@ -309,8 +303,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&embedded) {
                 return Err(format!(
-                    "must not target IPv4-compatible private addresses, got '{}'",
-                    host
+                    "must not target IPv4-compatible private addresses, got '{host}'"
                 ));
             }
         }
@@ -326,8 +319,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&embedded) {
                 return Err(format!(
-                    "must not target 6to4 addresses with embedded private IPv4, got '{}'",
-                    host
+                    "must not target 6to4 addresses with embedded private IPv4, got '{host}'"
                 ));
             }
         }
@@ -343,8 +335,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&embedded) {
                 return Err(format!(
-                    "must not target Teredo addresses with embedded private IPv4, got '{}'",
-                    host
+                    "must not target Teredo addresses with embedded private IPv4, got '{host}'"
                 ));
             }
         }
@@ -366,8 +357,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&embedded) {
                 return Err(format!(
-                    "must not target NAT64 addresses with embedded private IPv4, got '{}'",
-                    host
+                    "must not target NAT64 addresses with embedded private IPv4, got '{host}'"
                 ));
             }
         }
@@ -383,8 +373,7 @@ pub fn validate_url_no_ssrf(url: &str) -> Result<(), String> {
             );
             if is_ssrf_private_ipv4(&embedded) {
                 return Err(format!(
-                    "must not target NAT64 local-use addresses with embedded private IPv4, got '{}'",
-                    host
+                    "must not target NAT64 local-use addresses with embedded private IPv4, got '{host}'"
                 ));
             }
         }
@@ -1179,7 +1168,7 @@ impl VerdictExplanation {
                         )
                     })
                     .collect();
-                let contribution = m.verdict_contribution.as_ref().map(|v| format!("{:?}", v));
+                let contribution = m.verdict_contribution.as_ref().map(|v| format!("{v:?}"));
                 PolicyMatchDetail {
                     policy_id: m.policy_id.clone(),
                     policy_name: m.policy_name.clone(),

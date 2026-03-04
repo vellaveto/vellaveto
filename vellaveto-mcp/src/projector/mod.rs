@@ -80,10 +80,7 @@ pub(crate) fn parse_openai_style_call(raw: &Value) -> Result<CanonicalToolCall, 
 
     let arguments = match function.get("arguments") {
         Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
-            ProjectorError::ParseError(format!(
-                "failed to parse 'function.arguments' as JSON: {}",
-                e
-            ))
+            ProjectorError::ParseError(format!("failed to parse 'function.arguments' as JSON: {e}"))
         })?,
         Some(v) => v.clone(),
         None => Value::Object(serde_json::Map::new()),
@@ -179,8 +176,7 @@ impl ProjectorRegistry {
         // Allow replacement of existing families, but bound new entries
         if !map.contains_key(&family) && map.len() >= MAX_REGISTERED_PROJECTIONS {
             return Err(ProjectorError::ParseError(format!(
-                "ProjectorRegistry capacity exceeded ({} projections)",
-                MAX_REGISTERED_PROJECTIONS
+                "ProjectorRegistry capacity exceeded ({MAX_REGISTERED_PROJECTIONS} projections)"
             )));
         }
         map.insert(family, projection);
@@ -333,8 +329,7 @@ mod tests {
             let formatted = proj.format_response(&resp).unwrap();
             assert!(
                 formatted.is_object(),
-                "family {:?} produced non-object",
-                family
+                "family {family:?} produced non-object"
             );
         }
     }
@@ -357,7 +352,7 @@ mod tests {
         ] {
             let proj = reg.get(family).unwrap();
             let tokens = proj.estimate_tokens(&schema);
-            assert!(tokens > 0, "family {:?} returned 0 tokens", family);
+            assert!(tokens > 0, "family {family:?} returned 0 tokens");
         }
     }
 

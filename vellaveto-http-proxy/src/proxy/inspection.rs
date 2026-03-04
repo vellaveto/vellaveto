@@ -338,8 +338,7 @@ pub(super) async fn scan_sse_events_for_injection(
         let verdict = if state.injection_blocking {
             Verdict::Deny {
                 reason: format!(
-                    "SSE response blocked: prompt injection detected ({:?})",
-                    all_matches
+                    "SSE response blocked: prompt injection detected ({all_matches:?})"
                 ),
             }
         } else {
@@ -530,7 +529,7 @@ pub(super) async fn scan_sse_events_for_dlp(
             );
             let verdict = if state.response_dlp_blocking {
                 Verdict::Deny {
-                    reason: format!("SSE response DLP blocked: {:?}", patterns),
+                    reason: format!("SSE response DLP blocked: {patterns:?}"),
                 }
             } else {
                 Verdict::Allow
@@ -790,8 +789,7 @@ pub(super) async fn scan_sse_events_for_output_schema(
                         &action,
                         &Verdict::Deny {
                             reason: format!(
-                                "SSE structuredContent validation failed: {:?}",
-                                violations
+                                "SSE structuredContent validation failed: {violations:?}"
                             ),
                         },
                         json!({"source": "http_proxy", "event": "output_schema_violation_sse"}),
@@ -814,6 +812,45 @@ pub(super) async fn scan_sse_events_for_output_schema(
     }
 
     violation_found
+}
+
+/// Add the Mcp-Session-Id and MCP-Protocol-Version headers to a response.
+pub(super) fn attach_session_header(mut response: Response, session_id: &str) -> Response {
+    if let Ok(value) = session_id.parse() {
+        response.headers_mut().insert(MCP_SESSION_ID, value);
+    }
+    if let Ok(value) = MCP_PROTOCOL_VERSION_VALUE.parse() {
+        response
+            .headers_mut()
+            .insert(MCP_PROTOCOL_VERSION_HEADER, value);
+    }
+    response
+}
+
+/// Attach evaluation trace as an X-Vellaveto-Trace header for allowed (forwarded) requests.
+///
+/// Header value is capped at 4KB to prevent oversized HTTP responses from
+/// deeply nested traces.
+pub(super) fn attach_trace_header(
+    mut response: Response,
+    trace: Option<EvaluationTrace>,
+) -> Response {
+    const MAX_TRACE_HEADER_BYTES: usize = 4096;
+    if let Some(t) = trace {
+        if let Ok(json_str) = serde_json::to_string(&t) {
+            if json_str.len() <= MAX_TRACE_HEADER_BYTES {
+                if let Ok(value) = json_str.parse() {
+                    response.headers_mut().insert("x-vellaveto-trace", value);
+                }
+            } else {
+                tracing::debug!(
+                    "Trace header too large ({} bytes), omitting from response",
+                    json_str.len()
+                );
+            }
+        }
+    }
+    response
 }
 
 #[cfg(test)]
@@ -984,43 +1021,4 @@ mod tests {
         // Invalid base64 should be silently skipped, not crash
         assert!(!text.contains("not-base64"));
     }
-}
-
-/// Add the Mcp-Session-Id and MCP-Protocol-Version headers to a response.
-pub(super) fn attach_session_header(mut response: Response, session_id: &str) -> Response {
-    if let Ok(value) = session_id.parse() {
-        response.headers_mut().insert(MCP_SESSION_ID, value);
-    }
-    if let Ok(value) = MCP_PROTOCOL_VERSION_VALUE.parse() {
-        response
-            .headers_mut()
-            .insert(MCP_PROTOCOL_VERSION_HEADER, value);
-    }
-    response
-}
-
-/// Attach evaluation trace as an X-Vellaveto-Trace header for allowed (forwarded) requests.
-///
-/// Header value is capped at 4KB to prevent oversized HTTP responses from
-/// deeply nested traces.
-pub(super) fn attach_trace_header(
-    mut response: Response,
-    trace: Option<EvaluationTrace>,
-) -> Response {
-    const MAX_TRACE_HEADER_BYTES: usize = 4096;
-    if let Some(t) = trace {
-        if let Ok(json_str) = serde_json::to_string(&t) {
-            if json_str.len() <= MAX_TRACE_HEADER_BYTES {
-                if let Ok(value) = json_str.parse() {
-                    response.headers_mut().insert("x-vellaveto-trace", value);
-                }
-            } else {
-                tracing::debug!(
-                    "Trace header too large ({} bytes), omitting from response",
-                    json_str.len()
-                );
-            }
-        }
-    }
-    response
 }

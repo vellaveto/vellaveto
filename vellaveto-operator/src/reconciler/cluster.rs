@@ -383,7 +383,7 @@ async fn update_cluster_status(
             "False"
         },
         Some(now.clone()),
-        Some(format!("{:?}", phase)),
+        Some(format!("{phase:?}")),
         error_msg.map(String::from),
     )];
 

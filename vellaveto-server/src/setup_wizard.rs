@@ -408,10 +408,7 @@ fn get_session_id(req: &Request) -> Option<String> {
 }
 
 fn session_cookie(session_id: &str) -> String {
-    format!(
-        "wizard_session={}; Path=/setup; Secure; HttpOnly; SameSite=Strict",
-        session_id
-    )
+    format!("wizard_session={session_id}; Path=/setup; Secure; HttpOnly; SameSite=Strict")
 }
 
 fn cleanup_expired_sessions(state: &AppState) {
@@ -1269,7 +1266,7 @@ pub async fn step_review(State(state): State<AppState>, req: Request) -> Respons
                 .chars()
                 .rev()
                 .collect();
-            format!("{}...{}", first4, last4)
+            format!("{first4}...{last4}")
         } else {
             "****".to_string()
         }

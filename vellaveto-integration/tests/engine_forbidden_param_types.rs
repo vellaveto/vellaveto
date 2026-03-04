@@ -139,8 +139,7 @@ fn forbidden_param_absent_allows() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Absent forbidden param should allow: got {:?}",
-        result
+        "Absent forbidden param should allow: got {result:?}"
     );
 }
 
@@ -155,8 +154,7 @@ fn forbidden_param_with_null_params_allows() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Null params should not match forbidden param: got {:?}",
-        result
+        "Null params should not match forbidden param: got {result:?}"
     );
 }
 
@@ -171,8 +169,7 @@ fn forbidden_param_with_array_params_allows() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Array params should not match forbidden param key: got {:?}",
-        result
+        "Array params should not match forbidden param key: got {result:?}"
     );
 }
 
@@ -206,7 +203,6 @@ fn neither_forbidden_param_present_allows() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Should allow when no forbidden param is present: got {:?}",
-        result
+        "Should allow when no forbidden param is present: got {result:?}"
     );
 }

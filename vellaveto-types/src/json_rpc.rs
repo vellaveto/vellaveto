@@ -118,8 +118,7 @@ mod tests {
         for code in standard_codes {
             assert!(
                 (-32700..=-32600).contains(&code),
-                "Standard code {} is outside -32700..=-32600",
-                code
+                "Standard code {code} is outside -32700..=-32600"
             );
         }
     }
@@ -149,8 +148,7 @@ mod tests {
             let code = runtime_i64(code);
             assert!(
                 (-32099..=-32000).contains(&code),
-                "Code {} is outside reserved range -32099 to -32000",
-                code
+                "Code {code} is outside reserved range -32099 to -32000"
             );
         }
     }
@@ -182,7 +180,7 @@ mod tests {
 
         let mut seen = std::collections::HashSet::new();
         for code in codes {
-            assert!(seen.insert(code), "Duplicate error code: {}", code);
+            assert!(seen.insert(code), "Duplicate error code: {code}");
         }
     }
 }

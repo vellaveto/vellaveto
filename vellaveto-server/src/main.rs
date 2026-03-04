@@ -248,9 +248,9 @@ async fn cmd_serve(
     open_browser: bool,
 ) -> Result<()> {
     let policy_config = PolicyConfig::load_file(&config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
     vellaveto_server::opa::configure_runtime_client(&policy_config.opa)
-        .map_err(|e| anyhow::anyhow!("Failed to initialize OPA runtime: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to initialize OPA runtime: {e}"))?;
 
     // SEC-006: Validate DLP patterns compile at startup (fail-closed).
     // If any pattern is invalid, fail immediately rather than silently skipping
@@ -270,8 +270,7 @@ async fn cmd_serve(
     if let Err(error) = vellaveto_mcp::inspection::validate_injection_patterns() {
         tracing::error!("Injection pattern compilation failed: {}", error);
         anyhow::bail!(
-            "Injection pattern validation failed: {}. Injection detection unavailable.",
-            error
+            "Injection pattern validation failed: {error}. Injection detection unavailable."
         );
     }
 
@@ -279,7 +278,7 @@ async fn cmd_serve(
         Some(Arc::new(
             iam::IamState::new(policy_config.iam.clone())
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to initialize IAM: {}", e))?,
+                .map_err(|e| anyhow::anyhow!("Failed to initialize IAM: {e}"))?,
         ))
     } else {
         None
@@ -301,7 +300,7 @@ async fn cmd_serve(
     let signing_key = match std::env::var("VELLAVETO_SIGNING_KEY") {
         Ok(hex_key) if !hex_key.is_empty() => {
             let bytes = hex::decode(&hex_key)
-                .map_err(|e| anyhow::anyhow!("Invalid VELLAVETO_SIGNING_KEY hex: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Invalid VELLAVETO_SIGNING_KEY hex: {e}"))?;
             if bytes.len() != 32 {
                 anyhow::bail!(
                     "VELLAVETO_SIGNING_KEY must be exactly 32 bytes (64 hex chars), got {}",
@@ -397,7 +396,7 @@ async fn cmd_serve(
         if !trusted_key.is_empty() {
             // Validate the key format early
             let key_bytes = hex::decode(&trusted_key)
-                .map_err(|e| anyhow::anyhow!("Invalid VELLAVETO_TRUSTED_KEY hex: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("Invalid VELLAVETO_TRUSTED_KEY hex: {e}"))?;
             if key_bytes.len() != 32 {
                 anyhow::bail!(
                     "VELLAVETO_TRUSTED_KEY must be exactly 32 bytes (64 hex chars), got {}",
@@ -552,8 +551,8 @@ async fn cmd_serve(
         tracing::info!(
             "Per-IP rate limiting enabled: {} req/s per IP{}{}",
             rps,
-            burst.map_or(String::new(), |b| format!(", burst {}", b)),
-            eff_per_ip_max_capacity.map_or(String::new(), |c| format!(", max {} IPs", c)),
+            burst.map_or(String::new(), |b| format!(", burst {b}")),
+            eff_per_ip_max_capacity.map_or(String::new(), |c| format!(", max {c} IPs")),
         );
     }
 
@@ -570,7 +569,7 @@ async fn cmd_serve(
         tracing::info!(
             "Per-principal rate limiting enabled: {} req/s per principal{}",
             rps,
-            burst.map_or(String::new(), |b| format!(", burst {}", b)),
+            burst.map_or(String::new(), |b| format!(", burst {b}")),
         );
     }
 
@@ -583,8 +582,8 @@ async fn cmd_serve(
         let fmt_cat = |rps: Option<u32>, burst: Option<u32>| -> String {
             match rps.filter(|&r| r > 0) {
                 Some(r) => match burst.filter(|&b| b > 0) {
-                    Some(b) => format!("{} rps (burst {})", r, b),
-                    None => format!("{} rps", r),
+                    Some(b) => format!("{r} rps (burst {b})"),
+                    None => format!("{r} rps"),
                 },
                 None => "off".to_string(),
             }
@@ -1090,7 +1089,7 @@ async fn cmd_serve(
                         let id = policy_config.deployment.effective_instance_id();
                         Some(Arc::new(
                             vellaveto_cluster::leader_local::LocalLeaderElection::new(id).map_err(
-                                |e| anyhow::anyhow!("Failed to create leader election: {}", e),
+                                |e| anyhow::anyhow!("Failed to create leader election: {e}"),
                             )?,
                         )
                             as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
@@ -1104,7 +1103,7 @@ async fn cmd_serve(
                     let id = policy_config.deployment.effective_instance_id();
                     Some(Arc::new(
                         vellaveto_cluster::leader_local::LocalLeaderElection::new(id).map_err(
-                            |e| anyhow::anyhow!("Failed to create leader election: {}", e),
+                            |e| anyhow::anyhow!("Failed to create leader election: {e}"),
                         )?,
                     )
                         as Arc<dyn vellaveto_cluster::leader::LeaderElection>)
@@ -1190,8 +1189,7 @@ async fn cmd_serve(
                 }
                 Err(e) => {
                     return Err(anyhow::anyhow!(
-                        "Failed to initialize projector registry: {}",
-                        e
+                        "Failed to initialize projector registry: {e}"
                     ));
                 }
             }
@@ -1698,14 +1696,14 @@ async fn cmd_serve(
         );
     }
 
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind, port))
+    let listener = tokio::net::TcpListener::bind(format!("{bind}:{port}"))
         .await
         .context("Failed to bind to address")?;
 
     tracing::info!("Vellaveto server listening on {}:{}", bind, port);
 
     if open_browser {
-        let url = format!("http://{}:{}/dashboard", bind, port);
+        let url = format!("http://{bind}:{port}/dashboard");
         tokio::task::spawn_blocking(move || {
             if let Err(e) = open_url_in_browser(&url) {
                 tracing::warn!("Failed to open browser: {}", e);
@@ -1776,7 +1774,7 @@ async fn cmd_evaluate(
     let action = Action::new(tool, function, parameters);
 
     let policy_config = PolicyConfig::load_file(&config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
@@ -1790,11 +1788,11 @@ async fn cmd_evaluate(
     }
     let verdict = engine
         .evaluate_action(&action, &policies)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let (final_verdict, opa_decision) = if matches!(verdict, Verdict::Allow) {
         match vellaveto_server::opa::OpaClient::new(&policy_config.opa)
-            .map_err(|e| anyhow::anyhow!("Failed to initialize OPA client: {}", e))?
+            .map_err(|e| anyhow::anyhow!("Failed to initialize OPA client: {e}"))?
         {
             Some(opa_client) => {
                 let input = vellaveto_server::opa::OpaInput {
@@ -1826,7 +1824,7 @@ async fn cmd_evaluate(
                     }
                     Err(e) => (
                         Verdict::Deny {
-                            reason: format!("OPA evaluation failed (fail-closed): {}", e),
+                            reason: format!("OPA evaluation failed (fail-closed): {e}"),
                         },
                         None,
                     ),
@@ -1845,7 +1843,7 @@ async fn cmd_evaluate(
         "policies_loaded": policies.len(),
     }))?;
 
-    println!("{}", output);
+    println!("{output}");
     Ok(())
 }
 
@@ -1860,7 +1858,7 @@ async fn cmd_check(
 
     // Load the configuration
     let policy_config = PolicyConfig::load_file(&config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
 
     // Build the validator with options
     let mut validator = PolicyValidator::new();
@@ -1880,7 +1878,7 @@ async fn cmd_check(
     // Output results
     if format == "json" {
         let output = serde_json::to_string_pretty(&result)?;
-        println!("{}", output);
+        println!("{output}");
     } else {
         // Text format
         println!("{}", result.to_text());
@@ -1925,8 +1923,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         "allow-all" => vec![CanonicalPolicies::allow_all()],
         _ => {
             anyhow::bail!(
-                "Unknown preset: '{}'. Available: dangerous, network, development, deny-all, allow-all",
-                preset
+                "Unknown preset: '{preset}'. Available: dangerous, network, development, deny-all, allow-all"
             );
         }
     };
@@ -2015,21 +2012,21 @@ fn cmd_policies(preset: String) -> Result<()> {
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;
 
-    println!("{}", toml_str);
+    println!("{toml_str}");
     Ok(())
 }
 
 async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bool) -> Result<()> {
     let audit_path = std::path::PathBuf::from(&audit);
     if !audit_path.exists() {
-        anyhow::bail!("Audit log not found: {}", audit);
+        anyhow::bail!("Audit log not found: {audit}");
     }
 
     let mut logger = AuditLogger::new(audit_path);
     if let Some(ref key) = trusted_key {
         // Validate key format early
         let key_bytes =
-            hex::decode(key).map_err(|e| anyhow::anyhow!("Invalid --trusted-key hex: {}", e))?;
+            hex::decode(key).map_err(|e| anyhow::anyhow!("Invalid --trusted-key hex: {e}"))?;
         if key_bytes.len() != 32 {
             anyhow::bail!(
                 "--trusted-key must be exactly 32 bytes (64 hex chars), got {}",
@@ -2044,7 +2041,7 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
     let chain_result = logger
         .verify_chain()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to verify chain: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to verify chain: {e}"))?;
 
     if chain_result.valid {
         println!(
@@ -2065,7 +2062,7 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
     let cp_result = logger
         .verify_checkpoints()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to verify checkpoints: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to verify checkpoints: {e}"))?;
 
     if cp_result.checkpoints_checked == 0 {
         println!("  Checkpoints: none found (skipped)");
@@ -2087,7 +2084,7 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
                 .map_or("unknown".to_string(), |i| i.to_string())
         );
         if let Some(ref reason) = cp_result.failure_reason {
-            println!("  Reason: {}", reason);
+            println!("  Reason: {reason}");
         }
     }
 
@@ -2104,12 +2101,12 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
                 duplicates.len()
             );
             for (id, count) in &duplicates {
-                println!("    {} (appears {} times)", id, count);
+                println!("    {id} (appears {count} times)");
             }
             true
         }
         Err(e) => {
-            println!("  Failed to check for duplicates: {}", e);
+            println!("  Failed to check for duplicates: {e}");
             false
         }
     };
@@ -2129,7 +2126,7 @@ async fn cmd_verify(audit: String, trusted_key: Option<String>, list_rotated: bo
                 println!("  Total rotated files: {}", files.len());
             }
             Err(e) => {
-                println!("  Failed to list rotated files: {}", e);
+                println!("  Failed to list rotated files: {e}");
             }
         }
     }
@@ -2231,8 +2228,8 @@ async fn shutdown_signal() {
 
 fn cmd_hash_binary(path: String) -> Result<()> {
     let hash = vellaveto_config::SupplyChainConfig::compute_hash(&path)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-    println!("\"{}\" = \"{}\"", path, hash);
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!("\"{path}\" = \"{hash}\"");
     Ok(())
 }
 
@@ -2247,7 +2244,7 @@ fn cmd_generate_key(
     use vellaveto_mcp::etdi::ToolSigner;
 
     let signer =
-        ToolSigner::generate().map_err(|e| anyhow::anyhow!("Key generation failed: {}", e))?;
+        ToolSigner::generate().map_err(|e| anyhow::anyhow!("Key generation failed: {e}"))?;
 
     let private_key = signer.private_key_hex();
     let public_key = signer.public_key_hex();
@@ -2259,11 +2256,11 @@ fn cmd_generate_key(
     println!("Generated Ed25519 keypair:");
     println!("  Private key: {}", private_key_path.display());
     println!("  Public key:  {}", public_key_path.display());
-    println!("  Fingerprint: {}", fingerprint);
+    println!("  Fingerprint: {fingerprint}");
     println!();
     println!("Add the fingerprint to your config:");
     println!("  [etdi.allowed_signers]");
-    println!("  fingerprints = [\"{}\"]", fingerprint);
+    println!("  fingerprints = [\"{fingerprint}\"]");
 
     Ok(())
 }
@@ -2291,7 +2288,7 @@ async fn cmd_sign_tool(
 
     // Create signer
     let signer = ToolSigner::from_private_key_hex(key_hex, signer_identity)
-        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid private key: {e}"))?;
 
     // Sign the tool
     let signature = signer.sign_tool(&tool, &schema, expires_in_days);
@@ -2301,12 +2298,12 @@ async fn cmd_sign_tool(
     std::fs::write(&output_path, &signature_json)
         .with_context(|| format!("Failed to write signature: {}", output_path.display()))?;
 
-    println!("Signed tool '{}'", tool);
+    println!("Signed tool '{tool}'");
     println!("  Signature ID: {}", signature.signature_id);
     println!("  Algorithm:    {}", signature.algorithm);
     println!("  Signed at:    {}", signature.signed_at);
     if let Some(ref exp) = signature.expires_at {
-        println!("  Expires at:   {}", exp);
+        println!("  Expires at:   {exp}");
     }
     println!("  Output:       {}", output_path.display());
 
@@ -2341,7 +2338,7 @@ async fn cmd_verify_signature(
     let verifier = ToolSignatureVerifier::new(allowed);
     let result = verifier.verify_tool_signature(&tool, &schema, &signature);
 
-    println!("Verification result for tool '{}':", tool);
+    println!("Verification result for tool '{tool}':");
     println!("  Valid:         {}", result.valid);
     println!("  Signer trusted: {}", result.signer_trusted);
     println!("  Expired:       {}", result.expired);
@@ -2361,7 +2358,7 @@ async fn cmd_verify_signature(
 async fn cmd_simulate(config: String, actions_path: String, format: String) -> Result<()> {
     // Load policy config
     let policy_config = PolicyConfig::load_file(&config)
-        .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to load config: {e}"))?;
     let mut policies = policy_config.to_policies();
     PolicyEngine::sort_policies(&mut policies);
     let engine = PolicyEngine::with_policies(false, &policies).map_err(|errors| {
@@ -2433,15 +2430,15 @@ async fn cmd_simulate(config: String, actions_path: String, format: String) -> R
                 "duration_us": total_us,
             }
         }))?;
-        println!("{}", output);
+        println!("{output}");
     } else {
         // Text format
         for (i, verdict, trace, error) in &results {
             let tool_func = format!("{}:{}", actions[*i].tool, actions[*i].function);
             let (verdict_str, detail) = match verdict {
                 Verdict::Allow => ("ALLOW", String::new()),
-                Verdict::Deny { reason } => ("DENY ", format!(" ({})", reason)),
-                Verdict::RequireApproval { reason, .. } => ("APPVL", format!(" ({})", reason)),
+                Verdict::Deny { reason } => ("DENY ", format!(" ({reason})")),
+                Verdict::RequireApproval { reason, .. } => ("APPVL", format!(" ({reason})")),
                 _ => ("???  ", String::new()),
             };
             let duration = trace
@@ -2463,8 +2460,7 @@ async fn cmd_simulate(config: String, actions_path: String, format: String) -> R
         }
         println!();
         println!(
-            "Summary: {} allowed, {} denied, {} errors ({}μs total)",
-            allowed, denied, errors, total_us
+            "Summary: {allowed} allowed, {denied} denied, {errors} errors ({total_us}μs total)"
         );
     }
 

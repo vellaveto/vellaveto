@@ -1732,9 +1732,8 @@ impl SyslogConfig {
         for ch in self.enterprise_id.chars() {
             if !(('\x21'..='\x7e').contains(&ch) && ch != '=' && ch != ']' && ch != '"') {
                 return Err(ExportError::Configuration(format!(
-                    "syslog enterprise_id contains invalid character '{}'; \
+                    "syslog enterprise_id contains invalid character '{ch}'; \
                      only printable ASCII [!-~] excluding '=', ']', '\"' are allowed per RFC 5424",
-                    ch,
                 )));
             }
         }
@@ -2566,8 +2565,7 @@ mod tests {
         let err = config.validate().unwrap_err().to_string();
         assert!(
             err.contains("http://") || err.contains("https://"),
-            "Expected scheme validation error, got: {}",
-            err
+            "Expected scheme validation error, got: {err}"
         );
     }
 
@@ -2579,11 +2577,7 @@ mod tests {
         };
         // Should not fail on scheme validation
         let result = config.validate();
-        assert!(
-            result.is_ok(),
-            "HTTPS endpoint should be valid: {:?}",
-            result
-        );
+        assert!(result.is_ok(), "HTTPS endpoint should be valid: {result:?}");
     }
 
     #[test]
@@ -2719,7 +2713,7 @@ mod tests {
             token: Some("super-secret-hec-token".to_string()),
             ..Default::default()
         };
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains("super-secret-hec-token"),
             "Token leaked in Debug output: {debug_output}"
@@ -2736,7 +2730,7 @@ mod tests {
             api_key: Some("dd-secret-api-key-123".to_string()),
             ..Default::default()
         };
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains("dd-secret-api-key-123"),
             "API key leaked in Debug output: {debug_output}"
@@ -2753,7 +2747,7 @@ mod tests {
             api_key: Some("es-secret-api-key-456".to_string()),
             ..Default::default()
         };
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains("es-secret-api-key-456"),
             "API key leaked in Debug output: {debug_output}"

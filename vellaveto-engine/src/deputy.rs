@@ -728,8 +728,7 @@ mod tests {
         let result = validator.validate_action("s1", "read_file", "attacker");
         assert!(
             matches!(result, Err(DeputyError::PrincipalMismatch { .. })),
-            "Different principal should still be denied: {:?}",
-            result
+            "Different principal should still be denied: {result:?}"
         );
     }
 

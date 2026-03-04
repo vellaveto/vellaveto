@@ -184,8 +184,8 @@ fn policy_with_negative_priority_roundtrips() {
 fn policy_with_i32_extremes_roundtrips() {
     for priority in [i32::MIN, i32::MAX, 0, -1, 1] {
         let p = Policy {
-            id: format!("pri_{}", priority),
-            name: format!("Priority {}", priority),
+            id: format!("pri_{priority}"),
+            name: format!("Priority {priority}"),
             policy_type: PolicyType::Deny,
             priority,
             path_rules: None,
@@ -193,11 +193,7 @@ fn policy_with_i32_extremes_roundtrips() {
         };
         let s = serde_json::to_string(&p).unwrap();
         let d: Policy = serde_json::from_str(&s).unwrap();
-        assert_eq!(
-            d.priority, priority,
-            "Priority {} should roundtrip",
-            priority
-        );
+        assert_eq!(d.priority, priority, "Priority {priority} should roundtrip");
     }
 }
 
@@ -313,6 +309,6 @@ fn engine_evaluates_conditional_from_json() {
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     match verdict {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("Expected RequireApproval, got {:?}", other),
+        other => panic!("Expected RequireApproval, got {other:?}"),
     }
 }

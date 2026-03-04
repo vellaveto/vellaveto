@@ -50,8 +50,7 @@ fn allow_at_100_beats_deny_at_99() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at priority 100 should beat Deny at 99: got {:?}",
-        result
+        "Allow at priority 100 should beat Deny at 99: got {result:?}"
     );
 }
 
@@ -81,8 +80,7 @@ fn deny_at_100_beats_allow_at_99() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at priority 100 should beat Allow at 99: got {:?}",
-        result
+        "Deny at priority 100 should beat Allow at 99: got {result:?}"
     );
 }
 
@@ -112,8 +110,7 @@ fn deny_overrides_allow_at_equal_priority_50() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should override Allow at equal priority 50: got {:?}",
-        result
+        "Deny should override Allow at equal priority 50: got {result:?}"
     );
 }
 
@@ -143,8 +140,7 @@ fn allow_at_1_beats_deny_at_0() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at 1 should beat Deny at 0: got {:?}",
-        result
+        "Allow at 1 should beat Deny at 0: got {result:?}"
     );
 }
 
@@ -174,8 +170,7 @@ fn allow_at_0_beats_deny_at_negative_1() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at 0 should beat Deny at -1: got {:?}",
-        result
+        "Allow at 0 should beat Deny at -1: got {result:?}"
     );
 }
 
@@ -212,8 +207,7 @@ fn conditional_at_100_beats_deny_at_99() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at 100 should beat Deny at 99: got {:?}",
-        result
+        "Conditional at 100 should beat Deny at 99: got {result:?}"
     );
 }
 
@@ -245,7 +239,6 @@ fn deny_at_100_beats_conditional_at_99() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at 100 should beat Conditional at 99: got {:?}",
-        result
+        "Deny at 100 should beat Conditional at 99: got {result:?}"
     );
 }

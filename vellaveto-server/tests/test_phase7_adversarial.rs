@@ -502,7 +502,7 @@ async fn exploit_26_unbounded_approval_creation() {
             }),
         );
         store
-            .create(action, format!("reason_{}", i), None)
+            .create(action, format!("reason_{i}"), None)
             .await
             .unwrap();
     }

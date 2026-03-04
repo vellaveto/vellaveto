@@ -438,8 +438,7 @@ impl NhiBehavioralBaseline {
             }
             if crate::core::has_dangerous_chars(ip) {
                 return Err(format!(
-                    "NhiBehavioralBaseline typical_source_ips[{}] contains control or format characters",
-                    i,
+                    "NhiBehavioralBaseline typical_source_ips[{i}] contains control or format characters",
                 ));
             }
         }
@@ -453,8 +452,7 @@ impl NhiBehavioralBaseline {
         for (i, &hour) in self.active_hours.iter().enumerate() {
             if hour > 23 {
                 return Err(format!(
-                    "NhiBehavioralBaseline active_hours[{}] value {} is not a valid hour (0-23)",
-                    i, hour
+                    "NhiBehavioralBaseline active_hours[{i}] value {hour} is not a valid hour (0-23)"
                 ));
             }
         }
@@ -836,8 +834,7 @@ impl NhiDelegationLink {
             }
             if crate::core::has_dangerous_chars(perm) {
                 return Err(format!(
-                    "NhiDelegationLink permissions[{}] contains control or format characters",
-                    i,
+                    "NhiDelegationLink permissions[{i}] contains control or format characters",
                 ));
             }
         }
@@ -859,8 +856,7 @@ impl NhiDelegationLink {
             }
             if crate::core::has_dangerous_chars(sc) {
                 return Err(format!(
-                    "NhiDelegationLink scope_constraints[{}] contains control or format characters",
-                    i,
+                    "NhiDelegationLink scope_constraints[{i}] contains control or format characters",
                 ));
             }
         }

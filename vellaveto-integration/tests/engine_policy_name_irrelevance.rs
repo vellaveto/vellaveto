@@ -77,7 +77,7 @@ fn very_long_name_policy_still_matches() {
                 "Deny reason should contain the policy name"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -141,11 +141,10 @@ fn conditional_require_approval_reason_includes_name() {
         Verdict::RequireApproval { reason } => {
             assert!(
                 reason.contains("My Custom Policy Name"),
-                "RequireApproval reason should contain policy name, got: {}",
-                reason
+                "RequireApproval reason should contain policy name, got: {reason}"
             );
         }
-        other => panic!("Expected RequireApproval, got {:?}", other),
+        other => panic!("Expected RequireApproval, got {other:?}"),
     }
 }
 
@@ -172,15 +171,13 @@ fn conditional_forbidden_param_reason_includes_name() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("DB Safety Rule"),
-                "Deny reason should contain policy name, got: {}",
-                reason
+                "Deny reason should contain policy name, got: {reason}"
             );
             assert!(
                 reason.contains("drop_table"),
-                "Deny reason should mention the forbidden parameter, got: {}",
-                reason
+                "Deny reason should mention the forbidden parameter, got: {reason}"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }

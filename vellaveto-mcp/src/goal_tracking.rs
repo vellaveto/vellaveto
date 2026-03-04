@@ -204,8 +204,7 @@ impl GoalTrackerConfig {
             // to prevent log injection and display manipulation.
             if vellaveto_types::has_dangerous_chars(kw) {
                 return Err(format!(
-                    "manipulation_keywords[{}] contains control or format characters",
-                    i,
+                    "manipulation_keywords[{i}] contains control or format characters",
                 ));
             }
         }
@@ -832,11 +831,7 @@ mod tests {
 
         for attempt in manipulation_attempts {
             let drift = tracker.detect_drift("session1", attempt);
-            assert!(
-                drift.is_some(),
-                "Should detect manipulation in: {}",
-                attempt
-            );
+            assert!(drift.is_some(), "Should detect manipulation in: {attempt}");
         }
     }
 

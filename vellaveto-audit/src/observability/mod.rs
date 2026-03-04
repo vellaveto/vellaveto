@@ -860,7 +860,7 @@ impl TraceContext {
         while val == 0 {
             val = rand::random::<u64>();
         }
-        format!("{:016x}", val)
+        format!("{val:016x}")
     }
 
     /// Check if sampling is requested (trace flags bit 0).
@@ -911,9 +911,9 @@ impl TraceContext {
             sanitized
         };
 
-        let entry = format!("vellaveto={}", safe_verdict);
+        let entry = format!("vellaveto={safe_verdict}");
         self.trace_state = Some(match self.trace_state.take() {
-            Some(existing) => format!("{},{}", entry, existing),
+            Some(existing) => format!("{entry},{existing}"),
             None => entry,
         });
         self
@@ -1549,7 +1549,7 @@ mod tests {
         // Sample 1000 different trace_ids
         let sampled_count = (0..1000)
             .filter(|i| {
-                let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
+                let span = SecuritySpan::builder(format!("trace-{i}"), SpanKind::Tool)
                     .verdict(VerdictSummary {
                         outcome: "allow".to_string(),
                         reason: None,
@@ -1563,8 +1563,7 @@ mod tests {
         // With 50% sample rate, expect ~500 ±10% (450-550)
         assert!(
             (450..=550).contains(&sampled_count),
-            "expected ~500 sampled at 50% rate, got {}",
-            sampled_count
+            "expected ~500 sampled at 50% rate, got {sampled_count}"
         );
     }
 
@@ -1579,7 +1578,7 @@ mod tests {
         let sampler = SpanSampler::new(config);
 
         let sampled = (0..100).any(|i| {
-            let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
+            let span = SecuritySpan::builder(format!("trace-{i}"), SpanKind::Tool)
                 .verdict(VerdictSummary {
                     outcome: "allow".to_string(),
                     reason: None,
@@ -1603,7 +1602,7 @@ mod tests {
         let sampler = SpanSampler::new(config);
 
         let all_sampled = (0..100).all(|i| {
-            let span = SecuritySpan::builder(format!("trace-{}", i), SpanKind::Tool)
+            let span = SecuritySpan::builder(format!("trace-{i}"), SpanKind::Tool)
                 .verdict(VerdictSummary {
                     outcome: "allow".to_string(),
                     reason: None,
@@ -1803,8 +1802,7 @@ mod tests {
             // Should be valid hex
             assert!(
                 id.chars().all(|c| c.is_ascii_hexdigit()),
-                "span ID should be valid hex: {}",
-                id
+                "span ID should be valid hex: {id}"
             );
         }
     }
@@ -2102,7 +2100,7 @@ mod tests {
             if !ts.is_empty() {
                 ts.push(',');
             }
-            ts.push_str(&format!("vendor{}=value{}", i, i));
+            ts.push_str(&format!("vendor{i}=value{i}"));
         }
         assert!(ts.len() > MAX_TRACESTATE_BYTES);
 
@@ -2271,8 +2269,7 @@ mod tests {
             assert_eq!(id.len(), 16, "span_id must be 16 chars");
             assert!(
                 id.chars().all(|c| c.is_ascii_hexdigit()),
-                "span_id must be valid hex: {}",
-                id
+                "span_id must be valid hex: {id}"
             );
         }
     }

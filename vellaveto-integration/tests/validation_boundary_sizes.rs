@@ -129,8 +129,7 @@ fn parameters_just_under_1mb_accepted() {
         let actual_size = params.to_string().len();
         assert!(
             actual_size < 1_000_000,
-            "Test setup: size should be under 1MB, got {}",
-            actual_size
+            "Test setup: size should be under 1MB, got {actual_size}"
         );
 
         let action = make_action_with_params("tool", "func", params);
@@ -150,8 +149,7 @@ fn parameters_over_1mb_rejected() {
         let actual_size = params.to_string().len();
         assert!(
             actual_size > 1_000_000,
-            "Test setup: size should be over 1MB, got {}",
-            actual_size
+            "Test setup: size should be over 1MB, got {actual_size}"
         );
 
         let action = make_action_with_params("tool", "func", params);
@@ -289,8 +287,7 @@ fn deep_and_large_but_within_limits_accepted() {
         let size = val.to_string().len();
         assert!(
             size < 1_000_000,
-            "Test setup: combined size {} should be under 1MB",
-            size
+            "Test setup: combined size {size} should be under 1MB"
         );
 
         let action = make_action_with_params("tool", "func", val);

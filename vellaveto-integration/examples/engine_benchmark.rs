@@ -23,7 +23,7 @@ fn make_policies(count: usize) -> Vec<Policy> {
     for i in 0..count {
         policies.push(Policy {
             id: format!("tool_{}:func_{}", i % 50, i % 20),
-            name: format!("Policy {}", i),
+            name: format!("Policy {i}"),
             policy_type: match i % 3 {
                 0 => PolicyType::Allow,
                 1 => PolicyType::Deny,
@@ -67,21 +67,20 @@ fn bench_evaluation(engine: &PolicyEngine, actions: &[Action], policies: &[Polic
             Ok(vellaveto_types::Verdict::RequireApproval { .. }) => approval_count += 1,
             // Handle future Verdict variants - count as deny
             Ok(_) => deny_count += 1,
-            Err(e) => eprintln!("Error: {}", e),
+            Err(e) => eprintln!("Error: {e}"),
         }
     }
 
     let elapsed = start.elapsed();
     let ops_per_sec = actions.len() as f64 / elapsed.as_secs_f64();
 
-    println!("--- {} ---", label);
+    println!("--- {label} ---");
     println!("  Actions evaluated: {}", actions.len());
     println!("  Policies in set:   {}", policies.len());
-    println!("  Elapsed:           {:.2?}", elapsed);
-    println!("  Throughput:        {:.0} evals/sec", ops_per_sec);
+    println!("  Elapsed:           {elapsed:.2?}");
+    println!("  Throughput:        {ops_per_sec:.0} evals/sec");
     println!(
-        "  Results:           allow={}, deny={}, approval={}",
-        allow_count, deny_count, approval_count
+        "  Results:           allow={allow_count}, deny={deny_count}, approval={approval_count}"
     );
     println!();
 }
@@ -133,7 +132,7 @@ fn main() {
     let conditional_policies: Vec<Policy> = (0..200)
         .map(|i| Policy {
             id: "*".to_string(),
-            name: format!("Conditional {}", i),
+            name: format!("Conditional {i}"),
             policy_type: PolicyType::Conditional {
                 conditions: json!({
                     "forbidden_parameters": ["param_a", "param_b", "param_c"],

@@ -30,8 +30,7 @@ fn verify_nonexistent_audit_file_fails() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("not found") || stderr.contains("Audit log not found"),
-        "Expected 'not found' in stderr: {}",
-        stderr
+        "Expected 'not found' in stderr: {stderr}"
     );
 }
 
@@ -55,8 +54,7 @@ fn verify_empty_audit_log_passes() {
     );
     assert!(
         stdout.contains("VERIFIED"),
-        "Expected VERIFIED in: {}",
-        stdout
+        "Expected VERIFIED in: {stdout}"
     );
 }
 
@@ -133,13 +131,11 @@ fn verify_valid_audit_log_with_entries() {
     );
     assert!(
         stdout.contains("2 entries verified"),
-        "Expected 2 entries verified in: {}",
-        stdout
+        "Expected 2 entries verified in: {stdout}"
     );
     assert!(
         stdout.contains("VERIFIED"),
-        "Expected VERIFIED in: {}",
-        stdout
+        "Expected VERIFIED in: {stdout}"
     );
 }
 
@@ -190,13 +186,11 @@ fn verify_tampered_audit_log_fails() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !output.status.success(),
-        "Tampered audit log should fail verification. stdout: {}",
-        stdout
+        "Tampered audit log should fail verification. stdout: {stdout}"
     );
     assert!(
         stdout.contains("BROKEN") || stdout.contains("FAILED"),
-        "Expected BROKEN or FAILED in: {}",
-        stdout
+        "Expected BROKEN or FAILED in: {stdout}"
     );
 }
 
@@ -245,13 +239,11 @@ fn verify_with_valid_checkpoints() {
     );
     assert!(
         stdout.contains("1 verified"),
-        "Expected 1 checkpoint verified in: {}",
-        stdout
+        "Expected 1 checkpoint verified in: {stdout}"
     );
     assert!(
         stdout.contains("VERIFIED"),
-        "Expected VERIFIED in: {}",
-        stdout
+        "Expected VERIFIED in: {stdout}"
     );
 }
 
@@ -308,13 +300,11 @@ fn verify_with_trusted_key_pinning() {
     );
     assert!(
         stdout.contains("key pinned"),
-        "Expected 'key pinned' in: {}",
-        stdout
+        "Expected 'key pinned' in: {stdout}"
     );
     assert!(
         stdout.contains("VERIFIED"),
-        "Expected VERIFIED in: {}",
-        stdout
+        "Expected VERIFIED in: {stdout}"
     );
 }
 
@@ -365,13 +355,11 @@ fn verify_with_wrong_trusted_key_fails() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !output.status.success(),
-        "Should fail with wrong trusted key. stdout: {}",
-        stdout
+        "Should fail with wrong trusted key. stdout: {stdout}"
     );
     assert!(
         stdout.contains("INVALID") || stdout.contains("FAILED"),
-        "Expected INVALID or FAILED in: {}",
-        stdout
+        "Expected INVALID or FAILED in: {stdout}"
     );
 }
 
@@ -396,8 +384,7 @@ fn verify_invalid_trusted_key_hex_fails() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Invalid --trusted-key hex"),
-        "Expected hex error in: {}",
-        stderr
+        "Expected hex error in: {stderr}"
     );
 }
 
@@ -422,8 +409,7 @@ fn verify_trusted_key_wrong_length_fails() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("32 bytes"),
-        "Expected length error in: {}",
-        stderr
+        "Expected length error in: {stderr}"
     );
 }
 
@@ -451,13 +437,11 @@ fn verify_list_rotated_shows_none_when_no_rotated_files() {
     assert!(output.status.success());
     assert!(
         stdout.contains("Rotated log files:"),
-        "Expected rotated section in: {}",
-        stdout
+        "Expected rotated section in: {stdout}"
     );
     assert!(
         stdout.contains("(none)"),
-        "Expected (none) when no rotated files in: {}",
-        stdout
+        "Expected (none) when no rotated files in: {stdout}"
     );
 }
 
@@ -509,19 +493,13 @@ fn verify_list_rotated_shows_rotated_files() {
     );
     assert!(
         stdout.contains("Rotated log files:"),
-        "Expected rotated section in: {}",
-        stdout
+        "Expected rotated section in: {stdout}"
     );
     assert!(
         stdout.contains("Total rotated files:"),
-        "Expected file count in: {}",
-        stdout
+        "Expected file count in: {stdout}"
     );
-    assert!(
-        stdout.contains("bytes"),
-        "Expected file sizes in: {}",
-        stdout
-    );
+    assert!(stdout.contains("bytes"), "Expected file sizes in: {stdout}");
 }
 
 // ═══════════════════════════
@@ -581,13 +559,11 @@ fn verify_detects_duplicate_entry_ids() {
     // Output should mention duplicates
     assert!(
         stdout.contains("duplicate"),
-        "Expected 'duplicate' in output: {}",
-        stdout
+        "Expected 'duplicate' in output: {stdout}"
     );
     assert!(
         stdout.contains("FAILED"),
-        "Expected FAILED in output: {}",
-        stdout
+        "Expected FAILED in output: {stdout}"
     );
 }
 
@@ -632,12 +608,10 @@ fn verify_no_duplicates_in_clean_log() {
     );
     assert!(
         stdout.contains("Duplicates: none"),
-        "Expected 'Duplicates: none' in: {}",
-        stdout
+        "Expected 'Duplicates: none' in: {stdout}"
     );
     assert!(
         stdout.contains("VERIFIED"),
-        "Expected VERIFIED in: {}",
-        stdout
+        "Expected VERIFIED in: {stdout}"
     );
 }

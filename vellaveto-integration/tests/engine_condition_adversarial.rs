@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", id),
+        name: format!("cond-{id}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) ->
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -55,8 +55,7 @@ fn conditions_with_null_value_does_not_crash() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(
         result.is_ok(),
-        "null conditions should not crash: {:?}",
-        result
+        "null conditions should not crash: {result:?}"
     );
 }
 
@@ -69,8 +68,7 @@ fn conditions_with_string_value_does_not_crash() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(
         result.is_ok(),
-        "string conditions should not crash: {:?}",
-        result
+        "string conditions should not crash: {result:?}"
     );
 }
 
@@ -83,8 +81,7 @@ fn conditions_with_array_value_does_not_crash() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(
         result.is_ok(),
-        "array conditions should not crash: {:?}",
-        result
+        "array conditions should not crash: {result:?}"
     );
 }
 
@@ -97,8 +94,7 @@ fn conditions_with_integer_value_does_not_crash() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(
         result.is_ok(),
-        "integer conditions should not crash: {:?}",
-        result
+        "integer conditions should not crash: {result:?}"
     );
 }
 
@@ -111,8 +107,7 @@ fn conditions_with_boolean_value_does_not_crash() {
     let result = engine.evaluate_action(&action, &policies);
     assert!(
         result.is_ok(),
-        "boolean conditions should not crash: {:?}",
-        result
+        "boolean conditions should not crash: {result:?}"
     );
 }
 
@@ -147,7 +142,7 @@ fn condition_depth_10_is_accepted() {
     let policies = vec![conditional_policy("*", 10, conditions)];
 
     let result = engine.evaluate_action(&action, &policies);
-    assert!(result.is_ok(), "depth 10 should be accepted: {:?}", result);
+    assert!(result.is_ok(), "depth 10 should be accepted: {result:?}");
 }
 
 #[test]
@@ -165,8 +160,7 @@ fn condition_depth_11_is_rejected() {
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("nesting depth"),
-        "Error should mention nesting depth: {}",
-        err_msg
+        "Error should mention nesting depth: {err_msg}"
     );
 }
 
@@ -246,7 +240,7 @@ fn condition_just_under_max_size_is_accepted() {
     // Each key-value pair: "k_XXXX": "v" ~= 12 bytes in JSON
     // 4500 * ~14 = ~63KB (under 65,536)
     for i in 0..4500 {
-        obj.insert(format!("k_{:04}", i), json!("v"));
+        obj.insert(format!("k_{i:04}"), json!("v"));
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
@@ -273,7 +267,7 @@ fn condition_over_max_size_is_rejected() {
     // Build a flat object that exceeds MAX_CONDITIONS_SIZE (65,536)
     let mut obj = serde_json::Map::new();
     for i in 0..5500 {
-        obj.insert(format!("key_{:05}", i), json!("value_padding_data"));
+        obj.insert(format!("key_{i:05}"), json!("value_padding_data"));
     }
     let conditions = serde_json::Value::Object(obj);
     let size = conditions.to_string().len();
@@ -293,8 +287,7 @@ fn condition_over_max_size_is_rejected() {
     let err_msg = format!("{}", result.unwrap_err());
     assert!(
         err_msg.contains("too large"),
-        "Error should mention size: {}",
-        err_msg
+        "Error should mention size: {err_msg}"
     );
 }
 
@@ -317,16 +310,14 @@ fn forbidden_parameter_present_causes_deny() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("force"),
-                "Reason should name the param: {}",
-                reason
+                "Reason should name the param: {reason}"
             );
             assert!(
                 reason.contains("forbidden"),
-                "Reason should say forbidden: {}",
-                reason
+                "Reason should say forbidden: {reason}"
             );
         }
-        other => panic!("Expected Deny for forbidden param, got {:?}", other),
+        other => panic!("Expected Deny for forbidden param, got {other:?}"),
     }
 }
 
@@ -364,11 +355,10 @@ fn multiple_forbidden_params_first_match_wins() {
             // The engine iterates forbidden_parameters in order; "delete" should trigger first
             assert!(
                 reason.contains("delete"),
-                "First forbidden param should trigger: {}",
-                reason
+                "First forbidden param should trigger: {reason}"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -387,10 +377,7 @@ fn forbidden_param_with_null_value_still_matches() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {} // correct: key exists even though value is null
-        other => panic!(
-            "Key 'secret' with null value should still be forbidden, got {:?}",
-            other
-        ),
+        other => panic!("Key 'secret' with null value should still be forbidden, got {other:?}"),
     }
 }
 
@@ -430,11 +417,10 @@ fn required_parameter_missing_causes_deny() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("auth_token"),
-                "Should name missing param: {}",
-                reason
+                "Should name missing param: {reason}"
             );
         }
-        other => panic!("Expected Deny for missing required param, got {:?}", other),
+        other => panic!("Expected Deny for missing required param, got {other:?}"),
     }
 }
 
@@ -493,8 +479,7 @@ fn require_approval_takes_precedence_over_forbidden_params() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "require_approval should take precedence over forbidden_parameters, got {:?}",
-        result
+        "require_approval should take precedence over forbidden_parameters, got {result:?}"
     );
 }
 
@@ -531,8 +516,7 @@ fn require_approval_as_string_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 
@@ -546,8 +530,7 @@ fn require_approval_as_integer_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 
@@ -634,11 +617,10 @@ fn forbidden_checked_before_required_when_both_present() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("bad") && reason.contains("forbidden"),
-                "Should deny for forbidden param first: {}",
-                reason
+                "Should deny for forbidden param first: {reason}"
             );
         }
-        other => panic!("Expected Deny for forbidden param, got {:?}", other),
+        other => panic!("Expected Deny for forbidden param, got {other:?}"),
     }
 }
 

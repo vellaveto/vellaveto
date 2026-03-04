@@ -153,8 +153,7 @@ impl GovernanceConfig {
             // format characters (zero-width, bidi overrides, BOM) in governance strings.
             if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "governance.approved_tools[{}] contains control or format characters",
-                    i
+                    "governance.approved_tools[{i}] contains control or format characters"
                 ));
             }
         }
@@ -178,8 +177,7 @@ impl GovernanceConfig {
             // SECURITY (FIND-R51-015, FIND-R63-CFG-005): Reject control and format characters.
             if vellaveto_types::has_dangerous_chars(server) {
                 return Err(format!(
-                    "governance.known_servers[{}] contains control or format characters",
-                    i
+                    "governance.known_servers[{i}] contains control or format characters"
                 ));
             }
         }
@@ -203,8 +201,7 @@ impl GovernanceConfig {
             // SECURITY (FIND-R51-015, FIND-R63-CFG-005): Reject control and format characters.
             if vellaveto_types::has_dangerous_chars(agent) {
                 return Err(format!(
-                    "governance.registered_agents[{}] contains control or format characters",
-                    i
+                    "governance.registered_agents[{i}] contains control or format characters"
                 ));
             }
         }

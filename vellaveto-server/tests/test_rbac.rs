@@ -46,7 +46,7 @@ fn create_jwt(role: &str, secret: &str) -> String {
     use jsonwebtoken::{encode, EncodingKey, Header};
 
     let claims = TestClaims {
-        sub: format!("test-user-{}", role),
+        sub: format!("test-user-{role}"),
         role: role.to_string(),
         exp: future_exp(),
     };
@@ -469,7 +469,7 @@ async fn jwt_admin_role_can_write() {
             Request::builder()
                 .method("POST")
                 .uri("/api/policies")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
@@ -507,7 +507,7 @@ async fn jwt_viewer_role_denied_write() {
             Request::builder()
                 .method("POST")
                 .uri("/api/policies")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
@@ -544,7 +544,7 @@ async fn jwt_operator_can_evaluate() {
             Request::builder()
                 .method("POST")
                 .uri("/api/evaluate")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"tool":"test","function":"test","parameters":{}}"#,
@@ -582,7 +582,7 @@ async fn jwt_operator_can_evaluate_when_api_key_is_configured() {
             Request::builder()
                 .method("POST")
                 .uri("/api/evaluate")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"tool":"test","function":"test","parameters":{}}"#,
@@ -781,7 +781,7 @@ async fn jwt_invalid_token_is_rejected() {
             Request::builder()
                 .method("POST")
                 .uri("/api/policies")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"id":"new","name":"New","policy_type":"allow","priority":1}"#,
@@ -905,17 +905,13 @@ async fn permission_matrix_viewer() {
             assert_ne!(
                 response.status(),
                 StatusCode::FORBIDDEN,
-                "Viewer should have access to {} {}",
-                method,
-                path
+                "Viewer should have access to {method} {path}"
             );
         } else {
             assert_eq!(
                 response.status(),
                 StatusCode::FORBIDDEN,
-                "Viewer should NOT have access to {} {}",
-                method,
-                path
+                "Viewer should NOT have access to {method} {path}"
             );
         }
     }
@@ -966,17 +962,13 @@ async fn permission_matrix_operator() {
             assert_ne!(
                 response.status(),
                 StatusCode::FORBIDDEN,
-                "Operator should have access to {} {}",
-                method,
-                path
+                "Operator should have access to {method} {path}"
             );
         } else {
             assert_eq!(
                 response.status(),
                 StatusCode::FORBIDDEN,
-                "Operator should NOT have access to {} {}",
-                method,
-                path
+                "Operator should NOT have access to {method} {path}"
             );
         }
     }

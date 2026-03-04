@@ -185,7 +185,7 @@ pub fn load_preset(name: &str) -> Result<PolicyConfig, String> {
             available.join(", ")
         )
     })?;
-    PolicyConfig::from_toml(toml).map_err(|e| format!("Failed to parse preset '{}': {}", name, e))
+    PolicyConfig::from_toml(toml).map_err(|e| format!("Failed to parse preset '{name}': {e}"))
 }
 
 /// List all available presets as `(name, description)` pairs.
@@ -217,7 +217,7 @@ pub fn list_protection_levels() -> Vec<(&'static str, &'static str)> {
 /// Returns `Err` only if the compile-time constant TOML is malformed (a build bug).
 pub fn default_config() -> Result<PolicyConfig, String> {
     PolicyConfig::from_toml(DEFAULT_CONFIG_TOML)
-        .map_err(|e| format!("built-in default config is invalid (this is a bug): {}", e))
+        .map_err(|e| format!("built-in default config is invalid (this is a bug): {e}"))
 }
 
 #[cfg(test)]
@@ -521,17 +521,14 @@ mod tests {
     #[test]
     fn test_all_protection_levels_have_injection_and_dlp() {
         for level in ["shield", "fortress", "vault"] {
-            let config =
-                load_preset(level).unwrap_or_else(|e| panic!("{} should load: {}", level, e));
+            let config = load_preset(level).unwrap_or_else(|e| panic!("{level} should load: {e}"));
             assert!(
                 config.injection.enabled && config.injection.block_on_injection,
-                "{} should have blocking injection",
-                level
+                "{level} should have blocking injection"
             );
             assert!(
                 config.dlp.enabled && config.dlp.block_on_finding,
-                "{} should have blocking DLP",
-                level
+                "{level} should have blocking DLP"
             );
         }
     }

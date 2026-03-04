@@ -182,8 +182,7 @@ impl TopologyConfig {
             "bypass" | "deny" => {}
             other => {
                 return Err(format!(
-                    "topology.fallback_mode must be 'bypass' or 'deny', got '{}'",
-                    other
+                    "topology.fallback_mode must be 'bypass' or 'deny', got '{other}'"
                 ));
             }
         }

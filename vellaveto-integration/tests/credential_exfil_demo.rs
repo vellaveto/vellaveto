@@ -58,8 +58,7 @@ fn attack_read_aws_credentials_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading AWS credentials must be denied, got: {:?}",
-        verdict
+        "Reading AWS credentials must be denied, got: {verdict:?}"
     );
 }
 
@@ -73,8 +72,7 @@ fn attack_read_ssh_private_key_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading SSH private key must be denied, got: {:?}",
-        verdict
+        "Reading SSH private key must be denied, got: {verdict:?}"
     );
 }
 
@@ -88,8 +86,7 @@ fn attack_read_gcp_credentials_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading GCP credentials must be denied, got: {:?}",
-        verdict
+        "Reading GCP credentials must be denied, got: {verdict:?}"
     );
 }
 
@@ -103,8 +100,7 @@ fn attack_read_azure_credentials_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading Azure credentials must be denied, got: {:?}",
-        verdict
+        "Reading Azure credentials must be denied, got: {verdict:?}"
     );
 }
 
@@ -114,8 +110,7 @@ fn attack_read_etc_shadow_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading /etc/shadow must be denied, got: {:?}",
-        verdict
+        "Reading /etc/shadow must be denied, got: {verdict:?}"
     );
 }
 
@@ -125,8 +120,7 @@ fn attack_read_etc_passwd_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Reading /etc/passwd must be denied, got: {:?}",
-        verdict
+        "Reading /etc/passwd must be denied, got: {verdict:?}"
     );
 }
 
@@ -140,8 +134,7 @@ fn attack_path_traversal_to_shadow_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Path traversal to /etc/shadow must be denied, got: {:?}",
-        verdict
+        "Path traversal to /etc/shadow must be denied, got: {verdict:?}"
     );
 }
 
@@ -155,8 +148,7 @@ fn attack_path_traversal_to_aws_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Path traversal to AWS creds must be denied, got: {:?}",
-        verdict
+        "Path traversal to AWS creds must be denied, got: {verdict:?}"
     );
 }
 
@@ -170,8 +162,7 @@ fn attack_percent_encoded_traversal_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Percent-encoded path traversal must be denied, got: {:?}",
-        verdict
+        "Percent-encoded path traversal must be denied, got: {verdict:?}"
     );
 }
 
@@ -189,8 +180,7 @@ fn attack_exfil_ngrok_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to ngrok must be denied, got: {:?}",
-        verdict
+        "Exfiltration to ngrok must be denied, got: {verdict:?}"
     );
 }
 
@@ -204,8 +194,7 @@ fn attack_exfil_requestbin_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to requestbin must be denied, got: {:?}",
-        verdict
+        "Exfiltration to requestbin must be denied, got: {verdict:?}"
     );
 }
 
@@ -219,8 +208,7 @@ fn attack_exfil_pipedream_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to pipedream must be denied, got: {:?}",
-        verdict
+        "Exfiltration to pipedream must be denied, got: {verdict:?}"
     );
 }
 
@@ -234,8 +222,7 @@ fn attack_exfil_pastebin_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to pastebin must be denied, got: {:?}",
-        verdict
+        "Exfiltration to pastebin must be denied, got: {verdict:?}"
     );
 }
 
@@ -249,8 +236,7 @@ fn attack_exfil_webhook_site_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to webhook.site must be denied, got: {:?}",
-        verdict
+        "Exfiltration to webhook.site must be denied, got: {verdict:?}"
     );
 }
 
@@ -264,8 +250,7 @@ fn attack_exfil_untrusted_domain_denied() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Exfiltration to untrusted domain must be denied, got: {:?}",
-        verdict
+        "Exfiltration to untrusted domain must be denied, got: {verdict:?}"
     );
 }
 
@@ -283,8 +268,7 @@ fn safe_read_project_file_allowed() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Reading a project file must be allowed, got: {:?}",
-        verdict
+        "Reading a project file must be allowed, got: {verdict:?}"
     );
 }
 
@@ -298,8 +282,7 @@ fn safe_trusted_api_call_allowed() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Allow),
-        "HTTP request to trusted domain must be allowed, got: {:?}",
-        verdict
+        "HTTP request to trusted domain must be allowed, got: {verdict:?}"
     );
 }
 
@@ -309,8 +292,7 @@ fn safe_non_http_tool_allowed() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Non-HTTP non-file tool must be allowed by default, got: {:?}",
-        verdict
+        "Non-HTTP non-file tool must be allowed by default, got: {verdict:?}"
     );
 }
 
@@ -328,8 +310,7 @@ fn dangerous_rm_rf_requires_approval() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "rm -rf must require approval, got: {:?}",
-        verdict
+        "rm -rf must require approval, got: {verdict:?}"
     );
 }
 
@@ -343,8 +324,7 @@ fn dangerous_dd_requires_approval() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "dd command must require approval, got: {:?}",
-        verdict
+        "dd command must require approval, got: {verdict:?}"
     );
 }
 
@@ -354,8 +334,7 @@ fn dangerous_mkfs_requires_approval() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "mkfs must require approval, got: {:?}",
-        verdict
+        "mkfs must require approval, got: {verdict:?}"
     );
 }
 
@@ -365,8 +344,7 @@ fn safe_bash_echo_allowed() {
     let verdict = evaluate(&action);
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Safe bash command must be allowed, got: {:?}",
-        verdict
+        "Safe bash command must be allowed, got: {verdict:?}"
     );
 }
 
@@ -459,9 +437,7 @@ fn full_pipeline_attack_sequence_with_audit() {
                 .expect("evaluation must succeed");
             assert!(
                 matches!(verdict, Verdict::Deny { .. }),
-                "Attack '{}' must be denied, got: {:?}",
-                label,
-                verdict
+                "Attack '{label}' must be denied, got: {verdict:?}"
             );
             logger
                 .log_entry(&action, &verdict, json!({}))
@@ -478,9 +454,7 @@ fn full_pipeline_attack_sequence_with_audit() {
                 .expect("evaluation must succeed");
             assert!(
                 matches!(verdict, Verdict::Allow),
-                "Safe op '{}' must be allowed, got: {:?}",
-                label,
-                verdict
+                "Safe op '{label}' must be allowed, got: {verdict:?}"
             );
             logger
                 .log_entry(&action, &verdict, json!({}))
@@ -497,9 +471,7 @@ fn full_pipeline_attack_sequence_with_audit() {
                 .expect("evaluation must succeed");
             assert!(
                 matches!(verdict, Verdict::RequireApproval { .. }),
-                "Dangerous op '{}' must require approval, got: {:?}",
-                label,
-                verdict
+                "Dangerous op '{label}' must require approval, got: {verdict:?}"
             );
             logger
                 .log_entry(&action, &verdict, json!({}))

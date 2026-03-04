@@ -38,7 +38,7 @@ fn make_test_action(idx: usize) -> Action {
 
 fn make_test_entry(idx: usize) -> AuditEntry {
     AuditEntry {
-        id: format!("entry-{}", idx),
+        id: format!("entry-{idx}"),
         action: make_test_action(idx),
         verdict: if idx.is_multiple_of(3) {
             Verdict::Deny {
@@ -50,7 +50,7 @@ fn make_test_entry(idx: usize) -> AuditEntry {
         timestamp: "2026-02-08T12:00:00Z".to_string(),
         metadata: json!({"request_id": format!("req-{}", idx)}),
         sequence: idx as u64,
-        entry_hash: Some(format!("hash_{}", idx)),
+        entry_hash: Some(format!("hash_{idx}")),
         prev_hash: if idx > 0 {
             Some(format!("hash_{}", idx - 1))
         } else {

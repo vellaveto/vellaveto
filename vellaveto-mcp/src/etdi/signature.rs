@@ -77,7 +77,7 @@ pub fn compute_tool_hash(tool_name: &str, schema: &Value) -> String {
                 "compute_tool_hash: both canonical and regular serialization failed: {} — using Debug repr for distinct hash",
                 e
             );
-            format!("{:?}", schema)
+            format!("{schema:?}")
         })
     });
     hasher.update(canonical.as_bytes());
@@ -159,7 +159,7 @@ impl ToolSignatureVerifier {
                 valid: false,
                 signer_trusted: false,
                 expired: false,
-                message: format!("Verification failed: {}", e),
+                message: format!("Verification failed: {e}"),
             },
         }
     }

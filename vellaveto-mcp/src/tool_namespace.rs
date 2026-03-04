@@ -246,7 +246,7 @@ impl ToolNamespaceRegistry {
                 },
                 conflicting_source: source,
                 collision_type: CollisionType::TrustViolation,
-                description: format!("Tool '{}' matches protected name pattern", tool_name),
+                description: format!("Tool '{tool_name}' matches protected name pattern"),
             })));
         }
         drop(protected);
@@ -295,8 +295,7 @@ impl ToolNamespaceRegistry {
                         conflicting_source: source.clone(),
                         collision_type: CollisionType::SimilarName,
                         description: format!(
-                            "Tool '{}' is similar to existing tool '{}' (distance={})",
-                            name, existing_name, distance
+                            "Tool '{name}' is similar to existing tool '{existing_name}' (distance={distance})"
                         ),
                     });
                 }
@@ -552,7 +551,7 @@ mod tests {
         ToolSource {
             server: server.to_string(),
             version: version.to_string(),
-            definition_hash: format!("hash_{}", server),
+            definition_hash: format!("hash_{server}"),
             registered_at: None,
             trusted,
         }

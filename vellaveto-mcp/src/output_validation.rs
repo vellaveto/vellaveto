@@ -247,7 +247,7 @@ fn validate_declared_schema(schema: &Value) -> Result<(), String> {
         return Err("outputSchema must be a JSON object".to_string());
     }
     let serialized = serde_json::to_string(schema)
-        .map_err(|e| format!("outputSchema serialization failed: {}", e))?;
+        .map_err(|e| format!("outputSchema serialization failed: {e}"))?;
     if serialized.len() > MAX_SCHEMA_SIZE {
         return Err(format!(
             "outputSchema exceeds size limit ({} > {} bytes)",
@@ -331,7 +331,7 @@ fn validate_value_inner(
                     let child_path = if path.is_empty() {
                         key.clone()
                     } else {
-                        format!("{}.{}", path, key)
+                        format!("{path}.{key}")
                     };
                     validate_value_inner(val, prop_schema, &child_path, violations, depth + 1);
                 }
@@ -358,7 +358,7 @@ fn validate_value_inner(
     if let Some(arr) = value.as_array() {
         if let Some(items_schema) = schema.get("items") {
             for (i, item) in arr.iter().enumerate() {
-                let child_path = format!("{}[{}]", path, i);
+                let child_path = format!("{path}[{i}]");
                 validate_value_inner(item, items_schema, &child_path, violations, depth + 1);
             }
         }
@@ -443,7 +443,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("condition")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -467,7 +467,7 @@ mod tests {
                 assert!(violations.iter().any(|v| v.contains("temperature")));
                 assert!(violations.iter().any(|v| v.contains("number")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -493,7 +493,7 @@ mod tests {
                     .iter()
                     .any(|v| v.contains("injected_prompt") && v.contains("unexpected")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -571,7 +571,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("city")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -602,7 +602,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("[1]")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -618,7 +618,7 @@ mod tests {
                     .iter()
                     .any(|v| v.contains("object") && v.contains("string")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -646,7 +646,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("integer")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -677,7 +677,7 @@ mod tests {
                     .iter()
                     .any(|v| v.contains("system_override") && v.contains("unexpected")));
             }
-            other => panic!("Expected Invalid for puppet attack, got {:?}", other),
+            other => panic!("Expected Invalid for puppet attack, got {other:?}"),
         }
     }
 
@@ -719,7 +719,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("injected")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -741,14 +741,10 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(
                     violations.iter().any(|v| v.contains("exceeds size limit")),
-                    "Expected rejection reason for oversized schema, got: {:?}",
-                    violations
+                    "Expected rejection reason for oversized schema, got: {violations:?}"
                 );
             }
-            other => panic!(
-                "Expected Invalid for oversized schema declaration, got {:?}",
-                other
-            ),
+            other => panic!("Expected Invalid for oversized schema declaration, got {other:?}"),
         }
     }
 
@@ -757,7 +753,7 @@ mod tests {
         let registry = OutputSchemaRegistry::new();
         // Register MAX_SCHEMA_ENTRIES tools
         for i in 0..MAX_SCHEMA_ENTRIES {
-            registry.register(&format!("tool_{}", i), json!({"type": "object"}));
+            registry.register(&format!("tool_{i}"), json!({"type": "object"}));
         }
         assert!(registry.has_schema("tool_0"));
         assert!(registry.has_schema(&format!("tool_{}", MAX_SCHEMA_ENTRIES - 1)));
@@ -817,7 +813,7 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(violations.iter().any(|v| v.contains("string")));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -915,13 +911,11 @@ mod tests {
                     violations
                         .iter()
                         .any(|v| v.contains("must be a JSON object")),
-                    "Expected invalid schema type reason, got {:?}",
-                    violations
+                    "Expected invalid schema type reason, got {violations:?}"
                 );
             }
             other => panic!(
-                "Expected Invalid (fail-closed) for malformed outputSchema declaration, got {:?}",
-                other
+                "Expected Invalid (fail-closed) for malformed outputSchema declaration, got {other:?}"
             ),
         }
     }
@@ -957,15 +951,14 @@ mod tests {
             ValidationResult::Invalid { violations } => {
                 assert!(
                     violations.iter().any(|v| v.contains("depth limit")),
-                    "Should contain depth limit violation, got: {:?}",
-                    violations
+                    "Should contain depth limit violation, got: {violations:?}"
                 );
             }
             ValidationResult::Valid => {
                 // Also acceptable if the validator just stops recursing and
                 // doesn't add violations (since leaf types match)
             }
-            other => panic!("Expected Invalid or Valid (depth-limited), got {:?}", other),
+            other => panic!("Expected Invalid or Valid (depth-limited), got {other:?}"),
         }
     }
 

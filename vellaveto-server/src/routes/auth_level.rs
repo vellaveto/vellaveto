@@ -104,8 +104,7 @@ pub async fn upgrade_auth_level(
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: format!(
-                        "expires_secs must not exceed {} (24 hours)",
-                        MAX_AUTH_EXPIRES_SECS
+                        "expires_secs must not exceed {MAX_AUTH_EXPIRES_SECS} (24 hours)"
                     ),
                 }),
             ));

@@ -131,10 +131,7 @@ fn all_simple_policy_combos_return_ok() {
                 let result = engine.evaluate_action(&action, &[policy]);
                 assert!(
                     result.is_ok(),
-                    "Expected Ok for pattern={}, priority={}, type={:?}",
-                    pattern,
-                    priority,
-                    pt
+                    "Expected Ok for pattern={pattern}, priority={priority}, type={pt:?}"
                 );
             }
         }
@@ -169,18 +166,13 @@ fn higher_priority_always_wins_in_pairwise_combos() {
                 assert_eq!(
                     verdict,
                     Verdict::Allow,
-                    "Allow(pri={}) should beat Deny(pri={})",
-                    p1,
-                    p2
+                    "Allow(pri={p1}) should beat Deny(pri={p2})"
                 );
             } else {
                 // Deny has higher priority
                 match &verdict {
                     Verdict::Deny { .. } => {}
-                    other => panic!(
-                        "Deny(pri={}) should beat Allow(pri={}), got {:?}",
-                        p2, p1, other
-                    ),
+                    other => panic!("Deny(pri={p2}) should beat Allow(pri={p1}), got {other:?}"),
                 }
             }
         }
@@ -230,7 +222,7 @@ fn three_way_policy_highest_priority_wins() {
     ];
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("Expected RequireApproval, got {:?}", other),
+        other => panic!("Expected RequireApproval, got {other:?}"),
     }
 
     // Deny=100 > Conditional=50 > Allow=10
@@ -248,7 +240,7 @@ fn three_way_policy_highest_priority_wins() {
     ];
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -290,11 +282,10 @@ fn forbidden_parameters_combinatorial() {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains(param),
-                    "Reason should mention forbidden param '{}'",
-                    param
+                    "Reason should mention forbidden param '{param}'"
                 );
             }
-            other => panic!("Expected Deny for param '{}', got {:?}", param, other),
+            other => panic!("Expected Deny for param '{param}', got {other:?}"),
         }
     }
 
@@ -305,7 +296,7 @@ fn forbidden_parameters_combinatorial() {
         .unwrap()
     {
         Verdict::Deny { .. } => {}
-        other => panic!("Expected Deny with all forbidden params, got {:?}", other),
+        other => panic!("Expected Deny with all forbidden params, got {other:?}"),
     }
 }
 
@@ -341,7 +332,7 @@ fn required_parameters_combinatorial() {
         Verdict::Deny { reason } => {
             assert!(reason.contains("b"), "Should mention missing param 'b'");
         }
-        other => panic!("Expected Deny for missing 'b', got {:?}", other),
+        other => panic!("Expected Deny for missing 'b', got {other:?}"),
     }
 
     // Neither present → Deny
@@ -351,7 +342,7 @@ fn required_parameters_combinatorial() {
         .unwrap()
     {
         Verdict::Deny { .. } => {}
-        other => panic!("Expected Deny with no params, got {:?}", other),
+        other => panic!("Expected Deny with no params, got {other:?}"),
     }
 }
 
@@ -369,9 +360,9 @@ fn thousand_policies_highest_priority_wins() {
     let mut policies: Vec<Policy> = (0..999)
         .map(|i| {
             if i % 2 == 0 {
-                make_policy("*", &format!("p{}", i), PolicyType::Allow, i)
+                make_policy("*", &format!("p{i}"), PolicyType::Allow, i)
             } else {
-                make_policy("*", &format!("p{}", i), PolicyType::Deny, i)
+                make_policy("*", &format!("p{i}"), PolicyType::Deny, i)
             }
         })
         .collect();
@@ -390,13 +381,13 @@ fn thousand_policies_highest_priority_deny_wins() {
     let action = make_action("tool", "func", json!({}));
 
     let mut policies: Vec<Policy> = (0..999)
-        .map(|i| make_policy("*", &format!("p{}", i), PolicyType::Allow, i))
+        .map(|i| make_policy("*", &format!("p{i}"), PolicyType::Allow, i))
         .collect();
 
     policies.push(make_policy("*", "the-blocker", PolicyType::Deny, 10_000));
 
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }

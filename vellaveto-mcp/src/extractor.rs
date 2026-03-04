@@ -658,7 +658,7 @@ mod tests {
                 assert_eq!(id, json!(31));
                 assert!(reason.contains("Missing method"));
             }
-            other => panic!("Expected Invalid, got {:?}", other),
+            other => panic!("Expected Invalid, got {other:?}"),
         }
     }
 
@@ -687,7 +687,7 @@ mod tests {
                 assert_eq!(id, json!(4));
                 assert!(reason.contains("missing or empty tool name"));
             }
-            _ => panic!("Expected Invalid, got {:?}", mt),
+            _ => panic!("Expected Invalid, got {mt:?}"),
         }
     }
 
@@ -831,7 +831,7 @@ mod tests {
                 assert_eq!(id, json!(10));
                 assert_eq!(uri, "file:///etc/passwd");
             }
-            _ => panic!("Expected ResourceRead, got {:?}", mt),
+            _ => panic!("Expected ResourceRead, got {mt:?}"),
         }
     }
 
@@ -868,11 +868,10 @@ mod tests {
             MessageType::Invalid { reason, .. } => {
                 assert!(
                     reason.contains("empty uri") || reason.contains("missing"),
-                    "Expected rejection for missing URI, got: {}",
-                    reason
+                    "Expected rejection for missing URI, got: {reason}"
                 );
             }
-            _ => panic!("Expected Invalid for missing URI, got: {:?}", mt),
+            _ => panic!("Expected Invalid for missing URI, got: {mt:?}"),
         }
     }
 
@@ -890,11 +889,10 @@ mod tests {
             MessageType::Invalid { reason, .. } => {
                 assert!(
                     reason.contains("empty"),
-                    "Expected rejection for empty URI, got: {}",
-                    reason
+                    "Expected rejection for empty URI, got: {reason}"
                 );
             }
-            _ => panic!("Expected Invalid for empty URI, got: {:?}", mt),
+            _ => panic!("Expected Invalid for empty URI, got: {mt:?}"),
         }
     }
 
@@ -964,7 +962,7 @@ mod tests {
             MessageType::ToolCall { tool_name, .. } => {
                 assert_eq!(tool_name, "bash");
             }
-            other => panic!("Expected ToolCall, got {:?}", other),
+            other => panic!("Expected ToolCall, got {other:?}"),
         }
     }
 
@@ -1143,7 +1141,7 @@ mod tests {
             MessageType::ResourceRead { uri, .. } => {
                 assert_eq!(uri, "file:///etc/shadow");
             }
-            other => panic!("Expected ResourceRead, got {:?}", other),
+            other => panic!("Expected ResourceRead, got {other:?}"),
         }
     }
 
@@ -1285,7 +1283,7 @@ mod tests {
             MessageType::ElicitationRequest { id } => {
                 assert_eq!(id, json!(20));
             }
-            other => panic!("Expected ElicitationRequest, got {:?}", other),
+            other => panic!("Expected ElicitationRequest, got {other:?}"),
         }
     }
 
@@ -1337,7 +1335,7 @@ mod tests {
                 assert_eq!(task_method, "tasks/get");
                 assert_eq!(task_id, Some("task-abc-123".to_string()));
             }
-            other => panic!("Expected TaskRequest, got {:?}", other),
+            other => panic!("Expected TaskRequest, got {other:?}"),
         }
     }
 
@@ -1358,7 +1356,7 @@ mod tests {
                 assert_eq!(task_method, "tasks/cancel");
                 assert_eq!(task_id, Some("task-def-456".to_string()));
             }
-            other => panic!("Expected TaskRequest, got {:?}", other),
+            other => panic!("Expected TaskRequest, got {other:?}"),
         }
     }
 
@@ -1374,7 +1372,7 @@ mod tests {
             MessageType::TaskRequest { task_id, .. } => {
                 assert_eq!(task_id, None);
             }
-            other => panic!("Expected TaskRequest, got {:?}", other),
+            other => panic!("Expected TaskRequest, got {other:?}"),
         }
     }
 
@@ -1466,7 +1464,7 @@ mod tests {
                 assert!((progress - 50.0).abs() < f64::EPSILON);
                 assert!((total.unwrap() - 100.0).abs() < f64::EPSILON);
             }
-            other => panic!("Expected ProgressNotification, got {:?}", other),
+            other => panic!("Expected ProgressNotification, got {other:?}"),
         }
     }
 
@@ -1486,7 +1484,7 @@ mod tests {
                 assert!((progress - 0.0).abs() < f64::EPSILON);
                 assert!(total.is_none());
             }
-            other => panic!("Expected ProgressNotification, got {:?}", other),
+            other => panic!("Expected ProgressNotification, got {other:?}"),
         }
     }
 
@@ -1510,7 +1508,7 @@ mod tests {
                 assert_eq!(extension_id, "x-vellaveto-audit");
                 assert_eq!(method, "x-vellaveto-audit/stats");
             }
-            other => panic!("Expected ExtensionMethod, got {:?}", other),
+            other => panic!("Expected ExtensionMethod, got {other:?}"),
         }
     }
 
@@ -1531,7 +1529,7 @@ mod tests {
                 assert_eq!(extension_id, "x-my-ext");
                 assert_eq!(method, "x-my-ext/deep/path");
             }
-            other => panic!("Expected ExtensionMethod, got {:?}", other),
+            other => panic!("Expected ExtensionMethod, got {other:?}"),
         }
     }
 

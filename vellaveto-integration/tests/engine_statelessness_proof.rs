@@ -23,7 +23,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -34,7 +34,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -92,14 +92,12 @@ fn high_volume_interleaved_evaluations() {
         if i % 2 == 0 {
             assert!(
                 matches!(verdict, Verdict::Deny { .. }),
-                "Iteration {}: expected Deny with deny_set",
-                i
+                "Iteration {i}: expected Deny with deny_set"
             );
         } else {
             assert!(
                 matches!(verdict, Verdict::Allow),
-                "Iteration {}: expected Allow with allow_set",
-                i
+                "Iteration {i}: expected Allow with allow_set"
             );
         }
     }
@@ -115,11 +113,7 @@ fn separate_engine_instances_same_result() {
     let baseline = engines[0].evaluate_action(&action, &policies).unwrap();
     for (i, engine) in engines.iter().enumerate().skip(1) {
         let v = engine.evaluate_action(&action, &policies).unwrap();
-        assert_eq!(
-            baseline, v,
-            "Engine instance {} produced different result",
-            i
-        );
+        assert_eq!(baseline, v, "Engine instance {i} produced different result");
     }
 }
 
@@ -189,8 +183,7 @@ fn strict_and_nonstrict_identical_across_all_policy_types() {
         let vr = relaxed.evaluate_action(&action, policies).unwrap();
         assert_eq!(
             vs, vr,
-            "Policy set {} produced different results for strict vs relaxed",
-            i
+            "Policy set {i} produced different results for strict vs relaxed"
         );
     }
 }

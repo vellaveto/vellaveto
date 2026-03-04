@@ -202,8 +202,7 @@ impl ShieldConfig {
             "local" | "remote" => {}
             other => {
                 return Err(format!(
-                    "invalid audit_mode '{}': must be 'local' or 'remote'",
-                    other
+                    "invalid audit_mode '{other}': must be 'local' or 'remote'"
                 ));
             }
         }
@@ -274,8 +273,7 @@ impl ShieldConfig {
             "none" | "level1" | "level2" => {}
             other => {
                 return Err(format!(
-                    "invalid stylometric_level '{}': must be 'none', 'level1', or 'level2'",
-                    other
+                    "invalid stylometric_level '{other}': must be 'none', 'level1', or 'level2'"
                 ));
             }
         }
@@ -291,7 +289,7 @@ impl ShieldConfig {
 
         for (i, pat) in self.custom_pii_patterns.iter().enumerate() {
             if pat.name.is_empty() {
-                return Err(format!("custom_pii_patterns[{}].name must not be empty", i));
+                return Err(format!("custom_pii_patterns[{i}].name must not be empty"));
             }
             if pat.name.len() > MAX_SHIELD_PATTERN_NAME_LEN {
                 return Err(format!(
@@ -303,14 +301,12 @@ impl ShieldConfig {
             }
             if has_dangerous_chars(&pat.name) {
                 return Err(format!(
-                    "custom_pii_patterns[{}].name contains dangerous characters",
-                    i
+                    "custom_pii_patterns[{i}].name contains dangerous characters"
                 ));
             }
             if pat.pattern.is_empty() {
                 return Err(format!(
-                    "custom_pii_patterns[{}].pattern must not be empty",
-                    i
+                    "custom_pii_patterns[{i}].pattern must not be empty"
                 ));
             }
             if pat.pattern.len() > MAX_SHIELD_PATTERN_LEN {

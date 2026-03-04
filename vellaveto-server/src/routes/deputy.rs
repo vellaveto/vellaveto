@@ -54,7 +54,7 @@ fn validate_field(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("{} exceeds maximum length of {}", field_name, max_len),
+                error: format!("{field_name} exceeds maximum length of {max_len}"),
             }),
         ));
     }
@@ -62,7 +62,7 @@ fn validate_field(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("{} contains invalid characters", field_name),
+                error: format!("{field_name} contains invalid characters"),
             }),
         ));
     }
@@ -142,12 +142,12 @@ pub async fn register_delegation(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("allowed_tools exceeds maximum of {} entries", MAX_TOOLS_LEN),
+                error: format!("allowed_tools exceeds maximum of {MAX_TOOLS_LEN} entries"),
             }),
         ));
     }
     for (i, tool) in req.allowed_tools.iter().enumerate() {
-        validate_field(tool, &format!("allowed_tools[{}]", i), MAX_FIELD_LEN)?;
+        validate_field(tool, &format!("allowed_tools[{i}]"), MAX_FIELD_LEN)?;
     }
 
     if let Some(secs) = req.expires_secs {
@@ -156,8 +156,7 @@ pub async fn register_delegation(
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: format!(
-                        "expires_secs must be between 1 and {} (30 days)",
-                        MAX_EXPIRES_SECS
+                        "expires_secs must be between 1 and {MAX_EXPIRES_SECS} (30 days)"
                     ),
                 }),
             ));

@@ -262,7 +262,7 @@ mod tests {
             );
         }
         AuditEntry {
-            id: format!("entry-{}", sequence),
+            id: format!("entry-{sequence}"),
             action: Action {
                 tool: tool.to_string(),
                 function: function.to_string(),

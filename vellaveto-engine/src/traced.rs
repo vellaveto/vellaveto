@@ -640,25 +640,25 @@ impl PolicyEngine {
     fn constraint_expected_str(c: &CompiledConstraint) -> String {
         match c {
             CompiledConstraint::Glob { pattern_str, .. } => {
-                format!("matches glob '{}'", pattern_str)
+                format!("matches glob '{pattern_str}'")
             }
             CompiledConstraint::NotGlob { matchers, .. } => {
                 let pats: Vec<&str> = matchers.iter().map(|(s, _)| s.as_str()).collect();
                 format!("not in [{}]", pats.join(", "))
             }
             CompiledConstraint::Regex { pattern_str, .. } => {
-                format!("matches regex '{}'", pattern_str)
+                format!("matches regex '{pattern_str}'")
             }
             CompiledConstraint::DomainMatch { pattern, .. } => {
-                format!("domain matches '{}'", pattern)
+                format!("domain matches '{pattern}'")
             }
             CompiledConstraint::DomainNotIn { patterns, .. } => {
                 format!("domain not in [{}]", patterns.join(", "))
             }
-            CompiledConstraint::Eq { value, .. } => format!("equals {}", value),
-            CompiledConstraint::Ne { value, .. } => format!("not equal {}", value),
-            CompiledConstraint::OneOf { values, .. } => format!("one of {:?}", values),
-            CompiledConstraint::NoneOf { values, .. } => format!("none of {:?}", values),
+            CompiledConstraint::Eq { value, .. } => format!("equals {value}"),
+            CompiledConstraint::Ne { value, .. } => format!("not equal {value}"),
+            CompiledConstraint::OneOf { values, .. } => format!("one of {values:?}"),
+            CompiledConstraint::NoneOf { values, .. } => format!("none of {values:?}"),
         }
     }
 
@@ -667,8 +667,8 @@ impl PolicyEngine {
     pub(crate) fn describe_value(value: &serde_json::Value) -> String {
         match value {
             serde_json::Value::Null => "null".to_string(),
-            serde_json::Value::Bool(b) => format!("bool({})", b),
-            serde_json::Value::Number(n) => format!("number({})", n),
+            serde_json::Value::Bool(b) => format!("bool({b})"),
+            serde_json::Value::Number(n) => format!("number({n})"),
             serde_json::Value::String(s) => format!("string({} chars)", s.len()),
             serde_json::Value::Array(arr) => format!("array({} items)", arr.len()),
             serde_json::Value::Object(obj) => format!("object({} keys)", obj.len()),
@@ -845,7 +845,7 @@ mod tests {
         // A wide but shallow object (many keys at depth 1)
         let mut obj = serde_json::Map::new();
         for i in 0..100 {
-            obj.insert(format!("key_{}", i), json!(i));
+            obj.insert(format!("key_{i}"), json!(i));
         }
         let value = serde_json::Value::Object(obj);
         assert_eq!(PolicyEngine::json_depth(&value), 1);

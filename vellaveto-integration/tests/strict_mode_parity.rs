@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -44,7 +44,7 @@ fn deny_policy(id: &str, priority: i32) -> Policy {
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", id),
+        name: format!("cond-{id}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -158,7 +158,7 @@ fn many_policies_same_verdict_in_both_modes() {
         if i % 3 == 0 {
             policies.push(allow_policy(&format!("tool_{}:func_{}", i, i % 10), i));
         } else {
-            policies.push(deny_policy(&format!("tool_{}:*", i), i * 2));
+            policies.push(deny_policy(&format!("tool_{i}:*"), i * 2));
         }
     }
     assert!(verdicts_match(&action, &policies));

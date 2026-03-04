@@ -229,8 +229,7 @@ impl AuditQueryParams {
         if let (Some(from), Some(to)) = (self.from_sequence, self.to_sequence) {
             if from > to {
                 return Err(format!(
-                    "from_sequence ({}) must be <= to_sequence ({})",
-                    from, to
+                    "from_sequence ({from}) must be <= to_sequence ({to})"
                 ));
             }
         }
@@ -246,7 +245,7 @@ impl AuditQueryParams {
                 return Err("since contains control or format characters".to_string());
             }
             crate::time_util::parse_iso8601_secs(since)
-                .map_err(|e| format!("since is not valid ISO 8601: {}", e))?;
+                .map_err(|e| format!("since is not valid ISO 8601: {e}"))?;
         }
         if let Some(ref until) = self.until {
             if until.len() > 64 {
@@ -256,7 +255,7 @@ impl AuditQueryParams {
                 return Err("until contains control or format characters".to_string());
             }
             crate::time_util::parse_iso8601_secs(until)
-                .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
+                .map_err(|e| format!("until is not valid ISO 8601: {e}"))?;
         }
 
         // SECURITY (FIND-R200-005, FIND-R202-001): Validate temporal ordering using parsed
@@ -265,14 +264,11 @@ impl AuditQueryParams {
         // suffixes). Both timestamps were already parsed above, so re-parse is infallible.
         if let (Some(ref since), Some(ref until)) = (&self.since, &self.until) {
             let since_epoch = crate::time_util::parse_iso8601_secs(since)
-                .map_err(|e| format!("since is not valid ISO 8601: {}", e))?;
+                .map_err(|e| format!("since is not valid ISO 8601: {e}"))?;
             let until_epoch = crate::time_util::parse_iso8601_secs(until)
-                .map_err(|e| format!("until is not valid ISO 8601: {}", e))?;
+                .map_err(|e| format!("until is not valid ISO 8601: {e}"))?;
             if since_epoch >= until_epoch {
-                return Err(format!(
-                    "since ({}) must be before until ({})",
-                    since, until
-                ));
+                return Err(format!("since ({since}) must be before until ({until})"));
             }
         }
 

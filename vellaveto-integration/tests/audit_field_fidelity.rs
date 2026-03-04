@@ -80,7 +80,7 @@ fn deny_reason_preserved_through_audit() {
             Verdict::Deny { reason } => {
                 assert_eq!(reason, "specific denial reason with unicode: 日本語");
             }
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     });
 }
@@ -105,7 +105,7 @@ fn require_approval_reason_preserved_through_audit() {
             Verdict::RequireApproval { reason } => {
                 assert_eq!(reason, "needs manager sign-off: level >= 3");
             }
-            other => panic!("Expected RequireApproval, got {:?}", other),
+            other => panic!("Expected RequireApproval, got {other:?}"),
         }
     });
 }
@@ -239,14 +239,14 @@ fn three_entries_with_different_verdicts_preserve_all_fields() {
         assert_eq!(entries[1].action.function, "exec");
         match &entries[1].verdict {
             Verdict::Deny { reason } => assert_eq!(reason, "bash blocked"),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
         assert_eq!(entries[1].metadata, json!({"user": "bob", "attempt": 3}));
 
         assert_eq!(entries[2].action.tool, "net");
         match &entries[2].verdict {
             Verdict::RequireApproval { reason } => assert_eq!(reason, "external network"),
-            other => panic!("Expected RequireApproval, got {:?}", other),
+            other => panic!("Expected RequireApproval, got {other:?}"),
         }
     });
 }

@@ -34,8 +34,8 @@ fn runtime_st() -> tokio::runtime::Runtime {
 
 fn make_action(id: usize) -> Action {
     Action::new(
-        format!("concurrent_tool_{}", id),
-        format!("func_{}", id),
+        format!("concurrent_tool_{id}"),
+        format!("func_{id}"),
         json!({"task_id": id}),
     )
 }
@@ -67,7 +67,7 @@ fn fifty_tasks_produce_valid_jsonl_lines() {
                         Verdict::Allow
                     } else {
                         Verdict::Deny {
-                            reason: format!("task {} entry {}", task_id, i),
+                            reason: format!("task {task_id} entry {i}"),
                         }
                     };
                     logger
@@ -148,8 +148,7 @@ fn load_entries_count_matches_concurrent_writes() {
         assert_eq!(
             entries.len(),
             expected_total,
-            "load_entries should return exactly {} entries",
-            expected_total
+            "load_entries should return exactly {expected_total} entries"
         );
     });
 }
@@ -188,7 +187,7 @@ fn report_counts_consistent_after_concurrent_writes() {
                     .log_entry(
                         &action,
                         &Verdict::Deny {
-                            reason: format!("deny-{}", i),
+                            reason: format!("deny-{i}"),
                         },
                         json!({}),
                     )
@@ -206,7 +205,7 @@ fn report_counts_consistent_after_concurrent_writes() {
                     .log_entry(
                         &action,
                         &Verdict::RequireApproval {
-                            reason: format!("approve-{}", i),
+                            reason: format!("approve-{i}"),
                         },
                         json!({}),
                     )

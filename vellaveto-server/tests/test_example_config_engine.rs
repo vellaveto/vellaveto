@@ -61,8 +61,7 @@ fn example_config_file_read_is_allowed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "file:read should be allowed, got {:?}",
-        result
+        "file:read should be allowed, got {result:?}"
     );
 }
 
@@ -74,8 +73,7 @@ fn example_config_file_delete_is_denied() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "file:delete should be denied, got {:?}",
-        result
+        "file:delete should be denied, got {result:?}"
     );
 }
 
@@ -87,8 +85,7 @@ fn example_config_bash_execute_is_denied() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "bash:execute should be denied, got {:?}",
-        result
+        "bash:execute should be denied, got {result:?}"
     );
 }
 
@@ -100,8 +97,7 @@ fn example_config_network_requires_approval() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "network:connect should require approval, got {:?}",
-        result
+        "network:connect should require approval, got {result:?}"
     );
 }
 
@@ -118,8 +114,7 @@ fn example_config_unknown_tool_gets_default_allow() {
     // The default allow at priority 1 should catch this
     assert!(
         matches!(result, Verdict::Allow),
-        "Unknown tool should fall through to default allow, got {:?}",
-        result
+        "Unknown tool should fall through to default allow, got {result:?}"
     );
 }
 

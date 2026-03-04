@@ -563,8 +563,7 @@ fn validate_tenant_id(id: &str) -> Result<(), String> {
     }
     if id.len() > MAX_TENANT_ID_LEN {
         return Err(format!(
-            "tenant_id exceeds max length of {}",
-            MAX_TENANT_ID_LEN
+            "tenant_id exceeds max length of {MAX_TENANT_ID_LEN}"
         ));
     }
     if !id
@@ -611,8 +610,7 @@ impl VellavetoClusterSpec {
     pub fn validate(&self) -> Result<(), String> {
         if self.replicas < 1 || self.replicas > MAX_CLUSTER_REPLICAS {
             return Err(format!(
-                "replicas must be between 1 and {}",
-                MAX_CLUSTER_REPLICAS
+                "replicas must be between 1 and {MAX_CLUSTER_REPLICAS}"
             ));
         }
         if self.image.is_empty() {
@@ -1747,8 +1745,8 @@ mod tests {
             ..Default::default()
         };
         let err = config.validate().unwrap_err();
-        assert!(err.contains("rate_limit_rps"), "err: {}", err);
-        assert!(err.contains("100000"), "err: {}", err);
+        assert!(err.contains("rate_limit_rps"), "err: {err}");
+        assert!(err.contains("100000"), "err: {err}");
     }
 
     #[test]

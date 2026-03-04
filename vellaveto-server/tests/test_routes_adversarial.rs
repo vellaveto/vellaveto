@@ -307,8 +307,7 @@ async fn evaluate_allowed_action_returns_allow() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
         json.to_string().contains("Allow"),
-        "file:read should be allowed: {:?}",
-        json
+        "file:read should be allowed: {json:?}"
     );
 }
 
@@ -336,8 +335,7 @@ async fn evaluate_denied_action_returns_deny() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
         json.to_string().contains("Deny"),
-        "bash:execute should be denied: {:?}",
-        json
+        "bash:execute should be denied: {json:?}"
     );
 }
 
@@ -392,8 +390,7 @@ async fn evaluate_with_empty_policies_returns_deny() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
         json.to_string().contains("Deny"),
-        "Empty policies should produce Deny (fail-closed): {:?}",
-        json
+        "Empty policies should produce Deny (fail-closed): {json:?}"
     );
 }
 
@@ -450,7 +447,7 @@ async fn list_policies_returns_array() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json.is_array(), "Policies should be an array: {:?}", json);
+    assert!(json.is_array(), "Policies should be an array: {json:?}");
     assert_eq!(json.as_array().unwrap().len(), 2);
 }
 
@@ -916,8 +913,7 @@ async fn evaluate_clears_client_supplied_resolved_ips() {
             let ips_arr = ips.as_array().unwrap_or(&empty);
             assert!(
                 !ips_arr.iter().any(|ip| ip.as_str() == Some("8.8.8.8")),
-                "Client-supplied resolved_ips should have been cleared, but found 8.8.8.8 in {:?}",
-                ips_arr
+                "Client-supplied resolved_ips should have been cleared, but found 8.8.8.8 in {ips_arr:?}"
             );
         }
     }
@@ -1013,22 +1009,19 @@ async fn test_r32_srv2_redact_clears_targets() {
         if let Some(paths) = paths {
             assert!(
                 paths.is_empty(),
-                "target_paths must be redacted, got: {:?}",
-                paths
+                "target_paths must be redacted, got: {paths:?}"
             );
         }
         if let Some(domains) = domains {
             assert!(
                 domains.is_empty(),
-                "target_domains must be redacted, got: {:?}",
-                domains
+                "target_domains must be redacted, got: {domains:?}"
             );
         }
         if let Some(ips) = ips {
             assert!(
                 ips.is_empty(),
-                "resolved_ips must be redacted, got: {:?}",
-                ips
+                "resolved_ips must be redacted, got: {ips:?}"
             );
         }
     }

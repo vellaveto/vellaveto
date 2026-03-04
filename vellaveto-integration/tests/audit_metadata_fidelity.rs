@@ -231,7 +231,7 @@ fn deny_verdict_reason_and_metadata_both_preserved() {
             Verdict::Deny { reason } => {
                 assert_eq!(reason, "Bash commands blocked");
             }
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     });
 }
@@ -258,7 +258,7 @@ fn require_approval_verdict_and_metadata_both_preserved() {
             Verdict::RequireApproval { reason } => {
                 assert_eq!(reason, "Manual review required");
             }
-            other => panic!("Expected RequireApproval, got {:?}", other),
+            other => panic!("Expected RequireApproval, got {other:?}"),
         }
     });
 }

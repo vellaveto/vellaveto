@@ -399,7 +399,7 @@ mod tests {
     #[test]
     fn test_allowed_signers_validate_too_many_fingerprints() {
         let config = AllowedSignersConfig {
-            fingerprints: (0..1001).map(|i| format!("fp{}", i)).collect(),
+            fingerprints: (0..1001).map(|i| format!("fp{i}")).collect(),
             spiffe_ids: vec![],
         };
         let err = config.validate().unwrap_err();
@@ -410,7 +410,7 @@ mod tests {
     fn test_allowed_signers_validate_too_many_spiffe_ids() {
         let config = AllowedSignersConfig {
             fingerprints: vec![],
-            spiffe_ids: (0..1001).map(|i| format!("spiffe://test/{}", i)).collect(),
+            spiffe_ids: (0..1001).map(|i| format!("spiffe://test/{i}")).collect(),
         };
         let err = config.validate().unwrap_err();
         assert!(err.contains("spiffe_ids count"));

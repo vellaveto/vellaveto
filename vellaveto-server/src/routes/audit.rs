@@ -344,3 +344,125 @@ pub async fn create_checkpoint(
     })?;
     Ok(Json(value))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── AuditEntriesQuery serde tests ────────────────────────────────────
+
+    #[test]
+    fn test_audit_entries_query_defaults() {
+        let q: AuditEntriesQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.limit.is_none());
+        assert!(q.offset.is_none());
+    }
+
+    #[test]
+    fn test_audit_entries_query_with_values() {
+        let q: AuditEntriesQuery = serde_json::from_str(r#"{"limit":50,"offset":10}"#).unwrap();
+        assert_eq!(q.limit, Some(50));
+        assert_eq!(q.offset, Some(10));
+    }
+
+    #[test]
+    fn test_audit_entries_query_denies_unknown_fields() {
+        let result: Result<AuditEntriesQuery, _> =
+            serde_json::from_str(r#"{"limit":50,"bogus":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── AuditExportQuery serde tests ─────────────────────────────────────
+
+    #[test]
+    fn test_audit_export_query_defaults() {
+        let q: AuditExportQuery = serde_json::from_str("{}").unwrap();
+        assert!(q.format.is_none());
+        assert!(q.since.is_none());
+        assert!(q.limit.is_none());
+    }
+
+    #[test]
+    fn test_audit_export_query_with_all_fields() {
+        let q: AuditExportQuery =
+            serde_json::from_str(r#"{"format":"cef","since":"2026-01-01T00:00:00Z","limit":500}"#)
+                .unwrap();
+        assert_eq!(q.format.as_deref(), Some("cef"));
+        assert_eq!(q.since.as_deref(), Some("2026-01-01T00:00:00Z"));
+        assert_eq!(q.limit, Some(500));
+    }
+
+    #[test]
+    fn test_audit_export_query_denies_unknown_fields() {
+        let result: Result<AuditExportQuery, _> =
+            serde_json::from_str(r#"{"format":"jsonl","extra":"bad"}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_default_audit_page_size_reasonable() {
+        assert!(DEFAULT_AUDIT_PAGE_SIZE > 0);
+        assert!(DEFAULT_AUDIT_PAGE_SIZE <= MAX_AUDIT_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_max_audit_page_size_bounded() {
+        assert!(MAX_AUDIT_PAGE_SIZE > 0);
+        assert!(MAX_AUDIT_PAGE_SIZE <= 10_000);
+    }
+
+    #[test]
+    fn test_max_loaded_entries_bounded() {
+        assert!(MAX_LOADED_ENTRIES > 0);
+        assert!(MAX_LOADED_ENTRIES <= 1_000_000);
+    }
+
+    #[test]
+    fn test_max_checkpoints_list_bounded() {
+        assert!(MAX_CHECKPOINTS_LIST > 0);
+        assert!(MAX_CHECKPOINTS_LIST <= 10_000);
+    }
+
+    // ── Pagination logic tests ───────────────────────────────────────────
+    // These test the pagination clamping logic extracted from the handler.
+
+    #[test]
+    fn test_pagination_limit_defaults_to_100() {
+        let limit = None::<usize>
+            .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
+            .min(MAX_AUDIT_PAGE_SIZE);
+        assert_eq!(limit, 100);
+    }
+
+    #[test]
+    fn test_pagination_limit_capped_at_max() {
+        let limit = Some(5000_usize)
+            .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
+            .min(MAX_AUDIT_PAGE_SIZE);
+        assert_eq!(limit, MAX_AUDIT_PAGE_SIZE);
+    }
+
+    #[test]
+    fn test_pagination_limit_explicit_value() {
+        let limit = Some(50_usize)
+            .unwrap_or(DEFAULT_AUDIT_PAGE_SIZE)
+            .min(MAX_AUDIT_PAGE_SIZE);
+        assert_eq!(limit, 50);
+    }
+
+    #[test]
+    fn test_pagination_offset_capped_at_total() {
+        let total: usize = 100;
+        let offset = Some(200_usize).unwrap_or(0).min(total);
+        assert_eq!(offset, 100);
+    }
+
+    #[test]
+    fn test_pagination_offset_defaults_to_zero() {
+        let total: usize = 100;
+        let offset = None::<usize>.unwrap_or(0).min(total);
+        assert_eq!(offset, 0);
+    }
+}

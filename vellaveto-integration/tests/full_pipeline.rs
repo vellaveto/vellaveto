@@ -113,8 +113,7 @@ fn test_deny_overrides_allow_pipeline() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "deny should override allow, got {:?}",
-            verdict
+            "deny should override allow, got {verdict:?}"
         );
 
         let tmp = TempDir::new().unwrap();
@@ -155,7 +154,7 @@ fn test_strict_mode_unmatched_denies_and_audits() {
             }
             Err(e) => {
                 let deny = Verdict::Deny {
-                    reason: format!("engine error: {}", e),
+                    reason: format!("engine error: {e}"),
                 };
                 logger.log_entry(&action, &deny, json!({})).await.unwrap();
             }
@@ -248,7 +247,7 @@ fn test_pipeline_concurrent_evaluations_and_logging() {
             let policies_clone = policies.clone();
             handles.push(tokio::spawn(async move {
                 let engine = PolicyEngine::new(false);
-                let action = make_action("file", &format!("read_{}", i));
+                let action = make_action("file", &format!("read_{i}"));
                 let verdict = engine.evaluate_action(&action, &policies_clone).unwrap();
                 logger_clone
                     .log_entry(&action, &verdict, json!({}))

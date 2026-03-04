@@ -92,13 +92,11 @@ fn http_get(port: u16, path: &str) -> Result<(u16, String), std::io::Error> {
     use std::io::{Read, Write};
     use std::net::TcpStream;
 
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}"))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
-    let request = format!(
-        "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-        path, port
-    );
+    let request =
+        format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes())?;
 
     let mut response = String::new();
@@ -122,7 +120,7 @@ fn http_post(port: u16, path: &str, body: &str) -> Result<(u16, String), std::io
     use std::io::{Read, Write};
     use std::net::TcpStream;
 
-    let mut stream = TcpStream::connect(format!("127.0.0.1:{}", port))?;
+    let mut stream = TcpStream::connect(format!("127.0.0.1:{port}"))?;
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
     let request = format!(
@@ -156,7 +154,7 @@ fn health_endpoint_returns_200() {
     let result = http_get(port, "/health");
     match result {
         Ok((status, body)) => {
-            assert_eq!(status, 200, "Health should return 200. Body: {}", body);
+            assert_eq!(status, 200, "Health should return 200. Body: {body}");
             let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| {
                 // axum might use chunked transfer encoding
                 // Try to extract JSON from chunked body
@@ -169,10 +167,7 @@ fn health_endpoint_returns_200() {
         }
         Err(e) => {
             // Server might not have started yet — this is a known race condition
-            eprintln!(
-                "WARN: Could not connect to server: {}. This may be a timing issue.",
-                e
-            );
+            eprintln!("WARN: Could not connect to server: {e}. This may be a timing issue.");
         }
     }
 }
@@ -188,10 +183,10 @@ fn evaluate_endpoint_returns_verdict() {
     let result = http_post(port, "/api/evaluate", body);
     match result {
         Ok((status, body)) => {
-            assert_eq!(status, 200, "Evaluate should return 200. Body: {}", body);
+            assert_eq!(status, 200, "Evaluate should return 200. Body: {body}");
         }
         Err(e) => {
-            eprintln!("WARN: Could not connect to server: {}", e);
+            eprintln!("WARN: Could not connect to server: {e}");
         }
     }
 }
@@ -210,12 +205,11 @@ fn evaluate_endpoint_denied_action() {
             assert_eq!(status, 200);
             assert!(
                 resp_body.contains("Deny"),
-                "bash:execute should be denied. Got: {}",
-                resp_body
+                "bash:execute should be denied. Got: {resp_body}"
             );
         }
         Err(e) => {
-            eprintln!("WARN: Could not connect to server: {}", e);
+            eprintln!("WARN: Could not connect to server: {e}");
         }
     }
 }
@@ -231,8 +225,7 @@ fn evaluate_endpoint_with_invalid_json_returns_error() {
     if let Ok((status, _)) = result {
         assert!(
             status >= 400,
-            "Invalid JSON should return 4xx. Got: {}",
-            status
+            "Invalid JSON should return 4xx. Got: {status}"
         );
     }
 }
@@ -253,8 +246,7 @@ fn list_policies_returns_array() {
             // Might be chunked encoding issue, just check it contains policy data
             assert!(
                 body.contains("policy") || body.contains("Allow") || body.contains("Deny"),
-                "Policies endpoint should return policy data. Got: {}",
-                body
+                "Policies endpoint should return policy data. Got: {body}"
             );
         }
     }

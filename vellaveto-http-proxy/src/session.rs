@@ -1090,9 +1090,9 @@ mod tests {
         let past = Instant::now() - Duration::from_secs(10);
         for i in 0..5 {
             state.discovered_tools.insert(
-                format!("server:tool{}", i),
+                format!("server:tool{i}"),
                 DiscoveredToolSession {
-                    tool_id: format!("server:tool{}", i),
+                    tool_id: format!("server:tool{i}"),
                     discovered_at: past,
                     ttl: Duration::from_secs(1),
                     used: false,

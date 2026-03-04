@@ -931,7 +931,7 @@ async fn csrf_referer_check(
         referer.and_then(|r| {
             // Extract origin from Referer URL (scheme + host + port)
             url::Url::parse(&r).ok().map(|u| {
-                let port = u.port().map(|p| format!(":{}", p)).unwrap_or_default();
+                let port = u.port().map(|p| format!(":{p}")).unwrap_or_default();
                 format!("{}://{}{}", u.scheme(), u.host_str().unwrap_or(""), port)
             })
         })
@@ -1002,7 +1002,7 @@ fn validate_origin(origin: &str, allowed_origins: &[String]) -> bool {
             if input.ends_with('/') {
                 None
             } else {
-                let with_slash = format!("{}/", input);
+                let with_slash = format!("{input}/");
                 url::Url::parse(&with_slash).ok()
             }
         })?;
@@ -1509,7 +1509,7 @@ fn scan_params_for_targets_inner(
                 if !clean.is_empty() {
                     // SECURITY (R30-SRV-6): Percent-decode relative paths too.
                     let decoded = percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
-                    paths.push(format!("/{}", decoded));
+                    paths.push(format!("/{decoded}"));
                 }
             }
         }
@@ -1784,7 +1784,7 @@ fn sanitize_context(
                                 .filter(|c| !crate::routes::is_unsafe_char(*c))
                                 .take(256)
                                 .collect();
-                            format!("{} (note: {})", principal, sanitized)
+                            format!("{principal} (note: {sanitized})")
                         }
                         None => principal,
                     })
@@ -1960,33 +1960,27 @@ async fn evaluate(
         tracing::warn!("Action validation failed: {}", e);
         let hint = match &e {
             vellaveto_types::ValidationError::EmptyField { field } => {
-                format!("The '{}' field must not be empty", field)
+                format!("The '{field}' field must not be empty")
             }
             vellaveto_types::ValidationError::TooLong { field, max, .. } => {
-                format!(
-                    "The '{}' field exceeds the maximum length of {} bytes",
-                    field, max
-                )
+                format!("The '{field}' field exceeds the maximum length of {max} bytes")
             }
             vellaveto_types::ValidationError::NullByte { field }
             | vellaveto_types::ValidationError::ControlCharacter { field } => {
-                format!("The '{}' field contains invalid characters", field)
+                format!("The '{field}' field contains invalid characters")
             }
             vellaveto_types::ValidationError::ParametersTooLarge { max, .. } => {
-                format!("The 'parameters' payload is too large (max {} bytes)", max)
+                format!("The 'parameters' payload is too large (max {max} bytes)")
             }
             vellaveto_types::ValidationError::TooManyTargets { max, .. } => {
-                format!(
-                    "Too many target_paths + target_domains entries (max {})",
-                    max
-                )
+                format!("Too many target_paths + target_domains entries (max {max})")
             }
             _ => "Check that tool, function, and parameters are well-formed".to_string(),
         };
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid action: {}", hint),
+                error: format!("Invalid action: {hint}"),
             }),
         ));
     }
@@ -2024,8 +2018,7 @@ async fn evaluate(
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(ErrorResponse {
                     error: format!(
-                        "Tenant evaluation rate limit exceeded (retry after {}s)",
-                        retry_after
+                        "Tenant evaluation rate limit exceeded (retry after {retry_after}s)"
                     ),
                 }),
             ));
@@ -2042,7 +2035,7 @@ async fn evaluate(
             return Err((
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(ErrorResponse {
-                    error: format!("Evaluation quota exceeded: {}", reason),
+                    error: format!("Evaluation quota exceeded: {reason}"),
                 }),
             ));
         }
@@ -2066,8 +2059,7 @@ async fn evaluate(
                 // Unknown tool: register it and require approval
                 registry.register_unknown(tool_name).await;
                 let reason = format!(
-                    "Tool '{}' is not in the registry — requires approval before use",
-                    tool_name
+                    "Tool '{tool_name}' is not in the registry — requires approval before use"
                 );
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
@@ -2160,8 +2152,7 @@ async fn evaluate(
             }
             vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score } => {
                 let reason = format!(
-                    "Tool '{}' trust score ({:.2}) is below threshold — requires approval",
-                    tool_name, score
+                    "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
                 );
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
@@ -2911,7 +2902,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
                     && t.len() <= MAX_PRINCIPAL_LEN
                     && !t.chars().any(crate::routes::is_unsafe_char)
             })
-            .map(|t| format!("t:{}|", t))
+            .map(|t| format!("t:{t}|"))
             .unwrap_or_default()
     } else {
         String::new()
@@ -2928,7 +2919,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
                 && principal.len() <= MAX_PRINCIPAL_LEN
                 && !principal.chars().any(crate::routes::is_unsafe_char)
             {
-                return format!("{}principal:{}", tenant_prefix, principal);
+                return format!("{tenant_prefix}principal:{principal}");
             }
         }
     }
@@ -2954,7 +2945,7 @@ fn extract_principal_key(request: &Request, trusted_proxies: &[std::net::IpAddr]
 
     // 3. Fallback to client IP
     let client_ip = extract_client_ip(request, trusted_proxies);
-    format!("{}ip:{}", tenant_prefix, client_ip)
+    format!("{tenant_prefix}ip:{client_ip}")
 }
 
 fn categorize_rate_limit<'a>(
@@ -3125,7 +3116,7 @@ mod tests {
         let request = build_request(&[("x-principal", "alice")]);
         let key = extract_principal_key(&request, &[]);
         // Should fall through to IP fallback, not use X-Principal
-        assert!(key.starts_with("ip:"), "Expected ip: prefix, got: {}", key);
+        assert!(key.starts_with("ip:"), "Expected ip: prefix, got: {key}");
     }
 
     #[test]
@@ -3160,8 +3151,7 @@ mod tests {
         let key = extract_principal_key(&request, &trusted);
         assert!(
             !key.starts_with("principal:"),
-            "X-Principal should be ignored from untrusted IP, got: {}",
-            key
+            "X-Principal should be ignored from untrusted IP, got: {key}"
         );
     }
 
@@ -3173,14 +3163,12 @@ mod tests {
         let key = extract_principal_key(&request, &[]);
         assert!(
             key.starts_with("bearer:"),
-            "Expected bearer: prefix, got: {}",
-            key
+            "Expected bearer: prefix, got: {key}"
         );
         // Must NOT contain the raw token
         assert!(
             !key.contains("my-secret-token"),
-            "Raw token should not appear in key: {}",
-            key
+            "Raw token should not appear in key: {key}"
         );
         // Hash should be 32 hex chars (128 bits = 16 bytes)
         let hash_part = key.strip_prefix("bearer:").unwrap();
@@ -3211,11 +3199,7 @@ mod tests {
     fn test_principal_key_fallback_to_ip() {
         let request = build_request(&[]);
         let key = extract_principal_key(&request, &[]);
-        assert!(
-            key.starts_with("ip:"),
-            "Should fall back to IP, got: {}",
-            key
-        );
+        assert!(key.starts_with("ip:"), "Should fall back to IP, got: {key}");
     }
 
     // --- Context sanitization tests ---
@@ -3297,13 +3281,11 @@ mod tests {
         let agent_id = sanitized.agent_id.unwrap();
         assert!(
             agent_id.starts_with("bearer:"),
-            "agent_id should be derived from token hash, got: {}",
-            agent_id
+            "agent_id should be derived from token hash, got: {agent_id}"
         );
         assert!(
             agent_id.contains("(note: spoofed-agent)"),
-            "Client agent_id should appear as note, got: {}",
-            agent_id
+            "Client agent_id should appear as note, got: {agent_id}"
         );
     }
 
@@ -3331,8 +3313,7 @@ mod tests {
         let agent_id = sanitized.agent_id.unwrap();
         assert!(
             agent_id.starts_with("bearer:"),
-            "agent_id should be derived from token hash, got: {}",
-            agent_id
+            "agent_id should be derived from token hash, got: {agent_id}"
         );
         assert!(
             !agent_id.contains("note:"),
@@ -3423,7 +3404,7 @@ mod tests {
         let trusted = vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)];
         let request = build_request(&[("x-principal", &max_principal)]);
         let key = extract_principal_key(&request, &trusted);
-        assert_eq!(key, format!("principal:{}", max_principal));
+        assert_eq!(key, format!("principal:{max_principal}"));
     }
 
     #[test]
@@ -3470,8 +3451,7 @@ mod tests {
         let result = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         assert!(
             result.starts_with("bearer:"),
-            "Expected bearer: prefix, got: {}",
-            result
+            "Expected bearer: prefix, got: {result}"
         );
         // Should be deterministic
         let result2 = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
@@ -3489,8 +3469,7 @@ mod tests {
         assert!(result.contains("bearer:"), "Should contain bearer hash");
         assert!(
             result.contains("(note: admin-alice)"),
-            "Should include client note: {}",
-            result
+            "Should include client note: {result}"
         );
     }
 
@@ -3504,8 +3483,7 @@ mod tests {
         let result = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
         assert!(
             result.starts_with("bearer:"),
-            "Should handle uppercase BEARER: {}",
-            result
+            "Should handle uppercase BEARER: {result}"
         );
     }
 
@@ -3611,13 +3589,11 @@ mod tests {
         scan_params_for_targets_inner(&value, &mut paths, &mut domains, 0);
         assert!(
             domains.contains(&"evil.com".to_string()),
-            "Should extract evil.com as the domain, got: {:?}",
-            domains
+            "Should extract evil.com as the domain, got: {domains:?}"
         );
         assert!(
             !domains.contains(&"allowed.com".to_string()),
-            "Should NOT extract allowed.com (it is after the backslash-path), got: {:?}",
-            domains
+            "Should NOT extract allowed.com (it is after the backslash-path), got: {domains:?}"
         );
     }
 
@@ -3631,8 +3607,7 @@ mod tests {
         scan_params_for_targets_inner(&value, &mut paths, &mut domains, 0);
         assert!(
             domains.contains(&"example.com".to_string()),
-            "Should extract example.com, got: {:?}",
-            domains
+            "Should extract example.com, got: {domains:?}"
         );
     }
 
@@ -3689,8 +3664,7 @@ mod tests {
             let ptr = limiter.unwrap() as *const _;
             assert_eq!(
                 ptr, ptr_post,
-                "{:?} /api/evaluate must use evaluate bucket, not admin or readonly",
-                method
+                "{method:?} /api/evaluate must use evaluate bucket, not admin or readonly"
             );
         }
     }

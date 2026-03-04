@@ -580,7 +580,7 @@ mod tests {
         let registry = AdversaTop25Registry::new();
         for rank in 1..=25 {
             let vuln = registry.get_vulnerability(rank);
-            assert!(vuln.is_some(), "Missing vulnerability at rank {}", rank,);
+            assert!(vuln.is_some(), "Missing vulnerability at rank {rank}",);
         }
     }
 

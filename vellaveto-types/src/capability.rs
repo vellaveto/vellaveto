@@ -164,8 +164,7 @@ impl CapabilityGrant {
             // SECURITY (FIND-R113-007): Validate control/format chars on path entries.
             if crate::core::has_dangerous_chars(p) {
                 return Err(CapabilityError::ValidationFailed(format!(
-                    "allowed_paths[{}] contains control or format characters",
-                    i
+                    "allowed_paths[{i}] contains control or format characters"
                 )));
             }
         }
@@ -181,8 +180,7 @@ impl CapabilityGrant {
             // SECURITY (FIND-R113-007): Validate control/format chars on domain entries.
             if crate::core::has_dangerous_chars(d) {
                 return Err(CapabilityError::ValidationFailed(format!(
-                    "allowed_domains[{}] contains control or format characters",
-                    i
+                    "allowed_domains[{i}] contains control or format characters"
                 )));
             }
         }
@@ -248,17 +246,17 @@ pub enum CapabilityError {
 impl fmt::Display for CapabilityError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CapabilityError::InvalidKey(msg) => write!(f, "Invalid key: {}", msg),
-            CapabilityError::SigningFailed(msg) => write!(f, "Signing failed: {}", msg),
+            CapabilityError::InvalidKey(msg) => write!(f, "Invalid key: {msg}"),
+            CapabilityError::SigningFailed(msg) => write!(f, "Signing failed: {msg}"),
             CapabilityError::VerificationFailed(msg) => {
-                write!(f, "Verification failed: {}", msg)
+                write!(f, "Verification failed: {msg}")
             }
             CapabilityError::Expired => write!(f, "Token has expired"),
             CapabilityError::AttenuationViolation(msg) => {
-                write!(f, "Attenuation violation: {}", msg)
+                write!(f, "Attenuation violation: {msg}")
             }
             CapabilityError::ValidationFailed(msg) => {
-                write!(f, "Validation failed: {}", msg)
+                write!(f, "Validation failed: {msg}")
             }
         }
     }
@@ -369,22 +367,19 @@ impl CapabilityToken {
         for (i, grant) in self.grants.iter().enumerate() {
             if grant.tool_pattern.is_empty() {
                 return Err(CapabilityError::ValidationFailed(format!(
-                    "grant {} tool_pattern must not be empty",
-                    i
+                    "grant {i} tool_pattern must not be empty"
                 )));
             }
             if grant.function_pattern.is_empty() {
                 return Err(CapabilityError::ValidationFailed(format!(
-                    "grant {} function_pattern must not be empty",
-                    i
+                    "grant {i} function_pattern must not be empty"
                 )));
             }
             grant.validate()?;
         }
         // Check serialized size
-        let serialized = serde_json::to_string(self).map_err(|e| {
-            CapabilityError::ValidationFailed(format!("serialization failed: {}", e))
-        })?;
+        let serialized = serde_json::to_string(self)
+            .map_err(|e| CapabilityError::ValidationFailed(format!("serialization failed: {e}")))?;
         if serialized.len() > MAX_TOKEN_SIZE {
             return Err(CapabilityError::ValidationFailed(format!(
                 "serialized token size {} exceeds max {}",

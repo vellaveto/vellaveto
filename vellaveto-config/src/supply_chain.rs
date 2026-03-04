@@ -73,7 +73,7 @@ impl SupplyChainConfig {
     /// unbounded memory allocation from very large files.
     pub fn compute_hash(path: &str) -> Result<String, String> {
         let meta = std::fs::metadata(path)
-            .map_err(|e| format!("Cannot read metadata for '{}': {}", path, e))?;
+            .map_err(|e| format!("Cannot read metadata for '{path}': {e}"))?;
         if meta.len() > MAX_BINARY_SIZE {
             return Err(format!(
                 "Binary '{}' exceeds maximum size of {} bytes (actual: {})",
@@ -82,7 +82,7 @@ impl SupplyChainConfig {
                 meta.len()
             ));
         }
-        let data = std::fs::read(path).map_err(|e| format!("Failed to read '{}': {}", path, e))?;
+        let data = std::fs::read(path).map_err(|e| format!("Failed to read '{path}': {e}"))?;
 
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
@@ -105,14 +105,13 @@ impl SupplyChainConfig {
         let expected_hash = self
             .allowed_servers
             .get(path)
-            .ok_or_else(|| format!("Binary '{}' not in allowed_servers list", path))?;
+            .ok_or_else(|| format!("Binary '{path}' not in allowed_servers list"))?;
 
         let actual_hash = Self::compute_hash(path)?;
 
         if !constant_time_eq(&actual_hash, expected_hash) {
             return Err(format!(
-                "Hash mismatch for '{}': expected {}, got {}",
-                path, expected_hash, actual_hash
+                "Hash mismatch for '{path}': expected {expected_hash}, got {actual_hash}"
             ));
         }
 
@@ -432,8 +431,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("must be lowercase hex"),
-            "Uppercase hex should be rejected, got: {}",
-            err
+            "Uppercase hex should be rejected, got: {err}"
         );
     }
 
@@ -452,8 +450,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("must be lowercase hex"),
-            "Mixed-case hex should be rejected, got: {}",
-            err
+            "Mixed-case hex should be rejected, got: {err}"
         );
     }
 

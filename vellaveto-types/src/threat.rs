@@ -177,8 +177,7 @@ impl McpCapability {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "McpCapability sub_capabilities[{}] contains control or format characters",
-                    i,
+                    "McpCapability sub_capabilities[{i}] contains control or format characters",
                 ));
             }
         }
@@ -708,8 +707,7 @@ impl PrincipalContext {
             // in allowed_tools entries, matching original_principal and delegated_to validation.
             if crate::core::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "PrincipalContext allowed_tools[{}] contains control or format characters",
-                    i,
+                    "PrincipalContext allowed_tools[{i}] contains control or format characters",
                 ));
             }
         }

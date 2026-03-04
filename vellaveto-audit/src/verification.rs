@@ -417,7 +417,7 @@ impl AuditLogger {
         })?;
         let tree = merkle
             .lock()
-            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
         tree.generate_proof(index)
     }
 
@@ -432,7 +432,7 @@ impl AuditLogger {
         };
         let tree = merkle
             .lock()
-            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+            .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
         Ok(tree.root_hex())
     }
 
@@ -451,7 +451,7 @@ impl AuditLogger {
         trusted_root: &str,
     ) -> Result<crate::merkle::MerkleVerification, AuditError> {
         let hash_bytes = hex::decode(entry_hash)
-            .map_err(|e| AuditError::Validation(format!("Invalid entry hash hex: {}", e)))?;
+            .map_err(|e| AuditError::Validation(format!("Invalid entry hash hex: {e}")))?;
         if hash_bytes.len() != 32 {
             return Err(AuditError::Validation(format!(
                 "Entry hash has wrong length: {} (expected 32)",
@@ -631,7 +631,7 @@ mod tests {
         // Read existing content, then append a very long line (> MAX_AUDIT_LINE_SIZE)
         let existing = tokio::fs::read_to_string(&log_path).await.expect("read");
         let long_line = "a".repeat(AuditLogger::MAX_AUDIT_LINE_SIZE + 10);
-        tokio::fs::write(&log_path, format!("{}{}\n", existing, long_line))
+        tokio::fs::write(&log_path, format!("{existing}{long_line}\n"))
             .await
             .expect("write");
 

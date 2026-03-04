@@ -161,8 +161,7 @@ impl ExtensionDescriptor {
         for (i, method) in self.methods.iter().enumerate() {
             if method.is_empty() {
                 return Err(ExtensionError::Validation(format!(
-                    "method[{}] must not be empty",
-                    i
+                    "method[{i}] must not be empty"
                 )));
             }
             if method.len() > MAX_EXTENSION_METHOD_LEN {
@@ -178,8 +177,7 @@ impl ExtensionDescriptor {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(ExtensionError::Validation(format!(
-                    "method[{}] contains control or format characters",
-                    i
+                    "method[{i}] contains control or format characters"
                 )));
             }
         }
@@ -195,8 +193,7 @@ impl ExtensionDescriptor {
         for (i, cap) in self.capabilities.iter().enumerate() {
             if cap.is_empty() {
                 return Err(ExtensionError::Validation(format!(
-                    "capability[{}] must not be empty",
-                    i
+                    "capability[{i}] must not be empty"
                 )));
             }
             if cap.len() > MAX_EXTENSION_CAPABILITY_LEN {
@@ -213,8 +210,7 @@ impl ExtensionDescriptor {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(ExtensionError::Validation(format!(
-                    "capability[{}] contains control or format characters",
-                    i
+                    "capability[{i}] contains control or format characters"
                 )));
             }
         }
@@ -346,16 +342,16 @@ pub enum ExtensionError {
 impl std::fmt::Display for ExtensionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ExtensionError::Validation(msg) => write!(f, "Extension validation: {}", msg),
-            ExtensionError::NotFound(msg) => write!(f, "Extension not found: {}", msg),
+            ExtensionError::Validation(msg) => write!(f, "Extension validation: {msg}"),
+            ExtensionError::NotFound(msg) => write!(f, "Extension not found: {msg}"),
             ExtensionError::AlreadyRegistered(msg) => {
-                write!(f, "Extension already registered: {}", msg)
+                write!(f, "Extension already registered: {msg}")
             }
             ExtensionError::MethodNotFound(msg) => {
-                write!(f, "Extension method not found: {}", msg)
+                write!(f, "Extension method not found: {msg}")
             }
-            ExtensionError::Blocked(msg) => write!(f, "Extension blocked: {}", msg),
-            ExtensionError::HandlerFailed(msg) => write!(f, "Extension handler failed: {}", msg),
+            ExtensionError::Blocked(msg) => write!(f, "Extension blocked: {msg}"),
+            ExtensionError::HandlerFailed(msg) => write!(f, "Extension handler failed: {msg}"),
         }
     }
 }

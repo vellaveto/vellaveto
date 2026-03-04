@@ -182,7 +182,7 @@ async fn test_sync_flushes_entries_to_disk() {
             continue;
         }
         let parsed: serde_json::Value = serde_json::from_str(line)
-            .unwrap_or_else(|e| panic!("Line is not valid JSON: {} — {}", line, e));
+            .unwrap_or_else(|e| panic!("Line is not valid JSON: {line} — {e}"));
         assert!(parsed.get("entry_hash").is_some());
     }
 }
@@ -1214,7 +1214,7 @@ async fn test_checkpoint_no_key_returns_error() {
         AuditError::Validation(msg) => {
             assert!(msg.contains("signing key"));
         }
-        other => panic!("Expected Validation error, got {:?}", other),
+        other => panic!("Expected Validation error, got {other:?}"),
     }
 }
 
@@ -1296,7 +1296,7 @@ async fn test_checkpoint_tampered_signature_detected() {
     // Flip a byte in the signature
     let sig = cp["signature"].as_str().unwrap().to_string();
     let tampered_sig = if let Some(rest) = sig.strip_prefix('a') {
-        format!("b{}", rest)
+        format!("b{rest}")
     } else {
         format!("a{}", &sig[1..])
     };
@@ -1380,8 +1380,7 @@ async fn test_checkpoint_tampered_audit_log_detected() {
     // mismatch) before reaching the checkpoint head-hash comparison.
     assert!(
         reason.contains("entry_hash mismatch") || reason.contains("Chain head hash mismatch"),
-        "Expected tampering detection, got: {}",
-        reason
+        "Expected tampering detection, got: {reason}"
     );
 }
 
@@ -1444,8 +1443,7 @@ async fn test_exploit8_middle_deletion_detected() {
             || reason.contains("prev_hash mismatch")
             || reason.contains("Chain head hash mismatch")
             || reason.contains("truncated"),
-        "Expected chain break detection, got: {}",
-        reason
+        "Expected chain break detection, got: {reason}"
     );
 }
 
@@ -1878,8 +1876,7 @@ async fn test_exploit10_oversized_audit_log_rejected() {
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("too large"),
-        "Error should mention file is too large, got: {}",
-        err
+        "Error should mention file is too large, got: {err}"
     );
 }
 
@@ -2102,7 +2099,7 @@ async fn test_rotation_writes_manifest() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2129,7 +2126,7 @@ async fn test_rotation_verification_passes_valid() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2152,7 +2149,7 @@ async fn test_rotation_verification_detects_missing_file() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2181,7 +2178,7 @@ async fn test_rotation_verification_detects_tampered_file() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2235,8 +2232,7 @@ async fn test_checkpoint_permissions_0600() {
     let mode = metadata.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
-        "Checkpoint should have 0o600 permissions, got {:o}",
-        mode
+        "Checkpoint should have 0o600 permissions, got {mode:o}"
     );
 }
 
@@ -2259,8 +2255,7 @@ async fn test_metadata_depth_rejected() {
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("nesting depth"),
-        "Error should mention nesting depth, got: {}",
-        err_msg
+        "Error should mention nesting depth, got: {err_msg}"
     );
 }
 
@@ -2298,8 +2293,7 @@ async fn test_audit_log_permissions_0600() {
     let mode = metadata.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
-        "Audit log should have 0o600 permissions, got {:o}",
-        mode
+        "Audit log should have 0o600 permissions, got {mode:o}"
     );
 }
 
@@ -2311,7 +2305,7 @@ async fn test_rotation_manifest_path_traversal_rejected() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2346,8 +2340,7 @@ async fn test_rotation_manifest_path_traversal_rejected() {
         let result = logger.verify_across_rotations().await.unwrap();
         assert!(
             !result.valid,
-            "Path traversal payload '{}' should be rejected",
-            payload
+            "Path traversal payload '{payload}' should be rejected"
         );
         assert!(
             result
@@ -2370,7 +2363,7 @@ async fn test_rotation_manifest_valid_filename_accepted() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2387,13 +2380,11 @@ async fn test_rotation_manifest_valid_filename_accepted() {
         let rotated_file = entry.get("rotated_file").unwrap().as_str().unwrap();
         assert!(
             !rotated_file.contains('/') && !rotated_file.contains('\\'),
-            "rotated_file should be a bare filename, got: {}",
-            rotated_file
+            "rotated_file should be a bare filename, got: {rotated_file}"
         );
         assert!(
             !rotated_file.contains(".."),
-            "rotated_file should not contain '..', got: {}",
-            rotated_file
+            "rotated_file should not contain '..', got: {rotated_file}"
         );
         assert!(!rotated_file.is_empty(), "rotated_file should not be empty");
     }
@@ -2414,7 +2405,7 @@ async fn test_r38_sup_1_oversized_rotated_file_rejected() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..10 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2447,8 +2438,7 @@ async fn test_r38_sup_1_oversized_rotated_file_rejected() {
     let failure = result.first_failure.as_ref().unwrap();
     assert!(
         failure.contains("exceeds size limit"),
-        "Failure message should mention size limit, got: {}",
-        failure
+        "Failure message should mention size limit, got: {failure}"
     );
 }
 
@@ -2707,7 +2697,7 @@ async fn test_rotation_manifest_entry_deletion_detected() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..20 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2756,7 +2746,7 @@ async fn test_rotation_manifest_entry_reordering_detected() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..20 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -2811,7 +2801,7 @@ async fn test_rotation_manifest_entry_replacement_detected() {
     let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
 
     for i in 0..20 {
-        let action = Action::new("tool", format!("func_{}", i), json!({}));
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"i": i}))
             .await
@@ -3812,7 +3802,7 @@ async fn test_verification_max_audit_line_size_boundary() {
     let line = serde_json::to_string(&entry).unwrap();
 
     // Write to file
-    tokio::fs::write(&log_path, format!("{}\n", line))
+    tokio::fs::write(&log_path, format!("{line}\n"))
         .await
         .unwrap();
 
@@ -4166,8 +4156,7 @@ fn test_gap_t05c_merkle_power_of_two() {
         let v = MerkleTree::verify_proof(leaf, &proof, &proof.root_hash).unwrap();
         assert!(
             v.valid,
-            "Proof for leaf {} in 8-leaf tree should be valid",
-            idx
+            "Proof for leaf {idx} in 8-leaf tree should be valid"
         );
         assert_eq!(
             proof.siblings.len(),
@@ -4784,8 +4773,7 @@ async fn test_pqc_v2_checkpoint_without_feature_fails_closed() {
     let reason = verification.failure_reason.as_ref().unwrap();
     assert!(
         reason.contains("pqc") || reason.contains("PQC") || reason.contains("ML-DSA"),
-        "Failure reason should mention PQC/ML-DSA, got: {}",
-        reason
+        "Failure reason should mention PQC/ML-DSA, got: {reason}"
     );
 }
 
@@ -4899,7 +4887,7 @@ async fn test_pqc_ed25519_error_message_format() {
     let mut cp: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
     let sig = cp["signature"].as_str().unwrap().to_string();
     let tampered_sig = if let Some(stripped) = sig.strip_prefix('a') {
-        format!("b{}", stripped)
+        format!("b{stripped}")
     } else {
         format!("a{}", &sig[1..])
     };
@@ -4912,8 +4900,7 @@ async fn test_pqc_ed25519_error_message_format() {
     let reason = verification.failure_reason.as_ref().unwrap();
     assert!(
         reason.contains("Ed25519 signature verification failed"),
-        "Error message should specify Ed25519, got: {}",
-        reason
+        "Error message should specify Ed25519, got: {reason}"
     );
 }
 
@@ -4945,7 +4932,7 @@ async fn test_pqc_rotation_manifest_ed25519_error_message() {
             let mut entry: serde_json::Value = serde_json::from_str(first_line).unwrap();
             if let Some(sig) = entry.get("signature").and_then(|v| v.as_str()) {
                 let tampered_sig = if let Some(stripped) = sig.strip_prefix('a') {
-                    format!("b{}", stripped)
+                    format!("b{stripped}")
                 } else {
                     format!("a{}", &sig[1..])
                 };
@@ -4958,8 +4945,7 @@ async fn test_pqc_rotation_manifest_ed25519_error_message() {
                 let reason = verification.first_failure.as_ref().unwrap();
                 assert!(
                     reason.contains("Ed25519 signature invalid"),
-                    "Error message should specify Ed25519, got: {}",
-                    reason
+                    "Error message should specify Ed25519, got: {reason}"
                 );
             }
         }

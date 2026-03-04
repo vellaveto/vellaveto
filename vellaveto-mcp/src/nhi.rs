@@ -614,7 +614,7 @@ impl NhiManager {
                     // SECURITY (FIND-R209-002): Do not leak timing baseline data in deviation.
                     deviations.push(NhiBehavioralDeviation {
                         deviation_type: "request_interval".to_string(),
-                        observed: format!("{:.2}s", interval),
+                        observed: format!("{interval:.2}s"),
                         expected: "within expected request rate".to_string(),
                         severity,
                     });
@@ -2213,8 +2213,7 @@ impl DpopNonceTracker {
         // After cleanup, enforce the capacity limit.
         if self.nonces.len() >= MAX_DPOP_NONCES {
             return Err(format!(
-                "DPoP nonce tracker at capacity ({}); try again later",
-                MAX_DPOP_NONCES
+                "DPoP nonce tracker at capacity ({MAX_DPOP_NONCES}); try again later"
             ));
         }
 
@@ -2302,48 +2301,39 @@ impl std::fmt::Display for NhiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NhiError::Disabled => write!(f, "NHI manager is disabled"),
-            NhiError::IdentityNotFound(id) => write!(f, "Identity not found: {}", id),
+            NhiError::IdentityNotFound(id) => write!(f, "Identity not found: {id}"),
             NhiError::AttestationTypeNotAllowed(t) => {
-                write!(f, "Attestation type not allowed: {}", t)
+                write!(f, "Attestation type not allowed: {t}")
             }
             NhiError::TtlExceedsMax { requested, max } => {
-                write!(f, "Requested TTL {} exceeds maximum {}", requested, max)
+                write!(f, "Requested TTL {requested} exceeds maximum {max}")
             }
-            NhiError::CapacityExceeded(what) => write!(f, "Capacity exceeded for {}", what),
+            NhiError::CapacityExceeded(what) => write!(f, "Capacity exceeded for {what}"),
             NhiError::InvalidStatusTransition { from, to } => {
-                write!(f, "Invalid status transition from {} to {}", from, to)
+                write!(f, "Invalid status transition from {from} to {to}")
             }
             NhiError::DelegationNotFound { from, to } => {
-                write!(f, "Delegation not found: {} -> {}", from, to)
+                write!(f, "Delegation not found: {from} -> {to}")
             }
             NhiError::ChainTooDeep { depth, max } => {
-                write!(
-                    f,
-                    "Delegation chain depth {} exceeds maximum {}",
-                    depth, max
-                )
+                write!(f, "Delegation chain depth {depth} exceeds maximum {max}")
             }
             NhiError::DidGenerationFailed(msg) => {
-                write!(f, "DID generation failed: {}", msg)
+                write!(f, "DID generation failed: {msg}")
             }
             NhiError::NoPublicKey(id) => {
-                write!(f, "Agent '{}' has no public key configured", id)
+                write!(f, "Agent '{id}' has no public key configured")
             }
             NhiError::AttestationError(msg) => {
-                write!(f, "Attestation error: {}", msg)
+                write!(f, "Attestation error: {msg}")
             }
             NhiError::AttestationLimitExceeded { agent_id, max } => {
-                write!(
-                    f,
-                    "Agent '{}' exceeds attestation limit of {}",
-                    agent_id, max
-                )
+                write!(f, "Agent '{agent_id}' exceeds attestation limit of {max}")
             }
             NhiError::TierDowngradeNotAllowed { current, requested } => {
                 write!(
                     f,
-                    "Cannot downgrade verification tier from {} to {}",
-                    current, requested
+                    "Cannot downgrade verification tier from {current} to {requested}"
                 )
             }
             NhiError::SelfDelegation => {
@@ -2352,15 +2342,14 @@ impl std::fmt::Display for NhiError {
             NhiError::TerminalStateAgent { agent_id, status } => {
                 write!(
                     f,
-                    "Agent '{}' is in terminal state '{}' and cannot participate in delegation",
-                    agent_id, status
+                    "Agent '{agent_id}' is in terminal state '{status}' and cannot participate in delegation"
                 )
             }
             NhiError::InputValidation(msg) => {
-                write!(f, "Input validation failed: {}", msg)
+                write!(f, "Input validation failed: {msg}")
             }
             NhiError::ValidationFailed(msg) => {
-                write!(f, "Validation failed: {}", msg)
+                write!(f, "Validation failed: {msg}")
             }
         }
     }
@@ -3210,8 +3199,7 @@ mod tests {
                     max: 3600
                 })
             ),
-            "rotate_credentials must reject TTL exceeding max_credential_ttl_secs, got: {:?}",
-            result
+            "rotate_credentials must reject TTL exceeding max_credential_ttl_secs, got: {result:?}"
         );
 
         // Verify old key is unchanged (rotation was rejected)
@@ -3252,8 +3240,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "rotate_credentials with default TTL within max should succeed, got: {:?}",
-            result
+            "rotate_credentials with default TTL within max should succeed, got: {result:?}"
         );
     }
 
@@ -3285,8 +3272,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "rotate_credentials with TTL == max should succeed, got: {:?}",
-            result
+            "rotate_credentials with TTL == max should succeed, got: {result:?}"
         );
     }
 
@@ -3319,8 +3305,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::SelfDelegation)),
-            "FIND-R115-021: Self-delegation must be rejected, got: {:?}",
-            result
+            "FIND-R115-021: Self-delegation must be rejected, got: {result:?}"
         );
     }
 
@@ -3351,8 +3336,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::SelfDelegation)),
-            "FIND-R115-021: Self-delegation (case-insensitive) must be rejected, got: {:?}",
-            result
+            "FIND-R115-021: Self-delegation (case-insensitive) must be rejected, got: {result:?}"
         );
     }
 
@@ -3411,8 +3395,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::TerminalStateAgent { .. })),
-            "FIND-R115-022: Delegation from revoked agent must be rejected, got: {:?}",
-            result
+            "FIND-R115-022: Delegation from revoked agent must be rejected, got: {result:?}"
         );
     }
 
@@ -3467,8 +3450,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::TerminalStateAgent { .. })),
-            "FIND-R115-022: Delegation to expired agent must be rejected, got: {:?}",
-            result
+            "FIND-R115-022: Delegation to expired agent must be rejected, got: {result:?}"
         );
     }
 
@@ -3517,8 +3499,7 @@ mod tests {
 
         assert!(
             result.is_ok(),
-            "Delegation between two active agents should succeed: {:?}",
-            result
+            "Delegation between two active agents should succeed: {result:?}"
         );
     }
 
@@ -3643,8 +3624,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Empty name must be rejected, got: {:?}",
-            result
+            "Empty name must be rejected, got: {result:?}"
         );
     }
 
@@ -3669,8 +3649,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Long name must be rejected, got: {:?}",
-            result
+            "Long name must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("name length"));
     }
@@ -3695,8 +3674,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Name with control chars must be rejected, got: {:?}",
-            result
+            "Name with control chars must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("control"));
     }
@@ -3721,8 +3699,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Name with Unicode format chars must be rejected, got: {:?}",
-            result
+            "Name with Unicode format chars must be rejected, got: {result:?}"
         );
     }
 
@@ -3731,7 +3708,7 @@ mod tests {
     async fn test_register_identity_rejects_too_many_tags() {
         let manager = NhiManager::new(enabled_config());
         let tags: Vec<String> = (0..NhiManager::MAX_TAGS + 1)
-            .map(|i| format!("tag-{}", i))
+            .map(|i| format!("tag-{i}"))
             .collect();
 
         let result = manager
@@ -3749,8 +3726,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Too many tags must be rejected, got: {:?}",
-            result
+            "Too many tags must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("tags count"));
     }
@@ -3776,8 +3752,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Long tag must be rejected, got: {:?}",
-            result
+            "Long tag must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("tag length"));
     }
@@ -3802,8 +3777,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Tag with control chars must be rejected, got: {:?}",
-            result
+            "Tag with control chars must be rejected, got: {result:?}"
         );
     }
 
@@ -3813,7 +3787,7 @@ mod tests {
         let manager = NhiManager::new(enabled_config());
         let mut metadata = HashMap::new();
         for i in 0..NhiManager::MAX_METADATA_ENTRIES + 1 {
-            metadata.insert(format!("key-{}", i), "value".to_string());
+            metadata.insert(format!("key-{i}"), "value".to_string());
         }
 
         let result = manager
@@ -3831,8 +3805,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Too many metadata entries must be rejected, got: {:?}",
-            result
+            "Too many metadata entries must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("metadata count"));
     }
@@ -3860,8 +3833,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Long metadata key must be rejected, got: {:?}",
-            result
+            "Long metadata key must be rejected, got: {result:?}"
         );
         assert!(result
             .unwrap_err()
@@ -3892,8 +3864,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Long metadata value must be rejected, got: {:?}",
-            result
+            "Long metadata value must be rejected, got: {result:?}"
         );
         assert!(result
             .unwrap_err()
@@ -3923,8 +3894,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Metadata key with control chars must be rejected, got: {:?}",
-            result
+            "Metadata key with control chars must be rejected, got: {result:?}"
         );
     }
 
@@ -3949,8 +3919,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Long SPIFFE ID must be rejected, got: {:?}",
-            result
+            "Long SPIFFE ID must be rejected, got: {result:?}"
         );
         assert!(result.unwrap_err().to_string().contains("spiffe_id length"));
     }
@@ -3975,8 +3944,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "SPIFFE ID with control chars must be rejected, got: {:?}",
-            result
+            "SPIFFE ID with control chars must be rejected, got: {result:?}"
         );
     }
 
@@ -4000,7 +3968,7 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_ok(), "Valid inputs should succeed: {:?}", result);
+        assert!(result.is_ok(), "Valid inputs should succeed: {result:?}");
     }
 
     // ═══════════════════════════════════════════════════════
@@ -4179,7 +4147,7 @@ mod tests {
     fn test_dpop_nonce_tracker_generate_ok() {
         let mut tracker = DpopNonceTracker::new();
         let result = tracker.generate_nonce();
-        assert!(result.is_ok(), "Expected Ok nonce, got: {:?}", result);
+        assert!(result.is_ok(), "Expected Ok nonce, got: {result:?}");
         let nonce = result.unwrap();
         assert!(!nonce.is_empty());
     }
@@ -4195,16 +4163,12 @@ mod tests {
         // not evict them.
         let now = chrono::Utc::now().timestamp() as u64;
         for i in 0..MAX_DPOP_NONCES {
-            tracker.nonces.insert(format!("nonce-{}", i), now);
+            tracker.nonces.insert(format!("nonce-{i}"), now);
         }
         assert_eq!(tracker.nonces.len(), MAX_DPOP_NONCES);
 
         let result = tracker.generate_nonce();
-        assert!(
-            result.is_err(),
-            "Expected Err at capacity, got: {:?}",
-            result
-        );
+        assert!(result.is_err(), "Expected Err at capacity, got: {result:?}");
         let msg = result.unwrap_err();
         assert!(
             msg.contains("capacity"),
@@ -4221,7 +4185,7 @@ mod tests {
         };
         // Fill with expired timestamps (timestamp 0 is far in the past).
         for i in 0..MAX_DPOP_NONCES {
-            tracker.nonces.insert(format!("old-{}", i), 0u64);
+            tracker.nonces.insert(format!("old-{i}"), 0u64);
         }
         assert_eq!(tracker.nonces.len(), MAX_DPOP_NONCES);
 
@@ -4229,8 +4193,7 @@ mod tests {
         let result = tracker.generate_nonce();
         assert!(
             result.is_ok(),
-            "Expected Ok after cleanup of expired nonces, got: {:?}",
-            result
+            "Expected Ok after cleanup of expired nonces, got: {result:?}"
         );
     }
 
@@ -4243,15 +4206,14 @@ mod tests {
             let mut tracker = manager.dpop_nonces.write().await;
             let now = chrono::Utc::now().timestamp() as u64;
             for i in 0..MAX_DPOP_NONCES {
-                tracker.nonces.insert(format!("nonce-{}", i), now);
+                tracker.nonces.insert(format!("nonce-{i}"), now);
             }
         }
 
         let result = manager.generate_dpop_nonce().await;
         assert!(
             matches!(result, Err(NhiError::CapacityExceeded(_))),
-            "Expected CapacityExceeded, got: {:?}",
-            result
+            "Expected CapacityExceeded, got: {result:?}"
         );
     }
 
@@ -4269,7 +4231,7 @@ mod tests {
         {
             let mut revoked = manager.revocation_list.write().await;
             for i in 0..MAX_REVOCATION_LIST {
-                revoked.insert(format!("agent-{}", i));
+                revoked.insert(format!("agent-{i}"));
             }
         }
         assert_eq!(
@@ -4296,8 +4258,7 @@ mod tests {
         let result = manager.update_status(&id, NhiIdentityStatus::Revoked).await;
         assert!(
             matches!(result, Err(NhiError::CapacityExceeded(_))),
-            "Expected CapacityExceeded when revocation list is full, got: {:?}",
-            result
+            "Expected CapacityExceeded when revocation list is full, got: {result:?}"
         );
         let err_msg = result.unwrap_err().to_string();
         assert!(
@@ -4326,7 +4287,7 @@ mod tests {
             .unwrap();
 
         let result = manager.update_status(&id, NhiIdentityStatus::Revoked).await;
-        assert!(result.is_ok(), "Expected Ok, got: {:?}", result);
+        assert!(result.is_ok(), "Expected Ok, got: {result:?}");
         assert!(manager.is_revoked(&id).await);
     }
 
@@ -4421,8 +4382,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::TtlExceedsMax { .. })),
-            "Ephemeral TTL exceeding max must be rejected, got: {:?}",
-            result
+            "Ephemeral TTL exceeding max must be rejected, got: {result:?}"
         );
     }
 
@@ -4457,8 +4417,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Empty scopes must be rejected, got: {:?}",
-            result
+            "Empty scopes must be rejected, got: {result:?}"
         );
     }
 
@@ -4498,8 +4457,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::TerminalStateAgent { .. })),
-            "Revoked identity must be rejected, got: {:?}",
-            result
+            "Revoked identity must be rejected, got: {result:?}"
         );
     }
 
@@ -4534,8 +4492,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(NhiError::InputValidation(_))),
-            "Control chars in principal_id must be rejected, got: {:?}",
-            result
+            "Control chars in principal_id must be rejected, got: {result:?}"
         );
     }
 

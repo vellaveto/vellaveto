@@ -38,8 +38,7 @@ fn no_subcommand_prints_help_and_fails() {
     // clap should print usage info
     assert!(
         stderr.contains("Usage") || stderr.contains("usage") || stderr.contains("help"),
-        "Should print usage info, got: {}",
-        stderr
+        "Should print usage info, got: {stderr}"
     );
 }
 
@@ -85,13 +84,11 @@ priority = 1
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("verdict"),
-        "Output should contain verdict: {}",
-        stdout
+        "Output should contain verdict: {stdout}"
     );
     assert!(
         stdout.contains("Allow"),
-        "Should get Allow verdict: {}",
-        stdout
+        "Should get Allow verdict: {stdout}"
     );
 }
 
@@ -127,11 +124,7 @@ priority = 100
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("Deny"),
-        "Should get Deny verdict: {}",
-        stdout
-    );
+    assert!(stdout.contains("Deny"), "Should get Deny verdict: {stdout}");
 }
 
 #[test]
@@ -191,8 +184,7 @@ fn evaluate_with_nonexistent_config_fails() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Failed") || stderr.contains("error") || stderr.contains("Error"),
-        "Should report config load failure: {}",
-        stderr
+        "Should report config load failure: {stderr}"
     );
 }
 
@@ -219,8 +211,7 @@ fn evaluate_with_empty_config_still_works() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains("Deny"),
-            "Empty config should produce Deny (fail-closed): {}",
-            stdout
+            "Empty config should produce Deny (fail-closed): {stdout}"
         );
     }
     // Failing is also acceptable for empty config
@@ -287,8 +278,7 @@ policy_type = "Allow"
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("OK") || stdout.contains("ok") || stdout.contains("1"),
-        "Should confirm config is valid: {}",
-        stdout
+        "Should confirm config is valid: {stdout}"
     );
 }
 
@@ -329,13 +319,11 @@ fn policies_dangerous_preset_outputs_toml() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("[[policies]]"),
-        "Should output TOML array of tables: {}",
-        stdout
+        "Should output TOML array of tables: {stdout}"
     );
     assert!(
         stdout.contains("Bash") || stdout.contains("bash"),
-        "Dangerous preset should mention bash: {}",
-        stdout
+        "Dangerous preset should mention bash: {stdout}"
     );
 }
 
@@ -350,8 +338,7 @@ fn policies_deny_all_preset() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Deny"),
-        "deny-all should contain Deny: {}",
-        stdout
+        "deny-all should contain Deny: {stdout}"
     );
 }
 
@@ -366,8 +353,7 @@ fn policies_allow_all_preset() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Allow"),
-        "allow-all should contain Allow: {}",
-        stdout
+        "allow-all should contain Allow: {stdout}"
     );
 }
 

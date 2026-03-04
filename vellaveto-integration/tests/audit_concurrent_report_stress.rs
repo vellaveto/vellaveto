@@ -57,10 +57,10 @@ fn concurrent_reports_after_sequential_writes() {
             let verdict = match i % 3 {
                 0 => Verdict::Allow,
                 1 => Verdict::Deny {
-                    reason: format!("deny-{}", i),
+                    reason: format!("deny-{i}"),
                 },
                 _ => Verdict::RequireApproval {
-                    reason: format!("approval-{}", i),
+                    reason: format!("approval-{i}"),
                 },
             };
             logger
@@ -119,7 +119,7 @@ fn concurrent_writes_and_reports_maintain_invariant() {
                         Verdict::Allow
                     } else {
                         Verdict::Deny {
-                            reason: format!("d-{}-{}", task_id, i),
+                            reason: format!("d-{task_id}-{i}"),
                         }
                     };
                     l.log_entry(&a, &verdict, json!({})).await.unwrap();

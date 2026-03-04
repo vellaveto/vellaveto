@@ -249,12 +249,12 @@ impl SemanticGuardrailsConfig {
         if let Some(ref openai) = self.openai {
             openai
                 .validate()
-                .map_err(|e| format!("semantic_guardrails.openai: {}", e))?;
+                .map_err(|e| format!("semantic_guardrails.openai: {e}"))?;
         }
         if let Some(ref anthropic) = self.anthropic {
             anthropic
                 .validate()
-                .map_err(|e| format!("semantic_guardrails.anthropic: {}", e))?;
+                .map_err(|e| format!("semantic_guardrails.anthropic: {e}"))?;
         }
 
         // nl_policies: bounded count
@@ -269,7 +269,7 @@ impl SemanticGuardrailsConfig {
         for (i, policy) in self.nl_policies.iter().enumerate() {
             policy
                 .validate()
-                .map_err(|e| format!("semantic_guardrails.nl_policies[{}]: {}", i, e))?;
+                .map_err(|e| format!("semantic_guardrails.nl_policies[{i}]: {e}"))?;
         }
         Ok(())
     }
@@ -460,7 +460,7 @@ fn validate_backend_config(
 ) -> Result<(), String> {
     // Model name validation
     if model.is_empty() {
-        return Err(format!("{}.model must not be empty", backend_name));
+        return Err(format!("{backend_name}.model must not be empty"));
     }
     if model.len() > MAX_BACKEND_MODEL_LEN {
         return Err(format!(
@@ -472,14 +472,13 @@ fn validate_backend_config(
     }
     if vellaveto_types::has_dangerous_chars(model) {
         return Err(format!(
-            "{}.model contains control or format characters",
-            backend_name
+            "{backend_name}.model contains control or format characters"
         ));
     }
 
     // api_key_env validation
     if api_key_env.is_empty() {
-        return Err(format!("{}.api_key_env must not be empty", backend_name));
+        return Err(format!("{backend_name}.api_key_env must not be empty"));
     }
     if api_key_env.len() > MAX_BACKEND_API_KEY_ENV_LEN {
         return Err(format!(
@@ -491,30 +490,27 @@ fn validate_backend_config(
     }
     if vellaveto_types::has_dangerous_chars(api_key_env) {
         return Err(format!(
-            "{}.api_key_env contains control or format characters",
-            backend_name
+            "{backend_name}.api_key_env contains control or format characters"
         ));
     }
 
     // Timeout bounds
     if timeout_ms == 0 {
-        return Err(format!("{}.timeout_ms must be > 0", backend_name));
+        return Err(format!("{backend_name}.timeout_ms must be > 0"));
     }
     if timeout_ms > MAX_BACKEND_TIMEOUT_MS {
         return Err(format!(
-            "{}.timeout_ms {} exceeds maximum {} (60 seconds)",
-            backend_name, timeout_ms, MAX_BACKEND_TIMEOUT_MS
+            "{backend_name}.timeout_ms {timeout_ms} exceeds maximum {MAX_BACKEND_TIMEOUT_MS} (60 seconds)"
         ));
     }
 
     // Max tokens bounds
     if max_tokens == 0 {
-        return Err(format!("{}.max_tokens must be > 0", backend_name));
+        return Err(format!("{backend_name}.max_tokens must be > 0"));
     }
     if max_tokens > MAX_BACKEND_MAX_TOKENS {
         return Err(format!(
-            "{}.max_tokens {} exceeds maximum {}",
-            backend_name, max_tokens, MAX_BACKEND_MAX_TOKENS
+            "{backend_name}.max_tokens {max_tokens} exceeds maximum {MAX_BACKEND_MAX_TOKENS}"
         ));
     }
 
@@ -530,15 +526,14 @@ fn validate_backend_config(
         }
         if vellaveto_types::has_dangerous_chars(url) {
             return Err(format!(
-                "{}.endpoint contains control or format characters",
-                backend_name
+                "{backend_name}.endpoint contains control or format characters"
             ));
         }
         // SECURITY (IMP-R126-012): Delegate to canonical SSRF validation from
         // vellaveto-types. The previous inline check was weaker — it missed
         // RFC 1918 private ranges (10.x, 172.16-31.x, 192.168.x) and CGNAT.
         vellaveto_types::validate_url_no_ssrf(url)
-            .map_err(|e| format!("{}.endpoint {}", backend_name, e))?;
+            .map_err(|e| format!("{backend_name}.endpoint {e}"))?;
         // Reject userinfo (@) in URL — defense-in-depth for API endpoints.
         let after_scheme = url
             .strip_prefix("https://")
@@ -547,8 +542,7 @@ fn validate_backend_config(
         let authority = after_scheme.split('/').next().unwrap_or("");
         if authority.contains('@') {
             return Err(format!(
-                "{}.endpoint must not contain userinfo (@)",
-                backend_name
+                "{backend_name}.endpoint must not contain userinfo (@)"
             ));
         }
         // Additional check: reject cloud metadata endpoints by hostname suffix.
@@ -566,8 +560,7 @@ fn validate_backend_config(
             .unwrap_or("");
         if host.ends_with(".internal") || host == "169.254.169.254" {
             return Err(format!(
-                "{}.endpoint must not target metadata endpoints (got '{}')",
-                backend_name, host
+                "{backend_name}.endpoint must not target metadata endpoints (got '{host}')"
             ));
         }
     }
@@ -741,8 +734,7 @@ impl NlPolicyConfig {
             }
             if vellaveto_types::has_dangerous_chars(pattern) {
                 return Err(format!(
-                    "nl_policy.tool_patterns[{}] contains control or format characters",
-                    i
+                    "nl_policy.tool_patterns[{i}] contains control or format characters"
                 ));
             }
         }
@@ -903,7 +895,7 @@ mod tests {
         for fb in &["deny", "allow", "pattern_match"] {
             let mut config = SemanticGuardrailsConfig::default();
             config.fallback_on_timeout = fb.to_string();
-            assert!(config.validate().is_ok(), "should accept fallback '{}'", fb);
+            assert!(config.validate().is_ok(), "should accept fallback '{fb}'");
         }
     }
 
@@ -936,7 +928,7 @@ mod tests {
         let mut config = SemanticGuardrailsConfig::default();
         config.nl_policies = (0..=MAX_NL_POLICIES)
             .map(|i| NlPolicyConfig {
-                id: format!("pol-{}", i),
+                id: format!("pol-{i}"),
                 name: "test".to_string(),
                 statement: "do something".to_string(),
                 tool_patterns: Vec::new(),
@@ -1028,7 +1020,7 @@ mod tests {
             name: "".to_string(),
             statement: "valid statement".to_string(),
             tool_patterns: (0..=MAX_NL_TOOL_PATTERNS)
-                .map(|i| format!("tool_{}", i))
+                .map(|i| format!("tool_{i}"))
                 .collect(),
             enabled: true,
             priority: 0,

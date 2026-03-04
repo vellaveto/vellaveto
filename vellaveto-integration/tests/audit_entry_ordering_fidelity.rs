@@ -98,16 +98,16 @@ fn verdict_order_preserved_through_load() {
         assert_eq!(entries[0].verdict, Verdict::Allow);
         match &entries[1].verdict {
             Verdict::Deny { reason } => assert_eq!(reason, "first deny"),
-            other => panic!("Entry 1 should be Deny, got {:?}", other),
+            other => panic!("Entry 1 should be Deny, got {other:?}"),
         }
         match &entries[2].verdict {
             Verdict::RequireApproval { reason } => assert_eq!(reason, "approval needed"),
-            other => panic!("Entry 2 should be RequireApproval, got {:?}", other),
+            other => panic!("Entry 2 should be RequireApproval, got {other:?}"),
         }
         assert_eq!(entries[3].verdict, Verdict::Allow);
         match &entries[4].verdict {
             Verdict::Deny { reason } => assert_eq!(reason, "second deny"),
-            other => panic!("Entry 4 should be Deny, got {:?}", other),
+            other => panic!("Entry 4 should be Deny, got {other:?}"),
         }
     });
 }
@@ -153,7 +153,7 @@ fn report_entries_match_load_order() {
         for i in 0..5 {
             logger
                 .log_entry(
-                    &action_with_tool(&format!("tool_{}", i)),
+                    &action_with_tool(&format!("tool_{i}")),
                     &Verdict::Allow,
                     json!({"index": i}),
                 )
@@ -168,8 +168,7 @@ fn report_entries_match_load_order() {
         for (i, (entry, report_entry)) in entries.iter().zip(report.entries.iter()).enumerate() {
             assert_eq!(
                 entry.id, report_entry.id,
-                "Entry {} ID mismatch between load_entries and report",
-                i
+                "Entry {i} ID mismatch between load_entries and report"
             );
             assert_eq!(entry.action.tool, report_entry.action.tool);
         }

@@ -79,7 +79,7 @@ pub(super) fn build_effective_request_uri(
         .map(|pq| pq.as_str())
         .unwrap_or("/");
 
-    format!("{}://{}{}", proto, authority, path_and_query)
+    format!("{proto}://{authority}{path_and_query}")
 }
 
 fn dpop_mode_label(mode: crate::oauth::DpopMode) -> &'static str {
@@ -253,10 +253,8 @@ pub(super) async fn validate_oauth(
                 .chars()
                 .filter(|c| !c.is_control() && *c != '"' && *c != '\\')
                 .collect();
-            let www_auth = format!(
-                "Bearer error=\"insufficient_scope\", scope=\"{}\"",
-                sanitized_scope
-            );
+            let www_auth =
+                format!("Bearer error=\"insufficient_scope\", scope=\"{sanitized_scope}\"");
             Err((
                 StatusCode::FORBIDDEN,
                 [(axum::http::header::WWW_AUTHENTICATE, www_auth)],
@@ -417,7 +415,7 @@ pub(super) async fn validate_agent_identity(
 
     // Validate the JWT using the same infrastructure as OAuth tokens
     match validator
-        .validate_token(&format!("Bearer {}", identity_token))
+        .validate_token(&format!("Bearer {identity_token}"))
         .await
     {
         Ok(claims) => {

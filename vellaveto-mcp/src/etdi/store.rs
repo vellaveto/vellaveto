@@ -155,8 +155,7 @@ impl EtdiStore {
         // SECURITY (FIND-R69-006): Reject new signatures at capacity.
         if !sigs.contains_key(tool) && sigs.len() >= MAX_ETDI_ENTRIES {
             return Err(EtdiError::StoreFull(format!(
-                "ETDI signature store at capacity ({})",
-                MAX_ETDI_ENTRIES,
+                "ETDI signature store at capacity ({MAX_ETDI_ENTRIES})",
             )));
         }
         self.append_entry(&entry).await?;
@@ -178,15 +177,13 @@ impl EtdiStore {
         // SECURITY (FIND-R69-006): Reject new attestations at capacity.
         if !atts.contains_key(tool) && atts.len() >= MAX_ETDI_ENTRIES {
             return Err(EtdiError::StoreFull(format!(
-                "ETDI attestation store at capacity ({})",
-                MAX_ETDI_ENTRIES,
+                "ETDI attestation store at capacity ({MAX_ETDI_ENTRIES})",
             )));
         }
         let tool_atts = atts.entry(tool.to_string()).or_default();
         if tool_atts.len() >= MAX_ATTESTATIONS_PER_TOOL {
             return Err(EtdiError::StoreFull(format!(
-                "ETDI attestations per tool at capacity ({})",
-                MAX_ATTESTATIONS_PER_TOOL,
+                "ETDI attestations per tool at capacity ({MAX_ATTESTATIONS_PER_TOOL})",
             )));
         }
         self.append_entry(&entry).await?;
@@ -204,8 +201,7 @@ impl EtdiStore {
         // SECURITY (FIND-R69-006): Reject new pins at capacity.
         if !pins.contains_key(&pin.tool_name) && pins.len() >= MAX_ETDI_ENTRIES {
             return Err(EtdiError::StoreFull(format!(
-                "ETDI pin store at capacity ({})",
-                MAX_ETDI_ENTRIES,
+                "ETDI pin store at capacity ({MAX_ETDI_ENTRIES})",
             )));
         }
         self.append_entry(&entry).await?;
@@ -288,9 +284,9 @@ impl EtdiStore {
         let json = serde_json::to_string(entry)?;
         let line = if let Some(ref key) = self.hmac_key {
             let hmac = self.compute_hmac(key, &json)?;
-            format!("{}\t{}\n", json, hmac)
+            format!("{json}\t{hmac}\n")
         } else {
-            format!("{}\n", json)
+            format!("{json}\n")
         };
 
         file.write_all(line.as_bytes()).await?;
@@ -355,9 +351,9 @@ impl EtdiStore {
         let json = serde_json::to_string(entry)?;
         let line = if let Some(ref key) = self.hmac_key {
             let hmac = self.compute_hmac(key, &json)?;
-            format!("{}\t{}\n", json, hmac)
+            format!("{json}\t{hmac}\n")
         } else {
-            format!("{}\n", json)
+            format!("{json}\n")
         };
         file.write_all(line.as_bytes()).await?;
         Ok(())

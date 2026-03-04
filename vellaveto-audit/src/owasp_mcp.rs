@@ -525,8 +525,7 @@ mod tests {
             let controls = registry.controls_for_category(*cat);
             assert!(
                 !controls.is_empty(),
-                "Category {} must have at least one control",
-                cat
+                "Category {cat} must have at least one control"
             );
         }
     }

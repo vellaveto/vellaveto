@@ -101,9 +101,8 @@ impl VersionPinManager {
         pinned_by: &str,
     ) -> Result<ToolVersionPin, EtdiError> {
         // Validate constraint syntax
-        semver::VersionReq::parse(constraint).map_err(|e| {
-            EtdiError::InvalidSignature(format!("Invalid semver constraint: {}", e))
-        })?;
+        semver::VersionReq::parse(constraint)
+            .map_err(|e| EtdiError::InvalidSignature(format!("Invalid semver constraint: {e}")))?;
 
         let pin = ToolVersionPin {
             tool_name: tool_name.to_string(),
@@ -329,7 +328,7 @@ mod tests {
                 assert_eq!(alert.drift_type, "hash_mismatch");
                 assert!(alert.blocking);
             }
-            _ => panic!("Expected HashDrift, got {:?}", result),
+            _ => panic!("Expected HashDrift, got {result:?}"),
         }
     }
 
@@ -353,7 +352,7 @@ mod tests {
                 assert_eq!(alert.actual_version, "2.0.0");
                 assert!(!alert.blocking);
             }
-            _ => panic!("Expected VersionDrift, got {:?}", result),
+            _ => panic!("Expected VersionDrift, got {result:?}"),
         }
     }
 
@@ -393,7 +392,7 @@ mod tests {
             PinCheckResult::VersionDrift(alert) => {
                 assert_eq!(alert.drift_type, "constraint_violation");
             }
-            _ => panic!("Expected VersionDrift, got {:?}", result),
+            _ => panic!("Expected VersionDrift, got {result:?}"),
         }
     }
 

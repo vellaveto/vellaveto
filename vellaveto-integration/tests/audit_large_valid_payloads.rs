@@ -76,7 +76,7 @@ fn multiple_large_entries_report_consistent() {
 
         for i in 0..5 {
             let action = Action::new(
-                format!("large_{}", i),
+                format!("large_{i}"),
                 "test".to_string(),
                 json!({"payload": big_value}),
             );
@@ -139,7 +139,7 @@ fn large_metadata_survives_roundtrip() {
 
         let big_meta = json!({
             "trace_id": "a".repeat(1000),
-            "tags": (0..100).map(|i| format!("tag_{}", i)).collect::<Vec<_>>(),
+            "tags": (0..100).map(|i| format!("tag_{i}")).collect::<Vec<_>>(),
             "context": {
                 "user": "test_user",
                 "session": "b".repeat(500),

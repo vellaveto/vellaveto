@@ -122,7 +122,7 @@ pub async fn signup(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("org_name exceeds {} character limit", MAX_ORG_NAME_LEN),
+                error: format!("org_name exceeds {MAX_ORG_NAME_LEN} character limit"),
             }),
         ));
     }
@@ -335,7 +335,7 @@ fn generate_tenant_id(org_name: &str) -> String {
     OsRng.fill_bytes(&mut suffix);
     let hex_suffix = hex::encode(suffix);
 
-    format!("{}-{}", truncated, hex_suffix)
+    format!("{truncated}-{hex_suffix}")
 }
 
 /// Generate a cryptographically random API key.
@@ -441,13 +441,10 @@ mod tests {
     #[test]
     fn test_email_length_limits() {
         let long_local = "a".repeat(65);
-        assert!(!is_valid_email_format(&format!(
-            "{}@example.com",
-            long_local
-        )));
+        assert!(!is_valid_email_format(&format!("{long_local}@example.com")));
 
         let long_domain = format!("{}.com", "a".repeat(251));
-        assert!(!is_valid_email_format(&format!("user@{}", long_domain)));
+        assert!(!is_valid_email_format(&format!("user@{long_domain}")));
     }
 
     #[test]
@@ -544,8 +541,7 @@ mod tests {
         assert_eq!(suffix.len(), 16, "Suffix should be 16 hex chars (64-bit)");
         assert!(
             suffix.chars().all(|c| c.is_ascii_hexdigit()),
-            "Suffix should be hex: {}",
-            suffix
+            "Suffix should be hex: {suffix}"
         );
     }
 }

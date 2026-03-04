@@ -508,7 +508,7 @@ mod tests {
         for &key in SENSITIVE_PARAM_KEYS {
             let input = json!({key: "some_value"});
             let result = redact_keys_and_patterns(&input);
-            assert_eq!(result[key], REDACTED, "Key '{}' should be redacted", key);
+            assert_eq!(result[key], REDACTED, "Key '{key}' should be redacted");
         }
     }
 

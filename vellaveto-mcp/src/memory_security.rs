@@ -629,20 +629,17 @@ pub enum MemorySecurityError {
 fn validate_input_id(id: &str, field_name: &str) -> Result<(), MemorySecurityError> {
     if id.is_empty() {
         return Err(MemorySecurityError::InvalidInput(format!(
-            "{} must not be empty",
-            field_name
+            "{field_name} must not be empty"
         )));
     }
     if id.len() > MAX_INPUT_ID_LENGTH {
         return Err(MemorySecurityError::InvalidInput(format!(
-            "{} exceeds maximum length of {}",
-            field_name, MAX_INPUT_ID_LENGTH
+            "{field_name} exceeds maximum length of {MAX_INPUT_ID_LENGTH}"
         )));
     }
     if has_dangerous_chars(id) {
         return Err(MemorySecurityError::InvalidInput(format!(
-            "{} contains control or Unicode format characters",
-            field_name
+            "{field_name} contains control or Unicode format characters"
         )));
     }
     Ok(())
@@ -739,8 +736,7 @@ impl QuarantineManager {
             && !self.records.contains_key(&entry.entry_id)
         {
             return Err(MemorySecurityError::CapacityExceeded(format!(
-                "quarantine records at maximum of {}",
-                MAX_QUARANTINE_RECORDS,
+                "quarantine records at maximum of {MAX_QUARANTINE_RECORDS}",
             )));
         }
         self.records.insert(entry.entry_id.clone(), entry);
@@ -803,7 +799,7 @@ impl NamespaceManager {
             Some(ns) => ns,
             None => {
                 return MemoryAccessDecision::Deny {
-                    reason: format!("Namespace '{}' not found", namespace_id),
+                    reason: format!("Namespace '{namespace_id}' not found"),
                 }
             }
         };
@@ -815,8 +811,7 @@ impl NamespaceManager {
                 } else {
                     MemoryAccessDecision::Deny {
                         reason: format!(
-                            "Agent '{}' not allowed to read namespace '{}'",
-                            agent_id, namespace_id
+                            "Agent '{agent_id}' not allowed to read namespace '{namespace_id}'"
                         ),
                     }
                 }
@@ -827,8 +822,7 @@ impl NamespaceManager {
                 } else {
                     MemoryAccessDecision::Deny {
                         reason: format!(
-                            "Agent '{}' not allowed to write to namespace '{}'",
-                            agent_id, namespace_id
+                            "Agent '{agent_id}' not allowed to write to namespace '{namespace_id}'"
                         ),
                     }
                 }
@@ -843,8 +837,7 @@ impl NamespaceManager {
         // SECURITY (FIND-R71-P3-002): Reject when at capacity.
         if self.share_requests.len() >= MAX_SHARE_REQUESTS {
             return Err(MemorySecurityError::CapacityExceeded(format!(
-                "share requests at maximum of {}",
-                MAX_SHARE_REQUESTS,
+                "share requests at maximum of {MAX_SHARE_REQUESTS}",
             )));
         }
         self.share_requests.push(request);

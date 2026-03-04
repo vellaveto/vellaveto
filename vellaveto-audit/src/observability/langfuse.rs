@@ -95,14 +95,12 @@ impl LangfuseExporterConfig {
     ) -> Result<Self, ObservabilityError> {
         let public_key = std::env::var(public_key_env).map_err(|_| {
             ObservabilityError::Configuration(format!(
-                "Missing environment variable: {}",
-                public_key_env
+                "Missing environment variable: {public_key_env}"
             ))
         })?;
         let secret_key = std::env::var(secret_key_env).map_err(|_| {
             ObservabilityError::Configuration(format!(
-                "Missing environment variable: {}",
-                secret_key_env
+                "Missing environment variable: {secret_key_env}"
             ))
         })?;
         Ok(Self::new(endpoint, public_key, secret_key))
@@ -135,13 +133,13 @@ impl LangfuseExporter {
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
             .map_err(|e| {
-                ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e))
+                ObservabilityError::Configuration(format!("Failed to create HTTP client: {e}"))
             })?;
 
         // Pre-compute Basic auth header
         let credentials = format!("{}:{}", config.public_key, config.secret_key);
         let encoded = base64::engine::general_purpose::STANDARD.encode(credentials.as_bytes());
-        let auth_header = format!("Basic {}", encoded);
+        let auth_header = format!("Basic {encoded}");
 
         Ok(Self {
             config,
@@ -375,8 +373,7 @@ impl LangfuseExporter {
             Ok(())
         } else if status.as_u16() == 401 || status.as_u16() == 403 {
             Err(ObservabilityError::AuthError(format!(
-                "Authentication failed: {}",
-                status
+                "Authentication failed: {status}"
             )))
         } else if status.as_u16() == 429 {
             // SECURITY (FIND-R71-P3-006): Cap Retry-After at 300 seconds to prevent

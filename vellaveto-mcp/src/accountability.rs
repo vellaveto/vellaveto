@@ -49,8 +49,7 @@ const MAX_DID_LEN: usize = 512;
 fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), AttestationError> {
     if vellaveto_types::has_dangerous_chars(value) {
         return Err(AttestationError::SigningFailed(format!(
-            "{} contains control or Unicode format characters",
-            field_name
+            "{field_name} contains control or Unicode format characters"
         )));
     }
     Ok(())
@@ -100,8 +99,7 @@ pub fn sign_attestation(
     // SECURITY (FIND-R73-004): Validate ttl_secs before casting to i64.
     if ttl_secs > MAX_ATTESTATION_TTL_SECS {
         return Err(AttestationError::SigningFailed(format!(
-            "ttl_secs {} exceeds maximum {} (1 year)",
-            ttl_secs, MAX_ATTESTATION_TTL_SECS
+            "ttl_secs {ttl_secs} exceeds maximum {MAX_ATTESTATION_TTL_SECS} (1 year)"
         )));
     }
 
@@ -164,7 +162,7 @@ pub fn sign_attestation(
 
     // Parse signing key
     let key_bytes = hex::decode(signing_key_hex)
-        .map_err(|e| AttestationError::InvalidKey(format!("hex decode failed: {}", e)))?;
+        .map_err(|e| AttestationError::InvalidKey(format!("hex decode failed: {e}")))?;
     if key_bytes.len() != 32 {
         return Err(AttestationError::InvalidKey(format!(
             "expected 32 bytes, got {}",
@@ -237,9 +235,8 @@ pub fn verify_attestation(
     now: &chrono::DateTime<chrono::Utc>,
 ) -> Result<AttestationVerificationResult, AttestationError> {
     // Parse public key from attestation
-    let pub_key_bytes = hex::decode(&attestation.public_key).map_err(|e| {
-        AttestationError::InvalidKey(format!("public key hex decode failed: {}", e))
-    })?;
+    let pub_key_bytes = hex::decode(&attestation.public_key)
+        .map_err(|e| AttestationError::InvalidKey(format!("public key hex decode failed: {e}")))?;
     let verifying_key =
         VerifyingKey::from_bytes(pub_key_bytes.as_slice().try_into().map_err(|_| {
             AttestationError::InvalidKey(format!(
@@ -247,11 +244,11 @@ pub fn verify_attestation(
                 pub_key_bytes.len()
             ))
         })?)
-        .map_err(|e| AttestationError::VerificationFailed(format!("invalid public key: {}", e)))?;
+        .map_err(|e| AttestationError::VerificationFailed(format!("invalid public key: {e}")))?;
 
     // Parse signature
     let sig_bytes = hex::decode(&attestation.signature).map_err(|e| {
-        AttestationError::VerificationFailed(format!("signature hex decode failed: {}", e))
+        AttestationError::VerificationFailed(format!("signature hex decode failed: {e}"))
     })?;
     let signature = Signature::from_bytes(sig_bytes.as_slice().try_into().map_err(|_| {
         AttestationError::VerificationFailed(format!(
@@ -330,8 +327,7 @@ pub fn verify_attestation(
             "created_at is malformed (unparseable RFC 3339 timestamp)".to_string()
         } else {
             format!(
-                "created_at is {} seconds in the future (max allowed skew: {} seconds)",
-                skew, MAX_CREATED_AT_SKEW_SECS
+                "created_at is {skew} seconds in the future (max allowed skew: {MAX_CREATED_AT_SKEW_SECS} seconds)"
             )
         }
     } else if expired {
@@ -627,7 +623,7 @@ mod tests {
         );
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("control"), "error: {}", msg);
+        assert!(msg.contains("control"), "error: {msg}");
     }
 
     #[test]
@@ -779,7 +775,7 @@ mod tests {
         );
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("exceeds maximum"), "error: {}", msg);
+        assert!(msg.contains("exceeds maximum"), "error: {msg}");
     }
 
     #[test]

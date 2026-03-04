@@ -56,10 +56,10 @@ fn main() {
                 let verdict = match i % 3 {
                     0 => Verdict::Allow,
                     1 => Verdict::Deny {
-                        reason: format!("reason_{}", i),
+                        reason: format!("reason_{i}"),
                     },
                     _ => Verdict::RequireApproval {
-                        reason: format!("review_{}", i),
+                        reason: format!("review_{i}"),
                     },
                 };
                 logger_inner
@@ -71,10 +71,7 @@ fn main() {
             let per_entry = write_dur / count as u32;
             let entries_per_sec = count as f64 / write_dur.as_secs_f64();
 
-            println!(
-                "{:<15} {:>15.2?} {:>15.2?} {:>15.0}",
-                count, write_dur, per_entry, entries_per_sec
-            );
+            println!("{count:<15} {write_dur:>15.2?} {per_entry:>15.2?} {entries_per_sec:>15.0}");
         }
 
         println!();

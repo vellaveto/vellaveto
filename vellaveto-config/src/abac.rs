@@ -200,13 +200,10 @@ impl AbacConfig {
         let mut seen_ids = std::collections::HashSet::new();
         for (i, policy) in self.policies.iter().enumerate() {
             if policy.id.is_empty() {
-                return Err(format!("abac.policies[{}].id must not be empty", i));
+                return Err(format!("abac.policies[{i}].id must not be empty"));
             }
             if policy.description.is_empty() {
-                return Err(format!(
-                    "abac.policies[{}].description must not be empty",
-                    i
-                ));
+                return Err(format!("abac.policies[{i}].description must not be empty"));
             }
             if !seen_ids.insert(&policy.id) {
                 return Err(format!("abac.policies has duplicate id '{}'", policy.id));
@@ -259,8 +256,7 @@ impl AbacConfig {
             let key = format!("{}::{}", entity.entity_type, entity.id);
             if !seen_entity_keys.insert(key.clone()) {
                 return Err(format!(
-                    "abac.entities has duplicate key '{}' at index {}",
-                    key, i
+                    "abac.entities has duplicate key '{key}' at index {i}"
                 ));
             }
         }
@@ -311,14 +307,12 @@ impl AbacConfig {
             for (i, anchor) in self.federation.trust_anchors.iter().enumerate() {
                 if anchor.org_id.is_empty() {
                     return Err(format!(
-                        "abac.federation.trust_anchors[{}].org_id must not be empty",
-                        i
+                        "abac.federation.trust_anchors[{i}].org_id must not be empty"
                     ));
                 }
                 if anchor.issuer_pattern.is_empty() {
                     return Err(format!(
-                        "abac.federation.trust_anchors[{}].issuer_pattern must not be empty",
-                        i
+                        "abac.federation.trust_anchors[{i}].issuer_pattern must not be empty"
                     ));
                 }
             }

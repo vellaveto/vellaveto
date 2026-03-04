@@ -85,14 +85,12 @@ impl ArizeExporterConfig {
     ) -> Result<Self, ObservabilityError> {
         let space_key = std::env::var(space_key_env).map_err(|_| {
             ObservabilityError::Configuration(format!(
-                "Missing environment variable: {}",
-                space_key_env
+                "Missing environment variable: {space_key_env}"
             ))
         })?;
         let api_key = std::env::var(api_key_env).map_err(|_| {
             ObservabilityError::Configuration(format!(
-                "Missing environment variable: {}",
-                api_key_env
+                "Missing environment variable: {api_key_env}"
             ))
         })?;
         Ok(Self::new(endpoint, space_key, api_key))
@@ -124,7 +122,7 @@ impl ArizeExporter {
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
             .map_err(|e| {
-                ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e))
+                ObservabilityError::Configuration(format!("Failed to create HTTP client: {e}"))
             })?;
 
         Ok(Self { config, client })
@@ -227,7 +225,7 @@ impl ArizeExporter {
         // Custom attributes
         for (key, value) in &span.attributes {
             attributes.push(OtlpAttribute {
-                key: format!("vellaveto.attr.{}", key),
+                key: format!("vellaveto.attr.{key}"),
                 value: OtlpValue::String(value.to_string()),
             });
         }
@@ -325,8 +323,7 @@ impl ArizeExporter {
             Ok(())
         } else if status.as_u16() == 401 || status.as_u16() == 403 {
             Err(ObservabilityError::AuthError(format!(
-                "Authentication failed: {}",
-                status
+                "Authentication failed: {status}"
             )))
         } else if status.as_u16() == 429 {
             // SECURITY (FIND-R71-P3-006): Cap Retry-After at 300 seconds to prevent
@@ -857,7 +854,7 @@ mod tests {
         let mut attributes = HashMap::new();
         for i in 0..150 {
             attributes.insert(
-                format!("key_{}", i),
+                format!("key_{i}"),
                 serde_json::json!(format!("value_{}", i)),
             );
         }

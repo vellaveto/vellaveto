@@ -132,7 +132,7 @@ fn conditional_config_pipeline() {
             Verdict::Deny { reason } => {
                 assert!(reason.contains("force"), "Should mention forbidden param");
             }
-            other => panic!("Expected Deny for 'force' param, got {:?}", other),
+            other => panic!("Expected Deny for 'force' param, got {other:?}"),
         }
 
         let report = logger.generate_report().await.unwrap();
@@ -184,7 +184,7 @@ fn layered_conditional_config() {
         .unwrap()
     {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("shell:exec should require approval, got {:?}", other),
+        other => panic!("shell:exec should require approval, got {other:?}"),
     }
 
     // file:read → Allow (priority 50, "file:*" matches)
@@ -201,7 +201,7 @@ fn layered_conditional_config() {
         .unwrap()
     {
         Verdict::Deny { .. } => {}
-        other => panic!("file:delete should be denied, got {:?}", other),
+        other => panic!("file:delete should be denied, got {other:?}"),
     }
 
     // network:fetch  Default deny (priority 0)
@@ -210,7 +210,7 @@ fn layered_conditional_config() {
         .unwrap()
     {
         Verdict::Deny { .. } => {}
-        other => panic!("network:fetch should hit default deny, got {:?}", other),
+        other => panic!("network:fetch should hit default deny, got {other:?}"),
     }
 }
 
@@ -245,10 +245,7 @@ fn config_with_negative_priorities() {
         .unwrap()
     {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "file:write should be denied at priority -500, got {:?}",
-            other
-        ),
+        other => panic!("file:write should be denied at priority -500, got {other:?}"),
     }
 
     // network:fetch matches only "*"(-1000) → Allow
@@ -306,6 +303,6 @@ fn config_empty_array_produces_no_policies() {
         Verdict::Deny { reason } => {
             assert!(reason.contains("No policies"), "Should mention no policies");
         }
-        other => panic!("Expected Deny for empty policies, got {:?}", other),
+        other => panic!("Expected Deny for empty policies, got {other:?}"),
     }
 }

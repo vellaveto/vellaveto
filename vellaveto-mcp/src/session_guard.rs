@@ -647,7 +647,7 @@ impl SessionGuard {
                     (
                         SessionState::Active,
                         TransitionAction::Warn {
-                            message: format!("Anomaly detected: {}", desc),
+                            message: format!("Anomaly detected: {desc}"),
                         },
                     )
                 }
@@ -662,8 +662,7 @@ impl SessionGuard {
                         SessionState::Suspicious,
                         TransitionAction::Warn {
                             message: format!(
-                                "Session transitioning to Suspicious after violation: {}",
-                                rsn
+                                "Session transitioning to Suspicious after violation: {rsn}"
                             ),
                         },
                     )
@@ -671,7 +670,7 @@ impl SessionGuard {
                     (
                         SessionState::Active,
                         TransitionAction::Warn {
-                            message: format!("Policy violation: {}", rsn),
+                            message: format!("Policy violation: {rsn}"),
                         },
                     )
                 }
@@ -687,8 +686,7 @@ impl SessionGuard {
                     SessionState::Suspicious,
                     TransitionAction::Warn {
                         message: format!(
-                            "Repeated violations ({}), transitioning to Suspicious",
-                            count
+                            "Repeated violations ({count}), transitioning to Suspicious"
                         ),
                     },
                 )
@@ -730,7 +728,7 @@ impl SessionGuard {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
-                            message: format!("Anomaly in suspicious session: {}", desc),
+                            message: format!("Anomaly in suspicious session: {desc}"),
                         },
                     )
                 }
@@ -753,7 +751,7 @@ impl SessionGuard {
                     (
                         SessionState::Suspicious,
                         TransitionAction::Warn {
-                            message: format!("Policy violation in suspicious session: {}", rsn),
+                            message: format!("Policy violation in suspicious session: {rsn}"),
                         },
                     )
                 }
@@ -936,10 +934,10 @@ impl SessionGuard {
                 match sessions.get(session_id) {
                     Some(ctx) => match ctx.state {
                         SessionState::Locked => {
-                            return Some(format!("Session '{}' is locked", session_id));
+                            return Some(format!("Session '{session_id}' is locked"));
                         }
                         SessionState::Ended => {
-                            return Some(format!("Session '{}' has ended", session_id));
+                            return Some(format!("Session '{session_id}' has ended"));
                         }
                         _ => {
                             // SECURITY (FIND-R198-004): Check max_session_duration_secs
@@ -1958,7 +1956,7 @@ mod tests {
                 .process_event(
                     "s1",
                     SessionEvent::AdminUnlock {
-                        admin_token: format!("wrong-{}", i),
+                        admin_token: format!("wrong-{i}"),
                     },
                 )
                 .unwrap();
@@ -2045,8 +2043,7 @@ mod tests {
         );
         assert!(
             result.as_ref().unwrap().contains("exceeded max duration"),
-            "got: {:?}",
-            result
+            "got: {result:?}"
         );
     }
 
@@ -2080,8 +2077,7 @@ mod tests {
         assert!(result2.is_some(), "should still deny ended session");
         assert!(
             result2.as_ref().unwrap().contains("has ended"),
-            "subsequent deny should be 'has ended' (short-circuit), got: {:?}",
-            result2
+            "subsequent deny should be 'has ended' (short-circuit), got: {result2:?}"
         );
     }
 

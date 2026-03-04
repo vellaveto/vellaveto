@@ -1128,9 +1128,8 @@ impl MultimodalScanner {
                         stego_type: "lsb_uniformity".to_string(),
                         confidence,
                         details: format!(
-                            "LSB distribution is suspiciously uniform (chi²={:.4}, n={:.0}). \
-                             This may indicate LSB steganography.",
-                            chi_sq, n
+                            "LSB distribution is suspiciously uniform (chi²={chi_sq:.4}, n={n:.0}). \
+                             This may indicate LSB steganography."
                         ),
                     }])
                 } else {
@@ -2232,7 +2231,7 @@ pub fn scan_blob_for_injection(
     // Decode base64
     let data = base64::engine::general_purpose::STANDARD
         .decode(base64_data)
-        .map_err(|e| MultimodalError::ImageDecodeError(format!("Invalid base64: {}", e)))?;
+        .map_err(|e| MultimodalError::ImageDecodeError(format!("Invalid base64: {e}")))?;
 
     // Determine content type
     let content_type = mime_type
@@ -4127,8 +4126,7 @@ mod tests {
         let text = result.extracted_text.unwrap();
         assert!(
             text.contains("ignore all previous instructions"),
-            "Extracted text should contain the title, got: {}",
-            text
+            "Extracted text should contain the title, got: {text}"
         );
     }
 
@@ -4195,8 +4193,7 @@ mod tests {
         let t = text.unwrap();
         assert!(
             t.contains("Hello") && t.contains("World"),
-            "Should decode \\n to newline, got: {:?}",
-            t
+            "Should decode \\n to newline, got: {t:?}"
         );
     }
 
@@ -4209,8 +4206,7 @@ mod tests {
         let t = text.unwrap();
         assert!(
             t.contains("Hello") && t.contains("(World)"),
-            "Should decode escaped parens, got: {:?}",
-            t
+            "Should decode escaped parens, got: {t:?}"
         );
     }
 
@@ -4223,8 +4219,7 @@ mod tests {
         let t = text.unwrap();
         assert!(
             t.contains(r"path\to\file"),
-            "Should decode \\\\ to \\, got: {:?}",
-            t
+            "Should decode \\\\ to \\, got: {t:?}"
         );
     }
 

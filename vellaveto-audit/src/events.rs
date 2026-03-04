@@ -87,7 +87,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "circuit_breaker", serde_json::json!({}));
         let verdict = if event_type == "rejected" {
             Verdict::Deny {
-                reason: format!("Circuit breaker open for tool: {}", tool),
+                reason: format!("Circuit breaker open for tool: {tool}"),
             }
         } else {
             Verdict::Allow
@@ -113,7 +113,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "deputy", serde_json::json!({}));
         let verdict = if event_type == "validation_failed" || event_type == "depth_exceeded" {
             Verdict::Deny {
-                reason: format!("Deputy validation failed for session: {}", session),
+                reason: format!("Deputy validation failed for session: {session}"),
             }
         } else {
             Verdict::Allow
@@ -139,7 +139,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "shadow_agent", serde_json::json!({}));
         let verdict = if event_type == "detected" {
             Verdict::Deny {
-                reason: format!("Shadow agent detected impersonating: {}", agent_id),
+                reason: format!("Shadow agent detected impersonating: {agent_id}"),
             }
         } else {
             Verdict::Allow
@@ -165,7 +165,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "schema", serde_json::json!({}));
         let verdict = if event_type == "poisoning_alert" {
             Verdict::Deny {
-                reason: format!("Schema poisoning detected for tool: {}", tool),
+                reason: format!("Schema poisoning detected for tool: {tool}"),
             }
         } else {
             Verdict::Allow
@@ -191,7 +191,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "task", serde_json::json!({}));
         let verdict = if event_type == "limit_exceeded" {
             Verdict::Deny {
-                reason: format!("Task limit exceeded for task: {}", task_id),
+                reason: format!("Task limit exceeded for task: {task_id}"),
             }
         } else {
             Verdict::Allow
@@ -227,7 +227,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "task_lifecycle", serde_json::json!({}));
         let verdict = match event_type {
             "failed" | "cancelled" => Verdict::Deny {
-                reason: format!("Task {} for task: {}", event_type, task_id),
+                reason: format!("Task {event_type} for task: {task_id}"),
             },
             _ => Verdict::Allow,
         };
@@ -252,7 +252,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "auth", serde_json::json!({}));
         let verdict = if event_type == "step_up_required" {
             Verdict::Deny {
-                reason: format!("Step-up authentication required for session: {}", session),
+                reason: format!("Step-up authentication required for session: {session}"),
             }
         } else {
             Verdict::Allow
@@ -277,7 +277,7 @@ impl AuditLogger {
     ) -> Result<(), AuditError> {
         let action = Action::new("vellaveto", "sampling", serde_json::json!({}));
         let verdict = Verdict::Deny {
-            reason: format!("Sampling request denied for session: {}", session),
+            reason: format!("Sampling request denied for session: {session}"),
         };
         let mut metadata = serde_json::json!({
             "event": format!("sampling.{}", event_type),
@@ -308,10 +308,7 @@ impl AuditLogger {
     ) -> Result<(), AuditError> {
         let action = Action::new("vellaveto", "shadow_ai_discovery", serde_json::json!({}));
         let verdict = Verdict::Deny {
-            reason: format!(
-                "Shadow AI discovery: {} for entity '{}'",
-                event_type, entity_id
-            ),
+            reason: format!("Shadow AI discovery: {event_type} for entity '{entity_id}'"),
         };
         let mut metadata = serde_json::json!({
             "event": format!("shadow_ai.{}", event_type),
@@ -340,8 +337,7 @@ impl AuditLogger {
         let verdict = if event_type == "auto_revoke" {
             Verdict::Deny {
                 reason: format!(
-                    "Least agency auto-revoke for agent '{}' session '{}'",
-                    agent_id, session_id
+                    "Least agency auto-revoke for agent '{agent_id}' session '{session_id}'"
                 ),
             }
         } else {
@@ -380,10 +376,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "leader_election", serde_json::json!({}));
         let verdict = if event_type == "lost" || event_type == "failed" {
             Verdict::Deny {
-                reason: format!(
-                    "Leader election {} for instance '{}'",
-                    event_type, instance_id
-                ),
+                reason: format!("Leader election {event_type} for instance '{instance_id}'"),
             }
         } else {
             Verdict::Allow
@@ -415,10 +408,7 @@ impl AuditLogger {
         let action = Action::new("vellaveto", "service_discovery", serde_json::json!({}));
         let verdict = if event_type == "refresh_failed" {
             Verdict::Deny {
-                reason: format!(
-                    "Service discovery refresh failed for endpoint '{}'",
-                    endpoint_id
-                ),
+                reason: format!("Service discovery refresh failed for endpoint '{endpoint_id}'"),
             }
         } else {
             Verdict::Allow
@@ -598,7 +588,7 @@ impl AuditLogger {
         let verdict = match event_type {
             "validation_failed" | "jwks_fetch_failed" | "token_expired" | "anchor_removed" => {
                 Verdict::Deny {
-                    reason: format!("Federation event: {}", event_type),
+                    reason: format!("Federation event: {event_type}"),
                 }
             }
             _ => Verdict::Allow,
@@ -675,8 +665,7 @@ mod tests {
                 // Should not have been inserted
                 assert!(
                     metadata.get(key).is_none(),
-                    "Reserved key '{}' was inserted",
-                    key
+                    "Reserved key '{key}' was inserted"
                 );
             }
         }

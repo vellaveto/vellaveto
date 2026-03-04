@@ -100,7 +100,7 @@ pub async fn projector_models(
             ModelFamily::DeepSeek => "deepseek".to_string(),
             ModelFamily::Qwen => "qwen".to_string(),
             ModelFamily::Generic => "generic".to_string(),
-            ModelFamily::Custom(name) => format!("custom:{}", name),
+            ModelFamily::Custom(name) => format!("custom:{name}"),
         })
         .collect();
 
@@ -248,8 +248,7 @@ pub async fn projector_transform(
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 error: format!(
-                    "schema.input_schema nesting depth {} exceeds max {}",
-                    input_depth, MAX_SCHEMA_DEPTH
+                    "schema.input_schema nesting depth {input_depth} exceeds max {MAX_SCHEMA_DEPTH}"
                 ),
             }),
         ));
@@ -261,8 +260,7 @@ pub async fn projector_transform(
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
                     error: format!(
-                        "schema.output_schema nesting depth {} exceeds max {}",
-                        output_depth, MAX_SCHEMA_DEPTH
+                        "schema.output_schema nesting depth {output_depth} exceeds max {MAX_SCHEMA_DEPTH}"
                     ),
                 }),
             ));
@@ -277,7 +275,7 @@ pub async fn projector_transform(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("schema validation failed: {}", e),
+                error: format!("schema validation failed: {e}"),
             }),
         )
     })?;
@@ -419,8 +417,7 @@ mod tests {
             let c = char::from_u32(cp).unwrap();
             assert!(
                 crate::routes::is_unsafe_char(c),
-                "U+{:04X} must be detected as unsafe",
-                cp
+                "U+{cp:04X} must be detected as unsafe"
             );
         }
     }

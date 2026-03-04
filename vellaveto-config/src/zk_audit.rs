@@ -137,7 +137,7 @@ const MAX_KEY_PATH_LEN: usize = 4096;
 /// and unbounded paths can cause memory issues during config processing.
 fn validate_key_path(field: &str, path: &str) -> Result<(), String> {
     if path.is_empty() {
-        return Err(format!("{} must not be empty", field));
+        return Err(format!("{field} must not be empty"));
     }
     if path.len() > MAX_KEY_PATH_LEN {
         return Err(format!(
@@ -151,16 +151,14 @@ fn validate_key_path(field: &str, path: &str) -> Result<(), String> {
     // format chars (zero-width, bidi overrides, BOM) for parity with canonical check.
     if vellaveto_types::has_dangerous_chars(path) {
         return Err(format!(
-            "{} must not contain control or format characters",
-            field
+            "{field} must not contain control or format characters"
         ));
     }
     use std::path::{Component, Path};
     let p = Path::new(path);
     if p.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(format!(
-            "{} must not contain '..' components, got '{}'",
-            field, path
+            "{field} must not contain '..' components, got '{path}'"
         ));
     }
     Ok(())

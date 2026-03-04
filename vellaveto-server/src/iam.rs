@@ -125,9 +125,9 @@ impl SamlState {
             .timeout(Duration::from_secs(30))
             .send()
             .await
-            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {e}")))?
             .error_for_status()
-            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {}", e)))?;
+            .map_err(|e| IamError::Saml(format!("Failed to fetch SAML metadata: {e}")))?;
         let content_length = response.content_length().unwrap_or(0);
         if content_length > MAX_SAML_METADATA_SIZE {
             return Err(IamError::Saml(
@@ -137,14 +137,14 @@ impl SamlState {
         let body_bytes = response
             .bytes()
             .await
-            .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {}", e)))?;
+            .map_err(|e| IamError::Saml(format!("Failed to read SAML metadata: {e}")))?;
         if body_bytes.len() as u64 > MAX_SAML_METADATA_SIZE {
             return Err(IamError::Saml("SAML metadata body too large".to_string()));
         }
         let body = String::from_utf8(body_bytes.to_vec())
-            .map_err(|e| IamError::Saml(format!("SAML metadata is not valid UTF-8: {}", e)))?;
+            .map_err(|e| IamError::Saml(format!("SAML metadata is not valid UTF-8: {e}")))?;
         let document = Document::parse(&body)
-            .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {}", e)))?;
+            .map_err(|e| IamError::Saml(format!("Invalid SAML metadata XML: {e}")))?;
         Self::from_document(document, config)
     }
 
@@ -466,7 +466,7 @@ impl SamlState {
         let ref_uri = reference.attribute("URI").unwrap_or("");
         if !ref_uri.is_empty() {
             let assertion_id = assertion.attribute("ID").unwrap_or("");
-            let expected_uri = format!("#{}", assertion_id);
+            let expected_uri = format!("#{assertion_id}");
             if ref_uri != expected_uri {
                 return Err(IamError::Saml(
                     "SAML Reference URI does not match Assertion ID".to_string(),
@@ -843,8 +843,7 @@ impl IamState {
         let jwks = self.ensure_jwks().await?;
         find_key_in_jwks(&jwks, kid_value, &alg).ok_or_else(|| {
             IamError::Jwks(format!(
-                "No matching key for kid='{}' alg='{:?}'",
-                kid_value, alg
+                "No matching key for kid='{kid_value}' alg='{alg:?}'"
             ))
         })
     }
@@ -861,7 +860,7 @@ impl IamState {
             let jwks = self
                 .fetch_jwks()
                 .await
-                .map_err(|e| IamError::Jwks(format!("Failed to fetch JWKS: {}", e)))?;
+                .map_err(|e| IamError::Jwks(format!("Failed to fetch JWKS: {e}")))?;
             *guard = Some(CachedJwks {
                 keys: Arc::new(jwks),
                 fetched_at: now,
@@ -1066,8 +1065,7 @@ impl IamState {
         // Generate JWT.
         let signing_secret = self.m2m_signing_secret.as_ref().ok_or_else(|| {
             IamError::M2mTokenGeneration(format!(
-                "{} environment variable not set",
-                M2M_JWT_SECRET_ENV
+                "{M2M_JWT_SECRET_ENV} environment variable not set"
             ))
         })?;
 
@@ -1151,7 +1149,7 @@ impl IamState {
 
         // SECURITY: Validate URL for SSRF protection.
         let parsed = Url::parse(client_id_url)
-            .map_err(|e| IamError::CimdValidation(format!("invalid URL: {}", e)))?;
+            .map_err(|e| IamError::CimdValidation(format!("invalid URL: {e}")))?;
         if parsed.scheme() != "https" {
             return Err(IamError::CimdValidation(
                 "CIMD URL must use HTTPS".to_string(),
@@ -1168,9 +1166,9 @@ impl IamState {
             .timeout(Duration::from_secs(10))
             .send()
             .await
-            .map_err(|e| IamError::CimdFetch(format!("request failed: {}", e)))?
+            .map_err(|e| IamError::CimdFetch(format!("request failed: {e}")))?
             .error_for_status()
-            .map_err(|e| IamError::CimdFetch(format!("HTTP error: {}", e)))?;
+            .map_err(|e| IamError::CimdFetch(format!("HTTP error: {e}")))?;
 
         // SECURITY: Limit response body size.
         let content_length = response.content_length().unwrap_or(0);
@@ -1181,7 +1179,7 @@ impl IamState {
         let body = response
             .bytes()
             .await
-            .map_err(|e| IamError::CimdFetch(format!("failed to read body: {}", e)))?;
+            .map_err(|e| IamError::CimdFetch(format!("failed to read body: {e}")))?;
 
         if body.len() > MAX_CIMD_RESPONSE_SIZE {
             return Err(IamError::CimdFetch(
@@ -1190,7 +1188,7 @@ impl IamState {
         }
 
         let raw: CimdRawResponse = serde_json::from_slice(&body)
-            .map_err(|e| IamError::CimdValidation(format!("invalid JSON: {}", e)))?;
+            .map_err(|e| IamError::CimdValidation(format!("invalid JSON: {e}")))?;
 
         // Validate metadata.
         if raw.redirect_uris.len() > MAX_CIMD_REDIRECT_URIS {
@@ -1261,7 +1259,7 @@ fn build_cookie_value(
 ) -> Result<HeaderValue, IamError> {
     let mut parts = vec![format!("{}={}", name, value)];
     if let Some(max_age) = max_age_secs {
-        parts.push(format!("Max-Age={}", max_age));
+        parts.push(format!("Max-Age={max_age}"));
     }
     parts.push("Path=/".to_string());
     if http_only {
@@ -1272,7 +1270,7 @@ fn build_cookie_value(
     }
     parts.push("SameSite=Strict".to_string());
     HeaderValue::from_str(&parts.join("; "))
-        .map_err(|e| IamError::CookieEncode(format!("cookie header invalid: {}", e)))
+        .map_err(|e| IamError::CookieEncode(format!("cookie header invalid: {e}")))
 }
 
 /// Extract the session ID from the Cookie header using the configured name.
@@ -1282,7 +1280,7 @@ pub fn extract_session_cookie(headers: &HeaderMap, cookie_name: &str) -> Option<
         .and_then(|value| value.to_str().ok())
         .and_then(|raw| {
             raw.split(';').map(str::trim).find_map(|kv| {
-                let prefix = format!("{}=", cookie_name);
+                let prefix = format!("{cookie_name}=");
                 if kv.starts_with(&prefix) {
                     Some(kv[prefix.len()..].to_string())
                 } else {
@@ -1370,7 +1368,7 @@ pub async fn callback(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("OIDC error: {}", sanitized),
+                error: format!("OIDC error: {sanitized}"),
             }),
         ));
     }
@@ -1985,7 +1983,7 @@ fn decode_base64(value: &str, context: &str) -> Result<Vec<u8>, IamError> {
     );
     PAD_INDIFFERENT
         .decode(value)
-        .map_err(|_e| IamError::Saml(format!("{}: decode failed", context)))
+        .map_err(|_e| IamError::Saml(format!("{context}: decode failed")))
 }
 
 /// Maximum decompressed SAML response size (10 MB).
@@ -2003,7 +2001,7 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
     );
     let decoded = PAD_INDIFFERENT
         .decode(encoded)
-        .map_err(|e| IamError::Saml(format!("Invalid SAML response encoding: {}", e)))?;
+        .map_err(|e| IamError::Saml(format!("Invalid SAML response encoding: {e}")))?;
     if let Ok(text) = String::from_utf8(decoded.clone()) {
         if text.len() as u64 > MAX_SAML_DECOMPRESSED_SIZE {
             return Err(IamError::Saml(
@@ -2029,7 +2027,7 @@ fn decode_saml_response(encoded: &str) -> Result<String, IamError> {
         DeflateDecoder::new(Cursor::new(decoded)).take(MAX_SAML_DECOMPRESSED_SIZE);
     deflate_decoder
         .read_to_string(&mut buffer)
-        .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {}", e)))?;
+        .map_err(|e| IamError::Saml(format!("Failed to decompress SAML response: {e}")))?;
     if buffer.len() as u64 >= MAX_SAML_DECOMPRESSED_SIZE {
         return Err(IamError::Saml(
             "SAML response exceeds maximum decompressed size".to_string(),
@@ -2233,14 +2231,14 @@ fn validate_cimd_host(url: &Url) -> Result<(), IamError> {
 
     // Reuse shared SSRF validation for loopback/private/link-local and IPv6 transition ranges.
     validate_url_no_ssrf(url.as_str())
-        .map_err(|e| IamError::CimdValidation(format!("URL host is blocked ({})", e)))?;
+        .map_err(|e| IamError::CimdValidation(format!("URL host is blocked ({e})")))?;
 
     Ok(())
 }
 
 fn validate_cimd_redirect_uri(uri: &str) -> Result<(), IamError> {
     let parsed = Url::parse(uri)
-        .map_err(|e| IamError::CimdValidation(format!("invalid redirect_uri: {}", e)))?;
+        .map_err(|e| IamError::CimdValidation(format!("invalid redirect_uri: {e}")))?;
 
     if parsed.scheme() != "https" {
         return Err(IamError::CimdValidation(format!(
@@ -2357,7 +2355,7 @@ pub async fn client_metadata(
             IamError::CimdValidation(msg) => (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!("Client metadata validation failed: {}", msg),
+                    error: format!("Client metadata validation failed: {msg}"),
                 }),
             ),
             IamError::CimdFetch(_) => (
@@ -2682,8 +2680,7 @@ mod tests {
         let document = Document::parse(&metadata_xml).unwrap();
         let saml_state = SamlState::from_document(document, &config).unwrap();
         let xml = format!(
-            "<Response xmlns=\"{}\" Destination=\"https://bad.example.com\"/>",
-            SAML_PROTOCOL_NS
+            "<Response xmlns=\"{SAML_PROTOCOL_NS}\" Destination=\"https://bad.example.com\"/>"
         );
         let response_doc = Document::parse(&xml).unwrap();
         let response = response_doc.root_element();
@@ -2701,10 +2698,7 @@ mod tests {
         let document = Document::parse(&metadata_xml).unwrap();
         let saml_state = SamlState::from_document(document, &config).unwrap();
         // Assertion without Conditions element
-        let xml = format!(
-            "<Assertion xmlns=\"{}\"><Subject/></Assertion>",
-            SAML_ASSERTION_NS
-        );
+        let xml = format!("<Assertion xmlns=\"{SAML_ASSERTION_NS}\"><Subject/></Assertion>");
         let assertion_doc = Document::parse(&xml).unwrap();
         let assertion = assertion_doc.root_element();
         let result = saml_state.ensure_conditions(assertion);
@@ -2727,8 +2721,7 @@ mod tests {
         let saml_state = SamlState::from_document(document, &config).unwrap();
         // Conditions element without NotOnOrAfter attribute
         let xml = format!(
-            r#"<Assertion xmlns="{}"><Conditions NotBefore="2020-01-01T00:00:00Z"><AudienceRestriction><Audience>{}</Audience></AudienceRestriction></Conditions><Subject/></Assertion>"#,
-            SAML_ASSERTION_NS, TEST_SP_ENTITY_ID
+            r#"<Assertion xmlns="{SAML_ASSERTION_NS}"><Conditions NotBefore="2020-01-01T00:00:00Z"><AudienceRestriction><Audience>{TEST_SP_ENTITY_ID}</Audience></AudienceRestriction></Conditions><Subject/></Assertion>"#
         );
         let assertion_doc = Document::parse(&xml).unwrap();
         let assertion = assertion_doc.root_element();
@@ -2754,8 +2747,7 @@ mod tests {
         let not_on_or_after = (Utc::now() + Duration::minutes(5)).to_rfc3339();
         // SubjectConfirmationData without Recipient attribute
         let xml = format!(
-            r#"<Assertion xmlns="{}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData NotOnOrAfter="{}"/></SubjectConfirmation></Subject></Assertion>"#,
-            SAML_ASSERTION_NS, not_on_or_after
+            r#"<Assertion xmlns="{SAML_ASSERTION_NS}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData NotOnOrAfter="{not_on_or_after}"/></SubjectConfirmation></Subject></Assertion>"#
         );
         let assertion_doc = Document::parse(&xml).unwrap();
         let assertion = assertion_doc.root_element();
@@ -2780,8 +2772,7 @@ mod tests {
         let saml_state = SamlState::from_document(document, &config).unwrap();
         // SubjectConfirmationData without NotOnOrAfter attribute
         let xml = format!(
-            r#"<Assertion xmlns="{}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData Recipient="{}"/></SubjectConfirmation></Subject></Assertion>"#,
-            SAML_ASSERTION_NS, TEST_SP_ACS
+            r#"<Assertion xmlns="{SAML_ASSERTION_NS}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData Recipient="{TEST_SP_ACS}"/></SubjectConfirmation></Subject></Assertion>"#
         );
         let assertion_doc = Document::parse(&xml).unwrap();
         let assertion = assertion_doc.root_element();
@@ -3249,7 +3240,7 @@ mod tests {
             role: "viewer".to_string(),
             allowed_scopes: vec![],
         };
-        let debug = format!("{:?}", client);
+        let debug = format!("{client:?}");
         assert!(debug.contains("[REDACTED]"));
         assert!(!debug.contains("super-secret-hash"));
     }
@@ -3292,8 +3283,7 @@ fn resolve_scim_token(config: &ScimConfig) -> Result<String, IamError> {
     if let Some(env_var) = &config.bearer_token_env {
         return env::var(env_var).map_err(|e| {
             IamError::Scim(format!(
-                "Failed to read iam.scim.bearer_token_env '{}': {}",
-                env_var, e
+                "Failed to read iam.scim.bearer_token_env '{env_var}': {e}"
             ))
         });
     }
@@ -3359,7 +3349,7 @@ async fn fetch_scim_user_count(
     const MAX_SCIM_RESPONSE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
     let response = client
         .get(endpoint)
-        .header(reqwest_header::AUTHORIZATION, format!("Bearer {}", token))
+        .header(reqwest_header::AUTHORIZATION, format!("Bearer {token}"))
         .header(
             reqwest_header::ACCEPT,
             "application/scim+json, application/json",
@@ -3367,20 +3357,19 @@ async fn fetch_scim_user_count(
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| format!("SCIM request failed: {}", e))?
+        .map_err(|e| format!("SCIM request failed: {e}"))?
         .error_for_status()
-        .map_err(|e| format!("SCIM endpoint error: {}", e))?;
+        .map_err(|e| format!("SCIM endpoint error: {e}"))?;
     let content_length = response.content_length().unwrap_or(0);
     if content_length > MAX_SCIM_RESPONSE_SIZE {
         return Err(format!(
-            "SCIM response too large: {} bytes (max {})",
-            content_length, MAX_SCIM_RESPONSE_SIZE
+            "SCIM response too large: {content_length} bytes (max {MAX_SCIM_RESPONSE_SIZE})"
         ));
     }
     let body = response
         .bytes()
         .await
-        .map_err(|e| format!("SCIM response read failed: {}", e))?;
+        .map_err(|e| format!("SCIM response read failed: {e}"))?;
     if body.len() as u64 > MAX_SCIM_RESPONSE_SIZE {
         return Err(format!(
             "SCIM response body too large: {} bytes (max {})",
@@ -3389,7 +3378,7 @@ async fn fetch_scim_user_count(
         ));
     }
     let payload: Value =
-        serde_json::from_slice(&body).map_err(|e| format!("SCIM response decode failed: {}", e))?;
+        serde_json::from_slice(&body).map_err(|e| format!("SCIM response decode failed: {e}"))?;
     Ok(extract_scim_user_count(&payload))
 }
 

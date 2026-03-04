@@ -92,11 +92,7 @@ fn engine_produces_same_verdict_on_repeated_calls() {
     for action in &actions {
         let v1 = engine.evaluate_action(action, &policies).unwrap();
         let v2 = engine.evaluate_action(action, &policies).unwrap();
-        assert_eq!(
-            v1, v2,
-            "engine must be deterministic for action {:?}",
-            action
-        );
+        assert_eq!(v1, v2, "engine must be deterministic for action {action:?}");
     }
 }
 
@@ -139,8 +135,7 @@ fn strict_mode_flag_does_not_change_basic_verdicts() {
         let v_strict = engine_strict.evaluate_action(action, &policies).unwrap();
         assert_eq!(
             v_lax, v_strict,
-            "strict_mode should not change basic verdict for {:?}",
-            action
+            "strict_mode should not change basic verdict for {action:?}"
         );
     }
 }

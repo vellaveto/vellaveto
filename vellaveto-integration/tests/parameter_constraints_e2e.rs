@@ -76,8 +76,7 @@ fn denies_aws_credential_access() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Should deny AWS credential access, got: {:?}",
-        verdict
+        "Should deny AWS credential access, got: {verdict:?}"
     );
 }
 
@@ -96,8 +95,7 @@ fn denies_ssh_key_access() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Should deny SSH key access, got: {:?}",
-        verdict
+        "Should deny SSH key access, got: {verdict:?}"
     );
 }
 
@@ -112,8 +110,7 @@ fn denies_etc_shadow_access() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Should deny /etc/shadow access, got: {:?}",
-        verdict
+        "Should deny /etc/shadow access, got: {verdict:?}"
     );
 }
 
@@ -149,8 +146,7 @@ fn path_traversal_caught_after_config_load() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Path traversal to .aws should be caught, got: {:?}",
-        verdict
+        "Path traversal to .aws should be caught, got: {verdict:?}"
     );
 }
 
@@ -193,8 +189,7 @@ fn write_to_disallowed_path_denied() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Write outside allowlist should be denied, got: {:?}",
-        verdict
+        "Write outside allowlist should be denied, got: {verdict:?}"
     );
 }
 
@@ -217,8 +212,7 @@ fn denies_unlisted_domain() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Request to unlisted domain should be denied, got: {:?}",
-        verdict
+        "Request to unlisted domain should be denied, got: {verdict:?}"
     );
 }
 
@@ -405,8 +399,7 @@ fn missing_path_parameter_defaults_to_deny() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Missing path parameter should fail-closed to deny, got: {:?}",
-        verdict
+        "Missing path parameter should fail-closed to deny, got: {verdict:?}"
     );
 }
 
@@ -421,7 +414,6 @@ fn missing_url_parameter_defaults_to_deny() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Missing url parameter should fail-closed to deny, got: {:?}",
-        verdict
+        "Missing url parameter should fail-closed to deny, got: {verdict:?}"
     );
 }

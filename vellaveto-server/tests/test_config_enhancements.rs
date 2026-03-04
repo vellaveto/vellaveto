@@ -65,7 +65,7 @@ conditions = { require_approval = true }
         PolicyType::Conditional { conditions } => {
             assert_eq!(conditions.get("require_approval").unwrap(), true);
         }
-        other => panic!("Expected Conditional, got {:?}", other),
+        other => panic!("Expected Conditional, got {other:?}"),
     }
 }
 
@@ -340,8 +340,7 @@ priority = 1
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, vellaveto_types::Verdict::Deny { .. }),
-        "bash:execute should be denied. Got: {:?}",
-        verdict
+        "bash:execute should be denied. Got: {verdict:?}"
     );
 
     let safe_action =
@@ -349,8 +348,7 @@ priority = 1
     let verdict = engine.evaluate_action(&safe_action, &policies).unwrap();
     assert!(
         matches!(verdict, vellaveto_types::Verdict::Allow),
-        "file:read should be allowed. Got: {:?}",
-        verdict
+        "file:read should be allowed. Got: {verdict:?}"
     );
 }
 
@@ -416,8 +414,7 @@ policy_type = "Allow"
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("unsupported extension"),
-        "Error should mention unsupported extension, got: {}",
-        err
+        "Error should mention unsupported extension, got: {err}"
     );
 }
 

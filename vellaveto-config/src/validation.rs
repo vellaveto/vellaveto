@@ -197,7 +197,7 @@ impl ValidationResult {
             let location = finding
                 .location
                 .as_ref()
-                .map(|l| format!(" at {}", l))
+                .map(|l| format!(" at {l}"))
                 .unwrap_or_default();
 
             output.push_str(&format!(
@@ -206,7 +206,7 @@ impl ValidationResult {
             ));
 
             if let Some(ref suggestion) = finding.suggestion {
-                output.push_str(&format!("  Suggestion: {}\n", suggestion));
+                output.push_str(&format!("  Suggestion: {suggestion}\n"));
             }
         }
 
@@ -290,7 +290,7 @@ impl PolicyValidator {
 
         for (idx, policy) in policies.iter().enumerate() {
             let location = if policy.name.is_empty() {
-                format!("policies[{}]", idx)
+                format!("policies[{idx}]")
             } else {
                 policy.name.clone()
             };
@@ -301,7 +301,7 @@ impl PolicyValidator {
                     result.add(
                         ValidationFinding::error(
                             "DUPLICATE_ID",
-                            &format!("Duplicate policy ID: {}", id),
+                            &format!("Duplicate policy ID: {id}"),
                         )
                         .at(&location),
                     );
@@ -410,8 +410,7 @@ impl PolicyValidator {
                             ValidationFinding::warning(
                                 "OVERLAPPING_PATHS",
                                 &format!(
-                                    "Allowed pattern '{}' may overlap with blocked pattern '{}'",
-                                    allow_pattern, block_pattern
+                                    "Allowed pattern '{allow_pattern}' may overlap with blocked pattern '{block_pattern}'"
                                 ),
                             )
                             .at(location),
@@ -440,7 +439,7 @@ impl PolicyValidator {
                     result.add(
                         ValidationFinding::error(
                             "INVALID_DOMAIN",
-                            &format!("Invalid domain pattern: {}", domain),
+                            &format!("Invalid domain pattern: {domain}"),
                         )
                         .at(location),
                     );
@@ -452,7 +451,7 @@ impl PolicyValidator {
                     result.add(
                         ValidationFinding::error(
                             "INVALID_DOMAIN",
-                            &format!("Invalid domain pattern: {}", domain),
+                            &format!("Invalid domain pattern: {domain}"),
                         )
                         .at(location),
                     );
@@ -489,7 +488,7 @@ impl PolicyValidator {
                             result.add(
                                 ValidationFinding::warning(
                                     "SENSITIVE_PATH",
-                                    &format!("Policy allows access to sensitive path: {}", pattern),
+                                    &format!("Policy allows access to sensitive path: {pattern}"),
                                 )
                                 .at(&policy.name)
                                 .with_category(ValidationCategory::Security),
@@ -524,7 +523,7 @@ impl PolicyValidator {
                 result.add(
                     ValidationFinding::info(
                         "MISSING_NAME",
-                        &format!("Policy at index {} has no name", idx),
+                        &format!("Policy at index {idx} has no name"),
                     )
                     .with_suggestion("Add descriptive names to policies for easier debugging"),
                 );
@@ -535,7 +534,7 @@ impl PolicyValidator {
         for (idx, policy) in policies.iter().enumerate() {
             if policy.id.is_none() {
                 let location = if policy.name.is_empty() {
-                    format!("policies[{}]", idx)
+                    format!("policies[{idx}]")
                 } else {
                     policy.name.clone()
                 };
@@ -675,10 +674,10 @@ pub enum ConfigValueError {
 impl std::fmt::Display for ConfigValueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigValueError::InvalidHex(msg) => write!(f, "Invalid hex encoding: {}", msg),
-            ConfigValueError::InvalidKey(msg) => write!(f, "Invalid key: {}", msg),
-            ConfigValueError::InvalidUrl(msg) => write!(f, "Invalid URL: {}", msg),
-            ConfigValueError::InvalidDomain(msg) => write!(f, "Invalid domain: {}", msg),
+            ConfigValueError::InvalidHex(msg) => write!(f, "Invalid hex encoding: {msg}"),
+            ConfigValueError::InvalidKey(msg) => write!(f, "Invalid key: {msg}"),
+            ConfigValueError::InvalidUrl(msg) => write!(f, "Invalid URL: {msg}"),
+            ConfigValueError::InvalidDomain(msg) => write!(f, "Invalid domain: {msg}"),
         }
     }
 }
@@ -807,22 +806,19 @@ pub fn validate_domain_name(domain: &str) -> Result<(), ConfigValueError> {
 
         if label.len() > 63 {
             return Err(ConfigValueError::InvalidDomain(format!(
-                "Domain label '{}' exceeds 63 characters",
-                label
+                "Domain label '{label}' exceeds 63 characters"
             )));
         }
 
         if label.starts_with('-') || label.ends_with('-') {
             return Err(ConfigValueError::InvalidDomain(format!(
-                "Domain label '{}' cannot start or end with hyphen",
-                label
+                "Domain label '{label}' cannot start or end with hyphen"
             )));
         }
 
         if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(ConfigValueError::InvalidDomain(format!(
-                "Domain label '{}' contains invalid characters (only alphanumeric and hyphen allowed)",
-                label
+                "Domain label '{label}' contains invalid characters (only alphanumeric and hyphen allowed)"
             )));
         }
     }
@@ -911,8 +907,7 @@ pub fn validate_webhook_url(url_str: &str) -> Result<(), ConfigValueError> {
     match parsed.scheme() {
         "http" | "https" => Ok(()),
         scheme => Err(ConfigValueError::InvalidUrl(format!(
-            "Webhook URL must use http or https scheme, got '{}'",
-            scheme
+            "Webhook URL must use http or https scheme, got '{scheme}'"
         ))),
     }
 }

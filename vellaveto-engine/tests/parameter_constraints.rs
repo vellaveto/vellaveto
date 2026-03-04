@@ -338,8 +338,7 @@ fn test_on_missing_skip_all_constraints_skipped_denies() {
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "All constraints skipped → fail-closed deny, got: {:?}",
-        verdict
+        "All constraints skipped → fail-closed deny, got: {verdict:?}"
     );
 }
 

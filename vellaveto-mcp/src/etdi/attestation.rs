@@ -65,7 +65,7 @@ impl AttestationChain {
         let attestation_id = format!("att-{}", uuid::Uuid::new_v4());
 
         // Create signature over attestation content
-        let sig_content = format!("{}|{}|{}|{}", attestation_id, tool_hash, now, attester);
+        let sig_content = format!("{attestation_id}|{tool_hash}|{now}|{attester}");
         let signature = signer.sign_tool(&sig_content, &Value::Null, None);
 
         let attestation = ToolAttestation {

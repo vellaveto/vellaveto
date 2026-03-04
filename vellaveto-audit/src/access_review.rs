@@ -393,19 +393,16 @@ pub fn generate_access_review(
 
     let cc6_evidence = Cc6Evidence {
         cc6_1_evidence: format!(
-            "All {} agent(s) subject to policy-based access control. \
-             {} total evaluations recorded during the review period.",
-            total_agents, total_evaluations
+            "All {total_agents} agent(s) subject to policy-based access control. \
+             {total_evaluations} total evaluations recorded during the review period."
         ),
         cc6_2_evidence: format!(
             "Agent identities validated prior to access grants. \
-             {} agent(s) tracked with session-level granularity.",
-            total_agents
+             {total_agents} agent(s) tracked with session-level granularity."
         ),
         cc6_3_evidence: format!(
             "Unused permissions tracked via least-agency monitoring. \
-             {} optimal, {} review-needed, {} narrow-scope, {} critical agent(s).",
-            optimal_count, review_grants_count, narrow_scope_count, critical_count
+             {optimal_count} optimal, {review_grants_count} review-needed, {narrow_scope_count} narrow-scope, {critical_count} critical agent(s)."
         ),
         optimal_count,
         review_grants_count,
@@ -1048,7 +1045,7 @@ mod tests {
                     "f",
                     Verdict::Allow,
                     "2026-01-15T10:00:00Z",
-                    Some(&format!("agent-{:05}", i)),
+                    Some(&format!("agent-{i:05}")),
                     None,
                 )
             })
@@ -1221,19 +1218,19 @@ mod tests {
         // Zero-width space U+200B
         let zwsp = "a\u{200B}b";
         let escaped = html_escape(zwsp);
-        assert!(escaped.contains("&#8203;"), "ZWSP not escaped: {}", escaped);
+        assert!(escaped.contains("&#8203;"), "ZWSP not escaped: {escaped}");
         assert!(!escaped.contains('\u{200B}'));
 
         // Bidi override U+202E (right-to-left override)
         let bidi = "a\u{202E}b";
         let escaped = html_escape(bidi);
-        assert!(escaped.contains("&#8238;"), "Bidi not escaped: {}", escaped);
+        assert!(escaped.contains("&#8238;"), "Bidi not escaped: {escaped}");
         assert!(!escaped.contains('\u{202E}'));
 
         // BOM U+FEFF
         let bom = "a\u{FEFF}b";
         let escaped = html_escape(bom);
-        assert!(escaped.contains("&#65279;"), "BOM not escaped: {}", escaped);
+        assert!(escaped.contains("&#65279;"), "BOM not escaped: {escaped}");
         assert!(!escaped.contains('\u{FEFF}'));
     }
 }

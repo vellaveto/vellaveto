@@ -147,7 +147,7 @@ impl PolicyEngine {
                     let g = Glob::new(pattern).map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid allowed path glob '{}': {}", pattern, e),
+                        reason: format!("Invalid allowed path glob '{pattern}': {e}"),
                     })?;
                     allowed.push((pattern.clone(), g.compile_matcher()));
                 }
@@ -156,7 +156,7 @@ impl PolicyEngine {
                     let g = Glob::new(pattern).map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid blocked path glob '{}': {}", pattern, e),
+                        reason: format!("Invalid blocked path glob '{pattern}': {e}"),
                     })?;
                     blocked.push((pattern.clone(), g.compile_matcher()));
                 }
@@ -174,7 +174,7 @@ impl PolicyEngine {
                         return Err(PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
-                            reason: format!("Invalid domain pattern: {}", reason),
+                            reason: format!("Invalid domain pattern: {reason}"),
                         });
                     }
                 }
@@ -198,7 +198,7 @@ impl PolicyEngine {
                     let cidr: IpNet = cidr_str.parse().map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid blocked CIDR '{}': {}", cidr_str, e),
+                        reason: format!("Invalid blocked CIDR '{cidr_str}': {e}"),
                     })?;
                     blocked_cidrs.push(cidr);
                 }
@@ -207,7 +207,7 @@ impl PolicyEngine {
                     let cidr: IpNet = cidr_str.parse().map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid allowed CIDR '{}': {}", cidr_str, e),
+                        reason: format!("Invalid allowed CIDR '{cidr_str}': {e}"),
                     })?;
                     allowed_cidrs.push(cidr);
                 }
@@ -266,8 +266,7 @@ impl PolicyEngine {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
                 reason: format!(
-                    "Condition JSON too large: {} bytes (max {})",
-                    size, MAX_CONDITIONS_SIZE
+                    "Condition JSON too large: {size} bytes (max {MAX_CONDITIONS_SIZE})"
                 ),
             });
         }
@@ -390,7 +389,7 @@ impl PolicyEngine {
                         return Err(PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
-                            reason: format!("Unknown condition key '{}' in strict mode", key),
+                            reason: format!("Unknown condition key '{key}' in strict mode"),
                         });
                     }
                 }
@@ -490,8 +489,7 @@ impl PolicyEngine {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
                     reason: format!(
-                        "Constraint 'on_match' value '{}' is invalid; expected 'deny', 'allow', or 'require_approval'",
-                        other
+                        "Constraint 'on_match' value '{other}' is invalid; expected 'deny', 'allow', or 'require_approval'"
                     ),
                 });
             }
@@ -508,8 +506,7 @@ impl PolicyEngine {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
                     reason: format!(
-                        "Constraint 'on_missing' value '{}' is invalid; expected 'deny' or 'skip'",
-                        other
+                        "Constraint 'on_missing' value '{other}' is invalid; expected 'deny' or 'skip'"
                     ),
                 });
             }
@@ -531,7 +528,7 @@ impl PolicyEngine {
                     .map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid glob pattern '{}': {}", pattern_str, e),
+                        reason: format!("Invalid glob pattern '{pattern_str}': {e}"),
                     })?
                     .compile_matcher();
 
@@ -577,7 +574,7 @@ impl PolicyEngine {
                         .map_err(|e| PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
-                            reason: format!("Invalid glob pattern '{}': {}", pat_str, e),
+                            reason: format!("Invalid glob pattern '{pat_str}': {e}"),
                         })?
                         .compile_matcher();
                     matchers.push((pat_str.to_string(), matcher));
@@ -619,7 +616,7 @@ impl PolicyEngine {
                     .map_err(|e| PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("Invalid regex pattern '{}': {}", pattern_str, e),
+                        reason: format!("Invalid regex pattern '{pattern_str}': {e}"),
                     })?;
 
                 Ok(CompiledConstraint::Regex {
@@ -646,7 +643,7 @@ impl PolicyEngine {
                     return Err(PolicyValidationError {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
-                        reason: format!("domain_match pattern invalid: {}", reason),
+                        reason: format!("domain_match pattern invalid: {reason}"),
                     });
                 }
 
@@ -692,7 +689,7 @@ impl PolicyEngine {
                         return Err(PolicyValidationError {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
-                            reason: format!("domain_not_in pattern invalid: {}", reason),
+                            reason: format!("domain_not_in pattern invalid: {reason}"),
                         });
                     }
                     patterns.push(pat_str.to_string());
@@ -804,7 +801,7 @@ impl PolicyEngine {
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
-                reason: format!("Unknown constraint operator '{}'", op),
+                reason: format!("Unknown constraint operator '{op}'"),
             }),
         }
     }
@@ -856,8 +853,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "time_window hours must be 0-23, got start={} end={}",
-                            start_hour_u64, end_hour_u64
+                            "time_window hours must be 0-23, got start={start_hour_u64} end={end_hour_u64}"
                         ),
                     });
                 }
@@ -876,8 +872,7 @@ impl PolicyEngine {
                             policy_id: policy.id.clone(),
                             policy_name: policy.name.clone(),
                             reason: format!(
-                                "time_window day value must be 1-7 (Mon-Sun), got {}",
-                                day
+                                "time_window day value must be 1-7 (Mon-Sun), got {day}"
                             ),
                         });
                     }
@@ -892,9 +887,8 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "time_window start_hour and end_hour must differ (both are {}); \
-                             a zero-width window permanently denies all requests",
-                            start_hour
+                            "time_window start_hour and end_hour must differ (both are {start_hour}); \
+                             a zero-width window permanently denies all requests"
                         ),
                     });
                 }
@@ -1103,10 +1097,7 @@ impl PolicyEngine {
                 let max_depth = usize::try_from(raw_depth).map_err(|_| PolicyValidationError {
                     policy_id: policy.id.clone(),
                     policy_name: policy.name.clone(),
-                    reason: format!(
-                        "max_chain_depth value {} exceeds platform maximum",
-                        raw_depth
-                    ),
+                    reason: format!("max_chain_depth value {raw_depth} exceeds platform maximum"),
                 })?;
                 let deny_reason = format!(
                     "Call chain depth exceeds maximum of {} (policy '{}')",
@@ -1466,8 +1457,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "step_up_auth required_level must be 0-4, got {}",
-                            required_level_u64
+                            "step_up_auth required_level must be 0-4, got {required_level_u64}"
                         ),
                     });
                 }
@@ -1531,8 +1521,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "deputy_validation max_delegation_depth must be 0-255, got {}",
-                            max_delegation_depth_u64
+                            "deputy_validation max_delegation_depth must be 0-255, got {max_delegation_depth_u64}"
                         ),
                     });
                 }
@@ -1572,8 +1561,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "shadow_agent_check min_trust_level must be 0-4, got {}",
-                            min_trust_level_u64
+                            "shadow_agent_check min_trust_level must be 0-4, got {min_trust_level_u64}"
                         ),
                     });
                 }
@@ -1609,8 +1597,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "schema_poisoning_check mutation_threshold must be in [0.0, 1.0], got {}",
-                            mutation_threshold
+                            "schema_poisoning_check mutation_threshold must be in [0.0, 1.0], got {mutation_threshold}"
                         ),
                     });
                 }
@@ -1661,8 +1648,7 @@ impl PolicyEngine {
                         policy_id: policy.id.clone(),
                         policy_name: policy.name.clone(),
                         reason: format!(
-                            "require_capability_token min_remaining_depth must be 0-16, got {}",
-                            min_remaining_depth
+                            "require_capability_token min_remaining_depth must be 0-16, got {min_remaining_depth}"
                         ),
                     });
                 }
@@ -1685,8 +1671,7 @@ impl PolicyEngine {
                                 policy_id: policy.id.clone(),
                                 policy_name: policy.name.clone(),
                                 reason: format!(
-                                    "min_verification_tier required_tier must be 0-4, got {}",
-                                    level_u64
+                                    "min_verification_tier required_tier must be 0-4, got {level_u64}"
                                 ),
                             });
                         }
@@ -1697,10 +1682,7 @@ impl PolicyEngine {
                             .ok_or_else(|| PolicyValidationError {
                                 policy_id: policy.id.clone(),
                                 policy_name: policy.name.clone(),
-                                reason: format!(
-                                    "min_verification_tier unknown tier name '{}'",
-                                    name
-                                ),
+                                reason: format!("min_verification_tier unknown tier name '{name}'"),
                             })?
                     } else {
                         return Err(PolicyValidationError {
@@ -1806,7 +1788,7 @@ impl PolicyEngine {
             _ => Err(PolicyValidationError {
                 policy_id: policy.id.clone(),
                 policy_name: policy.name.clone(),
-                reason: format!("Unknown context condition type '{}'", kind),
+                reason: format!("Unknown context condition type '{kind}'"),
             }),
         }
     }

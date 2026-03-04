@@ -106,7 +106,7 @@ async fn spawn_capture_server() -> Option<(
         let _ = axum::serve(listener, app).await;
     });
 
-    Some((format!("http://{}", address), receiver, handle))
+    Some((format!("http://{address}"), receiver, handle))
 }
 
 #[derive(Clone)]
@@ -233,7 +233,7 @@ async fn spawn_planned_capture_server(
         let _ = axum::serve(listener, app).await;
     });
 
-    Some((format!("http://{}", address), receiver, handle))
+    Some((format!("http://{address}"), receiver, handle))
 }
 
 fn sample_span() -> SecuritySpan {
@@ -277,7 +277,7 @@ fn sample_spans(count: usize) -> Vec<SecuritySpan> {
         .map(|i| {
             let mut span = sample_span();
             let value = i as u128 + 1;
-            span.trace_id = format!("{:032x}", value);
+            span.trace_id = format!("{value:032x}");
             span.span_id = format!("{:016x}", value as u64);
             span
         })
@@ -397,7 +397,7 @@ async fn test_helicone_log_format() {
         return;
     };
 
-    let config = HeliconeExporterConfig::new(format!("{}/v1/log", base_url), "helicone-key");
+    let config = HeliconeExporterConfig::new(format!("{base_url}/v1/log"), "helicone-key");
     let exporter = HeliconeExporter::new(config).expect("helicone exporter");
 
     exporter
@@ -434,7 +434,7 @@ async fn test_webhook_gzip_compression() {
         return;
     };
 
-    let config = WebhookExporterConfig::new(format!("{}/webhook", base_url)).with_compression(true);
+    let config = WebhookExporterConfig::new(format!("{base_url}/webhook")).with_compression(true);
     let exporter = WebhookExporter::new(config).expect("webhook exporter");
 
     let spans = vec![sample_span(), sample_span()];
@@ -482,7 +482,7 @@ async fn test_export_batch_various_span_counts() {
         return;
     };
 
-    let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
+    let mut config = WebhookExporterConfig::new(format!("{base_url}/webhook"))
         .with_compression(false)
         .with_auth("Bearer test");
     config.common.batch_size = 500;
@@ -578,7 +578,7 @@ async fn test_health_check_failures_propagate_auth_errors() {
         return;
     };
     let exporter = HeliconeExporter::new(HeliconeExporterConfig::new(
-        format!("{}/v1/log", base_url),
+        format!("{base_url}/v1/log"),
         "helicone-key",
     ))
     .expect("helicone exporter");
@@ -604,9 +604,8 @@ async fn test_health_check_failures_propagate_auth_errors() {
     else {
         return;
     };
-    let exporter =
-        WebhookExporter::new(WebhookExporterConfig::new(format!("{}/webhook", base_url)))
-            .expect("webhook exporter");
+    let exporter = WebhookExporter::new(WebhookExporterConfig::new(format!("{base_url}/webhook")))
+        .expect("webhook exporter");
     let result = exporter.health_check().await;
     let request = timeout(Duration::from_secs(3), receiver)
         .await
@@ -673,7 +672,7 @@ async fn test_concurrent_batch_chunk_processing() {
         return;
     };
 
-    let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
+    let mut config = WebhookExporterConfig::new(format!("{base_url}/webhook"))
         .with_compression(false)
         .with_auth("Bearer concurrent");
     config.common.batch_size = batch_size;
@@ -724,7 +723,7 @@ async fn test_export_timeout_on_slow_endpoint() {
         return;
     };
 
-    let mut config = WebhookExporterConfig::new(format!("{}/webhook", base_url))
+    let mut config = WebhookExporterConfig::new(format!("{base_url}/webhook"))
         .with_compression(false)
         .with_auth("Bearer timeout");
     config.common.timeout_secs = 1;

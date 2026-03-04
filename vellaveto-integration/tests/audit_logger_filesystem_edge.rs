@@ -120,7 +120,7 @@ fn each_log_line_is_independent_valid_json() {
                 continue;
             }
             let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
-            assert!(parsed.is_ok(), "Line {} is not valid JSON: {}", count, line);
+            assert!(parsed.is_ok(), "Line {count} is not valid JSON: {line}");
             count += 1;
         }
         assert_eq!(count, 5);

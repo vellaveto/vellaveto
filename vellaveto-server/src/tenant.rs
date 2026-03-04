@@ -489,7 +489,7 @@ pub fn extract_tenant_from_subdomain(host: &str, base_domain: &str) -> Option<St
     // SECURITY (FIND-R202-005): Require dot separator before base domain.
     // `host.ends_with(base)` alone would match "evil-base.example.com" against
     // "base.example.com". We must check for a preceding dot.
-    let with_dot = format!(".{}", base);
+    let with_dot = format!(".{base}");
     if host == base {
         // Exact match = no subdomain
         return None;
@@ -1081,9 +1081,7 @@ mod tests {
     fn test_tenant_validate_metadata_too_many_entries() {
         let mut tenant = Tenant::new("acme", "Acme Corp");
         for i in 0..=MAX_TENANT_METADATA_ENTRIES {
-            tenant
-                .metadata
-                .insert(format!("key{}", i), format!("val{}", i));
+            tenant.metadata.insert(format!("key{i}"), format!("val{i}"));
         }
         assert!(tenant.validate().is_err());
     }

@@ -248,8 +248,7 @@ mod filesystem_errors {
         let status = resp.status();
         assert!(
             status.is_success() || status.is_client_error() || status.is_server_error(),
-            "Should return a valid HTTP response even with unwritable storage, got {}",
-            status
+            "Should return a valid HTTP response even with unwritable storage, got {status}"
         );
 
         if status.is_success() {
@@ -263,8 +262,7 @@ mod filesystem_errors {
                 !body_str.contains("\"Allow\"")
                     || body_str.contains("\"Deny\"")
                     || body_str.contains("\"RequireApproval\""),
-                "Unwritable approval store must fail-closed (not Allow): {}",
-                body_str
+                "Unwritable approval store must fail-closed (not Allow): {body_str}"
             );
         }
     }
@@ -332,8 +330,7 @@ mod policy_errors {
                 !body_lower.contains("\"allow\"")
                     || body_lower.contains("\"deny\"")
                     || body_lower.contains("deny"),
-                "Invalid glob must fail-closed (deny, not allow): {}",
-                body_str
+                "Invalid glob must fail-closed (deny, not allow): {body_str}"
             );
         }
     }
@@ -380,14 +377,12 @@ mod policy_errors {
         let verdict_str = serde_json::to_string(verdict).unwrap();
         assert!(
             verdict_str.contains("Deny") || verdict_str.contains("deny"),
-            "Empty policy list must produce Deny verdict (fail-closed), got: {}",
-            verdict_str
+            "Empty policy list must produce Deny verdict (fail-closed), got: {verdict_str}"
         );
         // Must NOT contain Allow
         assert!(
             !verdict_str.contains("Allow") && !verdict_str.contains("allow"),
-            "Empty policy list must NOT produce Allow verdict, got: {}",
-            verdict_str
+            "Empty policy list must NOT produce Allow verdict, got: {verdict_str}"
         );
     }
 }
@@ -418,7 +413,7 @@ mod policy_reload_races {
                         let new_snapshot = PolicySnapshot {
                             engine: PolicyEngine::new(false),
                             policies: vec![Policy {
-                                id: format!("policy-{}-{}", i, j),
+                                id: format!("policy-{i}-{j}"),
                                 name: "Test".to_string(),
                                 policy_type: PolicyType::Allow,
                                 priority: j,
@@ -463,7 +458,7 @@ mod policy_reload_races {
                 let new_snapshot = PolicySnapshot {
                     engine: PolicyEngine::new(false),
                     policies: vec![Policy {
-                        id: format!("policy-{}", i),
+                        id: format!("policy-{i}"),
                         name: "Test".to_string(),
                         policy_type: if i % 2 == 0 {
                             PolicyType::Allow
@@ -542,8 +537,8 @@ mod approval_concurrency {
                 tokio::spawn(async move {
                     for j in 0..5 {
                         let action = Action {
-                            tool: format!("tool-{}", i),
-                            function: format!("func-{}", j),
+                            tool: format!("tool-{i}"),
+                            function: format!("func-{j}"),
                             parameters: json!({}),
                             target_paths: vec![],
                             target_domains: vec![],
@@ -588,7 +583,7 @@ mod approval_concurrency {
         let mut approval_ids = Vec::new();
         for i in 0..10 {
             let action = Action {
-                tool: format!("tool-{}", i),
+                tool: format!("tool-{i}"),
                 function: "func".to_string(),
                 parameters: json!({}),
                 target_paths: vec![],
@@ -697,8 +692,7 @@ mod approval_concurrency {
         let successes = success_count.load(Ordering::Relaxed);
         assert!(
             successes >= 1,
-            "At least one approval should succeed: got {}",
-            successes
+            "At least one approval should succeed: got {successes}"
         );
     }
 }
@@ -755,8 +749,7 @@ mod idempotency_concurrency {
         assert_eq!(acquired, 1, "Only one should acquire the key");
         assert_eq!(
             in_progress, 9,
-            "Rest should get InProgress: got {}",
-            in_progress
+            "Rest should get InProgress: got {in_progress}"
         );
     }
 
@@ -772,11 +765,11 @@ mod idempotency_concurrency {
 
         // Add more keys than the limit
         for i in 0..50 {
-            let _ = store.try_acquire(&format!("key-{}", i));
+            let _ = store.try_acquire(&format!("key-{i}"));
             // Complete half of them
             if i % 2 == 0 {
                 store.complete(
-                    &format!("key-{}", i),
+                    &format!("key-{i}"),
                     axum::http::StatusCode::OK,
                     vec![],
                     None,

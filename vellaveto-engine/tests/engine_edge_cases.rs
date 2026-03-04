@@ -58,8 +58,7 @@ fn test_duplicate_allow_policies_still_allow() {
 
     assert!(
         matches!(verdict, Verdict::Allow),
-        "multiple allow policies should still produce Allow, got {:?}",
-        verdict
+        "multiple allow policies should still produce Allow, got {verdict:?}"
     );
 }
 
@@ -79,8 +78,7 @@ fn test_duplicate_deny_policies_still_deny() {
 
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "multiple deny policies should produce Deny, got {:?}",
-        verdict
+        "multiple deny policies should produce Deny, got {verdict:?}"
     );
 }
 
@@ -167,19 +165,16 @@ fn test_engine_alternating_strict_instances() {
     // All should produce Allow since there's an explicit matching policy
     assert!(
         matches!(v1, Verdict::Allow),
-        "strict explicit allow: {:?}",
-        v1
+        "strict explicit allow: {v1:?}"
     );
-    assert!(matches!(v2, Verdict::Allow), "lax explicit allow: {:?}", v2);
+    assert!(matches!(v2, Verdict::Allow), "lax explicit allow: {v2:?}");
     assert!(
         matches!(v3, Verdict::Allow),
-        "strict explicit allow round 2: {:?}",
-        v3
+        "strict explicit allow round 2: {v3:?}"
     );
     assert!(
         matches!(v4, Verdict::Allow),
-        "lax explicit allow round 2: {:?}",
-        v4
+        "lax explicit allow round 2: {v4:?}"
     );
 }
 

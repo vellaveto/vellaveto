@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -97,9 +97,7 @@ fn deny_overrides_allow_regardless_of_insertion_order() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Permutation {:?} should produce Deny, got {:?}",
-            perm,
-            verdict
+            "Permutation {perm:?} should produce Deny, got {verdict:?}"
         );
     }
 }
@@ -125,8 +123,7 @@ fn same_input_produces_same_verdict_1000_times() {
         let current = engine.evaluate_action(&action, &policies).unwrap();
         assert_eq!(
             first, current,
-            "Verdict changed on iteration {}: {:?} vs {:?}",
-            i, first, current
+            "Verdict changed on iteration {i}: {first:?} vs {current:?}"
         );
     }
 }
@@ -142,7 +139,7 @@ fn evaluation_is_pure_no_side_effects() {
     let first_verdict = engine.evaluate_action(&first_action, &policies).unwrap();
 
     for i in 0..100 {
-        let action = make_action(&format!("tool_{}", i), "func");
+        let action = make_action(&format!("tool_{i}"), "func");
         let _ = engine.evaluate_action(&action, &policies);
     }
 

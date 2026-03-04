@@ -151,8 +151,7 @@ impl DiscoveryConfig {
             }
             if budget > MAX_DISCOVERY_TOKEN_BUDGET {
                 return Err(format!(
-                    "discovery.token_budget must be <= {}, got {}",
-                    MAX_DISCOVERY_TOKEN_BUDGET, budget
+                    "discovery.token_budget must be <= {MAX_DISCOVERY_TOKEN_BUDGET}, got {budget}"
                 ));
             }
         }

@@ -97,10 +97,10 @@ pub(crate) fn is_unsafe_char(c: char) -> bool {
 /// pass through this check before use.
 fn validate_path_param_core(value: &str, field_name: &str) -> Result<(), String> {
     if value.len() > MAX_PATH_PARAM_LEN {
-        return Err(format!("{} exceeds maximum length", field_name));
+        return Err(format!("{field_name} exceeds maximum length"));
     }
     if value.chars().any(is_unsafe_char) {
-        return Err(format!("{} contains invalid characters", field_name));
+        return Err(format!("{field_name} contains invalid characters"));
     }
     Ok(())
 }

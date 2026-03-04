@@ -465,22 +465,19 @@ impl RagDefenseConfig {
         let trust = self.document_verification.require_trust_score;
         if !trust.is_finite() || !(0.0..=1.0).contains(&trust) {
             return Err(format!(
-                "rag_defense.document_verification.require_trust_score must be finite and in [0.0, 1.0], got {}",
-                trust
+                "rag_defense.document_verification.require_trust_score must be finite and in [0.0, 1.0], got {trust}"
             ));
         }
         let sim = self.retrieval_security.similarity_threshold;
         if !sim.is_finite() || !(0.0..=1.0).contains(&sim) {
             return Err(format!(
-                "rag_defense.retrieval_security.similarity_threshold must be finite and in [0.0, 1.0], got {}",
-                sim
+                "rag_defense.retrieval_security.similarity_threshold must be finite and in [0.0, 1.0], got {sim}"
             ));
         }
         let emb = self.embedding_anomaly.threshold;
         if !emb.is_finite() || !(0.0..=1.0).contains(&emb) {
             return Err(format!(
-                "rag_defense.embedding_anomaly.threshold must be finite and in [0.0, 1.0], got {}",
-                emb
+                "rag_defense.embedding_anomaly.threshold must be finite and in [0.0, 1.0], got {emb}"
             ));
         }
         if !VALID_BUDGET_ENFORCEMENTS.contains(&self.context_budget.enforcement.as_str()) {
@@ -492,8 +489,7 @@ impl RagDefenseConfig {
         let alert = self.context_budget.alert_threshold;
         if !alert.is_finite() || !(0.0..=1.0).contains(&alert) {
             return Err(format!(
-                "rag_defense.context_budget.alert_threshold must be finite and in [0.0, 1.0], got {}",
-                alert
+                "rag_defense.context_budget.alert_threshold must be finite and in [0.0, 1.0], got {alert}"
             ));
         }
         if !VALID_GROUNDING_ENFORCEMENTS.contains(&self.grounding.enforcement.as_str()) {
@@ -505,15 +501,13 @@ impl RagDefenseConfig {
         let min_score = self.grounding.min_score;
         if !min_score.is_finite() || !(0.0..=1.0).contains(&min_score) {
             return Err(format!(
-                "rag_defense.grounding.min_score must be finite and in [0.0, 1.0], got {}",
-                min_score
+                "rag_defense.grounding.min_score must be finite and in [0.0, 1.0], got {min_score}"
             ));
         }
         let lex = self.grounding.lexical_overlap_threshold;
         if !lex.is_finite() || !(0.0..=1.0).contains(&lex) {
             return Err(format!(
-                "rag_defense.grounding.lexical_overlap_threshold must be finite and in [0.0, 1.0], got {}",
-                lex
+                "rag_defense.grounding.lexical_overlap_threshold must be finite and in [0.0, 1.0], got {lex}"
             ));
         }
 

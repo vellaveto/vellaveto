@@ -462,12 +462,12 @@ mod tests {
 
     fn make_tool(name: &str, description: &str, tags: &[&str]) -> ToolMetadata {
         ToolMetadata {
-            tool_id: format!("test_server:{}", name),
+            tool_id: format!("test_server:{name}"),
             name: name.to_string(),
             description: description.to_string(),
             server_id: "test_server".to_string(),
             input_schema: json!({"type": "object"}),
-            schema_hash: format!("hash_{}", name),
+            schema_hash: format!("hash_{name}"),
             sensitivity: ToolSensitivity::Low,
             domain_tags: tags.iter().map(|s| s.to_string()).collect(),
             token_cost: 100,
@@ -776,8 +776,8 @@ mod tests {
         for i in 0..10 {
             index
                 .ingest(&make_tool(
-                    &format!("tool_{}", i),
-                    &format!("Tool number {} for file operations", i),
+                    &format!("tool_{i}"),
+                    &format!("Tool number {i} for file operations"),
                     &["filesystem"],
                 ))
                 .unwrap();
@@ -850,8 +850,7 @@ mod tests {
         for (_id, score) in &results {
             assert!(
                 *score >= 0.0 && *score <= 1.0,
-                "Score out of bounds: {}",
-                score
+                "Score out of bounds: {score}"
             );
         }
     }
@@ -877,8 +876,7 @@ mod tests {
         for (_token, &idf_val) in idf.iter() {
             assert!(
                 (idf_val - 1.0).abs() < f64::EPSILON,
-                "Single doc IDF should be 1.0, got {}",
-                idf_val
+                "Single doc IDF should be 1.0, got {idf_val}"
             );
         }
     }
@@ -900,9 +898,7 @@ mod tests {
         let unique_idf = idf.get("unique_alpha").copied().unwrap_or(0.0);
         assert!(
             unique_idf > common_idf,
-            "Rare token IDF ({}) should be > common token IDF ({})",
-            unique_idf,
-            common_idf
+            "Rare token IDF ({unique_idf}) should be > common token IDF ({common_idf})"
         );
     }
 
@@ -1178,7 +1174,7 @@ mod tests {
     #[test]
     fn test_tokenize_caps_at_max_tokens() {
         // Generate 600 tokens (each ≥2 chars)
-        let words: Vec<String> = (0..600).map(|i| format!("word{}", i)).collect();
+        let words: Vec<String> = (0..600).map(|i| format!("word{i}")).collect();
         let input = words.join(" ");
         let tokens = super::tokenize(&input);
         assert_eq!(

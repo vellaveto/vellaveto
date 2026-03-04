@@ -180,8 +180,7 @@ impl TransportConfig {
         for proto in &self.upstream_priorities {
             if self.restricted_transports.contains(proto) {
                 return Err(format!(
-                    "transport {:?} appears in both upstream_priorities and restricted_transports",
-                    proto
+                    "transport {proto:?} appears in both upstream_priorities and restricted_transports"
                 ));
             }
         }
@@ -192,8 +191,7 @@ impl TransportConfig {
             for proto in &self.upstream_priorities {
                 if !seen.insert(proto) {
                     return Err(format!(
-                        "transport.upstream_priorities contains duplicate protocol {:?}",
-                        proto
+                        "transport.upstream_priorities contains duplicate protocol {proto:?}"
                     ));
                 }
             }
@@ -205,8 +203,7 @@ impl TransportConfig {
             for proto in &self.restricted_transports {
                 if !seen.insert(proto) {
                     return Err(format!(
-                        "transport.restricted_transports contains duplicate protocol {:?}",
-                        proto
+                        "transport.restricted_transports contains duplicate protocol {proto:?}"
                     ));
                 }
             }
@@ -242,8 +239,7 @@ impl TransportConfig {
             for glob in self.transport_overrides.keys() {
                 if !glob.is_empty() && glob.chars().all(|c| c == '*' || c == '?') {
                     return Err(format!(
-                        "transport.transport_overrides: match-all wildcard pattern \"{}\" cannot coexist with other patterns",
-                        glob
+                        "transport.transport_overrides: match-all wildcard pattern \"{glob}\" cannot coexist with other patterns"
                     ));
                 }
             }
@@ -281,8 +277,7 @@ impl TransportConfig {
             }
             if protos.is_empty() {
                 return Err(format!(
-                    "transport.transport_overrides[\"{}\"] must not be empty",
-                    glob
+                    "transport.transport_overrides[\"{glob}\"] must not be empty"
                 ));
             }
             // SECURITY (FIND-R42-013): Check for duplicate protocols in override values.
@@ -290,14 +285,12 @@ impl TransportConfig {
             for proto in protos {
                 if !seen_protos.insert(proto) {
                     return Err(format!(
-                        "transport.transport_overrides[\"{}\"] contains duplicate protocol {:?}",
-                        glob, proto
+                        "transport.transport_overrides[\"{glob}\"] contains duplicate protocol {proto:?}"
                     ));
                 }
                 if self.restricted_transports.contains(proto) {
                     return Err(format!(
-                        "transport.transport_overrides[\"{}\"] contains restricted transport {:?}",
-                        glob, proto
+                        "transport.transport_overrides[\"{glob}\"] contains restricted transport {proto:?}"
                     ));
                 }
             }

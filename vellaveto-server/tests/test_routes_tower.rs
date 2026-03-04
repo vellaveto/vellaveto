@@ -357,8 +357,7 @@ async fn evaluate_denied_action_returns_deny() {
     let verdict = json.get("verdict").unwrap();
     assert!(
         verdict.get("Deny").is_some(),
-        "bash should be denied, got: {}",
-        verdict
+        "bash should be denied, got: {verdict}"
     );
 }
 
@@ -392,8 +391,7 @@ async fn evaluate_with_empty_policies_returns_deny() {
     let verdict = json.get("verdict").unwrap();
     assert!(
         verdict.get("Deny").is_some(),
-        "Empty policies should fail-closed with deny, got: {}",
-        verdict
+        "Empty policies should fail-closed with deny, got: {verdict}"
     );
 }
 
@@ -986,8 +984,7 @@ async fn add_policy_rejects_wildcard_only_id() {
         assert_eq!(
             resp.status(),
             StatusCode::BAD_REQUEST,
-            "Wildcard-only ID '{}' must be rejected",
-            wildcard_id
+            "Wildcard-only ID '{wildcard_id}' must be rejected"
         );
     }
 }
@@ -1018,8 +1015,7 @@ async fn audit_entries_returns_empty_initially() {
     // R14-AUDIT-1: Route returns paginated response with metadata
     assert!(
         json.is_object(),
-        "audit entries should be an object: {:?}",
-        json
+        "audit entries should be an object: {json:?}"
     );
     assert_eq!(json["count"], 0);
     assert_eq!(json["total"], 0);
@@ -1594,8 +1590,7 @@ async fn create_pending_approval(state: &AppState) -> String {
     let verdict = json.get("verdict").unwrap();
     assert!(
         verdict.get("RequireApproval").is_some(),
-        "Expected RequireApproval verdict, got: {}",
-        verdict
+        "Expected RequireApproval verdict, got: {verdict}"
     );
     json.get("approval_id")
         .and_then(|v| v.as_str())
@@ -1660,7 +1655,7 @@ async fn approval_get_by_id() {
     let app = routes::build_router(state);
     let resp = app
         .oneshot(
-            Request::get(format!("/api/approvals/{}", approval_id))
+            Request::get(format!("/api/approvals/{approval_id}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1703,7 +1698,7 @@ async fn approval_approve_success() {
     let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1729,7 +1724,7 @@ async fn approval_deny_success() {
     let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/deny", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/deny"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1756,7 +1751,7 @@ async fn approval_double_approve_returns_conflict() {
     let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1770,7 +1765,7 @@ async fn approval_double_approve_returns_conflict() {
     let body = serde_json::to_string(&json!({"resolved_by": "admin2"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -1812,7 +1807,7 @@ async fn approval_approve_without_body_uses_anonymous() {
     // No Content-Type header — axum 0.8 rejects empty body with application/json
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -2948,7 +2943,7 @@ async fn test_approve_creates_audit_entry() {
     let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -3009,7 +3004,7 @@ async fn test_deny_creates_audit_entry() {
     let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/deny", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/deny"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -3054,8 +3049,7 @@ async fn test_deny_creates_audit_entry() {
     let verdict = &denial_entry["verdict"];
     assert!(
         verdict.get("Deny").is_some(),
-        "Denial audit entry should have Deny verdict, got: {}",
-        verdict
+        "Denial audit entry should have Deny verdict, got: {verdict}"
     );
 }
 
@@ -3071,7 +3065,7 @@ async fn test_audit_entry_contains_resolver_identity() {
     let body = serde_json::to_string(&json!({"resolved_by": "security-lead-team-alpha"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(body))
                 .unwrap(),
@@ -3148,7 +3142,7 @@ async fn test_approve_with_bearer_derives_resolver_from_token() {
     let body = serde_json::to_string(&json!({"resolved_by": "client-name"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
                 .header("content-type", "application/json")
                 .header("authorization", "Bearer test-token-12345")
                 .body(Body::from(body))
@@ -3188,13 +3182,11 @@ async fn test_approve_with_bearer_derives_resolver_from_token() {
     // and the client note, NOT just the raw client-supplied value
     assert!(
         resolved_by.starts_with("bearer:"),
-        "With Bearer token, resolved_by should start with 'bearer:' but got: {}",
-        resolved_by
+        "With Bearer token, resolved_by should start with 'bearer:' but got: {resolved_by}"
     );
     assert!(
         resolved_by.contains("(note: client-name)"),
-        "With Bearer token, should include client note: {}",
-        resolved_by
+        "With Bearer token, should include client note: {resolved_by}"
     );
 }
 
@@ -3208,7 +3200,7 @@ async fn test_deny_with_bearer_derives_resolver_from_token() {
     let body = serde_json::to_string(&json!({"resolved_by": "auditor"})).unwrap();
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/deny", approval_id))
+            Request::post(format!("/api/approvals/{approval_id}/deny"))
                 .header("content-type", "application/json")
                 .header("authorization", "Bearer deny-token-67890")
                 .body(Body::from(body))
@@ -3245,13 +3237,11 @@ async fn test_deny_with_bearer_derives_resolver_from_token() {
 
     assert!(
         resolved_by.starts_with("bearer:"),
-        "Deny with Bearer token should derive identity from token: {}",
-        resolved_by
+        "Deny with Bearer token should derive identity from token: {resolved_by}"
     );
     assert!(
         resolved_by.contains("(note: auditor)"),
-        "Deny should include client note: {}",
-        resolved_by
+        "Deny should include client note: {resolved_by}"
     );
 }
 
@@ -3813,7 +3803,7 @@ async fn approval_rejects_oversized_id() {
     let long_id = "a".repeat(200);
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/approve", long_id))
+            Request::post(format!("/api/approvals/{long_id}/approve"))
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"resolved_by":"test"}"#))
                 .unwrap(),
@@ -3859,7 +3849,7 @@ async fn approval_deny_rejects_oversized_id() {
     let long_id = "b".repeat(200);
     let resp = app
         .oneshot(
-            Request::post(format!("/api/approvals/{}/deny", long_id))
+            Request::post(format!("/api/approvals/{long_id}/deny"))
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"resolved_by":"test"}"#))
                 .unwrap(),

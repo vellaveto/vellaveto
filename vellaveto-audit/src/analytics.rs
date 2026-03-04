@@ -608,7 +608,7 @@ mod tests {
         // Create 15 distinct tools each denied once
         for i in 0..15 {
             entries.push(make_entry(
-                &format!("tool_{:02}", i),
+                &format!("tool_{i:02}"),
                 Verdict::Deny {
                     reason: "blocked".into(),
                 },

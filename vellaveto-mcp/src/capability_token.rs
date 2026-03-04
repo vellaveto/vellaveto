@@ -50,8 +50,7 @@ fn validate_no_dangerous_chars(value: &str, field_name: &str) -> Result<(), Capa
     }
     if vellaveto_types::has_dangerous_chars(value) {
         return Err(CapabilityError::SigningFailed(format!(
-            "{} contains control or Unicode format characters",
-            field_name
+            "{field_name} contains control or Unicode format characters"
         )));
     }
     Ok(())
@@ -91,8 +90,7 @@ pub fn issue_capability_token(
     // SECURITY (FIND-R74-002): Cap TTL to prevent `as i64` overflow.
     if ttl_secs > MAX_CAPABILITY_TTL_SECS {
         return Err(CapabilityError::SigningFailed(format!(
-            "ttl_secs {} exceeds maximum {} (1 year)",
-            ttl_secs, MAX_CAPABILITY_TTL_SECS
+            "ttl_secs {ttl_secs} exceeds maximum {MAX_CAPABILITY_TTL_SECS} (1 year)"
         )));
     }
     if grants.len() > MAX_GRANTS {
@@ -104,8 +102,7 @@ pub fn issue_capability_token(
     }
     if remaining_depth > MAX_DELEGATION_DEPTH {
         return Err(CapabilityError::SigningFailed(format!(
-            "remaining_depth {} exceeds max {}",
-            remaining_depth, MAX_DELEGATION_DEPTH
+            "remaining_depth {remaining_depth} exceeds max {MAX_DELEGATION_DEPTH}"
         )));
     }
 
@@ -148,7 +145,7 @@ pub fn issue_capability_token(
 
     token
         .validate_structure()
-        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {}", e)))?;
+        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {e}")))?;
 
     Ok(token)
 }
@@ -209,8 +206,7 @@ pub fn attenuate_capability_token(
     // SECURITY (FIND-R74-002): Cap TTL to prevent `as i64` overflow.
     if ttl_secs > MAX_CAPABILITY_TTL_SECS {
         return Err(CapabilityError::SigningFailed(format!(
-            "ttl_secs {} exceeds maximum {} (1 year)",
-            ttl_secs, MAX_CAPABILITY_TTL_SECS
+            "ttl_secs {ttl_secs} exceeds maximum {MAX_CAPABILITY_TTL_SECS} (1 year)"
         )));
     }
 
@@ -220,7 +216,7 @@ pub fn attenuate_capability_token(
     // could appear valid within the MAX_ISSUED_AT_SKEW_SECS window.
     let now = chrono::Utc::now();
     let parent_expires = chrono::DateTime::parse_from_rfc3339(&parent.expires_at)
-        .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {}", e)))?;
+        .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {e}")))?;
     if now >= parent_expires {
         return Err(CapabilityError::AttenuationViolation(
             "parent token has expired".to_string(),
@@ -286,7 +282,7 @@ pub fn attenuate_capability_token(
 
     token
         .validate_structure()
-        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {}", e)))?;
+        .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {e}")))?;
 
     Ok(token)
 }
@@ -308,13 +304,13 @@ pub fn verify_capability_token(
     if let Err(e) = token.validate_structure() {
         return Ok(CapabilityVerification {
             valid: false,
-            failure_reason: Some(format!("structural validation failed: {}", e)),
+            failure_reason: Some(format!("structural validation failed: {e}")),
         });
     }
 
     // Check expiration
     let expires = chrono::DateTime::parse_from_rfc3339(&token.expires_at)
-        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid expires_at: {}", e)))?;
+        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid expires_at: {e}")))?;
     if *now >= expires {
         return Ok(CapabilityVerification {
             valid: false,
@@ -331,14 +327,13 @@ pub fn verify_capability_token(
     // future-dated pre-minting attacks.
     const MAX_ISSUED_AT_SKEW_SECS: i64 = 60;
     let issued_at = chrono::DateTime::parse_from_rfc3339(&token.issued_at)
-        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid issued_at: {}", e)))?;
+        .map_err(|e| CapabilityError::VerificationFailed(format!("invalid issued_at: {e}")))?;
     let skew = issued_at.signed_duration_since(*now).num_seconds();
     if skew > MAX_ISSUED_AT_SKEW_SECS {
         return Ok(CapabilityVerification {
             valid: false,
             failure_reason: Some(format!(
-                "token issued_at is {} seconds in the future (max allowed skew: {} seconds)",
-                skew, MAX_ISSUED_AT_SKEW_SECS
+                "token issued_at is {skew} seconds in the future (max allowed skew: {MAX_ISSUED_AT_SKEW_SECS} seconds)"
             )),
         });
     }
@@ -368,9 +363,9 @@ pub fn verify_capability_token(
     // Check public key match (constant-time)
     if let Some(expected_key) = expected_public_key_hex {
         let expected_bytes = hex::decode(expected_key)
-            .map_err(|e| CapabilityError::InvalidKey(format!("invalid expected key hex: {}", e)))?;
+            .map_err(|e| CapabilityError::InvalidKey(format!("invalid expected key hex: {e}")))?;
         let actual_bytes = hex::decode(&token.issuer_public_key)
-            .map_err(|e| CapabilityError::InvalidKey(format!("invalid token key hex: {}", e)))?;
+            .map_err(|e| CapabilityError::InvalidKey(format!("invalid token key hex: {e}")))?;
         if expected_bytes.ct_eq(&actual_bytes).into() {
             // Keys match
         } else {
@@ -383,7 +378,7 @@ pub fn verify_capability_token(
 
     // Verify Ed25519 signature
     let pub_key_bytes = hex::decode(&token.issuer_public_key)
-        .map_err(|e| CapabilityError::InvalidKey(format!("public key hex decode: {}", e)))?;
+        .map_err(|e| CapabilityError::InvalidKey(format!("public key hex decode: {e}")))?;
     if pub_key_bytes.len() != 32 {
         return Ok(CapabilityVerification {
             valid: false,
@@ -398,10 +393,10 @@ pub fn verify_capability_token(
         .try_into()
         .map_err(|_| CapabilityError::InvalidKey("public key conversion failed".to_string()))?;
     let verifying_key = VerifyingKey::from_bytes(&vk_arr)
-        .map_err(|e| CapabilityError::InvalidKey(format!("invalid public key: {}", e)))?;
+        .map_err(|e| CapabilityError::InvalidKey(format!("invalid public key: {e}")))?;
 
     let sig_bytes = hex::decode(&token.signature)
-        .map_err(|e| CapabilityError::VerificationFailed(format!("signature hex decode: {}", e)))?;
+        .map_err(|e| CapabilityError::VerificationFailed(format!("signature hex decode: {e}")))?;
     if sig_bytes.len() != 64 {
         return Ok(CapabilityVerification {
             valid: false,
@@ -704,7 +699,7 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
 
 fn parse_signing_key(hex_key: &str) -> Result<SigningKey, CapabilityError> {
     let key_bytes = hex::decode(hex_key)
-        .map_err(|e| CapabilityError::InvalidKey(format!("hex decode failed: {}", e)))?;
+        .map_err(|e| CapabilityError::InvalidKey(format!("hex decode failed: {e}")))?;
     if key_bytes.len() != 32 {
         return Err(CapabilityError::InvalidKey(format!(
             "expected 32 bytes, got {}",
@@ -738,9 +733,8 @@ fn build_canonical_content(
     issued_at: &str,
     expires_at: &str,
 ) -> Result<String, CapabilityError> {
-    let grants_json = serde_json::to_string(grants).map_err(|e| {
-        CapabilityError::SigningFailed(format!("grants serialization failed: {}", e))
-    })?;
+    let grants_json = serde_json::to_string(grants)
+        .map_err(|e| CapabilityError::SigningFailed(format!("grants serialization failed: {e}")))?;
     let parent_str = parent_token_id.unwrap_or("");
     // SECURITY (FIND-R115-020): Use actual byte length of the remaining_depth string
     // representation, not a hardcoded `1`. For depth values >= 10 (two digits), the
@@ -983,7 +977,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             CapabilityError::AttenuationViolation(_) => {}
-            other => panic!("Expected AttenuationViolation, got: {:?}", other),
+            other => panic!("Expected AttenuationViolation, got: {other:?}"),
         }
     }
 
@@ -1000,7 +994,7 @@ mod tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             CapabilityError::AttenuationViolation(_) => {}
-            other => panic!("Expected AttenuationViolation, got: {:?}", other),
+            other => panic!("Expected AttenuationViolation, got: {other:?}"),
         }
     }
 
@@ -1055,7 +1049,7 @@ mod tests {
         let mut grants = Vec::new();
         for i in 0..65 {
             grants.push(CapabilityGrant {
-                tool_pattern: format!("tool_{}", i),
+                tool_pattern: format!("tool_{i}"),
                 function_pattern: "*".into(),
                 allowed_paths: vec![],
                 allowed_domains: vec![],

@@ -28,7 +28,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn make_allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Allow {}", id),
+        name: format!("Allow {id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -39,7 +39,7 @@ fn make_allow_policy(id: &str, priority: i32) -> Policy {
 fn make_deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Deny {}", id),
+        name: format!("Deny {id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -50,7 +50,7 @@ fn make_deny_policy(id: &str, priority: i32) -> Policy {
 fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Conditional {}", id),
+        name: format!("Conditional {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -70,7 +70,7 @@ fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: 
 fn make_conditional_regex_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Regex {}", id),
+        name: format!("Regex {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -93,18 +93,18 @@ fn generate_mixed_policies(n: usize) -> Vec<Policy> {
     for i in 0..n {
         let priority = (n - i) as i32;
         match i % 4 {
-            0 => policies.push(make_allow_policy(&format!("tool_{}:*", i), priority)),
-            1 => policies.push(make_deny_policy(&format!("blocked_{}:*", i), priority)),
+            0 => policies.push(make_allow_policy(&format!("tool_{i}:*"), priority)),
+            1 => policies.push(make_deny_policy(&format!("blocked_{i}:*"), priority)),
             2 => policies.push(make_conditional_glob_policy(
-                &format!("glob_{}:*", i),
+                &format!("glob_{i}:*"),
                 "path",
-                &format!("/restricted/dir_{}/**", i),
+                &format!("/restricted/dir_{i}/**"),
                 priority,
             )),
             _ => policies.push(make_conditional_regex_policy(
-                &format!("regex_{}:*", i),
+                &format!("regex_{i}:*"),
                 "command",
-                &format!("^(rm|delete|drop).*item_{}", i),
+                &format!("^(rm|delete|drop).*item_{i}"),
                 priority,
             )),
         }
@@ -1023,7 +1023,7 @@ fn bench_context_forbidden_previous_action(c: &mut Criterion) {
     group.bench_function("large_history_100", |b| {
         let action = make_action("http_request", "execute", json!({}));
         let ctx = EvaluationContext {
-            previous_actions: (0..100).map(|i| format!("tool_{}", i)).collect(),
+            previous_actions: (0..100).map(|i| format!("tool_{i}")).collect(),
             ..Default::default()
         };
         b.iter(|| {
@@ -1094,7 +1094,7 @@ fn bench_context_max_calls_in_window(c: &mut Criterion) {
 
     group.bench_function("large_history_window", |b| {
         let action = make_action("read_file", "execute", json!({}));
-        let mut history: Vec<String> = (0..100).map(|i| format!("tool_{}", i)).collect();
+        let mut history: Vec<String> = (0..100).map(|i| format!("tool_{i}")).collect();
         history.extend(vec!["read_file".to_string(); 5]);
         let ctx = EvaluationContext {
             previous_actions: history,
@@ -1131,7 +1131,7 @@ fn bench_behavioral_record_session(c: &mut Criterion) {
 
     let mut call_counts: HashMap<String, u64> = HashMap::new();
     for i in 0..20 {
-        call_counts.insert(format!("tool_{}", i), (i + 1) as u64);
+        call_counts.insert(format!("tool_{i}"), (i + 1) as u64);
     }
 
     c.bench_function("behavioral/record_session_20_tools", |b| {
@@ -1156,7 +1156,7 @@ fn bench_behavioral_check_session(c: &mut Criterion) {
     // Establish baseline with 10 sessions
     let mut baseline: HashMap<String, u64> = HashMap::new();
     for i in 0..20 {
-        baseline.insert(format!("tool_{}", i), 5);
+        baseline.insert(format!("tool_{i}"), 5);
     }
     for _ in 0..10 {
         tracker.record_session("agent-bench", &baseline);
@@ -1165,7 +1165,7 @@ fn bench_behavioral_check_session(c: &mut Criterion) {
     // Check with slightly varied counts
     let mut check_counts: HashMap<String, u64> = HashMap::new();
     for i in 0..20 {
-        check_counts.insert(format!("tool_{}", i), 7);
+        check_counts.insert(format!("tool_{i}"), 7);
     }
 
     c.bench_function("behavioral/check_session_20_tools", |b| {
@@ -1189,7 +1189,7 @@ fn bench_behavioral_check_anomalous(c: &mut Criterion) {
 
     let mut baseline: HashMap<String, u64> = HashMap::new();
     for i in 0..20 {
-        baseline.insert(format!("tool_{}", i), 5);
+        baseline.insert(format!("tool_{i}"), 5);
     }
     for _ in 0..10 {
         tracker.record_session("agent-bench", &baseline);
@@ -1198,7 +1198,7 @@ fn bench_behavioral_check_anomalous(c: &mut Criterion) {
     // Anomalous: all tools at 500x baseline
     let mut anomalous: HashMap<String, u64> = HashMap::new();
     for i in 0..20 {
-        anomalous.insert(format!("tool_{}", i), 500);
+        anomalous.insert(format!("tool_{i}"), 500);
     }
 
     c.bench_function("behavioral/check_session_20_tools_anomalous", |b| {
@@ -1260,8 +1260,8 @@ fn bench_abac_forbid_overrides_10_policies(c: &mut Criterion) {
 
     let mut policies: Vec<AbacPolicy> = (0..9)
         .map(|i| AbacPolicy {
-            id: format!("permit-{}", i),
-            description: format!("Permit policy {}", i),
+            id: format!("permit-{i}"),
+            description: format!("Permit policy {i}"),
             effect: AbacEffect::Permit,
             priority: 10 + i,
             principal: Default::default(),
@@ -1316,7 +1316,7 @@ fn bench_abac_entity_store_100_entities(c: &mut Criterion) {
     let entities: Vec<AbacEntity> = (0..100)
         .map(|i| AbacEntity {
             entity_type: "Agent".to_string(),
-            id: format!("agent-{}", i),
+            id: format!("agent-{i}"),
             attributes: HashMap::new(),
             parents: vec![],
         })
@@ -1378,7 +1378,7 @@ fn bench_abac_group_membership_transitive_depth_10(c: &mut Criterion) {
     for i in (0..9).rev() {
         entities.push(AbacEntity {
             entity_type: "Group".to_string(),
-            id: format!("g{}", i),
+            id: format!("g{i}"),
             attributes: HashMap::new(),
             parents: vec![format!("Group::g{}", i + 1)],
         });

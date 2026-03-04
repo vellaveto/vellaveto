@@ -56,8 +56,7 @@ fn test_ws_url_scheme_unknown_rejected() {
     let result = convert_to_ws_url("ftp://files.example.com");
     assert!(
         result.starts_with("ws://invalid-scheme-rejected"),
-        "Unknown scheme should be rejected, got: {}",
-        result
+        "Unknown scheme should be rejected, got: {result}"
     );
 }
 
@@ -66,8 +65,7 @@ fn test_ws_url_scheme_file_rejected() {
     let result = convert_to_ws_url("file:///etc/passwd");
     assert!(
         result.starts_with("ws://invalid-scheme-rejected"),
-        "file:// scheme should be rejected, got: {}",
-        result
+        "file:// scheme should be rejected, got: {result}"
     );
 }
 
@@ -76,8 +74,7 @@ fn test_ws_url_scheme_gopher_rejected() {
     let result = convert_to_ws_url("gopher://evil.example.com");
     assert!(
         result.starts_with("ws://invalid-scheme-rejected"),
-        "gopher:// scheme should be rejected, got: {}",
-        result
+        "gopher:// scheme should be rejected, got: {result}"
     );
 }
 
@@ -167,7 +164,7 @@ fn test_ws_text_frame_tool_call_classified() {
             assert_eq!(tool_name, "read_file");
             assert_eq!(arguments["path"], "/tmp/test");
         }
-        other => panic!("Expected ToolCall, got {:?}", other),
+        other => panic!("Expected ToolCall, got {other:?}"),
     }
 }
 
@@ -539,8 +536,7 @@ fn test_task_request_policy_deny_ws() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Expected Deny with no policies, got: {:?}",
-        verdict
+        "Expected Deny with no policies, got: {verdict:?}"
     );
 }
 
@@ -560,8 +556,7 @@ fn test_task_request_policy_allow_ws() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Expected Allow with wildcard policy, got: {:?}",
-        verdict
+        "Expected Allow with wildcard policy, got: {verdict:?}"
     );
 }
 
@@ -585,8 +580,7 @@ fn test_extension_method_policy_deny_ws() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Expected Deny with no policies, got: {:?}",
-        verdict
+        "Expected Deny with no policies, got: {verdict:?}"
     );
 }
 
@@ -814,8 +808,7 @@ fn test_ws_request_injection_scan_scans_result_field() {
     let text = extract_scannable_text_from_request(&request);
     assert!(
         text.contains("ignore all instructions"),
-        "Result field should be scanned for injection, got: {:?}",
-        text
+        "Result field should be scanned for injection, got: {text:?}"
     );
 }
 
@@ -1028,8 +1021,7 @@ fn test_ws_binary_dlp_scan_detects_secrets_in_utf8_lossy() {
     // Should detect the AWS access key pattern
     assert!(
         !findings.is_empty(),
-        "DLP should detect AWS key in binary frame text: {:?}",
-        findings
+        "DLP should detect AWS key in binary frame text: {findings:?}"
     );
     assert!(
         findings

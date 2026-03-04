@@ -786,8 +786,7 @@ pub(super) async fn forward_to_upstream_url(
                                                 &action,
                                                 &Verdict::Deny {
                                                     reason: format!(
-                                                        "structuredContent validation failed: {:?}",
-                                                        violations
+                                                        "structuredContent validation failed: {violations:?}"
                                                     ),
                                                 },
                                                 json!({"source": "http_proxy", "event": "output_schema_violation"}),
@@ -952,7 +951,7 @@ pub(super) async fn forward_to_upstream_url(
 
                                     let verdict = if state.response_dlp_blocking {
                                         Verdict::Deny {
-                                            reason: format!("Response DLP blocked: {:?}", patterns),
+                                            reason: format!("Response DLP blocked: {patterns:?}"),
                                         }
                                     } else {
                                         Verdict::Allow

@@ -35,7 +35,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Allow {}", id),
+        name: format!("Allow {id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -46,7 +46,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Deny {}", id),
+        name: format!("Deny {id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -60,11 +60,11 @@ fn generate_mixed_policies(count: usize) -> Vec<Policy> {
     for i in 0..count {
         let priority = (count as i32) - (i as i32);
         let policy = match i % 3 {
-            0 => allow_policy(&format!("tool_{}:*", i), priority),
-            1 => deny_policy(&format!("blocked_{}:*", i), priority),
+            0 => allow_policy(&format!("tool_{i}:*"), priority),
+            1 => deny_policy(&format!("blocked_{i}:*"), priority),
             _ => Policy {
-                id: format!("cond_{}:*", i),
-                name: format!("Conditional {}", i),
+                id: format!("cond_{i}:*"),
+                name: format!("Conditional {i}"),
                 policy_type: PolicyType::Conditional {
                     conditions: json!({"time_window": {"after": "00:00", "before": "23:59"}}),
                 },
@@ -93,8 +93,7 @@ fn test_policy_reload_atomic_no_stale_verdict() {
     let v1 = engine_v1.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v1, Verdict::Deny { .. }),
-        "Engine v1 should deny, got {:?}",
-        v1,
+        "Engine v1 should deny, got {v1:?}",
     );
 
     // Phase 2: allow-all engine (simulates atomic reload)
@@ -105,16 +104,14 @@ fn test_policy_reload_atomic_no_stale_verdict() {
     let v2 = engine_v2.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v2, Verdict::Allow),
-        "Engine v2 should allow, got {:?}",
-        v2,
+        "Engine v2 should allow, got {v2:?}",
     );
 
     // Phase 3: verify v1 is still deny (no stale leakage)
     let v1_again = engine_v1.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v1_again, Verdict::Deny { .. }),
-        "Engine v1 should still deny after v2 creation, got {:?}",
-        v1_again,
+        "Engine v1 should still deny after v2 creation, got {v1_again:?}",
     );
 }
 
@@ -186,10 +183,7 @@ fn test_evaluation_determinism_same_input_same_output() {
         assert_eq!(
             std::mem::discriminant(&verdict),
             std::mem::discriminant(&reference),
-            "Evaluation {} produced different verdict: {:?} vs reference {:?}",
-            i,
-            verdict,
-            reference,
+            "Evaluation {i} produced different verdict: {verdict:?} vs reference {reference:?}",
         );
     }
 }
@@ -204,13 +198,11 @@ fn test_fail_closed_empty_policies_always_deny() {
     let engine = PolicyEngine::new(true);
 
     for i in 0..100 {
-        let action = make_action(&format!("tool_{}", i), &format!("func_{}", i));
+        let action = make_action(&format!("tool_{i}"), &format!("func_{i}"));
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Empty policy engine (strict) should deny action {}, got {:?}",
-            i,
-            verdict,
+            "Empty policy engine (strict) should deny action {i}, got {verdict:?}",
         );
     }
 }
@@ -252,19 +244,14 @@ fn test_fail_closed_on_edge_case_inputs() {
 
         assert!(
             result.is_ok(),
-            "Engine panicked on edge-case input: tool={:?}, func={:?}",
-            tool,
-            func,
+            "Engine panicked on edge-case input: tool={tool:?}, func={func:?}",
         );
 
         // If evaluation succeeded, verify it's Deny (no match for edge cases)
         if let Ok(Ok(verdict)) = &result {
             assert!(
                 matches!(verdict, Verdict::Deny { .. }),
-                "Edge-case input should not be allowed: tool={:?}, func={:?}, verdict={:?}",
-                tool,
-                func,
-                verdict,
+                "Edge-case input should not be allowed: tool={tool:?}, func={func:?}, verdict={verdict:?}",
             );
         }
     }
@@ -355,7 +342,7 @@ fn test_concurrent_policy_compilation_no_panic() {
                     // Each thread compiles a distinct set of policies
                     let policies: Vec<Policy> = (0..policies_per_thread)
                         .map(|i| {
-                            let id = format!("t{}_tool_{}:*", t, i);
+                            let id = format!("t{t}_tool_{i}:*");
                             let priority = policies_per_thread - i;
                             if i % 2 == 0 {
                                 allow_policy(&id, priority)
@@ -375,7 +362,7 @@ fn test_concurrent_policy_compilation_no_panic() {
 
                     // Also verify the compiled engine works
                     let engine = result.unwrap();
-                    let action = make_action(&format!("t{}_tool_0", t), "test");
+                    let action = make_action(&format!("t{t}_tool_0"), "test");
                     let verdict = engine.evaluate_action(&action, &[]);
                     assert!(
                         verdict.is_ok(),
@@ -420,8 +407,7 @@ fn test_recovery_from_poisoned_state() {
     // Verify evaluation succeeded
     assert!(
         matches!(v2, Verdict::Allow | Verdict::Deny { .. }),
-        "Recovered engine should produce a valid verdict, got {:?}",
-        v2,
+        "Recovered engine should produce a valid verdict, got {v2:?}",
     );
 
     // Assert recovery (compile + first eval) < 10ms

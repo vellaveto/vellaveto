@@ -115,9 +115,7 @@ impl OpaInput {
     /// context payload.
     pub fn validate(&self) -> Result<(), OpaError> {
         let context_size = serde_json::to_string(&self.context)
-            .map_err(|e| {
-                OpaError::ValidationFailed(format!("context serialization failed: {}", e))
-            })?
+            .map_err(|e| OpaError::ValidationFailed(format!("context serialization failed: {e}")))?
             .len();
         if context_size > MAX_OPA_CONTEXT_SIZE {
             return Err(OpaError::ContextTooLarge(
@@ -350,8 +348,7 @@ impl OpaClient {
                     // 5xx errors are retryable
                     if status.is_server_error() {
                         last_error = Some(OpaError::InvalidResponse(format!(
-                            "OPA returned status {}",
-                            status
+                            "OPA returned status {status}"
                         )));
                         continue;
                     }
@@ -359,8 +356,7 @@ impl OpaClient {
                     // 4xx errors are not retryable
                     if !status.is_success() {
                         return Err(OpaError::InvalidResponse(format!(
-                            "OPA returned status {}",
-                            status
+                            "OPA returned status {status}"
                         )));
                     }
 
@@ -398,7 +394,7 @@ impl OpaClient {
             endpoint.to_string()
         } else {
             let decision_path = self.config.decision_path.trim_start_matches('/');
-            format!("{}/v1/data/{}", endpoint, decision_path)
+            format!("{endpoint}/v1/data/{decision_path}")
         }
     }
 
@@ -784,7 +780,7 @@ mod tests {
                 assert!(size > MAX_OPA_CONTEXT_SIZE);
                 assert_eq!(max, MAX_OPA_CONTEXT_SIZE);
             }
-            other => panic!("expected ContextTooLarge, got: {:?}", other),
+            other => panic!("expected ContextTooLarge, got: {other:?}"),
         }
     }
 

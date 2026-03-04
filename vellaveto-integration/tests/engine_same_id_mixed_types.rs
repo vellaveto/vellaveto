@@ -65,8 +65,7 @@ fn deny_highest_priority_wins_over_all() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at 100 should win: got {:?}",
-        result
+        "Deny at 100 should win: got {result:?}"
     );
 }
 
@@ -107,8 +106,7 @@ fn allow_highest_priority_wins_over_deny_and_conditional() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at 100 should win: got {:?}",
-        result
+        "Allow at 100 should win: got {result:?}"
     );
 }
 
@@ -149,8 +147,7 @@ fn conditional_highest_priority_wins_over_deny_and_allow() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at 100 should win: got {:?}",
-        result
+        "Conditional at 100 should win: got {result:?}"
     );
 }
 
@@ -197,8 +194,7 @@ fn three_types_same_priority_deny_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should win at equal priority via deny-overrides: got {:?}",
-        result
+        "Deny should win at equal priority via deny-overrides: got {result:?}"
     );
 }
 
@@ -235,8 +231,7 @@ fn conditional_forbids_param_before_allow_can_permit() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Conditional should deny because 'secret' is forbidden: got {:?}",
-        result
+        "Conditional should deny because 'secret' is forbidden: got {result:?}"
     );
 }
 
@@ -269,7 +264,6 @@ fn conditional_passes_through_when_forbidden_param_absent() {
     // Conditional matches (id "*"), no forbidden param found, falls through to Allow
     assert!(
         matches!(result, Verdict::Allow),
-        "Conditional should pass through to Allow when forbidden param absent: got {:?}",
-        result
+        "Conditional should pass through to Allow when forbidden param absent: got {result:?}"
     );
 }

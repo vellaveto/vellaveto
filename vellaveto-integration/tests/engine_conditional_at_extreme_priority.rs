@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", priority),
+        name: format!("cond-{priority}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) ->
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", priority),
+        name: format!("allow-{priority}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -44,7 +44,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", priority),
+        name: format!("deny-{priority}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -68,8 +68,7 @@ fn conditional_approval_at_max_beats_deny_below() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at i32::MAX should win over Deny at i32::MAX-1, got {:?}",
-        result
+        "Conditional at i32::MAX should win over Deny at i32::MAX-1, got {result:?}"
     );
 }
 
@@ -85,8 +84,7 @@ fn conditional_forbidden_at_max_beats_allow_below() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Conditional forbidden at i32::MAX should deny, got {:?}",
-        result
+        "Conditional forbidden at i32::MAX should deny, got {result:?}"
     );
 }
 
@@ -106,8 +104,7 @@ fn conditional_at_min_loses_to_allow_at_zero() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at 0 should beat conditional at i32::MIN, got {:?}",
-        result
+        "Allow at 0 should beat conditional at i32::MIN, got {result:?}"
     );
 }
 
@@ -126,8 +123,7 @@ fn conditional_at_min_with_no_trigger_falls_through_to_allow() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Conditional with no triggered conditions should fall through to Allow, got {:?}",
-        result
+        "Conditional with no triggered conditions should fall through to Allow, got {result:?}"
     );
 }
 
@@ -148,8 +144,7 @@ fn deny_beats_conditional_at_equal_max_priority() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should beat Conditional at equal priority (deny-overrides), got {:?}",
-        result
+        "Deny should beat Conditional at equal priority (deny-overrides), got {result:?}"
     );
 }
 
@@ -165,8 +160,7 @@ fn deny_beats_conditional_at_equal_min_priority() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should beat Conditional at equal i32::MIN priority, got {:?}",
-        result
+        "Deny should beat Conditional at equal i32::MIN priority, got {result:?}"
     );
 }
 
@@ -187,8 +181,7 @@ fn three_way_tie_at_max_deny_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should win three-way tie at i32::MAX, got {:?}",
-        result
+        "Deny should win three-way tie at i32::MAX, got {result:?}"
     );
 }
 
@@ -205,7 +198,6 @@ fn three_way_tie_at_min_deny_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should win three-way tie at i32::MIN, got {:?}",
-        result
+        "Deny should win three-way tie at i32::MIN, got {result:?}"
     );
 }

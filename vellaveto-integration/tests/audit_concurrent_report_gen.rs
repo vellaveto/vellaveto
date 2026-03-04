@@ -52,10 +52,10 @@ fn concurrent_reports_after_sequential_writes_agree() {
             let verdict = match i % 20 {
                 0..=7 => Verdict::Allow,
                 8..=14 => Verdict::Deny {
-                    reason: format!("deny-{}", i),
+                    reason: format!("deny-{i}"),
                 },
                 _ => Verdict::RequireApproval {
-                    reason: format!("approval-{}", i),
+                    reason: format!("approval-{i}"),
                 },
             };
             logger
@@ -197,7 +197,7 @@ fn interleaved_writes_and_report_generation() {
                         Verdict::Allow
                     } else {
                         Verdict::Deny {
-                            reason: format!("w{}-i{}", w, i),
+                            reason: format!("w{w}-i{i}"),
                         }
                     };
                     lg.log_entry(&a, &verdict, json!({})).await.unwrap();

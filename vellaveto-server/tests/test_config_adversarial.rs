@@ -77,7 +77,7 @@ conditions = { require_approval = true }
                 Some(true)
             );
         }
-        other => panic!("Expected Conditional, got {:?}", other),
+        other => panic!("Expected Conditional, got {other:?}"),
     }
 }
 
@@ -299,8 +299,7 @@ policy_type = "Allow"
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("unsupported extension"),
-        "Error should mention unsupported extension, got: {}",
-        err
+        "Error should mention unsupported extension, got: {err}"
     );
 }
 

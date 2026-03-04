@@ -419,8 +419,7 @@ mod tests {
         let result = s.redact_string("Card: 4111111111111111");
         assert!(
             result.contains(REDACTED),
-            "Valid CC should be redacted: {}",
-            result
+            "Valid CC should be redacted: {result}"
         );
     }
 
@@ -432,8 +431,7 @@ mod tests {
         // With invalid Luhn, the number should NOT be redacted
         assert!(
             !result.contains(REDACTED) || result.contains("1234567890123456"),
-            "Invalid Luhn CC should not be redacted: {}",
-            result
+            "Invalid Luhn CC should not be redacted: {result}"
         );
     }
 
@@ -450,11 +448,10 @@ mod tests {
     fn test_jwt_detected() {
         let s = scanner();
         let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyIn0.abc123_def";
-        let result = s.redact_string(&format!("Token: {}", jwt));
+        let result = s.redact_string(&format!("Token: {jwt}"));
         assert!(
             result.contains(REDACTED),
-            "JWT should be redacted: {}",
-            result
+            "JWT should be redacted: {result}"
         );
     }
 

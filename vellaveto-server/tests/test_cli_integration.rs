@@ -105,8 +105,7 @@ fn check_valid_toml_config_succeeds() {
         stdout.contains("Policies loaded: 1")
             || stdout.contains("1 policies loaded")
             || stdout.contains("Config OK"),
-        "check should report loaded policies. Got: {}",
-        stdout
+        "check should report loaded policies. Got: {stdout}"
     );
 }
 
@@ -187,8 +186,7 @@ fn check_empty_policies_array_succeeds() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Policies loaded: 0") || stdout.contains("0 policies"),
-        "Should report 0 policies. Got: {}",
-        stdout
+        "Should report 0 policies. Got: {stdout}"
     );
 }
 
@@ -243,8 +241,7 @@ fn evaluate_allowed_action_returns_allow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Allow"),
-        "Should produce Allow verdict. Got: {}",
-        stdout
+        "Should produce Allow verdict. Got: {stdout}"
     );
 }
 
@@ -285,8 +282,7 @@ priority = 1000
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Deny"),
-        "Should produce Deny verdict. Got: {}",
-        stdout
+        "Should produce Deny verdict. Got: {stdout}"
     );
 }
 
@@ -360,8 +356,7 @@ decision_path = "vellaveto/allow"
             .as_str()
             .map(|r| r.contains("fail-closed"))
             .unwrap_or(false),
-        "Expected fail-closed OPA denial. output: {}",
-        stdout
+        "Expected fail-closed OPA denial. output: {stdout}"
     );
 }
 
@@ -390,8 +385,7 @@ fn evaluate_output_is_valid_json() {
     let parsed: Result<serde_json::Value, _> = serde_json::from_str(stdout.trim());
     assert!(
         parsed.is_ok(),
-        "evaluate output should be valid JSON. Got: {}",
-        stdout
+        "evaluate output should be valid JSON. Got: {stdout}"
     );
 
     let val = parsed.unwrap();
@@ -452,8 +446,7 @@ fn policies_dangerous_preset_outputs_toml() {
     // Should be valid TOML
     assert!(
         stdout.contains("[[policies]]") || stdout.contains("name"),
-        "policies output should look like TOML. Got: {}",
-        stdout
+        "policies output should look like TOML. Got: {stdout}"
     );
 }
 
@@ -469,7 +462,7 @@ fn policies_all_presets_succeed() {
         let output = vellaveto_bin()
             .args(["policies", "--preset", preset])
             .output()
-            .unwrap_or_else(|_| panic!("failed to run vellaveto policies --preset {}", preset));
+            .unwrap_or_else(|_| panic!("failed to run vellaveto policies --preset {preset}"));
 
         assert!(
             output.status.success(),
@@ -554,8 +547,7 @@ conditions = { require_approval = true }
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("RequireApproval"),
-        "Should get RequireApproval verdict. Got: {}",
-        stdout
+        "Should get RequireApproval verdict. Got: {stdout}"
     );
 }
 
@@ -593,7 +585,6 @@ conditions = { forbidden_parameters = ["rm", "delete"] }
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Deny"),
-        "Should deny action with forbidden param. Got: {}",
-        stdout
+        "Should deny action with forbidden param. Got: {stdout}"
     );
 }

@@ -74,7 +74,7 @@ mod tests {
         let paren_a = "\u{249C}";
         let result = normalize_full(paren_a);
         // NFKC maps U+249C to "(a)"
-        assert!(result.contains('a'), "Expected 'a' in result: {}", result);
+        assert!(result.contains('a'), "Expected 'a' in result: {result}");
     }
 
     #[test]
@@ -105,8 +105,7 @@ mod tests {
         // The result should be either "ss" or "\u{00DF}" depending on Unicode version
         assert!(
             result == "ss" || result == "\u{00DF}",
-            "Expected 'ss' or '\u{00DF}', got '{}'",
-            result
+            "Expected 'ss' or '\u{00DF}', got '{result}'"
         );
     }
 

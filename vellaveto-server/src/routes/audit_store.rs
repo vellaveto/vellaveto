@@ -47,7 +47,7 @@ pub async fn audit_search(
         Err(vellaveto_audit::query::QueryError::Validation(msg)) => Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid query: {}", msg),
+                error: format!("Invalid query: {msg}"),
             }),
         )),
         Err(e) => {
@@ -141,7 +141,7 @@ pub async fn audit_entry_by_id(
         Err(vellaveto_audit::query::QueryError::Validation(msg)) => Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Invalid entry ID: {}", msg),
+                error: format!("Invalid entry ID: {msg}"),
             }),
         )),
         Err(e) => {

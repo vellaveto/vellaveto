@@ -68,14 +68,13 @@ impl ElicitationConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.blocked_field_types.len() > MAX_BLOCKED_FIELD_TYPES {
             return Err(format!(
-                "elicitation.blocked_field_types exceeds {} entries",
-                MAX_BLOCKED_FIELD_TYPES
+                "elicitation.blocked_field_types exceeds {MAX_BLOCKED_FIELD_TYPES} entries"
             ));
         }
         // SECURITY (FIND-R125-002): Validate individual entry content.
         for (i, entry) in self.blocked_field_types.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!("elicitation.blocked_field_types[{}] is empty", i));
+                return Err(format!("elicitation.blocked_field_types[{i}] is empty"));
             }
             if entry.len() > MAX_BLOCKED_FIELD_TYPE_LENGTH {
                 return Err(format!(
@@ -89,8 +88,7 @@ impl ElicitationConfig {
             // both control chars AND Unicode format chars (zero-width, bidi, BOM).
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "elicitation.blocked_field_types[{}] contains control or format characters",
-                    i
+                    "elicitation.blocked_field_types[{i}] contains control or format characters"
                 ));
             }
         }
@@ -205,14 +203,13 @@ impl SamplingConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.allowed_models.len() > MAX_ALLOWED_MODELS {
             return Err(format!(
-                "sampling.allowed_models exceeds {} entries",
-                MAX_ALLOWED_MODELS
+                "sampling.allowed_models exceeds {MAX_ALLOWED_MODELS} entries"
             ));
         }
         // SECURITY (FIND-R125-003): Validate individual entry content.
         for (i, entry) in self.allowed_models.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!("sampling.allowed_models[{}] is empty", i));
+                return Err(format!("sampling.allowed_models[{i}] is empty"));
             }
             if entry.len() > MAX_ALLOWED_MODEL_LENGTH {
                 return Err(format!(
@@ -225,8 +222,7 @@ impl SamplingConfig {
             // SECURITY (FIND-R158-001): Canonical check for control + format chars.
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "sampling.allowed_models[{}] contains control or format characters",
-                    i
+                    "sampling.allowed_models[{i}] contains control or format characters"
                 ));
             }
         }
@@ -253,8 +249,7 @@ impl SamplingConfig {
         for (i, val) in self.allowed_include_context.iter().enumerate() {
             if !VALID_INCLUDE_CONTEXT.contains(&val.as_str()) {
                 return Err(format!(
-                    "sampling.allowed_include_context[{}] '{}' is not valid (must be one of: none, thisServer, allServers)",
-                    i, val
+                    "sampling.allowed_include_context[{i}] '{val}' is not valid (must be one of: none, thisServer, allServers)"
                 ));
             }
         }
@@ -394,8 +389,7 @@ impl AsyncTaskConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.allow_cancellation.len() > MAX_ALLOW_CANCELLATION {
             return Err(format!(
-                "async_tasks.allow_cancellation exceeds {} entries",
-                MAX_ALLOW_CANCELLATION
+                "async_tasks.allow_cancellation exceeds {MAX_ALLOW_CANCELLATION} entries"
             ));
         }
         // SECURITY (FIND-R60-006, FIND-R158-001): Reject control + Unicode format
@@ -404,12 +398,11 @@ impl AsyncTaskConfig {
         for (i, entry) in self.allow_cancellation.iter().enumerate() {
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "async_tasks.allow_cancellation[{}] contains control or format characters",
-                    i
+                    "async_tasks.allow_cancellation[{i}] contains control or format characters"
                 ));
             }
             if entry.is_empty() {
-                return Err(format!("async_tasks.allow_cancellation[{}] is empty", i));
+                return Err(format!("async_tasks.allow_cancellation[{i}] is empty"));
             }
         }
         // SECURITY (FIND-R137-006): Reject max_nonces=0 when replay_protection
@@ -465,8 +458,7 @@ impl ResourceIndicatorConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.allowed_resources.len() > MAX_ALLOWED_RESOURCES {
             return Err(format!(
-                "resource_indicator.allowed_resources exceeds {} entries",
-                MAX_ALLOWED_RESOURCES
+                "resource_indicator.allowed_resources exceeds {MAX_ALLOWED_RESOURCES} entries"
             ));
         }
         // SECURITY (FIND-R137-003): Per-entry validation — empty string matches
@@ -474,8 +466,7 @@ impl ResourceIndicatorConfig {
         for (i, entry) in self.allowed_resources.iter().enumerate() {
             if entry.is_empty() {
                 return Err(format!(
-                    "resource_indicator.allowed_resources[{}] is empty",
-                    i
+                    "resource_indicator.allowed_resources[{i}] is empty"
                 ));
             }
             if entry.len() > MAX_RESOURCE_ENTRY_LENGTH {
@@ -489,8 +480,7 @@ impl ResourceIndicatorConfig {
             // SECURITY (FIND-R158-001): Canonical check for control + format chars.
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "resource_indicator.allowed_resources[{}] contains control or format characters",
-                    i
+                    "resource_indicator.allowed_resources[{i}] contains control or format characters"
                 ));
             }
         }
@@ -537,21 +527,19 @@ impl CimdConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.required_capabilities.len() > MAX_CAPABILITIES {
             return Err(format!(
-                "cimd.required_capabilities exceeds {} entries",
-                MAX_CAPABILITIES
+                "cimd.required_capabilities exceeds {MAX_CAPABILITIES} entries"
             ));
         }
         if self.blocked_capabilities.len() > MAX_CAPABILITIES {
             return Err(format!(
-                "cimd.blocked_capabilities exceeds {} entries",
-                MAX_CAPABILITIES
+                "cimd.blocked_capabilities exceeds {MAX_CAPABILITIES} entries"
             ));
         }
         // SECURITY (FIND-R137-004): Per-entry validation — empty required
         // capability always matches; empty blocked capability blocks all.
         for (i, entry) in self.required_capabilities.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!("cimd.required_capabilities[{}] is empty", i));
+                return Err(format!("cimd.required_capabilities[{i}] is empty"));
             }
             if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
                 return Err(format!(
@@ -564,14 +552,13 @@ impl CimdConfig {
             // SECURITY (FIND-R158-001): Canonical check for control + format chars.
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "cimd.required_capabilities[{}] contains control or format characters",
-                    i
+                    "cimd.required_capabilities[{i}] contains control or format characters"
                 ));
             }
         }
         for (i, entry) in self.blocked_capabilities.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!("cimd.blocked_capabilities[{}] is empty", i));
+                return Err(format!("cimd.blocked_capabilities[{i}] is empty"));
             }
             if entry.len() > MAX_CAPABILITY_ENTRY_LENGTH {
                 return Err(format!(
@@ -584,8 +571,7 @@ impl CimdConfig {
             // SECURITY (FIND-R158-001): Canonical check for control + format chars.
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "cimd.blocked_capabilities[{}] contains control or format characters",
-                    i
+                    "cimd.blocked_capabilities[{i}] contains control or format characters"
                 ));
             }
         }
@@ -666,10 +652,7 @@ impl StreamableHttpConfig {
         }
         if let Some(retry) = self.sse_retry_ms {
             if !(100..=60_000).contains(&retry) {
-                return Err(format!(
-                    "sse_retry_ms must be in [100, 60000], got {}",
-                    retry
-                ));
+                return Err(format!("sse_retry_ms must be in [100, 60000], got {retry}"));
             }
         }
         Ok(())
@@ -741,8 +724,7 @@ impl StepUpAuthConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.trigger_tools.len() > MAX_TRIGGER_TOOLS {
             return Err(format!(
-                "step_up_auth.trigger_tools exceeds {} entries",
-                MAX_TRIGGER_TOOLS
+                "step_up_auth.trigger_tools exceeds {MAX_TRIGGER_TOOLS} entries"
             ));
         }
         if self.required_level > 4 {
@@ -754,7 +736,7 @@ impl StepUpAuthConfig {
         // SECURITY (FIND-R137-005): Per-entry validation on trigger_tools.
         for (i, entry) in self.trigger_tools.iter().enumerate() {
             if entry.is_empty() {
-                return Err(format!("step_up_auth.trigger_tools[{}] is empty", i));
+                return Err(format!("step_up_auth.trigger_tools[{i}] is empty"));
             }
             if entry.len() > MAX_TRIGGER_TOOL_LENGTH {
                 return Err(format!(
@@ -767,8 +749,7 @@ impl StepUpAuthConfig {
             // SECURITY (FIND-R158-001): Canonical check for control + format chars.
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(format!(
-                    "step_up_auth.trigger_tools[{}] contains control or format characters",
-                    i
+                    "step_up_auth.trigger_tools[{i}] contains control or format characters"
                 ));
             }
         }
@@ -794,7 +775,7 @@ mod tests {
     fn test_elicitation_validate_too_many_blocked_field_types_rejected() {
         let mut config = ElicitationConfig::default();
         config.blocked_field_types = (0..=MAX_BLOCKED_FIELD_TYPES)
-            .map(|i| format!("type_{}", i))
+            .map(|i| format!("type_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("blocked_field_types"));
@@ -838,7 +819,7 @@ mod tests {
     fn test_sampling_validate_too_many_allowed_models_rejected() {
         let mut config = SamplingConfig::default();
         config.allowed_models = (0..=MAX_ALLOWED_MODELS)
-            .map(|i| format!("model_{}", i))
+            .map(|i| format!("model_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allowed_models"));
@@ -930,7 +911,7 @@ mod tests {
     fn test_async_task_validate_too_many_cancellation_entries_rejected() {
         let mut config = AsyncTaskConfig::default();
         config.allow_cancellation = (0..=MAX_ALLOW_CANCELLATION)
-            .map(|i| format!("agent_{}", i))
+            .map(|i| format!("agent_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allow_cancellation"));
@@ -983,7 +964,7 @@ mod tests {
     fn test_resource_indicator_validate_too_many_resources_rejected() {
         let mut config = ResourceIndicatorConfig::default();
         config.allowed_resources = (0..=MAX_ALLOWED_RESOURCES)
-            .map(|i| format!("urn:res:{}", i))
+            .map(|i| format!("urn:res:{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allowed_resources"));
@@ -1026,9 +1007,7 @@ mod tests {
     #[test]
     fn test_cimd_validate_too_many_required_capabilities_rejected() {
         let mut config = CimdConfig::default();
-        config.required_capabilities = (0..=MAX_CAPABILITIES)
-            .map(|i| format!("cap_{}", i))
-            .collect();
+        config.required_capabilities = (0..=MAX_CAPABILITIES).map(|i| format!("cap_{i}")).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("required_capabilities"));
     }
@@ -1036,9 +1015,7 @@ mod tests {
     #[test]
     fn test_cimd_validate_too_many_blocked_capabilities_rejected() {
         let mut config = CimdConfig::default();
-        config.blocked_capabilities = (0..=MAX_CAPABILITIES)
-            .map(|i| format!("cap_{}", i))
-            .collect();
+        config.blocked_capabilities = (0..=MAX_CAPABILITIES).map(|i| format!("cap_{i}")).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("blocked_capabilities"));
     }
@@ -1152,7 +1129,7 @@ mod tests {
     fn test_step_up_auth_validate_too_many_trigger_tools_rejected() {
         let mut config = StepUpAuthConfig::default();
         config.trigger_tools = (0..=MAX_TRIGGER_TOOLS)
-            .map(|i| format!("tool_{}", i))
+            .map(|i| format!("tool_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("trigger_tools"));

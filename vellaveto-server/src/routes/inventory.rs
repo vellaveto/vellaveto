@@ -324,6 +324,12 @@ async fn build_agent_tool_relationships(
     (true, agents, relationships)
 }
 
+/// Check whether a tool name is topology-qualified (contains `::` separator).
+#[cfg(test)]
+fn is_topology_qualified(tool: &str) -> bool {
+    tool.contains("::")
+}
+
 /// `GET /api/inventory/agents` — List known agents from the shadow-agent detector.
 pub async fn inventory_agents(
     State(state): State<AppState>,
@@ -612,4 +618,188 @@ pub async fn inventory_graph(
         relationships,
         servers,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── truncate_preview tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_truncate_preview_short_string_unchanged() {
+        let input = "Hello, world!";
+        let result = truncate_preview(input, 160);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_truncate_preview_exact_max_unchanged() {
+        let input = "a".repeat(160);
+        let result = truncate_preview(&input, 160);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_truncate_preview_over_max_truncated_with_ellipsis() {
+        let input = "a".repeat(200);
+        let result = truncate_preview(&input, 160);
+        assert!(result.ends_with("..."));
+        // Should be 160 chars + "..."
+        assert_eq!(result.len(), 163);
+    }
+
+    #[test]
+    fn test_truncate_preview_empty_string() {
+        let result = truncate_preview("", 160);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_truncate_preview_respects_char_boundaries() {
+        // Multi-byte UTF-8 characters: each is 4 bytes
+        let input = "\u{1F600}\u{1F601}\u{1F602}\u{1F603}"; // 4 emoji = 16 bytes
+        let result = truncate_preview(input, 5);
+        // Should not panic on char boundary issue
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_preview_max_one() {
+        let result = truncate_preview("abcde", 1);
+        assert_eq!(result, "a...");
+    }
+
+    // ── build_topology_tool_summary tests ────────────────────────────────
+
+    #[test]
+    fn test_build_topology_tool_summary_basic() {
+        let summary = build_topology_tool_summary("my-server", "read_file", "Reads a file");
+        assert_eq!(summary.qualified_name, "my-server::read_file");
+        assert_eq!(summary.server, "my-server");
+        assert_eq!(summary.name, "read_file");
+        assert_eq!(summary.description_preview, "Reads a file");
+        assert_eq!(summary.ownership_label, "platform-owned");
+        assert_eq!(summary.exposure_label, "topology-managed");
+    }
+
+    #[test]
+    fn test_build_topology_tool_summary_long_description_truncated() {
+        let long_desc = "x".repeat(200);
+        let summary = build_topology_tool_summary("srv", "tool", &long_desc);
+        assert!(summary.description_preview.len() < 200);
+        assert!(summary.description_preview.ends_with("..."));
+    }
+
+    // ── build_observed_tool_summary tests ────────────────────────────────
+
+    #[test]
+    fn test_build_observed_tool_summary_qualified_name() {
+        let summary = build_observed_tool_summary("server1::read_file", true);
+        assert_eq!(summary.qualified_name, "server1::read_file");
+        assert_eq!(summary.server, "server1");
+        assert_eq!(summary.name, "read_file");
+        assert_eq!(summary.ownership_label, "platform-owned");
+        assert_eq!(summary.exposure_label, "topology-managed");
+    }
+
+    #[test]
+    fn test_build_observed_tool_summary_unqualified_in_topology() {
+        let summary = build_observed_tool_summary("read_file", true);
+        assert_eq!(summary.server, "observed");
+        assert_eq!(summary.name, "read_file");
+        assert_eq!(summary.ownership_label, "platform-owned");
+    }
+
+    #[test]
+    fn test_build_observed_tool_summary_not_in_topology() {
+        let summary = build_observed_tool_summary("read_file", false);
+        assert_eq!(summary.ownership_label, "externally-sourced");
+        assert_eq!(summary.exposure_label, "observed-only");
+        assert!(summary
+            .description_preview
+            .contains("not declared in topology"));
+    }
+
+    #[test]
+    fn test_build_observed_tool_summary_strips_observed_prefix() {
+        let summary = build_observed_tool_summary("observed::my_tool", false);
+        assert_eq!(summary.server, "observed");
+        assert_eq!(summary.name, "my_tool");
+    }
+
+    // ── resolve_observed_tool_target tests ───────────────────────────────
+
+    #[test]
+    fn test_resolve_observed_tool_target_already_qualified() {
+        let topology_tools = vec!["srv::read_file".to_string()];
+        let (target, label) = resolve_observed_tool_target("srv::read_file", &topology_tools);
+        assert_eq!(target, "srv::read_file");
+        assert_eq!(label, "topology-qualified");
+    }
+
+    #[test]
+    fn test_resolve_observed_tool_target_single_match() {
+        let topology_tools = vec!["server1::read_file".to_string()];
+        let (target, label) = resolve_observed_tool_target("read_file", &topology_tools);
+        assert_eq!(target, "server1::read_file");
+        assert_eq!(label, "topology-resolved");
+    }
+
+    #[test]
+    fn test_resolve_observed_tool_target_no_match() {
+        let topology_tools = vec!["server1::write_file".to_string()];
+        let (target, label) = resolve_observed_tool_target("read_file", &topology_tools);
+        assert_eq!(target, "observed::read_file");
+        assert_eq!(label, "observed-only");
+    }
+
+    #[test]
+    fn test_resolve_observed_tool_target_ambiguous_multiple_matches() {
+        let topology_tools = vec![
+            "server1::read_file".to_string(),
+            "server2::read_file".to_string(),
+        ];
+        let (target, label) = resolve_observed_tool_target("read_file", &topology_tools);
+        // Ambiguous: falls back to observed
+        assert_eq!(target, "observed::read_file");
+        assert_eq!(label, "observed-only");
+    }
+
+    // ── is_topology_qualified tests ──────────────────────────────────────
+
+    #[test]
+    fn test_is_topology_qualified_with_separator() {
+        assert!(is_topology_qualified("server::tool"));
+    }
+
+    #[test]
+    fn test_is_topology_qualified_without_separator() {
+        assert!(!is_topology_qualified("plain_tool"));
+    }
+
+    #[test]
+    fn test_is_topology_qualified_empty() {
+        assert!(!is_topology_qualified(""));
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_inventory_constants_bounded() {
+        assert!(MAX_INVENTORY_AGENTS > 0);
+        assert!(MAX_INVENTORY_SERVERS > 0);
+        assert!(MAX_INVENTORY_TOOLS > 0);
+        assert!(MAX_INVENTORY_GRAPH_NODES > 0);
+        assert!(MAX_DESCRIPTION_PREVIEW_LEN > 0);
+        assert!(MAX_INVENTORY_AUDIT_ENTRIES > 0);
+        assert!(MAX_INVENTORY_RELATIONSHIPS > 0);
+    }
+
+    #[test]
+    fn test_description_preview_len_is_reasonable() {
+        // Should be enough for a useful preview but not unbounded
+        assert!(MAX_DESCRIPTION_PREVIEW_LEN >= 80);
+        assert!(MAX_DESCRIPTION_PREVIEW_LEN <= 500);
+    }
 }

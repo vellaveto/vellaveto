@@ -197,7 +197,7 @@ pub fn generate_gap_analysis() -> GapAnalysisReport {
         critical_gaps.push(Gap {
             framework: "MITRE ATLAS".to_string(),
             item_id: id.to_string(),
-            description: format!("ATLAS technique {} not covered by any detection", id),
+            description: format!("ATLAS technique {id} not covered by any detection"),
             severity: "Medium".to_string(),
         });
     }

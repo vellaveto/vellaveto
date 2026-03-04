@@ -482,10 +482,7 @@ pub fn inspect_sampling(
             .any(|a| a == include_ctx)
         {
             return SamplingVerdict::Deny {
-                reason: format!(
-                    "sampling includeContext '{}' not in allowed list",
-                    include_ctx
-                ),
+                reason: format!("sampling includeContext '{include_ctx}' not in allowed list"),
             };
         }
     }
@@ -617,8 +614,7 @@ mod tests {
             ElicitationVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("disabled"),
-                    "Expected 'disabled' in reason, got: {}",
-                    reason
+                    "Expected 'disabled' in reason, got: {reason}"
                 );
             }
             ElicitationVerdict::Allow => panic!("Expected Deny when elicitation is disabled"),
@@ -646,8 +642,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "Expected Allow for benign elicitation, got: {:?}",
-            verdict
+            "Expected Allow for benign elicitation, got: {verdict:?}"
         );
     }
 
@@ -676,8 +671,7 @@ mod tests {
             ElicitationVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("password"),
-                    "Expected 'password' in reason, got: {}",
-                    reason
+                    "Expected 'password' in reason, got: {reason}"
                 );
             }
             ElicitationVerdict::Allow => {
@@ -708,8 +702,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for property named 'password', got: {:?}",
-            verdict
+            "Expected Deny for property named 'password', got: {verdict:?}"
         );
     }
 
@@ -734,8 +727,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for case-insensitive match, got: {:?}",
-            verdict
+            "Expected Deny for case-insensitive match, got: {verdict:?}"
         );
     }
 
@@ -756,8 +748,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 2);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "Expected Allow when under limit, got: {:?}",
-            verdict
+            "Expected Allow when under limit, got: {verdict:?}"
         );
 
         // At limit: denied
@@ -766,13 +757,11 @@ mod tests {
             ElicitationVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("rate limit"),
-                    "Expected 'rate limit' in reason, got: {}",
-                    reason
+                    "Expected 'rate limit' in reason, got: {reason}"
                 );
                 assert!(
                     reason.contains("3/3"),
-                    "Expected count in reason, got: {}",
-                    reason
+                    "Expected count in reason, got: {reason}"
                 );
             }
             ElicitationVerdict::Allow => panic!("Expected Deny when at rate limit"),
@@ -803,8 +792,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "Expected Allow when no schema present, got: {:?}",
-            verdict
+            "Expected Allow when no schema present, got: {verdict:?}"
         );
     }
 
@@ -835,8 +823,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for nested blocked field type, got: {:?}",
-            verdict
+            "Expected Deny for nested blocked field type, got: {verdict:?}"
         );
     }
 
@@ -860,8 +847,7 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("disabled"),
-                    "Expected 'disabled' in reason, got: {}",
-                    reason
+                    "Expected 'disabled' in reason, got: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny when sampling is disabled"),
@@ -888,8 +874,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
-            "Expected Allow for benign sampling, got: {:?}",
-            verdict
+            "Expected Allow for benign sampling, got: {verdict:?}"
         );
     }
 
@@ -916,8 +901,7 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("tool output"),
-                    "Expected 'tool output' in reason, got: {}",
-                    reason
+                    "Expected 'tool output' in reason, got: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny when tool output is present"),
@@ -951,8 +935,7 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("tool result"),
-                    "Expected 'tool result' in reason, got: {}",
-                    reason
+                    "Expected 'tool result' in reason, got: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny when tool_result content is present"),
@@ -980,8 +963,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
-            "Expected Allow for allowed model, got: {:?}",
-            verdict
+            "Expected Allow for allowed model, got: {verdict:?}"
         );
     }
 
@@ -1008,13 +990,11 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("gpt-4"),
-                    "Expected model name in reason, got: {}",
-                    reason
+                    "Expected model name in reason, got: {reason}"
                 );
                 assert!(
                     reason.contains("not in allowed list"),
-                    "Expected 'not in allowed list' in reason, got: {}",
-                    reason
+                    "Expected 'not in allowed list' in reason, got: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny for disallowed model"),
@@ -1041,8 +1021,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
-            "Expected Deny when no model specified but allowed_models configured, got: {:?}",
-            verdict
+            "Expected Deny when no model specified but allowed_models configured, got: {verdict:?}"
         );
     }
 
@@ -1065,8 +1044,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
-            "Expected Deny for top-level disallowed model, got: {:?}",
-            verdict
+            "Expected Deny for top-level disallowed model, got: {verdict:?}"
         );
     }
 
@@ -1089,8 +1067,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
-            "Expected Allow when block_if_contains_tool_output is false, got: {:?}",
-            verdict
+            "Expected Allow when block_if_contains_tool_output is false, got: {verdict:?}"
         );
     }
 
@@ -1120,8 +1097,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in patternProperties, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in patternProperties, got: {verdict:?}"
         );
     }
 
@@ -1154,8 +1130,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in dependentSchemas, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in dependentSchemas, got: {verdict:?}"
         );
     }
 
@@ -1192,8 +1167,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in if/then/else, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in if/then/else, got: {verdict:?}"
         );
     }
 
@@ -1221,8 +1195,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in 'not' schema, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in 'not' schema, got: {verdict:?}"
         );
     }
 
@@ -1249,8 +1222,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in prefixItems, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in prefixItems, got: {verdict:?}"
         );
     }
 
@@ -1279,8 +1251,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for password hidden in contains, got: {:?}",
-            verdict
+            "Expected Deny for password hidden in contains, got: {verdict:?}"
         );
     }
 
@@ -1312,8 +1283,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for blocked field type in array items, got: {:?}",
-            verdict
+            "Expected Deny for blocked field type in array items, got: {verdict:?}"
         );
     }
 
@@ -1571,8 +1541,7 @@ mod tests {
             ElicitationVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("schema description contains injection"),
-                    "Expected schema injection reason, got: {}",
-                    reason
+                    "Expected schema injection reason, got: {reason}"
                 );
             }
             ElicitationVerdict::Allow => {
@@ -1604,8 +1573,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "Expected Deny for injection in top-level schema description, got: {:?}",
-            verdict
+            "Expected Deny for injection in top-level schema description, got: {verdict:?}"
         );
     }
 
@@ -1635,8 +1603,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 0);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "Expected Allow for clean schema descriptions, got: {:?}",
-            verdict
+            "Expected Allow for clean schema descriptions, got: {verdict:?}"
         );
     }
 
@@ -1667,8 +1634,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 0);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
-            "Resource content type should be blocked to prevent data laundering, got: {:?}",
-            verdict
+            "Resource content type should be blocked to prevent data laundering, got: {verdict:?}"
         );
     }
 
@@ -1693,8 +1659,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, u32::MAX);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "u32::MAX count should be denied, got: {:?}",
-            verdict
+            "u32::MAX count should be denied, got: {verdict:?}"
         );
     }
 
@@ -1715,8 +1680,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 4);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "count == max_per_session - 1 should allow, got: {:?}",
-            verdict
+            "count == max_per_session - 1 should allow, got: {verdict:?}"
         );
     }
 
@@ -1737,8 +1701,7 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, 5);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "count == max_per_session should deny, got: {:?}",
-            verdict
+            "count == max_per_session should deny, got: {verdict:?}"
         );
     }
 
@@ -1759,16 +1722,14 @@ mod tests {
         let verdict = inspect_elicitation(&params, &config, u32::MAX);
         assert!(
             matches!(verdict, ElicitationVerdict::Deny { .. }),
-            "count == max_per_session (both u32::MAX) should deny, got: {:?}",
-            verdict
+            "count == max_per_session (both u32::MAX) should deny, got: {verdict:?}"
         );
 
         // u32::MAX - 1 should be allowed with u32::MAX limit
         let verdict = inspect_elicitation(&params, &config, u32::MAX - 1);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "count < max_per_session should allow, got: {:?}",
-            verdict
+            "count < max_per_session should allow, got: {verdict:?}"
         );
     }
 
@@ -1796,8 +1757,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 2);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
-            "Expected Allow when under limit, got: {:?}",
-            verdict
+            "Expected Allow when under limit, got: {verdict:?}"
         );
 
         // At limit: denied
@@ -1806,13 +1766,11 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("rate limit"),
-                    "Expected 'rate limit' in reason, got: {}",
-                    reason
+                    "Expected 'rate limit' in reason, got: {reason}"
                 );
                 assert!(
                     reason.contains("3/3"),
-                    "Expected count in reason, got: {}",
-                    reason
+                    "Expected count in reason, got: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny when at rate limit"),
@@ -1845,8 +1803,7 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, u32::MAX);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
-            "u32::MAX count should be denied, got: {:?}",
-            verdict
+            "u32::MAX count should be denied, got: {verdict:?}"
         );
     }
 
@@ -1870,16 +1827,14 @@ mod tests {
         let verdict = inspect_sampling(&params, &config, 4);
         assert!(
             matches!(verdict, SamplingVerdict::Allow),
-            "count == max_per_session - 1 should allow, got: {:?}",
-            verdict
+            "count == max_per_session - 1 should allow, got: {verdict:?}"
         );
 
         // At exactly max_per_session: should be denied (>= comparison)
         let verdict = inspect_sampling(&params, &config, 5);
         assert!(
             matches!(verdict, SamplingVerdict::Deny { .. }),
-            "count == max_per_session should deny, got: {:?}",
-            verdict
+            "count == max_per_session should deny, got: {verdict:?}"
         );
     }
 
@@ -1910,8 +1865,7 @@ mod tests {
             SamplingVerdict::Deny { reason } => {
                 assert!(
                     reason.contains("rate limit"),
-                    "Should deny for rate limit, not model filter: {}",
-                    reason
+                    "Should deny for rate limit, not model filter: {reason}"
                 );
             }
             SamplingVerdict::Allow => panic!("Expected Deny when rate limited"),
@@ -1938,8 +1892,7 @@ mod tests {
         collect_schema_defaults(&schema, &mut texts, 0);
         assert!(
             texts.iter().any(|t| t.contains("ignore all previous")),
-            "singular `example` field should be collected: {:?}",
-            texts
+            "singular `example` field should be collected: {texts:?}"
         );
     }
 

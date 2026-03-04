@@ -131,13 +131,13 @@ async fn main() -> Result<()> {
     if cli.list_presets {
         println!("Protection levels (easy mode):\n");
         for (name, desc) in presets::list_protection_levels() {
-            println!("  {:<25} {}", name, desc);
+            println!("  {name:<25} {desc}");
         }
         println!("\n  Usage: vellaveto-proxy --protect <LEVEL> -- <COMMAND>\n");
         println!("Professional presets:\n");
         for (name, desc) in presets::list_presets() {
             if !presets::is_protection_level(name) {
-                println!("  {:<25} {}", name, desc);
+                println!("  {name:<25} {desc}");
             }
         }
         println!("\n  Usage: vellaveto-proxy --preset <NAME> -- <COMMAND>");
@@ -157,15 +157,14 @@ async fn main() -> Result<()> {
         let path = std::path::Path::new(output.as_str());
         if path.exists() {
             anyhow::bail!(
-                "'{}' already exists. Remove it first or use -o to specify a different path.",
-                output
+                "'{output}' already exists. Remove it first or use -o to specify a different path."
             );
         }
         std::fs::write(path, toml_content)
-            .with_context(|| format!("Failed to write '{}'", output))?;
-        println!("Created {} (preset: {})", output, preset);
+            .with_context(|| format!("Failed to write '{output}'"))?;
+        println!("Created {output} (preset: {preset})");
         println!("\nRun with:");
-        println!("  vellaveto-proxy --config {} -- <COMMAND>", output);
+        println!("  vellaveto-proxy --config {output} -- <COMMAND>");
         return Ok(());
     }
 
@@ -215,16 +214,16 @@ async fn main() -> Result<()> {
     // Load policies: --config > --preset > --protect > built-in default
     let (policy_config, config_source) = if let Some(ref config_path) = cli.config {
         let pc = PolicyConfig::load_file(config_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load config '{}': {}", config_path, e))?;
-        (pc, format!("file: {}", config_path))
+            .map_err(|e| anyhow::anyhow!("Failed to load config '{config_path}': {e}"))?;
+        (pc, format!("file: {config_path}"))
     } else if let Some(ref preset_name) = cli.preset {
-        let pc = presets::load_preset(preset_name).map_err(|e| anyhow::anyhow!("{}", e))?;
-        (pc, format!("preset: {}", preset_name))
+        let pc = presets::load_preset(preset_name).map_err(|e| anyhow::anyhow!("{e}"))?;
+        (pc, format!("preset: {preset_name}"))
     } else if let Some(ref level) = cli.protect {
-        let pc = presets::load_preset(level).map_err(|e| anyhow::anyhow!("{}", e))?;
-        (pc, format!("protect: {}", level))
+        let pc = presets::load_preset(level).map_err(|e| anyhow::anyhow!("{e}"))?;
+        (pc, format!("protect: {level}"))
     } else {
-        let pc = presets::default_config().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let pc = presets::default_config().map_err(|e| anyhow::anyhow!("{e}"))?;
         (pc, "built-in default".to_string())
     };
 
@@ -255,13 +254,8 @@ async fn main() -> Result<()> {
         .context("Command list is empty after validation")?;
 
     let path_env = std::env::var_os("PATH");
-    let resolved_child_cmd = resolve_executable(child_cmd, path_env.as_deref()).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to resolve MCP server command '{}': {}",
-            child_cmd,
-            e
-        )
-    })?;
+    let resolved_child_cmd = resolve_executable(child_cmd, path_env.as_deref())
+        .map_err(|e| anyhow::anyhow!("Failed to resolve MCP server command '{child_cmd}': {e}"))?;
 
     let resolved_child_cmd_display = resolved_child_cmd.display().to_string();
 
@@ -271,9 +265,7 @@ async fn main() -> Result<()> {
     {
         tracing::error!("Supply chain verification FAILED: {}", reason);
         anyhow::bail!(
-            "Refusing to spawn MCP server '{}': supply chain verification failed — {}",
-            resolved_child_cmd_display,
-            reason
+            "Refusing to spawn MCP server '{resolved_child_cmd_display}': supply chain verification failed — {reason}"
         );
     } else if policy_config.supply_chain.enabled {
         tracing::info!(
@@ -343,8 +335,7 @@ async fn main() -> Result<()> {
     cmd.env("TZ", "UTC");
 
     let mut child = cmd.spawn().context(format!(
-        "Failed to spawn child MCP server: {}",
-        resolved_child_cmd_display
+        "Failed to spawn child MCP server: {resolved_child_cmd_display}"
     ))?;
 
     // FIND-R56-PROXY-002: Use descriptive string instead of PID 0 when child.id()
@@ -366,11 +357,8 @@ async fn main() -> Result<()> {
     match child.try_wait() {
         Ok(Some(status)) => {
             anyhow::bail!(
-                "Child MCP server exited immediately (PID {}, status: {}). \
-                 Check that '{}' is a valid executable.",
-                child_pid_display,
-                status,
-                resolved_child_cmd_display
+                "Child MCP server exited immediately (PID {child_pid_display}, status: {status}). \
+                 Check that '{resolved_child_cmd_display}' is a valid executable."
             );
         }
         Ok(None) => {
@@ -466,7 +454,7 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 // Fail-closed: invalid ABAC config prevents startup
-                anyhow::bail!("ABAC config error: {}", e);
+                anyhow::bail!("ABAC config error: {e}");
             }
         }
     }
@@ -547,7 +535,7 @@ async fn main() -> Result<()> {
         }
         Err(e) => {
             tracing::error!("Proxy error: {}", e);
-            Err(anyhow::anyhow!("Proxy error: {}", e))
+            Err(anyhow::anyhow!("Proxy error: {e}"))
         }
     }
 }

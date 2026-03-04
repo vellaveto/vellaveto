@@ -179,7 +179,7 @@ impl AbacPolicy {
         }
         for (i, cond) in self.conditions.iter().enumerate() {
             cond.validate()
-                .map_err(|e| format!("conditions[{}]: {}", i, e))?;
+                .map_err(|e| format!("conditions[{i}]: {e}"))?;
         }
         self.principal.validate()?;
         self.action.validate()?;
@@ -231,8 +231,7 @@ impl PrincipalConstraint {
             }
             if crate::core::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "PrincipalConstraint id_patterns[{}] contains control or format characters",
-                    i,
+                    "PrincipalConstraint id_patterns[{i}] contains control or format characters",
                 ));
             }
         }
@@ -304,8 +303,7 @@ impl ActionConstraint {
             }
             if crate::core::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "ActionConstraint patterns[{}] contains control or format characters",
-                    i,
+                    "ActionConstraint patterns[{i}] contains control or format characters",
                 ));
             }
         }
@@ -349,8 +347,7 @@ impl ResourceConstraint {
             }
             if crate::core::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "ResourceConstraint path_patterns[{}] contains control or format characters",
-                    i,
+                    "ResourceConstraint path_patterns[{i}] contains control or format characters",
                 ));
             }
         }
@@ -372,8 +369,7 @@ impl ResourceConstraint {
             }
             if crate::core::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "ResourceConstraint domain_patterns[{}] contains control or format characters",
-                    i,
+                    "ResourceConstraint domain_patterns[{i}] contains control or format characters",
                 ));
             }
         }
@@ -395,8 +391,7 @@ impl ResourceConstraint {
             }
             if crate::core::has_dangerous_chars(tag) {
                 return Err(format!(
-                    "ResourceConstraint tags[{}] contains control or format characters",
-                    i,
+                    "ResourceConstraint tags[{i}] contains control or format characters",
                 ));
             }
         }

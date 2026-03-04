@@ -87,7 +87,7 @@ fn default_m2m_token_ttl_secs() -> u64 {
 
 fn ensure_safe_str(field: &str, value: &str, max_len: usize) -> Result<(), String> {
     if value.is_empty() {
-        return Err(format!("{} must not be empty", field));
+        return Err(format!("{field} must not be empty"));
     }
     if value.len() > max_len {
         return Err(format!(
@@ -99,8 +99,7 @@ fn ensure_safe_str(field: &str, value: &str, max_len: usize) -> Result<(), Strin
     }
     if has_dangerous_chars(value) {
         return Err(format!(
-            "{} contains control or Unicode format characters",
-            field
+            "{field} contains control or Unicode format characters"
         ));
     }
     Ok(())
@@ -108,12 +107,11 @@ fn ensure_safe_str(field: &str, value: &str, max_len: usize) -> Result<(), Strin
 
 fn ensure_env_var(field: &str, value: &str) -> Result<(), String> {
     if value.is_empty() {
-        return Err(format!("{} must not be empty", field));
+        return Err(format!("{field} must not be empty"));
     }
     if has_dangerous_chars(value) {
         return Err(format!(
-            "{} contains control or Unicode format characters",
-            field
+            "{field} contains control or Unicode format characters"
         ));
     }
     Ok(())
@@ -295,11 +293,7 @@ impl OidcConfig {
                     MAX_OIDC_SCOPE_LEN
                 ));
             }
-            ensure_safe_str(
-                &format!("iam.oidc.scopes[{}]", i),
-                scope,
-                MAX_OIDC_SCOPE_LEN,
-            )?;
+            ensure_safe_str(&format!("iam.oidc.scopes[{i}]"), scope, MAX_OIDC_SCOPE_LEN)?;
         }
 
         ensure_safe_str("iam.oidc.role_claim", &self.role_claim, MAX_SAML_FIELD_LEN)?;
@@ -422,24 +416,21 @@ impl SessionConfig {
             || self.idle_timeout_secs > MAX_SESSION_TIMEOUT_SECS
         {
             return Err(format!(
-                "iam.session.idle_timeout_secs must be between {} and {}",
-                MIN_SESSION_TIMEOUT_SECS, MAX_SESSION_TIMEOUT_SECS
+                "iam.session.idle_timeout_secs must be between {MIN_SESSION_TIMEOUT_SECS} and {MAX_SESSION_TIMEOUT_SECS}"
             ));
         }
         if self.max_age_secs < MIN_SESSION_TIMEOUT_SECS
             || self.max_age_secs > MAX_SESSION_TIMEOUT_SECS
         {
             return Err(format!(
-                "iam.session.max_age_secs must be between {} and {}",
-                MIN_SESSION_TIMEOUT_SECS, MAX_SESSION_TIMEOUT_SECS
+                "iam.session.max_age_secs must be between {MIN_SESSION_TIMEOUT_SECS} and {MAX_SESSION_TIMEOUT_SECS}"
             ));
         }
         if self.max_sessions_per_principal == 0
             || self.max_sessions_per_principal > MAX_SESSIONS_PER_PRINCIPAL
         {
             return Err(format!(
-                "iam.session.max_sessions_per_principal must be between 1 and {}",
-                MAX_SESSIONS_PER_PRINCIPAL
+                "iam.session.max_sessions_per_principal must be between 1 and {MAX_SESSIONS_PER_PRINCIPAL}"
             ));
         }
         Ok(())
@@ -523,8 +514,7 @@ impl ScimConfig {
             || self.sync_interval_secs > MAX_SCIM_SYNC_SECS
         {
             return Err(format!(
-                "iam.scim.sync_interval_secs must be between {} and {}",
-                MIN_SCIM_SYNC_SECS, MAX_SCIM_SYNC_SECS
+                "iam.scim.sync_interval_secs must be between {MIN_SCIM_SYNC_SECS} and {MAX_SCIM_SYNC_SECS}"
             ));
         }
 
@@ -593,8 +583,7 @@ impl M2mConfig {
             || self.token_ttl_secs > MAX_M2M_TOKEN_TTL_SECS
         {
             return Err(format!(
-                "iam.m2m.token_ttl_secs must be between {} and {}",
-                MIN_M2M_TOKEN_TTL_SECS, MAX_M2M_TOKEN_TTL_SECS
+                "iam.m2m.token_ttl_secs must be between {MIN_M2M_TOKEN_TTL_SECS} and {MAX_M2M_TOKEN_TTL_SECS}"
             ));
         }
 
@@ -654,16 +643,16 @@ impl std::fmt::Debug for M2mClient {
 
 impl M2mClient {
     fn validate(&self, index: usize) -> Result<(), String> {
-        let prefix = format!("iam.m2m.clients[{}]", index);
+        let prefix = format!("iam.m2m.clients[{index}]");
 
         ensure_safe_str(
-            &format!("{}.client_id", prefix),
+            &format!("{prefix}.client_id"),
             &self.client_id,
             MAX_M2M_CLIENT_ID_LEN,
         )?;
 
         if self.client_secret_hash.is_empty() {
-            return Err(format!("{}.client_secret_hash must not be empty", prefix));
+            return Err(format!("{prefix}.client_secret_hash must not be empty"));
         }
         if self.client_secret_hash.len() > MAX_M2M_SECRET_HASH_LEN {
             return Err(format!(
@@ -674,7 +663,7 @@ impl M2mClient {
             ));
         }
 
-        ensure_safe_str(&format!("{}.role", prefix), &self.role, MAX_M2M_ROLE_LEN)?;
+        ensure_safe_str(&format!("{prefix}.role"), &self.role, MAX_M2M_ROLE_LEN)?;
 
         if self.allowed_scopes.len() > MAX_M2M_SCOPES_PER_CLIENT {
             return Err(format!(
@@ -686,7 +675,7 @@ impl M2mClient {
         }
         for (j, scope) in self.allowed_scopes.iter().enumerate() {
             ensure_safe_str(
-                &format!("{}.allowed_scopes[{}]", prefix, j),
+                &format!("{prefix}.allowed_scopes[{j}]"),
                 scope,
                 MAX_OIDC_SCOPE_LEN,
             )?;
@@ -706,27 +695,24 @@ mod tests {
             client_secret: Some("super-secret-value-12345".to_string()),
             ..Default::default()
         };
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains("super-secret-value-12345"),
-            "client_secret leaked in Debug output: {}",
-            debug_output
+            "client_secret leaked in Debug output: {debug_output}"
         );
         assert!(
             debug_output.contains("[REDACTED]"),
-            "Debug output missing [REDACTED]: {}",
-            debug_output
+            "Debug output missing [REDACTED]: {debug_output}"
         );
     }
 
     #[test]
     fn test_oidc_config_debug_none_secret() {
         let config = OidcConfig::default();
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             debug_output.contains("None"),
-            "Debug output should show None for absent client_secret: {}",
-            debug_output
+            "Debug output should show None for absent client_secret: {debug_output}"
         );
     }
 
@@ -736,27 +722,24 @@ mod tests {
             bearer_token: Some("Bearer my-secret-token-xyz".to_string()),
             ..Default::default()
         };
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             !debug_output.contains("my-secret-token-xyz"),
-            "bearer_token leaked in Debug output: {}",
-            debug_output
+            "bearer_token leaked in Debug output: {debug_output}"
         );
         assert!(
             debug_output.contains("[REDACTED]"),
-            "Debug output missing [REDACTED]: {}",
-            debug_output
+            "Debug output missing [REDACTED]: {debug_output}"
         );
     }
 
     #[test]
     fn test_scim_config_debug_none_token() {
         let config = ScimConfig::default();
-        let debug_output = format!("{:?}", config);
+        let debug_output = format!("{config:?}");
         assert!(
             debug_output.contains("None"),
-            "Debug output should show None for absent bearer_token: {}",
-            debug_output
+            "Debug output should show None for absent bearer_token: {debug_output}"
         );
     }
 
@@ -792,8 +775,7 @@ mod tests {
         let result = config.validate();
         assert!(
             result.is_ok(),
-            "https:// issuer should be accepted: {:?}",
-            result
+            "https:// issuer should be accepted: {result:?}"
         );
     }
 
@@ -811,8 +793,7 @@ mod tests {
         let result = config.validate();
         assert!(
             result.is_ok(),
-            "http:// issuer should be allowed with allow_insecure_issuer=true: {:?}",
-            result
+            "http:// issuer should be allowed with allow_insecure_issuer=true: {result:?}"
         );
     }
 }

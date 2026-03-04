@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,

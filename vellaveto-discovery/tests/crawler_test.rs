@@ -326,8 +326,7 @@ async fn test_crawl_concurrent() {
     // All 5 should run concurrently: ~100ms, not ~500ms
     assert!(
         elapsed < Duration::from_millis(500),
-        "Expected <500ms, got {:?}",
-        elapsed
+        "Expected <500ms, got {elapsed:?}"
     );
 }
 
@@ -353,8 +352,7 @@ async fn test_crawl_max_concurrent() {
     // 2+2+1 batches: ~300ms minimum
     assert!(
         elapsed >= Duration::from_millis(200),
-        "Expected >=200ms, got {:?}",
-        elapsed
+        "Expected >=200ms, got {elapsed:?}"
     );
 }
 

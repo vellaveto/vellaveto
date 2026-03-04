@@ -154,11 +154,10 @@ impl ExtensionRegistry {
         let extensions = self
             .extensions
             .read()
-            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
         if extensions.len() >= MAX_EXTENSIONS {
             return Err(ExtensionError::Validation(format!(
-                "Too many extensions: max {}",
-                MAX_EXTENSIONS
+                "Too many extensions: max {MAX_EXTENSIONS}"
             )));
         }
         if extensions.contains_key(&descriptor.id) {
@@ -171,12 +170,11 @@ impl ExtensionRegistry {
             let routes = self
                 .method_routes
                 .read()
-                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
             for method in &descriptor.methods {
                 if let Some(existing) = routes.get(method) {
                     return Err(ExtensionError::AlreadyRegistered(format!(
-                        "Method '{}' already registered by extension '{}'",
-                        method, existing
+                        "Method '{method}' already registered by extension '{existing}'"
                     )));
                 }
             }
@@ -197,13 +195,12 @@ impl ExtensionRegistry {
             let mut routes = self
                 .method_routes
                 .write()
-                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
             // Re-check for conflicts under write lock to close TOCTOU race
             for method in &descriptor.methods {
                 if let Some(existing) = routes.get(method) {
                     return Err(ExtensionError::AlreadyRegistered(format!(
-                        "Method '{}' already registered by extension '{}' (concurrent registration race)",
-                        method, existing
+                        "Method '{method}' already registered by extension '{existing}' (concurrent registration race)"
                     )));
                 }
             }
@@ -217,7 +214,7 @@ impl ExtensionRegistry {
             let mut extensions = self
                 .extensions
                 .write()
-                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
 
             // SECURITY (FIND-R63-MCP-003): Re-check capacity and duplicate after
             // acquiring write lock to close TOCTOU race between the earlier read-lock
@@ -240,8 +237,7 @@ impl ExtensionRegistry {
                     }
                 }
                 return Err(ExtensionError::Validation(format!(
-                    "Too many extensions: max {}",
-                    MAX_EXTENSIONS
+                    "Too many extensions: max {MAX_EXTENSIONS}"
                 )));
             }
             if extensions.contains_key(&descriptor.id) {
@@ -287,10 +283,10 @@ impl ExtensionRegistry {
         let mut extensions = self
             .extensions
             .write()
-            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
 
         let ext = extensions.remove(extension_id).ok_or_else(|| {
-            ExtensionError::NotFound(format!("Extension '{}' not found", extension_id))
+            ExtensionError::NotFound(format!("Extension '{extension_id}' not found"))
         })?;
 
         // Remove method routes
@@ -301,7 +297,7 @@ impl ExtensionRegistry {
             let mut routes = self
                 .method_routes
                 .write()
-                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
             for method in &methods {
                 routes.remove(method);
             }
@@ -341,21 +337,20 @@ impl ExtensionRegistry {
             let routes = self
                 .method_routes
                 .read()
-                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+                .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
             routes.get(method).cloned().ok_or_else(|| {
-                ExtensionError::MethodNotFound(format!("No handler for method '{}'", method))
+                ExtensionError::MethodNotFound(format!("No handler for method '{method}'"))
             })?
         };
 
         let extensions = self
             .extensions
             .read()
-            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {}", e)))?;
+            .map_err(|e| ExtensionError::HandlerFailed(format!("Lock poisoned: {e}")))?;
 
         let ext = extensions.get(&extension_id).ok_or_else(|| {
             ExtensionError::NotFound(format!(
-                "Extension '{}' not found (method '{}')",
-                extension_id, method
+                "Extension '{extension_id}' not found (method '{method}')"
             ))
         })?;
 
@@ -401,7 +396,7 @@ fn verify_extension_signature(
 
     // Decode the public key
     let pub_key_bytes =
-        hex::decode(public_key_hex).map_err(|e| format!("invalid public key hex: {}", e))?;
+        hex::decode(public_key_hex).map_err(|e| format!("invalid public key hex: {e}"))?;
     if pub_key_bytes.len() != 32 {
         return Err(format!(
             "public key has wrong length: {} (expected 32)",
@@ -411,11 +406,11 @@ fn verify_extension_signature(
     let mut pk_arr = [0u8; 32];
     pk_arr.copy_from_slice(&pub_key_bytes);
     let verifying_key = VerifyingKey::from_bytes(&pk_arr)
-        .map_err(|e| format!("invalid Ed25519 public key: {}", e))?;
+        .map_err(|e| format!("invalid Ed25519 public key: {e}"))?;
 
     // Decode the signature
     let sig_bytes =
-        hex::decode(signature_hex).map_err(|e| format!("invalid signature hex: {}", e))?;
+        hex::decode(signature_hex).map_err(|e| format!("invalid signature hex: {e}"))?;
     if sig_bytes.len() != 64 {
         return Err(format!(
             "signature has wrong length: {} (expected 64)",
@@ -431,7 +426,7 @@ fn verify_extension_signature(
     canonical.signature = None;
     canonical.public_key = None;
     let canonical_json = serde_json::to_vec(&canonical)
-        .map_err(|e| format!("failed to serialize canonical descriptor: {}", e))?;
+        .map_err(|e| format!("failed to serialize canonical descriptor: {e}"))?;
 
     // Verify
     use ed25519_dalek::Verifier;
@@ -462,7 +457,7 @@ mod tests {
             Self {
                 descriptor: ExtensionDescriptor {
                     id: id.to_string(),
-                    name: format!("Test {}", id),
+                    name: format!("Test {id}"),
                     version: "1.0.0".to_string(),
                     capabilities: vec![],
                     methods,

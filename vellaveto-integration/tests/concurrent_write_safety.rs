@@ -28,8 +28,8 @@ fn runtime() -> tokio::runtime::Runtime {
 
 fn make_action(id: usize) -> Action {
     Action::new(
-        format!("tool_{}", id),
-        format!("func_{}", id),
+        format!("tool_{id}"),
+        format!("func_{id}"),
         json!({"id": id}),
     )
 }
@@ -89,8 +89,7 @@ fn concurrent_writes_produce_valid_jsonl() {
         let expected = num_tasks * writes_per_task;
         assert_eq!(
             valid_count, expected,
-            "Expected {} entries, found {}",
-            expected, valid_count
+            "Expected {expected} entries, found {valid_count}"
         );
     });
 }
@@ -119,7 +118,7 @@ fn concurrent_writes_all_entries_loadable() {
                         Verdict::Allow
                     } else {
                         Verdict::Deny {
-                            reason: format!("deny_{}", i),
+                            reason: format!("deny_{i}"),
                         }
                     };
                     logger
@@ -160,10 +159,10 @@ fn report_counts_are_consistent_after_concurrent_writes() {
                     let verdict = match task_id {
                         0 => Verdict::Allow,
                         1 => Verdict::Deny {
-                            reason: format!("d{}", i),
+                            reason: format!("d{i}"),
                         },
                         _ => Verdict::RequireApproval {
-                            reason: format!("a{}", i),
+                            reason: format!("a{i}"),
                         },
                     };
                     logger

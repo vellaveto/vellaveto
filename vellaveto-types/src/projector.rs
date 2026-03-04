@@ -193,17 +193,13 @@ impl CanonicalToolResponse {
         let content_size = serde_json::to_string(&self.content)
             .map_err(|e| {
                 let id = self.call_id.as_deref().unwrap_or("<none>");
-                format!(
-                    "CanonicalToolResponse '{}' content serialization failed: {}",
-                    id, e
-                )
+                format!("CanonicalToolResponse '{id}' content serialization failed: {e}")
             })?
             .len();
         if content_size > MAX_PROJECTOR_VALUE_SIZE {
             let id = self.call_id.as_deref().unwrap_or("<none>");
             return Err(format!(
-                "CanonicalToolResponse '{}' content serialized size {} exceeds max {}",
-                id, content_size, MAX_PROJECTOR_VALUE_SIZE
+                "CanonicalToolResponse '{id}' content serialized size {content_size} exceeds max {MAX_PROJECTOR_VALUE_SIZE}"
             ));
         }
         // SECURITY (FIND-R172-005): Validate call_id for length and dangerous chars.

@@ -186,8 +186,7 @@ impl McpServer {
         // prevent memory exhaustion and log injection via oversized request IDs.
         if request.id.len() > MAX_REQUEST_ID_LENGTH {
             return Err(McpError::InvalidRequest(format!(
-                "Request ID exceeds maximum length of {} bytes",
-                MAX_REQUEST_ID_LENGTH
+                "Request ID exceeds maximum length of {MAX_REQUEST_ID_LENGTH} bytes"
             )));
         }
 

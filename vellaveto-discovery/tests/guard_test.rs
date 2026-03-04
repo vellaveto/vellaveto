@@ -58,7 +58,7 @@ fn test_guard_known_qualified() {
             assert_eq!(server, "fs");
             assert_eq!(tool, "read_file");
         }
-        other => panic!("Expected Known, got {:?}", other),
+        other => panic!("Expected Known, got {other:?}"),
     }
 }
 
@@ -73,7 +73,7 @@ fn test_guard_known_unqualified() {
             assert_eq!(server, "git");
             assert_eq!(tool, "commit");
         }
-        other => panic!("Expected Known, got {:?}", other),
+        other => panic!("Expected Known, got {other:?}"),
     }
 }
 
@@ -91,7 +91,7 @@ fn test_guard_unknown() {
             assert_eq!(requested_tool, "nonexistent_tool");
             assert!(!available_tools.is_empty());
         }
-        other => panic!("Expected Unknown, got {:?}", other),
+        other => panic!("Expected Unknown, got {other:?}"),
     }
 }
 
@@ -105,7 +105,7 @@ fn test_guard_unknown_with_suggestion() {
             // Should suggest something close to "read_file"
             assert!(suggestion.is_some(), "Expected a suggestion");
         }
-        other => panic!("Expected Unknown, got {:?}", other),
+        other => panic!("Expected Unknown, got {other:?}"),
     }
 }
 
@@ -125,7 +125,7 @@ fn test_guard_ambiguous() {
             assert!(matches.contains(&"fs::read_file".to_string()));
             assert!(matches.contains(&"git::read_file".to_string()));
         }
-        other => panic!("Expected Ambiguous, got {:?}", other),
+        other => panic!("Expected Ambiguous, got {other:?}"),
     }
 }
 
@@ -135,7 +135,7 @@ fn test_guard_bypassed() {
     // No topology loaded
     match guard.check("any_tool") {
         TopologyVerdict::Bypassed => {}
-        other => panic!("Expected Bypassed, got {:?}", other),
+        other => panic!("Expected Bypassed, got {other:?}"),
     }
 }
 
@@ -281,7 +281,7 @@ fn test_guard_default() {
 #[test]
 fn test_guard_debug() {
     let guard = TopologyGuard::new();
-    let debug = format!("{:?}", guard);
+    let debug = format!("{guard:?}");
     assert!(debug.contains("TopologyGuard"));
     assert!(debug.contains("loaded"));
 }

@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -57,8 +57,7 @@ fn star_colon_matches_any_tool_empty_function() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Policy '*:' should match tool='bash', function='', got {:?}",
-        result
+        "Policy '*:' should match tool='bash', function='', got {result:?}"
     );
 }
 
@@ -73,10 +72,7 @@ fn star_colon_does_not_match_nonempty_function() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "No matching policy");
         }
-        other => panic!(
-            "Policy '*:' should NOT match function='exec', got {:?}",
-            other
-        ),
+        other => panic!("Policy '*:' should NOT match function='exec', got {other:?}"),
     }
 }
 
@@ -95,8 +91,7 @@ fn colon_star_matches_empty_tool_any_function() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Policy ':*' should match tool='', function='anything', got {:?}",
-        result
+        "Policy ':*' should match tool='', function='anything', got {result:?}"
     );
 }
 
@@ -111,7 +106,7 @@ fn colon_star_does_not_match_nonempty_tool() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "No matching policy");
         }
-        other => panic!("Policy ':*' should NOT match tool='bash', got {:?}", other),
+        other => panic!("Policy ':*' should NOT match tool='bash', got {other:?}"),
     }
 }
 
@@ -136,9 +131,7 @@ fn star_colon_star_matches_everything() {
         let result = engine.evaluate_action(action, &policies).unwrap();
         assert!(
             matches!(result, Verdict::Allow),
-            "Policy '*:*' should match {:?}, got {:?}",
-            action,
-            result
+            "Policy '*:*' should match {action:?}, got {result:?}"
         );
     }
 }
@@ -155,8 +148,7 @@ fn star_colon_star_vs_star_priority_decides() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "'*' at priority 100 should beat '*:*' at priority 50, got {:?}",
-        result
+        "'*' at priority 100 should beat '*:*' at priority 50, got {result:?}"
     );
 
     // Flip: "*:*" Deny at 100, "*" Allow at 50
@@ -164,7 +156,6 @@ fn star_colon_star_vs_star_priority_decides() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "'*:*' Deny at priority 100 should beat '*' Allow at 50, got {:?}",
-        result
+        "'*:*' Deny at priority 100 should beat '*' Allow at 50, got {result:?}"
     );
 }

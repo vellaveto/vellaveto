@@ -139,10 +139,10 @@ fn full_mcp_message_to_proxy_decision() {
                     assert_eq!(response["error"]["code"], -32001);
                     assert!(reason.contains("Block bash"));
                 }
-                other => panic!("Expected Block/Deny, got: {:?}", other),
+                other => panic!("Expected Block/Deny, got: {other:?}"),
             }
         }
-        other => panic!("Expected ToolCall, got: {:?}", other),
+        other => panic!("Expected ToolCall, got: {other:?}"),
     }
 }
 
@@ -263,8 +263,7 @@ fn demo_config_mcp_proxy_bash_falls_to_default_allow() {
     // Through MCP proxy, bash:execute doesn't match bash:*, so default-allow applies.
     assert!(
         matches!(decision, ProxyDecision::Forward),
-        "bash through MCP proxy falls to default-allow (function mismatch), got: {:?}",
-        decision
+        "bash through MCP proxy falls to default-allow (function mismatch), got: {decision:?}"
     );
 }
 

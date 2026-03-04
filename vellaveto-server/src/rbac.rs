@@ -552,11 +552,11 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     let decoding_key = match &config.key {
         JwtKey::Secret(secret) => DecodingKey::from_secret(secret.as_bytes()),
         JwtKey::RsaPublicKeyPem(pem) => DecodingKey::from_rsa_pem(pem.as_bytes())
-            .map_err(|e| JwtError::InvalidKey(format!("RSA PEM: {}", e)))?,
+            .map_err(|e| JwtError::InvalidKey(format!("RSA PEM: {e}")))?,
         JwtKey::EcPublicKeyPem(pem) => DecodingKey::from_ec_pem(pem.as_bytes())
-            .map_err(|e| JwtError::InvalidKey(format!("EC PEM: {}", e)))?,
+            .map_err(|e| JwtError::InvalidKey(format!("EC PEM: {e}")))?,
         JwtKey::EdDsaPublicKeyPem(pem) => DecodingKey::from_ed_pem(pem.as_bytes())
-            .map_err(|e| JwtError::InvalidKey(format!("EdDSA PEM: {}", e)))?,
+            .map_err(|e| JwtError::InvalidKey(format!("EdDSA PEM: {e}")))?,
     };
 
     // Build validation parameters
@@ -585,8 +585,7 @@ pub fn extract_jwt_claims(auth_header: &str, config: &JwtConfig) -> Result<RoleC
     if let Some(ref aud) = config.audience {
         if !claims.matches_audience(aud) {
             return Err(JwtError::ValidationFailed(format!(
-                "token audience mismatch: expected '{}'",
-                aud
+                "token audience mismatch: expected '{aud}'"
             )));
         }
     }
@@ -886,7 +885,7 @@ mod tests {
     fn test_admin_has_all_permissions() {
         let admin_perms = Role::Admin.permissions();
         for perm in Permission::all() {
-            assert!(admin_perms.contains(perm), "Admin should have {:?}", perm);
+            assert!(admin_perms.contains(perm), "Admin should have {perm:?}");
         }
     }
 
@@ -1295,9 +1294,9 @@ mod tests {
         )
         .unwrap();
 
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
         let result = extract_jwt_claims(&auth_header, &config);
-        assert!(result.is_ok(), "JWT validation failed: {:?}", result);
+        assert!(result.is_ok(), "JWT validation failed: {result:?}");
 
         let extracted = result.unwrap();
         assert_eq!(extracted.sub, Some("test-user".into()));
@@ -1333,7 +1332,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        let result = extract_jwt_claims(&format!("Bearer {token}"), &config);
         assert!(matches!(result, Err(JwtError::UnsupportedAlgorithm(_))));
     }
 
@@ -1368,7 +1367,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        let result = extract_jwt_claims(&format!("Bearer {token}"), &config);
         assert!(matches!(
             result,
             Err(JwtError::AlgorithmKeyMismatch {
@@ -1419,7 +1418,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        let result = extract_jwt_claims(&format!("Bearer {token}"), &config);
         assert!(matches!(result, Err(JwtError::ValidationFailed(_))));
     }
 
@@ -1455,7 +1454,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        let result = extract_jwt_claims(&format!("Bearer {token}"), &config);
         assert!(matches!(result, Err(JwtError::ValidationFailed(_))));
     }
 
@@ -1500,11 +1499,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = extract_jwt_claims(&format!("Bearer {}", token), &config);
+        let result = extract_jwt_claims(&format!("Bearer {token}"), &config);
         assert!(
             result.is_ok(),
-            "JWT audience array should validate: {:?}",
-            result
+            "JWT audience array should validate: {result:?}"
         );
     }
 
@@ -1548,7 +1546,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
         );
 
         let principal = extract_principal_from_request(&headers, &config)

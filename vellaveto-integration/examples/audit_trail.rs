@@ -65,7 +65,7 @@ fn main() {
                 .evaluate_action(&action, &policies)
                 .expect("evaluation failed");
 
-            println!("  {}:{} -> {:?}", tool, function, verdict);
+            println!("  {tool}:{function} -> {verdict:?}");
             logger
                 .log_entry(&action, &verdict, json!({}))
                 .await

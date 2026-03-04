@@ -98,11 +98,10 @@ fn forbidden_checked_before_required() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("forbidden"),
-                "Should deny for forbidden param, not missing required. Got: {}",
-                reason
+                "Should deny for forbidden param, not missing required. Got: {reason}"
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -211,8 +210,7 @@ fn require_approval_string_true_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 
@@ -227,7 +225,6 @@ fn require_approval_integer_1_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }

@@ -720,8 +720,7 @@ impl ObservabilityConfig {
         for (i, field) in self.redacted_fields.iter().enumerate() {
             if field.is_empty() {
                 return Err(format!(
-                    "observability.redacted_fields[{}] must not be empty",
-                    i
+                    "observability.redacted_fields[{i}] must not be empty"
                 ));
             }
             if field.len() > MAX_REDACTED_FIELD_LEN {
@@ -869,13 +868,12 @@ impl ObservabilityConfig {
     /// Validate a URL is well-formed.
     fn validate_url(url: &str, field: &str) -> Result<(), String> {
         let parsed =
-            url::Url::parse(url).map_err(|e| format!("{} is not a valid URL: {}", field, e))?;
+            url::Url::parse(url).map_err(|e| format!("{field} is not a valid URL: {e}"))?;
 
         match parsed.scheme() {
             "http" | "https" => Ok(()),
             scheme => Err(format!(
-                "{} must use http or https scheme, got '{}'",
-                field, scheme
+                "{field} must use http or https scheme, got '{scheme}'"
             )),
         }
     }
@@ -885,7 +883,7 @@ impl ObservabilityConfig {
     /// SECURITY (IMP-R126-012): Delegates to canonical `validate_url_no_ssrf()`
     /// from vellaveto-types, eliminating ~60 lines of duplicated SSRF logic.
     fn validate_not_private(url: &str, field: &str) -> Result<(), String> {
-        vellaveto_types::validate_url_no_ssrf(url).map_err(|e| format!("{} {}", field, e))
+        vellaveto_types::validate_url_no_ssrf(url).map_err(|e| format!("{field} {e}"))
     }
 }
 
@@ -1191,8 +1189,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("IPv4-mapped private"),
-            "::ffff:127.0.0.1 should be rejected as IPv4-mapped private, got: {}",
-            err
+            "::ffff:127.0.0.1 should be rejected as IPv4-mapped private, got: {err}"
         );
     }
 
@@ -1207,8 +1204,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("IPv4-mapped private"),
-            "::ffff:10.0.0.1 should be rejected, got: {}",
-            err
+            "::ffff:10.0.0.1 should be rejected, got: {err}"
         );
     }
 
@@ -1223,8 +1219,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("IPv4-mapped private"),
-            "::ffff:192.168.1.1 should be rejected, got: {}",
-            err
+            "::ffff:192.168.1.1 should be rejected, got: {err}"
         );
     }
 
@@ -1239,8 +1234,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("IPv4-mapped private"),
-            "::ffff:169.254.169.254 should be rejected, got: {}",
-            err
+            "::ffff:169.254.169.254 should be rejected, got: {err}"
         );
     }
 
@@ -1311,8 +1305,7 @@ mod tests {
 
             assert!(
                 config.has_enabled_exporters(),
-                "master=true with {}=true should return true",
-                exporter
+                "master=true with {exporter}=true should return true"
             );
         }
     }
@@ -1401,8 +1394,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("timeout_secs must be > 0"),
-            "expected timeout error, got: {}",
-            err
+            "expected timeout error, got: {err}"
         );
     }
 
@@ -1416,8 +1408,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("flush_interval_secs must be > 0"),
-            "expected flush_interval error, got: {}",
-            err
+            "expected flush_interval error, got: {err}"
         );
     }
 
@@ -1431,8 +1422,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("timeout_secs must be > 0"),
-            "expected timeout error, got: {}",
-            err
+            "expected timeout error, got: {err}"
         );
     }
 
@@ -1446,8 +1436,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("flush_interval_secs must be > 0"),
-            "expected flush_interval error, got: {}",
-            err
+            "expected flush_interval error, got: {err}"
         );
     }
 
@@ -1461,8 +1450,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("timeout_secs must be > 0"),
-            "expected timeout error, got: {}",
-            err
+            "expected timeout error, got: {err}"
         );
     }
 
@@ -1476,8 +1464,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("flush_interval_secs must be > 0"),
-            "expected flush_interval error, got: {}",
-            err
+            "expected flush_interval error, got: {err}"
         );
     }
 
@@ -1492,8 +1479,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("timeout_secs must be > 0"),
-            "expected timeout error, got: {}",
-            err
+            "expected timeout error, got: {err}"
         );
     }
 
@@ -1508,8 +1494,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("flush_interval_secs must be > 0"),
-            "expected flush_interval error, got: {}",
-            err
+            "expected flush_interval error, got: {err}"
         );
     }
 
@@ -1544,8 +1529,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers key contains control or format characters"),
-            "expected control char error, got: {}",
-            err
+            "expected control char error, got: {err}"
         );
     }
 
@@ -1560,8 +1544,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers key contains control or format characters"),
-            "expected format char error, got: {}",
-            err
+            "expected format char error, got: {err}"
         );
     }
 
@@ -1575,8 +1558,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value contains control or format characters"),
-            "expected control char error on value, got: {}",
-            err
+            "expected control char error on value, got: {err}"
         );
     }
 
@@ -1591,8 +1573,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value contains control or format characters"),
-            "expected format char error on value, got: {}",
-            err
+            "expected format char error on value, got: {err}"
         );
     }
 
@@ -1604,8 +1585,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers key exceeds max length"),
-            "expected key length error, got: {}",
-            err
+            "expected key length error, got: {err}"
         );
     }
 
@@ -1620,8 +1600,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("webhook.headers value exceeds max length"),
-            "expected value length error, got: {}",
-            err
+            "expected value length error, got: {err}"
         );
     }
 
@@ -1649,8 +1628,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers key contains control or format characters"),
-            "expected control char error, got: {}",
-            err
+            "expected control char error, got: {err}"
         );
     }
 
@@ -1665,8 +1643,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers key contains control or format characters"),
-            "expected format char error, got: {}",
-            err
+            "expected format char error, got: {err}"
         );
     }
 
@@ -1680,8 +1657,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers value contains control or format characters"),
-            "expected control char error on value, got: {}",
-            err
+            "expected control char error on value, got: {err}"
         );
     }
 
@@ -1696,8 +1672,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers value contains control or format characters"),
-            "expected format char error on value, got: {}",
-            err
+            "expected format char error on value, got: {err}"
         );
     }
 
@@ -1709,8 +1684,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers key exceeds max length"),
-            "expected key length error, got: {}",
-            err
+            "expected key length error, got: {err}"
         );
     }
 
@@ -1722,8 +1696,7 @@ mod tests {
         let err = config.validate().unwrap_err();
         assert!(
             err.contains("otlp.headers value exceeds max length"),
-            "expected value length error, got: {}",
-            err
+            "expected value length error, got: {err}"
         );
     }
 

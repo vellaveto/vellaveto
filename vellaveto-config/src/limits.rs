@@ -152,70 +152,59 @@ impl LimitsConfig {
     pub fn validate(&self) -> Result<(), String> {
         if self.max_response_body_bytes == 0 || self.max_response_body_bytes > MAX_BYTES_LIMIT {
             return Err(format!(
-                "limits.max_response_body_bytes must be between 1 and {} (1 GB)",
-                MAX_BYTES_LIMIT
+                "limits.max_response_body_bytes must be between 1 and {MAX_BYTES_LIMIT} (1 GB)"
             ));
         }
         if self.max_sse_event_bytes == 0 || self.max_sse_event_bytes > MAX_BYTES_LIMIT {
             return Err(format!(
-                "limits.max_sse_event_bytes must be between 1 and {} (1 GB)",
-                MAX_BYTES_LIMIT
+                "limits.max_sse_event_bytes must be between 1 and {MAX_BYTES_LIMIT} (1 GB)"
             ));
         }
         if self.max_jsonrpc_line_bytes == 0 || self.max_jsonrpc_line_bytes > MAX_BYTES_LIMIT {
             return Err(format!(
-                "limits.max_jsonrpc_line_bytes must be between 1 and {} (1 GB)",
-                MAX_BYTES_LIMIT
+                "limits.max_jsonrpc_line_bytes must be between 1 and {MAX_BYTES_LIMIT} (1 GB)"
             ));
         }
         if self.max_call_chain_length == 0 || self.max_call_chain_length > MAX_COUNT_LIMIT {
             return Err(format!(
-                "limits.max_call_chain_length must be between 1 and {}",
-                MAX_COUNT_LIMIT
+                "limits.max_call_chain_length must be between 1 and {MAX_COUNT_LIMIT}"
             ));
         }
         if self.call_chain_max_age_secs == 0 || self.call_chain_max_age_secs > MAX_TIMEOUT_SECS {
             return Err(format!(
-                "limits.call_chain_max_age_secs must be between 1 and {} (1 hour)",
-                MAX_TIMEOUT_SECS
+                "limits.call_chain_max_age_secs must be between 1 and {MAX_TIMEOUT_SECS} (1 hour)"
             ));
         }
         if self.request_timeout_secs == 0 || self.request_timeout_secs > MAX_TIMEOUT_SECS {
             return Err(format!(
-                "limits.request_timeout_secs must be between 1 and {} (1 hour)",
-                MAX_TIMEOUT_SECS
+                "limits.request_timeout_secs must be between 1 and {MAX_TIMEOUT_SECS} (1 hour)"
             ));
         }
         if self.max_action_history == 0 || self.max_action_history > MAX_COUNT_LIMIT {
             return Err(format!(
-                "limits.max_action_history must be between 1 and {}",
-                MAX_COUNT_LIMIT
+                "limits.max_action_history must be between 1 and {MAX_COUNT_LIMIT}"
             ));
         }
         if self.max_pending_tool_calls == 0 || self.max_pending_tool_calls > MAX_COUNT_LIMIT {
             return Err(format!(
-                "limits.max_pending_tool_calls must be between 1 and {}",
-                MAX_COUNT_LIMIT
+                "limits.max_pending_tool_calls must be between 1 and {MAX_COUNT_LIMIT}"
             ));
         }
         if self.max_call_chain_header_bytes == 0
             || self.max_call_chain_header_bytes > MAX_BYTES_LIMIT
         {
             return Err(format!(
-                "limits.max_call_chain_header_bytes must be between 1 and {} (1 GB)",
-                MAX_BYTES_LIMIT
+                "limits.max_call_chain_header_bytes must be between 1 and {MAX_BYTES_LIMIT} (1 GB)"
             ));
         }
         if self.max_trace_header_bytes == 0 || self.max_trace_header_bytes > MAX_BYTES_LIMIT {
             return Err(format!(
-                "limits.max_trace_header_bytes must be between 1 and {} (1 GB)",
-                MAX_BYTES_LIMIT
+                "limits.max_trace_header_bytes must be between 1 and {MAX_BYTES_LIMIT} (1 GB)"
             ));
         }
         if self.max_jsonrpc_id_key_len == 0 || self.max_jsonrpc_id_key_len > MAX_COUNT_LIMIT {
             return Err(format!(
-                "limits.max_jsonrpc_id_key_len must be between 1 and {}",
-                MAX_COUNT_LIMIT
+                "limits.max_jsonrpc_id_key_len must be between 1 and {MAX_COUNT_LIMIT}"
             ));
         }
         Ok(())

@@ -80,7 +80,7 @@ fn test_sanitizer_max_mappings_fail_closed() {
     let sanitizer = QuerySanitizer::new(PiiScanner::default());
     // Fill up mappings (each unique email creates a mapping)
     for i in 0..50_000 {
-        let input = format!("user{}@example.com", i);
+        let input = format!("user{i}@example.com");
         let _ = sanitizer.sanitize(&input);
     }
     // Next sanitize should fail
@@ -415,7 +415,7 @@ fn test_blind_credential_validate_epoch_overflow() {
 #[test]
 fn test_blind_credential_debug_redacts_secrets() {
     let cred = make_test_credential(42);
-    let debug_str = format!("{:?}", cred);
+    let debug_str = format!("{cred:?}");
     assert!(debug_str.contains("REDACTED"));
     assert!(!debug_str.contains("[1, 2, 3, 4]"));
     assert!(!debug_str.contains("[5, 6, 7, 8]"));
@@ -538,7 +538,7 @@ fn test_vault_mark_consumed_out_of_bounds() {
 fn test_vault_debug_no_secrets() {
     let (vault, _dir) = make_test_vault(10, 3);
     vault.add_credential(make_test_credential(1)).unwrap();
-    let debug_str = format!("{:?}", vault);
+    let debug_str = format!("{vault:?}");
     assert!(debug_str.contains("CredentialVault"));
     assert!(debug_str.contains("available"));
     // Should not contain raw credential bytes
@@ -850,7 +850,7 @@ fn test_context_oversized_entry_rejected() {
 fn test_context_recent_returns_last_n() {
     let ctx = ContextIsolator::new();
     for i in 0..10 {
-        ctx.record("s1", "user", &format!("msg-{}", i)).unwrap();
+        ctx.record("s1", "user", &format!("msg-{i}")).unwrap();
     }
     let recent = ctx.get_recent_context("s1", 3).unwrap();
     assert_eq!(recent.len(), 3);

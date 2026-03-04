@@ -28,7 +28,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", id),
+        name: format!("cond-{id}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -130,11 +130,10 @@ fn forbidden_checked_before_required() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("password"),
-                "Should deny due to forbidden 'password', got: {}",
-                reason
+                "Should deny due to forbidden 'password', got: {reason}"
             );
         }
-        other => panic!("Expected Deny for forbidden param, got {:?}", other),
+        other => panic!("Expected Deny for forbidden param, got {other:?}"),
     }
 }
 
@@ -158,11 +157,10 @@ fn missing_required_param_denied_when_no_forbidden_match() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("auth_token"),
-                "Should deny due to missing 'auth_token', got: {}",
-                reason
+                "Should deny due to missing 'auth_token', got: {reason}"
             );
         }
-        other => panic!("Expected Deny for missing required param, got {:?}", other),
+        other => panic!("Expected Deny for missing required param, got {other:?}"),
     }
 }
 
@@ -186,8 +184,7 @@ fn all_conditions_satisfied_allows() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Action satisfying all conditions should be allowed, got {:?}",
-        verdict
+        "Action satisfying all conditions should be allowed, got {verdict:?}"
     );
 }
 
@@ -213,8 +210,7 @@ fn require_approval_string_true_fails_closed() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        verdict
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {verdict:?}"
     );
 }
 
@@ -234,8 +230,7 @@ fn require_approval_integer_1_fails_closed() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        verdict
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {verdict:?}"
     );
 }
 
@@ -255,7 +250,6 @@ fn require_approval_null_fails_closed() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        verdict
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {verdict:?}"
     );
 }

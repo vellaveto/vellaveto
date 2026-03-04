@@ -344,7 +344,7 @@ pub async fn handle_mcp_post(
             }),
         );
         let verdict = Verdict::Deny {
-            reason: format!("Invalid upstream call chain header: {}", reason),
+            reason: format!("Invalid upstream call chain header: {reason}"),
         };
         if let Err(e) = state
             .audit
@@ -452,8 +452,7 @@ pub async fn handle_mcp_post(
                 let action = extractor::extract_action(&tool_name, &arguments);
                 let verdict = Verdict::Deny {
                     reason: format!(
-                        "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
-                        tool_name
+                        "Tool '{tool_name}' blocked: annotations changed since initial tools/list (rug-pull detected)"
                     ),
                 };
                 if let Err(e) = state
@@ -505,7 +504,7 @@ pub async fn handle_mcp_post(
                     .collect();
                 // SECURITY (R37-PROXY-3): Keep detailed reason for audit, generic for client
                 let audit_reason =
-                    format!("DLP: secrets detected in tool parameters: {:?}", patterns);
+                    format!("DLP: secrets detected in tool parameters: {patterns:?}");
                 tracing::warn!(
                     "SECURITY: DLP blocking tool '{}' in session {}: {}",
                     tool_name,
@@ -621,7 +620,7 @@ pub async fn handle_mcp_post(
                         reason
                     );
                     let verdict = Verdict::Deny {
-                        reason: format!("Circuit breaker open: {}", reason),
+                        reason: format!("Circuit breaker open: {reason}"),
                     };
                     if let Err(e) = state
                         .audit
@@ -1142,8 +1141,7 @@ pub async fn handle_mcp_post(
                                                     if state.response_dlp_blocking {
                                                         let verdict = Verdict::Deny {
                                                             reason: format!(
-                                                                "Smart-fallback response DLP blocked: {:?}",
-                                                                patterns
+                                                                "Smart-fallback response DLP blocked: {patterns:?}"
                                                             ),
                                                         };
                                                         let _ = state
@@ -1204,8 +1202,7 @@ pub async fn handle_mcp_post(
                                                             if state.injection_blocking {
                                                                 let verdict = Verdict::Deny {
                                                                     reason: format!(
-                                                                        "Smart-fallback response injection blocked: {:?}",
-                                                                        matches
+                                                                        "Smart-fallback response injection blocked: {matches:?}"
                                                                     ),
                                                                 };
                                                                 let _ = state
@@ -1267,7 +1264,7 @@ pub async fn handle_mcp_post(
                                             .log_entry(
                                                 &action,
                                                 &Verdict::Deny {
-                                                    reason: format!("all transports failed: {}", e),
+                                                    reason: format!("all transports failed: {e}"),
                                                 },
                                                 json!({
                                                     "event": "cross_transport_fallback_failed",
@@ -1598,8 +1595,7 @@ pub async fn handle_mcp_post(
                 let action = extractor::extract_resource_action(&uri);
                 let verdict = Verdict::Deny {
                     reason: format!(
-                        "Resource '{}' blocked: server flagged by rug-pull detection",
-                        uri
+                        "Resource '{uri}' blocked: server flagged by rug-pull detection"
                     ),
                 };
                 if let Err(e) = state
@@ -1650,7 +1646,7 @@ pub async fn handle_mcp_post(
                         .map(|f| format!("{} at {}", f.pattern_name, f.location))
                         .collect();
                     let audit_reason =
-                        format!("DLP: secrets detected in resource URI: {:?}", patterns);
+                        format!("DLP: secrets detected in resource URI: {patterns:?}");
                     tracing::warn!(
                         "SECURITY: DLP blocking resource read '{}' in session {}: {}",
                         uri,
@@ -1713,7 +1709,7 @@ pub async fn handle_mcp_post(
                         reason
                     );
                     let verdict = Verdict::Deny {
-                        reason: format!("Circuit breaker open: {}", reason),
+                        reason: format!("Circuit breaker open: {reason}"),
                     };
                     if let Err(e) = state
                         .audit
@@ -2211,8 +2207,7 @@ pub async fn handle_mcp_post(
                     let verdict = if state.response_dlp_blocking {
                         Verdict::Deny {
                             reason: format!(
-                                "Notification blocked: secrets detected ({:?})",
-                                patterns
+                                "Notification blocked: secrets detected ({patterns:?})"
                             ),
                         }
                     } else {
@@ -2285,8 +2280,7 @@ pub async fn handle_mcp_post(
                         let verdict = if state.injection_blocking {
                             Verdict::Deny {
                                 reason: format!(
-                                    "PassThrough injection blocked: {:?}",
-                                    injection_matches
+                                    "PassThrough injection blocked: {injection_matches:?}"
                                 ),
                             }
                         } else {
@@ -2664,8 +2658,7 @@ pub async fn handle_mcp_post(
                         let verdict = if state.injection_blocking {
                             Verdict::Deny {
                                 reason: format!(
-                                    "Task request injection blocked: {:?}",
-                                    injection_matches
+                                    "Task request injection blocked: {injection_matches:?}"
                                 ),
                             }
                         } else {
@@ -2730,7 +2723,7 @@ pub async fn handle_mcp_post(
                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                     .collect();
                 // SECURITY (R37-PROXY-3): Keep detailed reason for audit, generic for client
-                let audit_reason = format!("DLP: secrets detected in task request: {:?}", patterns);
+                let audit_reason = format!("DLP: secrets detected in task request: {patterns:?}");
                 if let Err(e) = state
                     .audit
                     .log_entry(
@@ -3196,8 +3189,7 @@ pub async fn handle_mcp_post(
                         let verdict = if state.injection_blocking {
                             Verdict::Deny {
                                 reason: format!(
-                                    "Extension injection blocked: {:?}",
-                                    injection_matches
+                                    "Extension injection blocked: {injection_matches:?}"
                                 ),
                             }
                         } else {
@@ -3248,8 +3240,7 @@ pub async fn handle_mcp_post(
                 let action = extractor::extract_extension_action(extension_id, method, &params);
                 let audit_verdict = Verdict::Deny {
                     reason: format!(
-                        "DLP blocked: secret detected in extension parameters: {:?}",
-                        patterns
+                        "DLP blocked: secret detected in extension parameters: {patterns:?}"
                     ),
                 };
                 if let Err(e) = state.audit.log_entry(
@@ -3320,7 +3311,7 @@ pub async fn handle_mcp_post(
 
             let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
 
-            let ext_key = format!("extension:{}:{}", extension_id, method);
+            let ext_key = format!("extension:{extension_id}:{method}");
 
             let verdict = match state.engine.evaluate_action_with_context(
                 &action,
@@ -3334,7 +3325,7 @@ pub async fn handle_mcp_post(
                         "Extension policy evaluation error: {}", e
                     );
                     Verdict::Deny {
-                        reason: format!("Policy evaluation failed: {}", e),
+                        reason: format!("Policy evaluation failed: {e}"),
                     }
                 }
             };
@@ -3491,7 +3482,7 @@ pub async fn handle_mcp_post(
                     let reason = match &verdict {
                         Verdict::Deny { reason } => reason.clone(),
                         Verdict::RequireApproval { reason, .. } => {
-                            format!("Requires approval: {}", reason)
+                            format!("Requires approval: {reason}")
                         }
                         _ => "Extension call denied — fail-closed".to_string(),
                     };
@@ -3774,9 +3765,9 @@ pub(crate) fn build_transport_targets(
                         // SECURITY (FIND-R43-029): Wrap IPv6 addresses in brackets
                         // to produce valid URLs (e.g., "http://[::1]:50051").
                         if host.contains(':') {
-                            format!("http://[{}]:{}", host, grpc_port)
+                            format!("http://[{host}]:{grpc_port}")
                         } else {
-                            format!("http://{}:{}", host, grpc_port)
+                            format!("http://{host}:{grpc_port}")
                         }
                     } else {
                         continue;
@@ -3792,7 +3783,7 @@ pub(crate) fn build_transport_targets(
                         state.upstream_url.clone()
                     };
                     if ws_url.ends_with("/mcp") {
-                        format!("{}/ws", ws_url)
+                        format!("{ws_url}/ws")
                     } else {
                         format!("{}/ws", ws_url.trim_end_matches('/'))
                     }
@@ -4116,7 +4107,7 @@ pub async fn handle_mcp_get(
             }),
         );
         let verdict = Verdict::Deny {
-            reason: format!("Invalid upstream call chain header: {}", reason),
+            reason: format!("Invalid upstream call chain header: {reason}"),
         };
         if let Err(e) = state
             .audit

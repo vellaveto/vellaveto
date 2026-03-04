@@ -273,8 +273,7 @@ impl ToolSignature {
                     .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
                 {
                     return Err(format!(
-                        "ToolSignature {} contains control or format characters",
-                        name
+                        "ToolSignature {name} contains control or format characters"
                     ));
                 }
             }
@@ -289,8 +288,7 @@ impl ToolSignature {
                     .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
                 {
                     return Err(format!(
-                        "ToolSignature {} contains control or format characters",
-                        name
+                        "ToolSignature {name} contains control or format characters"
                     ));
                 }
             }
@@ -497,8 +495,7 @@ impl ToolAttestation {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "ToolAttestation {} contains control or format characters",
-                    name
+                    "ToolAttestation {name} contains control or format characters"
                 ));
             }
         }
@@ -514,8 +511,7 @@ impl ToolAttestation {
                     .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
                 {
                     return Err(format!(
-                        "ToolAttestation {} contains control or format characters",
-                        name
+                        "ToolAttestation {name} contains control or format characters"
                     ));
                 }
             }
@@ -724,7 +720,7 @@ impl VersionDriftAlert {
             ("detected_at", &self.detected_at),
         ] {
             if value.is_empty() {
-                return Err(format!("VersionDriftAlert {} must not be empty", name));
+                return Err(format!("VersionDriftAlert {name} must not be empty"));
             }
             if value.len() > Self::MAX_FIELD_LEN {
                 return Err(format!(
@@ -736,8 +732,7 @@ impl VersionDriftAlert {
             }
             if crate::core::has_dangerous_chars(value) {
                 return Err(format!(
-                    "VersionDriftAlert {} contains control or format characters",
-                    name
+                    "VersionDriftAlert {name} contains control or format characters"
                 ));
             }
         }

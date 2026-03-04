@@ -903,8 +903,7 @@ mod tests {
             let controls = registry.get_controls_for_category(*cat);
             assert!(
                 !controls.is_empty(),
-                "Category {} should have at least one control",
-                cat
+                "Category {cat} should have at least one control"
             );
         }
     }
@@ -937,8 +936,7 @@ mod tests {
         for (id, control) in &registry.controls {
             assert!(
                 !control.vellaveto_mitigations.is_empty(),
-                "Control {} should have at least one mitigation",
-                id
+                "Control {id} should have at least one mitigation"
             );
         }
     }
@@ -1063,7 +1061,7 @@ mod tests {
         let registry = OwaspAsiRegistry::new();
         let mut seen = std::collections::HashSet::new();
         for id in registry.controls.keys() {
-            assert!(seen.insert(id.clone()), "Duplicate control ID: {}", id);
+            assert!(seen.insert(id.clone()), "Duplicate control ID: {id}");
         }
     }
 
@@ -1074,9 +1072,7 @@ mod tests {
             for id in control_ids {
                 assert!(
                     registry.controls.contains_key(id),
-                    "Detection {:?} references non-existent control '{}'",
-                    detection,
-                    id
+                    "Detection {detection:?} references non-existent control '{id}'"
                 );
             }
         }
@@ -1097,7 +1093,7 @@ mod tests {
         let mut report = registry.generate_coverage_report();
         report.coverage_percent = f32::NAN;
         let err = report.validate().unwrap_err();
-        assert!(err.contains("coverage_percent"), "err: {}", err);
+        assert!(err.contains("coverage_percent"), "err: {err}");
     }
 
     #[test]
@@ -1106,7 +1102,7 @@ mod tests {
         let mut report = registry.generate_coverage_report();
         report.coverage_percent = -1.0;
         let err = report.validate().unwrap_err();
-        assert!(err.contains("coverage_percent"), "err: {}", err);
+        assert!(err.contains("coverage_percent"), "err: {err}");
     }
 
     #[test]
@@ -1115,6 +1111,6 @@ mod tests {
         let mut report = registry.generate_coverage_report();
         report.coverage_percent = 101.0;
         let err = report.validate().unwrap_err();
-        assert!(err.contains("coverage_percent"), "err: {}", err);
+        assert!(err.contains("coverage_percent"), "err: {err}");
     }
 }

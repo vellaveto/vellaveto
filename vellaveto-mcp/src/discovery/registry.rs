@@ -528,7 +528,7 @@ impl McpRegistryClient {
         }
 
         // Look up in identity cache first
-        let identity_key = format!("id:{}", server_id);
+        let identity_key = format!("id:{server_id}");
         if let Some(cached) = self.check_identity_cache(&identity_key) {
             if let Some(entry) = cached
                 .entries
@@ -576,7 +576,7 @@ impl McpRegistryClient {
             publisher_match: false,
             version_match: false,
             registry_entry: None,
-            summary: format!("server '{}' not found in registry", server_id),
+            summary: format!("server '{server_id}' not found in registry"),
         })
     }
 
@@ -782,9 +782,9 @@ mod tests {
     fn sample_entry(id: &str) -> RegistryServerEntry {
         RegistryServerEntry {
             server_id: id.to_string(),
-            name: format!("Server {}", id),
+            name: format!("Server {id}"),
             description: Some("A test server".to_string()),
-            url: format!("https://{}.example.com", id),
+            url: format!("https://{id}.example.com"),
             version: "1.0.0".to_string(),
             publisher_hash: Some(compute_publisher_hash(b"test-publisher")),
             capabilities: vec!["tools".to_string(), "resources".to_string()],
@@ -850,7 +850,7 @@ mod tests {
     fn test_entry_validate_too_many_capabilities_rejected() {
         let mut entry = sample_entry("srv-1");
         entry.capabilities = (0..MAX_REGISTRY_CAPABILITIES + 1)
-            .map(|i| format!("cap-{}", i))
+            .map(|i| format!("cap-{i}"))
             .collect();
         assert!(entry.validate().is_err());
     }
@@ -859,7 +859,7 @@ mod tests {
     fn test_entry_validate_too_many_tags_rejected() {
         let mut entry = sample_entry("srv-1");
         entry.tags = (0..MAX_REGISTRY_TAGS + 1)
-            .map(|i| format!("tag-{}", i))
+            .map(|i| format!("tag-{i}"))
             .collect();
         assert!(entry.validate().is_err());
     }
@@ -935,9 +935,7 @@ mod tests {
     #[test]
     fn test_client_query_caps_results() {
         let client = McpRegistryClient::new(test_config()).unwrap();
-        let entries: Vec<_> = (0..10)
-            .map(|i| sample_entry(&format!("srv-{}", i)))
-            .collect();
+        let entries: Vec<_> = (0..10).map(|i| sample_entry(&format!("srv-{i}"))).collect();
         client.ingest_registry_response("test", entries).unwrap();
 
         let result = client.query("test", 3).unwrap();
@@ -1158,7 +1156,7 @@ mod tests {
     fn test_client_debug_does_not_leak_api_key() {
         let config = test_config().with_api_key("secret-key-12345".to_string());
         let client = McpRegistryClient::new(config).unwrap();
-        let debug_str = format!("{:?}", client);
+        let debug_str = format!("{client:?}");
         assert!(!debug_str.contains("secret-key-12345"));
     }
 }

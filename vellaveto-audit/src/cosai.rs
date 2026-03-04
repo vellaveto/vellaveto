@@ -897,7 +897,7 @@ mod tests {
 
         for cat in &categories {
             let threats = registry.get_threats_for_category(*cat);
-            assert!(!threats.is_empty(), "Category {} has no threats", cat,);
+            assert!(!threats.is_empty(), "Category {cat} has no threats",);
         }
     }
 

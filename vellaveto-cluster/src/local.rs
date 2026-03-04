@@ -101,3 +101,213 @@ impl ClusterBackend for LocalBackend {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use vellaveto_approval::ApprovalStatus;
+    use vellaveto_types::Action;
+
+    fn make_store() -> Arc<ApprovalStore> {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        // Leak the TempDir to prevent cleanup during test (store holds the path).
+        let path = dir.path().to_path_buf();
+        std::mem::forget(dir);
+        Arc::new(ApprovalStore::new(
+            path.join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        ))
+    }
+
+    fn test_action() -> Action {
+        Action::new(
+            "file_system".to_string(),
+            "read_file".to_string(),
+            json!({"path": "/tmp/test.txt"}),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_new_creates_backend() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+        // Health check should always succeed for local backend.
+        assert!(backend.health_check().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_health_check_always_ok() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+        let result = backend.health_check().await;
+        assert!(
+            result.is_ok(),
+            "Local backend health check should always succeed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_rate_limit_check_always_allows() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+        // The local backend defers rate limiting to the caller's governor.
+        let allowed = backend
+            .rate_limit_check("per_ip", "192.168.1.1", 100, 200)
+            .await
+            .unwrap();
+        assert!(
+            allowed,
+            "Local backend rate_limit_check should always return true"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_rate_limit_check_ignores_parameters() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+        // Even with extreme parameters, local backend always allows.
+        let allowed = backend
+            .rate_limit_check("per_principal", "admin@example.com", 0, 0)
+            .await
+            .unwrap();
+        assert!(allowed);
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_create_and_get() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        let id = backend
+            .approval_create(test_action(), "needs review".to_string(), None)
+            .await
+            .unwrap();
+        assert!(!id.is_empty());
+
+        let approval = backend.approval_get(&id).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Pending);
+        assert_eq!(approval.reason, "needs review");
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_approve_delegates() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        let id = backend
+            .approval_create(test_action(), "review this".to_string(), None)
+            .await
+            .unwrap();
+
+        let approved = backend.approval_approve(&id, "admin").await.unwrap();
+        assert_eq!(approved.status, ApprovalStatus::Approved);
+        assert_eq!(approved.resolved_by.as_deref(), Some("admin"));
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_deny_delegates() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        let id = backend
+            .approval_create(test_action(), "deny this".to_string(), None)
+            .await
+            .unwrap();
+
+        let denied = backend.approval_deny(&id, "security-team").await.unwrap();
+        assert_eq!(denied.status, ApprovalStatus::Denied);
+        assert_eq!(denied.resolved_by.as_deref(), Some("security-team"));
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_get_not_found_returns_error() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        let result = backend.approval_get("nonexistent-id").await;
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), ClusterError::NotFound(_)),
+            "Should return NotFound error for missing approval"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_list_pending() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        backend
+            .approval_create(test_action(), "first".to_string(), None)
+            .await
+            .unwrap();
+        backend
+            .approval_create(test_action(), "second".to_string(), None)
+            .await
+            .unwrap();
+
+        let pending = backend.approval_list_pending().await.unwrap();
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_pending_count() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        assert_eq!(backend.approval_pending_count().await.unwrap(), 0);
+
+        backend
+            .approval_create(test_action(), "test".to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(backend.approval_pending_count().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_expire_stale() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let path = dir.path().to_path_buf();
+        std::mem::forget(dir);
+        // TTL of 0 seconds: immediately expires
+        let store = Arc::new(ApprovalStore::new(
+            path.join("approvals.jsonl"),
+            std::time::Duration::from_secs(0),
+        ));
+        let backend = LocalBackend::new(store);
+
+        backend
+            .approval_create(test_action(), "will expire".to_string(), None)
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let expired_count = backend.approval_expire_stale().await.unwrap();
+        assert_eq!(expired_count, 1);
+
+        let pending = backend.approval_list_pending().await.unwrap();
+        assert!(pending.is_empty(), "No pending approvals after expiry");
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_double_approve_returns_error() {
+        let store = make_store();
+        let backend = LocalBackend::new(store);
+
+        let id = backend
+            .approval_create(test_action(), "test".to_string(), None)
+            .await
+            .unwrap();
+
+        backend.approval_approve(&id, "admin").await.unwrap();
+        let result = backend.approval_approve(&id, "admin2").await;
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ClusterError::AlreadyResolved(_)
+        ));
+    }
+}

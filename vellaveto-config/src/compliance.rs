@@ -353,8 +353,7 @@ impl ComplianceConfig {
             // silently skip governance — reject it explicitly.
             if mapping.tool_pattern.is_empty() {
                 return Err(format!(
-                    "data_governance.tool_mappings[{}].tool_pattern must not be empty",
-                    i,
+                    "data_governance.tool_mappings[{i}].tool_pattern must not be empty",
                 ));
             }
             if mapping.tool_pattern.len() > MAX_TOOL_MAPPING_STRING_LEN {
@@ -367,8 +366,7 @@ impl ComplianceConfig {
             }
             if vellaveto_types::has_dangerous_chars(&mapping.tool_pattern) {
                 return Err(format!(
-                    "data_governance.tool_mappings[{}].tool_pattern contains control or format characters",
-                    i,
+                    "data_governance.tool_mappings[{i}].tool_pattern contains control or format characters",
                 ));
             }
             if let Some(ref prov) = mapping.provenance {
@@ -382,8 +380,7 @@ impl ComplianceConfig {
                 }
                 if vellaveto_types::has_dangerous_chars(prov) {
                     return Err(format!(
-                        "data_governance.tool_mappings[{}].provenance contains control or format characters",
-                        i,
+                        "data_governance.tool_mappings[{i}].provenance contains control or format characters",
                     ));
                 }
             }
@@ -401,14 +398,12 @@ impl ComplianceConfig {
             if let Some(days) = mapping.retention_days {
                 if days < MIN_RETENTION_DAYS {
                     return Err(format!(
-                        "data_governance.tool_mappings[{}].retention_days is {}, minimum is {}",
-                        i, days, MIN_RETENTION_DAYS,
+                        "data_governance.tool_mappings[{i}].retention_days is {days}, minimum is {MIN_RETENTION_DAYS}",
                     ));
                 }
                 if days > MAX_RETENTION_DAYS {
                     return Err(format!(
-                        "data_governance.tool_mappings[{}].retention_days is {}, maximum is {}",
-                        i, days, MAX_RETENTION_DAYS,
+                        "data_governance.tool_mappings[{i}].retention_days is {days}, maximum is {MAX_RETENTION_DAYS}",
                     ));
                 }
             }
@@ -454,8 +449,7 @@ impl ComplianceConfig {
             // SECURITY: Reject control and format characters.
             if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "eu_ai_act.human_oversight_tools[{}] contains control or format characters",
-                    i,
+                    "eu_ai_act.human_oversight_tools[{i}] contains control or format characters",
                 ));
             }
         }
@@ -472,8 +466,7 @@ impl ComplianceConfig {
             // SECURITY (FIND-R56-CFG-011): Reject control and format characters.
             if vellaveto_types::has_dangerous_chars(name) {
                 return Err(format!(
-                    "soc2.access_review.reviewers[{}] contains control or format characters",
-                    i,
+                    "soc2.access_review.reviewers[{i}] contains control or format characters",
                 ));
             }
         }
@@ -498,8 +491,7 @@ impl ComplianceConfig {
         // SECURITY: Reject control and Unicode format characters.
         if vellaveto_types::has_dangerous_chars(value) {
             return Err(format!(
-                "{} contains control or format characters",
-                field_name
+                "{field_name} contains control or format characters"
             ));
         }
         Ok(())
@@ -535,7 +527,7 @@ mod tests {
     #[test]
     fn test_validation_too_many_oversight_tools() {
         let mut config = ComplianceConfig::default();
-        config.eu_ai_act.human_oversight_tools = (0..501).map(|i| format!("tool_{}", i)).collect();
+        config.eu_ai_act.human_oversight_tools = (0..501).map(|i| format!("tool_{i}")).collect();
         assert!(config.validate().is_err());
     }
 
@@ -751,7 +743,7 @@ reviewers = ["Alice"]
     #[test]
     fn test_access_review_validation_too_many_reviewers() {
         let mut config = ComplianceConfig::default();
-        config.soc2.access_review.reviewers = (0..51).map(|i| format!("reviewer_{}", i)).collect();
+        config.soc2.access_review.reviewers = (0..51).map(|i| format!("reviewer_{i}")).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("reviewers"));
     }
@@ -871,8 +863,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("tool_pattern"), "err: {}", err);
-        assert!(err.contains("exceeds max"), "err: {}", err);
+        assert!(err.contains("tool_pattern"), "err: {err}");
+        assert!(err.contains("exceeds max"), "err: {err}");
     }
 
     #[test]
@@ -886,8 +878,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("tool_pattern"), "err: {}", err);
-        assert!(err.contains("control"), "err: {}", err);
+        assert!(err.contains("tool_pattern"), "err: {err}");
+        assert!(err.contains("control"), "err: {err}");
     }
 
     #[test]
@@ -901,8 +893,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("provenance"), "err: {}", err);
-        assert!(err.contains("exceeds max"), "err: {}", err);
+        assert!(err.contains("provenance"), "err: {err}");
+        assert!(err.contains("exceeds max"), "err: {err}");
     }
 
     #[test]
@@ -916,8 +908,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("provenance"), "err: {}", err);
-        assert!(err.contains("control"), "err: {}", err);
+        assert!(err.contains("provenance"), "err: {err}");
+        assert!(err.contains("control"), "err: {err}");
     }
 
     #[test]
@@ -931,8 +923,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("classifications"), "err: {}", err);
-        assert!(err.contains("max"), "err: {}", err);
+        assert!(err.contains("classifications"), "err: {err}");
+        assert!(err.contains("max"), "err: {err}");
     }
 
     #[test]
@@ -961,8 +953,8 @@ reviewers = ["Alice"]
             retention_days: Some(10), // below MIN_RETENTION_DAYS (30)
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("retention_days"), "err: {}", err);
-        assert!(err.contains("minimum"), "err: {}", err);
+        assert!(err.contains("retention_days"), "err: {err}");
+        assert!(err.contains("minimum"), "err: {err}");
     }
 
     #[test]
@@ -976,8 +968,8 @@ reviewers = ["Alice"]
             retention_days: Some(MAX_RETENTION_DAYS + 1),
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("retention_days"), "err: {}", err);
-        assert!(err.contains("maximum"), "err: {}", err);
+        assert!(err.contains("retention_days"), "err: {err}");
+        assert!(err.contains("maximum"), "err: {err}");
     }
 
     #[test]
@@ -1028,8 +1020,8 @@ reviewers = ["Alice"]
             retention_days: None,
         }];
         let err = config.validate().unwrap_err();
-        assert!(err.contains("tool_pattern"), "err: {}", err);
-        assert!(err.contains("must not be empty"), "err: {}", err);
+        assert!(err.contains("tool_pattern"), "err: {err}");
+        assert!(err.contains("must not be empty"), "err: {err}");
     }
 
     // ── Phase 41: OWASP ASI config tests ─────────────────────────────────────

@@ -34,7 +34,7 @@ impl CriterionId {
             TrustServicesCategory::CC8 => "CC8",
             TrustServicesCategory::CC9 => "CC9",
         };
-        Self(format!("{}.{}", prefix, number))
+        Self(format!("{prefix}.{number}"))
     }
 
     /// Parse the category from the criterion ID.
@@ -114,7 +114,7 @@ pub enum Soc2Capability {
 
 impl std::fmt::Display for Soc2Capability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

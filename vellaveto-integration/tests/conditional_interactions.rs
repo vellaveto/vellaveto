@@ -37,7 +37,7 @@ fn conditional_policy(
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -48,7 +48,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -77,11 +77,10 @@ fn forbidden_param_present_causes_deny() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("force"),
-                "reason should mention 'force': {}",
-                reason
+                "reason should mention 'force': {reason}"
             );
         }
-        other => panic!("expected Deny for forbidden param, got {:?}", other),
+        other => panic!("expected Deny for forbidden param, got {other:?}"),
     }
 }
 
@@ -119,11 +118,10 @@ fn required_param_missing_causes_deny() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("auth_token"),
-                "reason should mention missing param: {}",
-                reason
+                "reason should mention missing param: {reason}"
             );
         }
-        other => panic!("expected Deny for missing required param, got {:?}", other),
+        other => panic!("expected Deny for missing required param, got {other:?}"),
     }
 }
 
@@ -213,11 +211,10 @@ fn first_forbidden_param_triggers_deny() {
             // Should mention whichever is found first in the iteration
             assert!(
                 reason.contains("drop") || reason.contains("truncate"),
-                "reason should mention a forbidden param: {}",
-                reason
+                "reason should mention a forbidden param: {reason}"
             );
         }
-        other => panic!("expected Deny, got {:?}", other),
+        other => panic!("expected Deny, got {other:?}"),
     }
 }
 
@@ -268,9 +265,9 @@ fn multiple_required_params_one_missing_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match verdict {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("request_id"), "reason: {}", reason);
+            assert!(reason.contains("request_id"), "reason: {reason}");
         }
-        other => panic!("expected Deny, got {:?}", other),
+        other => panic!("expected Deny, got {other:?}"),
     }
 }
 
@@ -417,7 +414,6 @@ fn require_approval_non_bool_fail_closed() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        verdict
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {verdict:?}"
     );
 }

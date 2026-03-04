@@ -118,7 +118,7 @@ impl GrpcTransportConfig {
             // Allow localhost for development environments.
             if !crate::validation::is_http_localhost_url(trimmed) {
                 if let Err(e) = vellaveto_types::validate_url_no_ssrf(trimmed) {
-                    return Err(format!("grpc.upstream_grpc_url {}", e));
+                    return Err(format!("grpc.upstream_grpc_url {e}"));
                 }
             }
         }

@@ -222,8 +222,7 @@ impl ServiceDiscoveryConfig {
                 || host.starts_with("127.")
             {
                 return Err(format!(
-                    "deployment.service_discovery.dns_name must not resolve to loopback (got '{}')",
-                    host
+                    "deployment.service_discovery.dns_name must not resolve to loopback (got '{host}')"
                 ));
             }
             // Block cloud metadata endpoints
@@ -233,15 +232,13 @@ impl ServiceDiscoveryConfig {
                 || host.ends_with(".internal")
             {
                 return Err(format!(
-                    "deployment.service_discovery.dns_name must not target cloud metadata endpoints (got '{}')",
-                    host
+                    "deployment.service_discovery.dns_name must not target cloud metadata endpoints (got '{host}')"
                 ));
             }
             // Block link-local range
             if host.starts_with("169.254.") {
                 return Err(format!(
-                    "deployment.service_discovery.dns_name must not target link-local addresses (got '{}')",
-                    host
+                    "deployment.service_discovery.dns_name must not target link-local addresses (got '{host}')"
                 ));
             }
             // SECURITY (FIND-R44-045): Warn about .local TLD (mDNS) unless it's
@@ -315,7 +312,7 @@ impl DeploymentConfig {
 
         // FIND-R56-CFG-015: Delegate to standalone validate_instance_id() to avoid duplication.
         if let Some(ref id) = self.instance_id {
-            validate_instance_id(id).map_err(|e| format!("deployment.{}", e))?;
+            validate_instance_id(id).map_err(|e| format!("deployment.{e}"))?;
         }
 
         // Kubernetes mode requires leader election
@@ -379,26 +376,22 @@ pub fn validate_instance_id(id: &str) -> Result<(), String> {
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.')
     {
         return Err(format!(
-            "instance_id must be DNS-safe (lowercase alphanumeric, hyphens, dots), got '{}'",
-            id
+            "instance_id must be DNS-safe (lowercase alphanumeric, hyphens, dots), got '{id}'"
         ));
     }
     if id.starts_with('-') || id.ends_with('-') {
         return Err(format!(
-            "instance_id must not start or end with a hyphen, got '{}'",
-            id
+            "instance_id must not start or end with a hyphen, got '{id}'"
         ));
     }
     if id.starts_with('.') || id.ends_with('.') {
         return Err(format!(
-            "instance_id must not start or end with a dot, got '{}'",
-            id
+            "instance_id must not start or end with a dot, got '{id}'"
         ));
     }
     if id.contains("..") {
         return Err(format!(
-            "instance_id must not contain consecutive dots, got '{}'",
-            id
+            "instance_id must not contain consecutive dots, got '{id}'"
         ));
     }
     Ok(())

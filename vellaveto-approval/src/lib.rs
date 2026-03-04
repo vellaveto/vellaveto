@@ -170,7 +170,7 @@ fn compute_dedup_key(
     // collision with Some(""). The NUL byte cannot appear in valid identities
     // (control chars are rejected), guaranteeing no false collisions.
     let rb_component = requested_by.unwrap_or("\x00NONE\x00");
-    let input = format!("{}||{}||{}", canonical_str, reason, rb_component);
+    let input = format!("{canonical_str}||{reason}||{rb_component}");
     let hash = Sha256::digest(input.as_bytes());
     Ok(format!("{hash:x}"))
 }
@@ -1162,8 +1162,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(
             matches!(err, ApprovalError::Expired(_)),
-            "Expected Expired error, got: {:?}",
-            err
+            "Expected Expired error, got: {err:?}"
         );
 
         // The approval should now be marked Expired in the store
@@ -1217,11 +1216,7 @@ mod tests {
         // Load into a new store instance from the same file
         let store2 = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
         let loaded = store2.load_from_file().await.unwrap();
-        assert!(
-            loaded >= 2,
-            "Should load at least 2 entries, got {}",
-            loaded
-        );
+        assert!(loaded >= 2, "Should load at least 2 entries, got {loaded}");
 
         // Verify states survived the round-trip
         let a1 = store2.get(&id1).await.unwrap();
@@ -1461,11 +1456,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("Self-approval denied"),
-                    "Expected self-approval denial, got: {}",
-                    msg
+                    "Expected self-approval denial, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -1638,11 +1632,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("Self-approval denied"),
-                    "Expected self-approval denial, got: {}",
-                    msg
+                    "Expected self-approval denial, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -1673,11 +1666,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("Self-approval denied"),
-                    "Expected self-approval denial, got: {}",
-                    msg
+                    "Expected self-approval denial, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -1734,11 +1726,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("resolved_by") && msg.contains("maximum length"),
-                    "Error message should mention resolved_by length, got: {}",
-                    msg
+                    "Error message should mention resolved_by length, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -1788,11 +1779,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("resolved_by") && msg.contains("maximum length"),
-                    "Error message should mention resolved_by length, got: {}",
-                    msg
+                    "Error message should mention resolved_by length, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -1842,11 +1832,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("requested_by") && msg.contains("maximum length"),
-                    "Error message should mention requested_by length, got: {}",
-                    msg
+                    "Error message should mention requested_by length, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -2066,7 +2055,7 @@ mod tests {
         let store2 = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
         let loaded = store2.load_from_file().await.unwrap();
         // Only the pending entry should survive
-        assert!(loaded >= 1, "Should load at least 1 entry, got {}", loaded);
+        assert!(loaded >= 1, "Should load at least 1 entry, got {loaded}");
 
         // Pending entry must still be accessible
         let pending = store2.get(&id_pending).await;
@@ -2108,11 +2097,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("reason contains control characters"),
-                    "Expected control char rejection, got: {}",
-                    msg
+                    "Expected control char rejection, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -2132,11 +2120,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("reason contains control characters"),
-                    "got: {}",
-                    msg
+                    "got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -2164,11 +2151,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("reason contains Unicode format characters"),
-                    "Expected Unicode format char rejection, got: {}",
-                    msg
+                    "Expected Unicode format char rejection, got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -2196,11 +2182,10 @@ mod tests {
             ApprovalError::Validation(msg) => {
                 assert!(
                     msg.contains("reason contains Unicode format characters"),
-                    "got: {}",
-                    msg
+                    "got: {msg}"
                 );
             }
-            other => panic!("Expected Validation error, got: {:?}", other),
+            other => panic!("Expected Validation error, got: {other:?}"),
         }
     }
 
@@ -2256,8 +2241,7 @@ mod tests {
             .await;
         assert!(
             matches!(result, Err(ApprovalError::CapacityExceeded(1))),
-            "Expected CapacityExceeded(1) after clamping from 0, got: {:?}",
-            result
+            "Expected CapacityExceeded(1) after clamping from 0, got: {result:?}"
         );
     }
 
@@ -2286,8 +2270,7 @@ mod tests {
         let result = store.create(action6, "overflow".to_string(), None).await;
         assert!(
             matches!(result, Err(ApprovalError::CapacityExceeded(5))),
-            "Expected CapacityExceeded(5), got: {:?}",
-            result
+            "Expected CapacityExceeded(5), got: {result:?}"
         );
     }
 
@@ -2344,5 +2327,260 @@ mod tests {
         assert!(result.is_err());
         let err_msg = format!("{:?}", result.unwrap_err());
         assert!(err_msg.contains("must not be empty"), "Got: {err_msg}");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // compute_dedup_key tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_compute_dedup_key_deterministic() {
+        let action = test_action();
+        let key1 = compute_dedup_key(&action, "reason", None).unwrap();
+        let key2 = compute_dedup_key(&action, "reason", None).unwrap();
+        assert_eq!(key1, key2, "Same inputs should produce the same dedup key");
+    }
+
+    #[test]
+    fn test_compute_dedup_key_different_reasons_differ() {
+        let action = test_action();
+        let key1 = compute_dedup_key(&action, "reason-a", None).unwrap();
+        let key2 = compute_dedup_key(&action, "reason-b", None).unwrap();
+        assert_ne!(
+            key1, key2,
+            "Different reasons should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_different_requested_by_differ() {
+        let action = test_action();
+        let key1 = compute_dedup_key(&action, "reason", Some("alice")).unwrap();
+        let key2 = compute_dedup_key(&action, "reason", Some("bob")).unwrap();
+        assert_ne!(
+            key1, key2,
+            "Different requested_by should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_none_vs_some_requested_by_differ() {
+        let action = test_action();
+        let key_none = compute_dedup_key(&action, "reason", None).unwrap();
+        let key_some = compute_dedup_key(&action, "reason", Some("alice")).unwrap();
+        assert_ne!(
+            key_none, key_some,
+            "None vs Some(requested_by) should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_nfkc_normalization() {
+        // Unicode ligature "ﬁ" should NFKC-normalize to "fi"
+        let action1 = Action::new(
+            "\u{FB01}le_system".to_string(), // "ﬁle_system"
+            "read".to_string(),
+            json!({}),
+        );
+        let action2 = Action::new("file_system".to_string(), "read".to_string(), json!({}));
+        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        assert_eq!(
+            key1, key2,
+            "NFKC-equivalent tool names should produce the same dedup key"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_sorted_ips() {
+        let mut action1 = test_action();
+        action1.resolved_ips = vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()];
+        let mut action2 = test_action();
+        action2.resolved_ips = vec!["5.6.7.8".to_string(), "1.2.3.4".to_string()];
+        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        assert_eq!(
+            key1, key2,
+            "Same IPs in different order should produce the same key"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // pending_count tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_pending_count_empty_store() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        assert_eq!(store.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_pending_count_excludes_resolved() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id1 = store
+            .create(test_action(), "first".to_string(), None)
+            .await
+            .unwrap();
+        store
+            .create(test_action(), "second".to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(store.pending_count().await, 2);
+
+        store.approve(&id1, "admin").await.unwrap();
+        assert_eq!(
+            store.pending_count().await,
+            1,
+            "Approved entries should not be counted as pending"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // with_max_pending capacity enforcement tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_with_max_pending_capacity_exceeded() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::with_max_pending(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+            2,
+        );
+
+        store
+            .create(test_action(), "first".to_string(), None)
+            .await
+            .unwrap();
+        store
+            .create(test_action(), "second".to_string(), None)
+            .await
+            .unwrap();
+
+        // Third should fail with CapacityExceeded
+        let result = store.create(test_action(), "third".to_string(), None).await;
+        assert!(result.is_err());
+        assert!(
+            matches!(result.unwrap_err(), ApprovalError::CapacityExceeded(2)),
+            "Should fail with CapacityExceeded(2)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_with_max_pending_one_allows_single_approval() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::with_max_pending(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+            1,
+        );
+
+        let id = store
+            .create(test_action(), "only one".to_string(), None)
+            .await
+            .unwrap();
+        assert!(!id.is_empty());
+
+        // Second should fail
+        let result = store
+            .create(test_action(), "overflow".to_string(), None)
+            .await;
+        assert!(matches!(
+            result.unwrap_err(),
+            ApprovalError::CapacityExceeded(1)
+        ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // reason validation edge case tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_create_rejects_reason_exceeding_max_length() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let long_reason = "x".repeat(MAX_REASON_LEN + 1);
+        let result = store.create(test_action(), long_reason, None).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ApprovalError::Validation(_)),
+            "Expected Validation error, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_accepts_reason_at_max_length() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let max_reason = "y".repeat(MAX_REASON_LEN);
+        let result = store.create(test_action(), max_reason, None).await;
+        assert!(
+            result.is_ok(),
+            "Reason at exact max length should be accepted"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // approve/deny identity validation edge case tests
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_approve_rejects_control_chars_in_by() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let id = store
+            .create(test_action(), "test".to_string(), None)
+            .await
+            .unwrap();
+        let result = store.approve(&id, "admin\x00injected").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ApprovalError::Validation(_)),
+            "Expected Validation error for control chars, got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deny_rejects_control_chars_in_by() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let id = store
+            .create(test_action(), "test".to_string(), None)
+            .await
+            .unwrap();
+        let result = store.deny(&id, "admin\ttab").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, ApprovalError::Validation(_)),
+            "Expected Validation error for control chars, got: {err:?}"
+        );
     }
 }

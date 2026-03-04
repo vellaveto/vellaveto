@@ -285,7 +285,7 @@ impl DiscoveryResult {
         }
         for (i, tool) in self.tools.iter().enumerate() {
             tool.validate()
-                .map_err(|e| format!("DiscoveryResult tools[{}]: {}", i, e))?;
+                .map_err(|e| format!("DiscoveryResult tools[{i}]: {e}"))?;
         }
         Ok(())
     }

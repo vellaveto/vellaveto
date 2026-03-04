@@ -46,7 +46,7 @@ async fn start_mock_upstream() -> Option<String> {
         Err(error) => panic!("bind mock upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -151,7 +151,7 @@ async fn start_schema_tracking_upstream() -> Option<String> {
         Err(error) => panic!("bind schema tracking upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
 
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
@@ -469,7 +469,7 @@ async fn tool_call_with_blocked_target_domain_is_denied_before_upstream() {
         Err(error) => panic!("bind blocked-domain upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let upstream_url = format!("http://{}/mcp", addr);
+    let upstream_url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -569,8 +569,7 @@ async fn structured_content_validation_uses_tracked_tool_when_meta_missing() {
             .as_str()
             .unwrap_or("")
             .contains("output schema validation failed"),
-        "Expected output schema block, got: {}",
-        json
+        "Expected output schema block, got: {json}"
     );
 }
 
@@ -1082,7 +1081,7 @@ async fn denied_tool_call_creates_audit_entry() {
                 reason.contains("Denied") || reason.contains("denied") || reason.contains("Block")
             );
         }
-        other => panic!("Expected Deny verdict, got {:?}", other),
+        other => panic!("Expected Deny verdict, got {other:?}"),
     }
 }
 
@@ -1371,7 +1370,7 @@ async fn start_mock_upstream_tool_removal() -> Option<String> {
         Err(error) => panic!("bind rug-pull removal upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -1435,7 +1434,7 @@ async fn start_mock_upstream_tool_addition() -> Option<String> {
         Err(error) => panic!("bind rug-pull addition upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -1735,7 +1734,7 @@ async fn start_mock_upstream_annotation_change() -> Option<String> {
         Err(error) => panic!("bind rug-pull annotation upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -1841,15 +1840,13 @@ async fn rug_pull_annotation_change_blocks_tool_call() {
     // Should be a JSON-RPC error with code -32001 (rug-pull block)
     assert!(
         body3["error"].is_object(),
-        "Should return error, got: {}",
-        body3
+        "Should return error, got: {body3}"
     );
     assert_eq!(body3["error"]["code"], -32001);
     let msg = body3["error"]["message"].as_str().unwrap();
     assert!(
         msg.contains("rug-pull") || msg.contains("annotation change"),
-        "Error message should mention rug-pull, got: {}",
-        msg
+        "Error message should mention rug-pull, got: {msg}"
     );
     assert_eq!(body3["id"], 3);
 
@@ -1937,7 +1934,7 @@ async fn start_mock_upstream_addition_with_calls() -> Option<String> {
         Err(error) => panic!("bind rug-pull tool-addition upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -2133,8 +2130,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
     let body4 = json_body(resp4).await;
     assert!(
         body4["result"].is_object(),
-        "safe_tool should be allowed (not flagged), got: {}",
-        body4
+        "safe_tool should be allowed (not flagged), got: {body4}"
     );
 }
 
@@ -2648,7 +2644,7 @@ async fn start_mock_jwks_server() -> Option<String> {
         Err(error) => panic!("bind mock JWKS server: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}", addr);
+    let url = format!("http://{addr}");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -2775,7 +2771,7 @@ fn test_dpop_jwk_thumbprint() -> String {
         .and_then(Value::as_str)
         .expect("test JWKS key has n");
 
-    let canonical = format!(r#"{{"e":"{}","kty":"{}","n":"{}"}}"#, e, kty, n);
+    let canonical = format!(r#"{{"e":"{e}","kty":"{kty}","n":"{n}"}}"#);
     URL_SAFE_NO_PAD.encode(Sha256::digest(canonical.as_bytes()))
 }
 
@@ -3028,7 +3024,7 @@ async fn oauth_dpop_required_missing_proof_returns_401() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3103,7 +3099,7 @@ async fn oauth_dpop_required_valid_proof_allows_request() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .header("dpop", dpop)
                 .body(Body::from(body))
                 .unwrap(),
@@ -3144,7 +3140,7 @@ async fn oauth_dpop_required_missing_token_cnf_returns_401() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .header("dpop", dpop)
                 .body(Body::from(body))
                 .unwrap(),
@@ -3184,7 +3180,7 @@ async fn oauth_dpop_required_ath_mismatch_returns_401() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .header("dpop", dpop)
                 .body(Body::from(body))
                 .unwrap(),
@@ -3228,7 +3224,7 @@ async fn oauth_dpop_replay_detected_is_audited() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .header("dpop", replayed_proof.clone())
                 .body(Body::from(body.clone()))
                 .unwrap(),
@@ -3242,7 +3238,7 @@ async fn oauth_dpop_replay_detected_is_audited() {
             Request::post("/mcp")
                 .header("host", "127.0.0.1:3001")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", access_token))
+                .header("authorization", format!("Bearer {access_token}"))
                 .header("dpop", replayed_proof)
                 .body(Body::from(body))
                 .unwrap(),
@@ -3368,7 +3364,7 @@ async fn oauth_enabled_expired_token_returns_401() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3406,7 +3402,7 @@ async fn oauth_wrong_audience_returns_401() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3441,7 +3437,7 @@ async fn oauth_missing_audience_returns_401_when_required() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3484,7 +3480,7 @@ async fn oauth_audience_array_with_expected_allows_request() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3524,7 +3520,7 @@ async fn oauth_enabled_valid_token_forwards_request() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3574,7 +3570,7 @@ async fn oauth_expected_resource_mismatch_returns_401() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3620,7 +3616,7 @@ async fn oauth_expected_resource_match_allows_request() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3662,7 +3658,7 @@ async fn oauth_insufficient_scope_returns_403() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3707,7 +3703,7 @@ async fn oauth_valid_scopes_allows_request() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3746,7 +3742,7 @@ async fn oauth_subject_stored_in_session() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -3835,7 +3831,7 @@ async fn oauth_pass_through_forwards_auth_header() {
         Err(error) => panic!("bind oauth pass-through upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let upstream_url = format!("http://{}/mcp", addr);
+    let upstream_url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -3848,7 +3844,7 @@ async fn oauth_pass_through_forwards_auth_header() {
     let proxy_app = build_router(state);
 
     let token = sign_test_jwt("user-123", "", 300);
-    let bearer = format!("Bearer {}", token);
+    let bearer = format!("Bearer {token}");
 
     let body = serde_json::to_string(&json!({
         "jsonrpc": "2.0",
@@ -3908,7 +3904,7 @@ async fn oauth_pass_through_invalid_token_not_forwarded() {
         Err(error) => panic!("bind oauth invalid-token upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let upstream_url = format!("http://{}/mcp", addr);
+    let upstream_url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -3982,7 +3978,7 @@ async fn oauth_no_pass_through_strips_auth_header() {
         Err(error) => panic!("bind oauth header-capture upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let upstream_url = format!("http://{}/mcp", addr);
+    let upstream_url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -4008,7 +4004,7 @@ async fn oauth_no_pass_through_strips_auth_header() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -4021,8 +4017,7 @@ async fn oauth_no_pass_through_strips_auth_header() {
     let forwarded = received_auth.lock().await;
     assert!(
         forwarded.is_none(),
-        "Auth header should NOT be forwarded when pass_through=false, got: {:?}",
-        forwarded
+        "Auth header should NOT be forwarded when pass_through=false, got: {forwarded:?}"
     );
 }
 
@@ -4051,7 +4046,7 @@ async fn oauth_denied_tool_audit_includes_subject() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", token))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -4385,7 +4380,7 @@ async fn start_sse_upstream(sse_body: &'static str) -> Option<String> {
         Err(error) => panic!("bind SSE upstream: {error}"),
     };
     let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}/mcp", addr);
+    let url = format!("http://{addr}/mcp");
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
@@ -4428,8 +4423,7 @@ async fn sse_clean_response_forwarded() {
         .unwrap();
     assert!(
         ct.starts_with("text/event-stream"),
-        "Should forward SSE content-type, got: {}",
-        ct
+        "Should forward SSE content-type, got: {ct}"
     );
 
     let resp_body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -4592,8 +4586,7 @@ async fn sse_structured_content_schema_violation_is_blocked() {
             .as_str()
             .unwrap_or("")
             .contains("output schema validation failed"),
-        "Expected SSE schema-validation block, got: {}",
-        json
+        "Expected SSE schema-validation block, got: {json}"
     );
 }
 
@@ -4713,8 +4706,7 @@ async fn task_get_denied_by_policy() {
             .as_str()
             .unwrap()
             .contains("Denied by policy"),
-        "Task should be denied by policy, got: {}",
-        result
+        "Task should be denied by policy, got: {result}"
     );
 }
 
@@ -4847,8 +4839,7 @@ async fn task_get_allowed_when_no_deny_policy() {
     // Should be forwarded to upstream, not denied
     assert!(
         result.get("error").is_none() || result["error"]["code"] != -32001,
-        "Task should be forwarded when allowed, got: {}",
-        result
+        "Task should be forwarded when allowed, got: {result}"
     );
 }
 
@@ -4944,8 +4935,7 @@ async fn task_request_fail_closed_no_matching_policy() {
     let result = json_body(resp).await;
     assert_eq!(
         result["error"]["code"], -32001,
-        "Task with no matching policy should be denied (fail-closed), got: {}",
-        result
+        "Task with no matching policy should be denied (fail-closed), got: {result}"
     );
 }
 
@@ -5042,15 +5032,13 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
     let result = json_body(resp).await;
     assert_eq!(
         result["error"]["code"], -32001,
-        "Task request with secret in params should be DLP-blocked, got: {}",
-        result
+        "Task request with secret in params should be DLP-blocked, got: {result}"
     );
     let msg = result["error"]["message"].as_str().unwrap_or("");
     // SECURITY (R37-PROXY-3): Client gets generic message, not DLP details
     assert!(
         msg.contains("security policy violation"),
-        "Error message should be generic, got: {}",
-        msg
+        "Error message should be generic, got: {msg}"
     );
 }
 
@@ -5149,8 +5137,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         let msg = result["error"]["message"].as_str().unwrap_or("");
         assert!(
             !msg.contains("DLP"),
-            "Clean task request should not be DLP-blocked, got: {}",
-            msg
+            "Clean task request should not be DLP-blocked, got: {msg}"
         );
     }
 }
@@ -5250,15 +5237,13 @@ async fn task_request_dlp_blocks_github_token_in_params() {
     let result = json_body(resp).await;
     assert_eq!(
         result["error"]["code"], -32001,
-        "Task with GitHub token should be DLP-blocked, got: {}",
-        result
+        "Task with GitHub token should be DLP-blocked, got: {result}"
     );
     let msg = result["error"]["message"].as_str().unwrap_or("");
     // SECURITY (R37-PROXY-3): Client gets generic message, not DLP details
     assert!(
         msg.contains("security policy violation"),
-        "Error message should be generic, got: {}",
-        msg
+        "Error message should be generic, got: {msg}"
     );
 }
 
@@ -5301,7 +5286,7 @@ async fn session_fixation_blocked_different_oauth_subject() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", bob_token))
+                .header("authorization", format!("Bearer {bob_token}"))
                 .header("mcp-session-id", &session_id)
                 .body(Body::from(body))
                 .unwrap(),
@@ -5320,8 +5305,7 @@ async fn session_fixation_blocked_different_oauth_subject() {
             .as_str()
             .unwrap_or("")
             .contains("Session owned by another user"),
-        "Error should indicate session ownership mismatch, got: {}",
-        result
+        "Error should indicate session ownership mismatch, got: {result}"
     );
 }
 
@@ -5364,7 +5348,7 @@ async fn session_fixation_same_subject_allowed() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", alice_token))
+                .header("authorization", format!("Bearer {alice_token}"))
                 .header("mcp-session-id", &session_id)
                 .body(Body::from(body))
                 .unwrap(),
@@ -5416,7 +5400,7 @@ async fn session_fixation_unbound_session_allows_first_binding() {
         .oneshot(
             Request::post("/mcp")
                 .header("content-type", "application/json")
-                .header("authorization", format!("Bearer {}", alice_token))
+                .header("authorization", format!("Bearer {alice_token}"))
                 .header("mcp-session-id", &session_id)
                 .body(Body::from(body))
                 .unwrap(),
@@ -5555,8 +5539,7 @@ async fn call_chain_direct_call_allowed() {
     // Should have result, not error
     assert!(
         json_resp.get("result").is_some() || json_resp.get("error").is_none(),
-        "Direct call should be allowed: {:?}",
-        json_resp
+        "Direct call should be allowed: {json_resp:?}"
     );
 }
 
@@ -5676,8 +5659,7 @@ async fn call_chain_exceeds_max_depth_denied() {
     let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
     assert_eq!(
         message, "Denied by policy",
-        "Error should be generic deny message (details in audit log only): {}",
-        message
+        "Error should be generic deny message (details in audit log only): {message}"
     );
 }
 
@@ -5809,8 +5791,7 @@ async fn task_request_malformed_call_chain_header_rejected() {
             .as_str()
             .unwrap_or("")
             .contains("Invalid request"),
-        "Malformed call-chain header should be rejected: {}",
-        json_resp
+        "Malformed call-chain header should be rejected: {json_resp}"
     );
 }
 
@@ -5865,8 +5846,7 @@ async fn tool_call_excessive_call_chain_header_rejected() {
             .as_str()
             .unwrap_or("")
             .contains("Invalid request"),
-        "Excessive call-chain header should be rejected: {}",
-        json_resp
+        "Excessive call-chain header should be rejected: {json_resp}"
     );
 }
 
@@ -5906,8 +5886,7 @@ async fn resource_read_malformed_call_chain_header_rejected() {
             .as_str()
             .unwrap_or("")
             .contains("Invalid request"),
-        "Malformed call-chain header should be rejected: {}",
-        json_resp
+        "Malformed call-chain header should be rejected: {json_resp}"
     );
 }
 
@@ -5951,8 +5930,7 @@ async fn passthrough_malformed_call_chain_header_rejected() {
             .as_str()
             .unwrap_or("")
             .contains("Invalid request"),
-        "Malformed call-chain header should be rejected for pass-through methods: {}",
-        json_resp
+        "Malformed call-chain header should be rejected for pass-through methods: {json_resp}"
     );
 }
 
@@ -5994,8 +5972,7 @@ async fn sampling_request_malformed_call_chain_header_rejected() {
             .as_str()
             .unwrap_or("")
             .contains("Invalid request"),
-        "Malformed call-chain header should be rejected for sampling requests: {}",
-        json_resp
+        "Malformed call-chain header should be rejected for sampling requests: {json_resp}"
     );
 }
 
@@ -6139,8 +6116,7 @@ async fn privilege_escalation_detected_and_blocked() {
     let error = json_resp.get("error");
     assert!(
         error.is_some(),
-        "Should be denied due to privilege escalation: {:?}",
-        json_resp
+        "Should be denied due to privilege escalation: {json_resp:?}"
     );
     let message = error
         .and_then(|e| e.get("message"))
@@ -6152,8 +6128,7 @@ async fn privilege_escalation_detected_and_blocked() {
     // privilege escalation details in client-facing message.
     assert!(
         message == "Denied by policy",
-        "Error should be generic deny message: {}",
-        message
+        "Error should be generic deny message: {message}"
     );
 }
 
@@ -6216,8 +6191,7 @@ async fn call_chain_included_in_audit_log() {
     // The audit log should contain the call chain
     assert!(
         audit_content.contains("call_chain") || audit_content.contains("agent-a"),
-        "Audit log should include call chain information: {}",
-        audit_content
+        "Audit log should include call chain information: {audit_content}"
     );
 }
 
@@ -6266,8 +6240,7 @@ async fn tool_call_deny_message_is_generic() {
     // after "Denied by policy" (which would indicate the reason was appended)
     assert!(
         !msg.contains(':'),
-        "Deny message must not contain policy details: {}",
-        msg
+        "Deny message must not contain policy details: {msg}"
     );
 }
 

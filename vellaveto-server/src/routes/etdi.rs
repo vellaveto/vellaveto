@@ -400,3 +400,83 @@ pub async fn remove_version_pin(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── VerifySignatureRequest serde tests ────────────────────────────────
+
+    #[test]
+    fn test_verify_signature_request_valid() {
+        let req: VerifySignatureRequest =
+            serde_json::from_str(r#"{"schema":{"type":"object"}}"#).unwrap();
+        assert_eq!(req.schema["type"], "object");
+    }
+
+    #[test]
+    fn test_verify_signature_request_denies_unknown_fields() {
+        let result: Result<VerifySignatureRequest, _> =
+            serde_json::from_str(r#"{"schema":{},"extra":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── CreatePinRequest serde tests ─────────────────────────────────────
+
+    #[test]
+    fn test_create_pin_request_hash_only() {
+        let req: CreatePinRequest =
+            serde_json::from_str(r#"{"definition_hash":"abc123"}"#).unwrap();
+        assert_eq!(req.definition_hash, "abc123");
+        assert!(req.version.is_none());
+        assert!(req.constraint.is_none());
+    }
+
+    #[test]
+    fn test_create_pin_request_with_version() {
+        let req: CreatePinRequest =
+            serde_json::from_str(r#"{"definition_hash":"abc","version":"1.0.0"}"#).unwrap();
+        assert_eq!(req.version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn test_create_pin_request_with_constraint() {
+        let req: CreatePinRequest =
+            serde_json::from_str(r#"{"definition_hash":"abc","constraint":">=1.0.0"}"#).unwrap();
+        assert_eq!(req.constraint.as_deref(), Some(">=1.0.0"));
+    }
+
+    #[test]
+    fn test_create_pin_request_denies_unknown_fields() {
+        let result: Result<CreatePinRequest, _> =
+            serde_json::from_str(r#"{"definition_hash":"abc","extra":true}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_pin_request_missing_hash_rejected() {
+        let result: Result<CreatePinRequest, _> =
+            serde_json::from_str(r#"{"version":"1.0.0"}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_max_signatures_list_bounded() {
+        assert!(MAX_SIGNATURES_LIST > 0);
+        assert!(MAX_SIGNATURES_LIST <= 10_000);
+    }
+
+    #[test]
+    fn test_max_attestations_list_bounded() {
+        assert!(MAX_ATTESTATIONS_LIST > 0);
+        assert!(MAX_ATTESTATIONS_LIST <= 10_000);
+    }
+
+    #[test]
+    fn test_max_pins_list_bounded() {
+        assert!(MAX_PINS_LIST > 0);
+        assert!(MAX_PINS_LIST <= 10_000);
+    }
+}

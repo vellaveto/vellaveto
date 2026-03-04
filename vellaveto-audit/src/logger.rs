@@ -328,8 +328,7 @@ impl AuditLogger {
             .unwrap_or(0);
         if metadata_size > MAX_METADATA_SIZE {
             return Err(AuditError::Validation(format!(
-                "Metadata too large: {} bytes (max {} bytes)",
-                metadata_size, MAX_METADATA_SIZE
+                "Metadata too large: {metadata_size} bytes (max {MAX_METADATA_SIZE} bytes)"
             )));
         }
 
@@ -339,8 +338,7 @@ impl AuditLogger {
         const MAX_METADATA_DEPTH: usize = 20;
         if Self::json_depth(&metadata) > MAX_METADATA_DEPTH {
             return Err(AuditError::Validation(format!(
-                "Metadata exceeds maximum nesting depth of {}",
-                MAX_METADATA_DEPTH
+                "Metadata exceeds maximum nesting depth of {MAX_METADATA_DEPTH}"
             )));
         }
 
@@ -580,7 +578,7 @@ impl AuditLogger {
         // Append leaf hash to Merkle tree (if enabled)
         if let Some(ref merkle) = self.merkle_tree {
             let leaf_bytes = hex::decode(&hash).map_err(|e| {
-                AuditError::Validation(format!("Invalid entry hash hex for Merkle tree: {}", e))
+                AuditError::Validation(format!("Invalid entry hash hex for Merkle tree: {e}"))
             })?;
             // SECURITY (FIND-R140-002): Fail-closed on wrong-length hash.
             // Previously a short decode silently used a zero-padded array,
@@ -596,7 +594,7 @@ impl AuditLogger {
             let leaf = crate::merkle::hash_leaf(&leaf_arr);
             let mut tree = merkle
                 .lock()
-                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
             tree.append(leaf)?;
         }
 
@@ -627,8 +625,7 @@ impl AuditLogger {
             if let Err(e) = sink.sink(&entry).await {
                 if self.sink_failure_fatal {
                     return Err(AuditError::Validation(format!(
-                        "Audit sink write failed (fatal mode): {}",
-                        e
+                        "Audit sink write failed (fatal mode): {e}"
                     )));
                 }
                 tracing::warn!(
@@ -683,8 +680,7 @@ impl AuditLogger {
         let size = action.parameters.to_string().len();
         if size > 1_000_000 {
             return Err(AuditError::Validation(format!(
-                "Parameters too large: {} bytes (max 1000000)",
-                size
+                "Parameters too large: {size} bytes (max 1000000)"
             )));
         }
 

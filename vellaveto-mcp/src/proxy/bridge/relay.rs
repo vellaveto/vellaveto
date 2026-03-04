@@ -725,8 +725,7 @@ impl ProxyBridge {
         if state.flagged_tools.contains(&tool_name) {
             let action = extract_action(&tool_name, &arguments);
             let reason = format!(
-                "Tool '{}' blocked: annotations changed since initial tools/list (rug-pull detected)",
-                tool_name
+                "Tool '{tool_name}' blocked: annotations changed since initial tools/list (rug-pull detected)"
             );
             let verdict = Verdict::Deny {
                 reason: reason.clone(),
@@ -800,8 +799,7 @@ impl ProxyBridge {
                         );
                         let action = extract_action(&tool_name, &arguments);
                         let reason = format!(
-                            "Shadow agent detected: claimed identity '{}' does not match fingerprint",
-                            claimed_id
+                            "Shadow agent detected: claimed identity '{claimed_id}' does not match fingerprint"
                         );
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
@@ -893,12 +891,12 @@ impl ProxyBridge {
                     );
                     dlp_findings.push(crate::inspection::DlpFinding {
                         pattern_name: "cross_call_dlp_serialization_failure".to_string(),
-                        location: format!("tools/call.{}", tool_name),
+                        location: format!("tools/call.{tool_name}"),
                     });
                     String::new()
                 }
             };
-            let field_path = format!("tools/call.{}", tool_name);
+            let field_path = format!("tools/call.{tool_name}");
             let cross_findings = tracker.scan_with_overlap(&field_path, &args_str);
             if !cross_findings.is_empty() {
                 tracing::warn!(
@@ -944,7 +942,7 @@ impl ProxyBridge {
                 .iter()
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
-            let audit_reason = format!("DLP: secrets detected in parameters: {:?}", patterns);
+            let audit_reason = format!("DLP: secrets detected in parameters: {patterns:?}");
             if let Err(e) = self
                 .audit
                 .log_entry(
@@ -1009,8 +1007,7 @@ impl ProxyBridge {
                 let verdict = if self.injection_blocking {
                     Verdict::Deny {
                         reason: format!(
-                            "Tool call blocked: injection detected in parameters ({:?})",
-                            injection_matches
+                            "Tool call blocked: injection detected in parameters ({injection_matches:?})"
                         ),
                     }
                 } else {
@@ -1112,8 +1109,7 @@ impl ProxyBridge {
                     registry.register_unknown(&tool_name).await;
                     let action = extract_action(&tool_name, &arguments);
                     let reason = format!(
-                        "Tool '{}' is not in the registry — requires approval before use",
-                        tool_name
+                        "Tool '{tool_name}' is not in the registry — requires approval before use"
                     );
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
@@ -1151,8 +1147,7 @@ impl ProxyBridge {
                 crate::tool_registry::TrustLevel::Untrusted { score } => {
                     let action = extract_action(&tool_name, &arguments);
                     let reason = format!(
-                        "Tool '{}' trust score ({:.2}) is below threshold — requires approval",
-                        tool_name, score
+                        "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
                     );
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
@@ -1473,7 +1468,7 @@ impl ProxyBridge {
                 .iter()
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
-            let audit_reason = format!("DLP: secrets detected in resource URI: {:?}", patterns);
+            let audit_reason = format!("DLP: secrets detected in resource URI: {patterns:?}");
             if let Err(e) = self
                 .audit
                 .log_entry(
@@ -1591,8 +1586,7 @@ impl ProxyBridge {
                 let verdict = if self.injection_blocking {
                     Verdict::Deny {
                         reason: format!(
-                            "Resource read blocked: injection detected in URI ({:?})",
-                            injection_matches
+                            "Resource read blocked: injection detected in URI ({injection_matches:?})"
                         ),
                     }
                 } else {
@@ -1795,8 +1789,7 @@ impl ProxyBridge {
                             &dlp_action,
                             &Verdict::Deny {
                                 reason: format!(
-                                    "Sampling blocked: secrets detected in request ({:?})",
-                                    patterns
+                                    "Sampling blocked: secrets detected in request ({patterns:?})"
                                 ),
                             },
                             json!({"source": "proxy", "event": "sampling_dlp_blocked"}),
@@ -1855,8 +1848,7 @@ impl ProxyBridge {
                                     &deny_action,
                                     &Verdict::Deny {
                                         reason: format!(
-                                            "Sampling blocked: injection in system prompt/messages ({:?})",
-                                            injection_matches
+                                            "Sampling blocked: injection in system prompt/messages ({injection_matches:?})"
                                         ),
                                     },
                                     json!({
@@ -1974,8 +1966,7 @@ impl ProxyBridge {
                             &dlp_action,
                             &Verdict::Deny {
                                 reason: format!(
-                                    "Elicitation blocked: secrets detected ({:?})",
-                                    patterns
+                                    "Elicitation blocked: secrets detected ({patterns:?})"
                                 ),
                             },
                             json!({"source": "proxy", "event": "elicitation_dlp_blocked"}),
@@ -2088,7 +2079,7 @@ impl ProxyBridge {
                 .iter()
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
-            let audit_reason = format!("DLP: secrets detected in task request: {:?}", patterns);
+            let audit_reason = format!("DLP: secrets detected in task request: {patterns:?}");
             if let Err(e) = self
                 .audit
                 .log_entry(
@@ -2204,8 +2195,7 @@ impl ProxyBridge {
                 let verdict = if self.injection_blocking {
                     Verdict::Deny {
                         reason: format!(
-                            "Task request blocked: injection detected in parameters ({:?})",
-                            injection_matches
+                            "Task request blocked: injection detected in parameters ({injection_matches:?})"
                         ),
                     }
                 } else {
@@ -2366,7 +2356,7 @@ impl ProxyBridge {
                 let reason = match &verdict {
                     Verdict::Deny { reason } => reason.clone(),
                     Verdict::RequireApproval { reason } => reason.clone(),
-                    other => format!("Denied by policy: {:?}", other),
+                    other => format!("Denied by policy: {other:?}"),
                 };
                 let response = make_denial_response(&id, &reason);
                 if let Err(e) = self
@@ -2475,7 +2465,7 @@ impl ProxyBridge {
         // SECURITY (R230-RELAY-2): Circuit breaker check for extension methods.
         // Parity with handle_tool_call (line 692).
         if let Some(ref cb) = self.circuit_breaker {
-            let cb_key = format!("ext:{}:{}", extension_id, method);
+            let cb_key = format!("ext:{extension_id}:{method}");
             if let Err(reason) = cb.can_proceed(&cb_key) {
                 tracing::warn!(
                     "SECURITY: Circuit breaker blocking extension '{}:{}': {}",
@@ -2524,8 +2514,7 @@ impl ProxyBridge {
                             claimed_id
                         );
                         let reason = format!(
-                            "Shadow agent detected: claimed identity '{}' does not match fingerprint",
-                            claimed_id
+                            "Shadow agent detected: claimed identity '{claimed_id}' does not match fingerprint"
                         );
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
@@ -2676,8 +2665,7 @@ impl ProxyBridge {
                             &dlp_action,
                             &Verdict::Deny {
                                 reason: format!(
-                                    "Extension method blocked: secrets detected in parameters ({:?})",
-                                    patterns
+                                    "Extension method blocked: secrets detected in parameters ({patterns:?})"
                                 ),
                             },
                             json!({
@@ -2729,8 +2717,7 @@ impl ProxyBridge {
                         let verdict = if self.injection_blocking {
                             Verdict::Deny {
                                 reason: format!(
-                                    "Extension method blocked: injection detected in parameters ({:?})",
-                                    injection_matches
+                                    "Extension method blocked: injection detected in parameters ({injection_matches:?})"
                                 ),
                             }
                         } else {
@@ -2851,7 +2838,7 @@ impl ProxyBridge {
                 let reason = match &verdict {
                     Verdict::Deny { reason } => reason.clone(),
                     Verdict::RequireApproval { reason } => reason.clone(),
-                    other => format!("Denied by policy: {:?}", other),
+                    other => format!("Denied by policy: {other:?}"),
                 };
                 let response = make_denial_response(&id, &reason);
                 if let Err(e) = self
@@ -3072,8 +3059,7 @@ impl ProxyBridge {
                     &action,
                     &Verdict::Deny {
                         reason: format!(
-                            "PassThrough blocked: secrets detected in parameters ({:?})",
-                            patterns
+                            "PassThrough blocked: secrets detected in parameters ({patterns:?})"
                         ),
                     },
                     json!({
@@ -3149,8 +3135,7 @@ impl ProxyBridge {
                 let verdict = if self.injection_blocking {
                     Verdict::Deny {
                         reason: format!(
-                            "PassThrough blocked: injection detected ({:?})",
-                            injection_matches
+                            "PassThrough blocked: injection detected ({injection_matches:?})"
                         ),
                     }
                 } else {
@@ -3439,8 +3424,7 @@ impl ProxyBridge {
                     let verdict = if self.response_dlp_blocking {
                         Verdict::Deny {
                             reason: format!(
-                                "Notification blocked: secrets detected ({:?})",
-                                patterns
+                                "Notification blocked: secrets detected ({patterns:?})"
                             ),
                         }
                     } else {
@@ -3499,8 +3483,7 @@ impl ProxyBridge {
                     let verdict = if self.injection_blocking {
                         Verdict::Deny {
                             reason: format!(
-                                "Notification blocked: injection detected ({:?})",
-                                injection_matches
+                                "Notification blocked: injection detected ({injection_matches:?})"
                             ),
                         }
                     } else {
@@ -3804,8 +3787,7 @@ impl ProxyBridge {
                                         &action,
                                         &Verdict::Deny {
                                             reason: format!(
-                                                "structuredContent schema validation blocked: no schema registered for tool '{}'",
-                                                tool_name
+                                                "structuredContent schema validation blocked: no schema registered for tool '{tool_name}'"
                                             ),
                                         },
                                         json!({"source": "proxy", "event": "output_schema_violation"}),
@@ -3858,8 +3840,7 @@ impl ProxyBridge {
                                     &action,
                                     &Verdict::Deny {
                                         reason: format!(
-                                            "structuredContent validation failed: {:?}",
-                                            violations
+                                            "structuredContent validation failed: {violations:?}"
                                         ),
                                     },
                                     json!({"source": "proxy", "event": "output_schema_violation"}),
@@ -3962,7 +3943,7 @@ impl ProxyBridge {
                 );
                 let verdict = if self.response_dlp_blocking {
                     Verdict::Deny {
-                        reason: format!("Response blocked: secrets detected ({:?})", patterns),
+                        reason: format!("Response blocked: secrets detected ({patterns:?})"),
                     }
                 } else {
                     Verdict::Allow // Log-only
@@ -4156,8 +4137,7 @@ impl ProxyBridge {
                                     &action,
                                     &Verdict::Deny {
                                         reason: format!(
-                                            "Manifest verification failed: {:?}",
-                                            discrepancies
+                                            "Manifest verification failed: {discrepancies:?}"
                                         ),
                                     },
                                     json!({"source": "proxy", "event": "manifest_verification_failed"}),
@@ -4213,8 +4193,7 @@ impl ProxyBridge {
                                         &action,
                                         &Verdict::Deny {
                                             reason: format!(
-                                                "Schema poisoning detected: tool '{}' schema changed (similarity={:.2})",
-                                                name, similarity
+                                                "Schema poisoning detected: tool '{name}' schema changed (similarity={similarity:.2})"
                                             ),
                                         },
                                         json!({
@@ -4262,8 +4241,7 @@ impl ProxyBridge {
                                             &action,
                                             &Verdict::Deny {
                                                 reason: format!(
-                                                    "Tool '{}' schema drifted (similarity={:.2})",
-                                                    name, similarity
+                                                    "Tool '{name}' schema drifted (similarity={similarity:.2})"
                                                 ),
                                             },
                                             json!({
@@ -4546,7 +4524,7 @@ mod tests {
     fn test_relay_state_flag_tool_rejects_at_capacity() {
         let mut initial: HashSet<String> = HashSet::with_capacity(MAX_FLAGGED_TOOLS);
         for i in 0..MAX_FLAGGED_TOOLS {
-            initial.insert(format!("tool_{}", i));
+            initial.insert(format!("tool_{i}"));
         }
         let mut state = RelayState::new(initial);
         assert_eq!(state.flagged_tools.len(), MAX_FLAGGED_TOOLS);
@@ -4570,7 +4548,7 @@ mod tests {
         let mut state = RelayState::new(HashSet::new());
         // Fill call_counts to capacity with unique action names.
         for i in 0..MAX_CALL_COUNTS {
-            state.record_forwarded_action(&format!("action_{}", i));
+            state.record_forwarded_action(&format!("action_{i}"));
         }
         assert_eq!(state.call_counts.len(), MAX_CALL_COUNTS);
 
@@ -4585,7 +4563,7 @@ mod tests {
         let mut state = RelayState::new(HashSet::new());
         // Record 101 actions: action_0 through action_100.
         for i in 0..=MAX_ACTION_HISTORY {
-            state.record_forwarded_action(&format!("action_{}", i));
+            state.record_forwarded_action(&format!("action_{i}"));
         }
         // History should be capped at MAX_ACTION_HISTORY (100).
         assert_eq!(state.action_history.len(), MAX_ACTION_HISTORY);
@@ -4594,7 +4572,7 @@ mod tests {
         // The newest entry should be present.
         assert_eq!(
             state.action_history.back(),
-            Some(&format!("action_{}", MAX_ACTION_HISTORY))
+            Some(&format!("action_{MAX_ACTION_HISTORY}"))
         );
     }
 
@@ -4617,7 +4595,7 @@ mod tests {
         // Fill pending_requests to capacity.
         for i in 0..MAX_PENDING_REQUESTS {
             let id = json!(i);
-            state.track_pending_request(&id, format!("tool_{}", i), None);
+            state.track_pending_request(&id, format!("tool_{i}"), None);
         }
         assert_eq!(state.pending_requests.len(), MAX_PENDING_REQUESTS);
 

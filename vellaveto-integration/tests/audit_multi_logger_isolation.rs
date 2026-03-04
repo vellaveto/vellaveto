@@ -114,13 +114,13 @@ fn concurrent_loggers_to_different_files_no_interference() {
 
         let mut join_handles = Vec::new();
         for i in 0..5usize {
-            let path = tmp.path().join(format!("logger_{}.log", i));
+            let path = tmp.path().join(format!("logger_{i}.log"));
             let logger = Arc::new(AuditLogger::new(path));
             let handle = tokio::spawn(async move {
                 for j in 0..20usize {
                     let action = Action::new(
-                        format!("tool_{}", i),
-                        format!("func_{}", j),
+                        format!("tool_{i}"),
+                        format!("func_{j}"),
                         json!({"logger": i, "entry": j}),
                     );
                     logger
@@ -137,18 +137,16 @@ fn concurrent_loggers_to_different_files_no_interference() {
         }
 
         for i in 0..5usize {
-            let path = tmp.path().join(format!("logger_{}.log", i));
+            let path = tmp.path().join(format!("logger_{i}.log"));
             let logger = AuditLogger::new(path);
             let entries = logger.load_entries().await.unwrap();
             assert_eq!(
                 entries.len(),
                 entries_per_logger,
-                "Logger {} should have {} entries",
-                i,
-                entries_per_logger
+                "Logger {i} should have {entries_per_logger} entries"
             );
             for entry in &entries {
-                assert_eq!(entry.action.tool, format!("tool_{}", i));
+                assert_eq!(entry.action.tool, format!("tool_{i}"));
             }
         }
     });

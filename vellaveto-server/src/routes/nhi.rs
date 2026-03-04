@@ -205,7 +205,7 @@ fn validate_string_array(
         ));
     }
     for (i, v) in values.iter().enumerate() {
-        validate_string_field(v, &format!("{}[{}]", field_name, i))?;
+        validate_string_field(v, &format!("{field_name}[{i}]"))?;
     }
     Ok(())
 }
@@ -225,8 +225,8 @@ fn validate_string_map(
         ));
     }
     for (k, v) in map {
-        validate_string_field(k, &format!("{}.key", field_name))?;
-        validate_string_field(v, &format!("{}[{}]", field_name, k))?;
+        validate_string_field(k, &format!("{field_name}.key"))?;
+        validate_string_field(v, &format!("{field_name}[{k}]"))?;
     }
     Ok(())
 }

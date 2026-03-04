@@ -51,16 +51,14 @@ fn entries_have_plausible_rfc3339_timestamps() {
         let entries = logger.load_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         let ts = &entries[0].timestamp;
-        assert!(ts.contains('T'), "timestamp should contain 'T': {}", ts);
+        assert!(ts.contains('T'), "timestamp should contain 'T': {ts}");
         assert!(
             ts.len() >= 20,
-            "timestamp should be at least 20 chars: {}",
-            ts
+            "timestamp should be at least 20 chars: {ts}"
         );
         assert!(
             ts.contains('+') || ts.contains('Z'),
-            "timestamp should have timezone: {}",
-            ts
+            "timestamp should have timezone: {ts}"
         );
     });
 }
@@ -167,11 +165,11 @@ fn report_entries_match_load_entries() {
                 Verdict::Allow
             } else if i % 3 == 1 {
                 Verdict::Deny {
-                    reason: format!("deny-{}", i),
+                    reason: format!("deny-{i}"),
                 }
             } else {
                 Verdict::RequireApproval {
-                    reason: format!("approve-{}", i),
+                    reason: format!("approve-{i}"),
                 }
             };
             logger
@@ -209,7 +207,7 @@ fn report_with_only_deny_verdicts() {
                 .log_entry(
                     &action,
                     &Verdict::Deny {
-                        reason: format!("reason-{}", i),
+                        reason: format!("reason-{i}"),
                     },
                     json!({}),
                 )

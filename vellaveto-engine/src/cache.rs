@@ -927,7 +927,7 @@ mod tests {
         let action = make_action("secret_tool", "func");
         cache.insert(&action, None, &Verdict::Allow);
 
-        let debug_output = format!("{:?}", cache);
+        let debug_output = format!("{cache:?}");
         // Debug output should show metadata, not entry contents
         assert!(debug_output.contains("max_entries"));
         assert!(debug_output.contains("current_size"));

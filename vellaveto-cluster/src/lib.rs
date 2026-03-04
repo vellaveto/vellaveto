@@ -83,7 +83,7 @@ impl From<vellaveto_approval::ApprovalError> for ClusterError {
             }
             vellaveto_approval::ApprovalError::Validation(msg) => ClusterError::Validation(msg),
             vellaveto_approval::ApprovalError::Io(e) => {
-                ClusterError::Backend(format!("IO error: {}", e))
+                ClusterError::Backend(format!("IO error: {e}"))
             }
             vellaveto_approval::ApprovalError::Serialization(e) => {
                 ClusterError::Serialization(e.to_string())

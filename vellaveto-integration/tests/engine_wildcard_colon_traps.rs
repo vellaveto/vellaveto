@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -48,8 +48,7 @@ fn id_with_two_colons_treats_rest_as_function_pattern() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "function 'func' should match func_pat 'func' (qualifier stripped), got {:?}",
-        result
+        "function 'func' should match func_pat 'func' (qualifier stripped), got {result:?}"
     );
 
     // Action with function "func:extra" should NOT match (colons not in function names)
@@ -57,8 +56,7 @@ fn id_with_two_colons_treats_rest_as_function_pattern() {
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "function 'func:extra' should NOT match func_pat 'func', got {:?}",
-        result2
+        "function 'func:extra' should NOT match func_pat 'func', got {result2:?}"
     );
 }
 
@@ -76,8 +74,7 @@ fn id_with_leading_colon_has_empty_tool_pattern() {
         .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "empty tool should match empty tool pattern from ':read', got {:?}",
-        result
+        "empty tool should match empty tool pattern from ':read', got {result:?}"
     );
 
     // Non-empty tool should NOT match tool_pat ""
@@ -85,8 +82,7 @@ fn id_with_leading_colon_has_empty_tool_pattern() {
     let result2 = engine.evaluate_action(&action_nonempty, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "tool 'file' should NOT match empty tool pattern from ':read', got {:?}",
-        result2
+        "tool 'file' should NOT match empty tool pattern from ':read', got {result2:?}"
     );
 }
 
@@ -102,8 +98,7 @@ fn id_with_trailing_colon_has_empty_function_pattern() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "empty function should match empty function pattern from 'file:', got {:?}",
-        result
+        "empty function should match empty function pattern from 'file:', got {result:?}"
     );
 
     // Non-empty function should NOT match
@@ -111,8 +106,7 @@ fn id_with_trailing_colon_has_empty_function_pattern() {
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "function 'read' should NOT match empty function pattern from 'file:', got {:?}",
-        result2
+        "function 'read' should NOT match empty function pattern from 'file:', got {result2:?}"
     );
 }
 
@@ -129,16 +123,14 @@ fn id_is_just_colon_matches_only_empty_tool_and_function() {
         .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "both-empty action should match ':', got {:?}",
-        result
+        "both-empty action should match ':', got {result:?}"
     );
 
     let action_nonempty = make_action("bash", "exec");
     let result2 = engine.evaluate_action(&action_nonempty, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "non-empty action should NOT match ':', got {:?}",
-        result2
+        "non-empty action should NOT match ':', got {result2:?}"
     );
 }
 
@@ -153,10 +145,7 @@ fn star_colon_star_matches_everything() {
         let result = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(result, Verdict::Allow),
-            "'*:*' should match ({}, {}), got {:?}",
-            tool,
-            func,
-            result
+            "'*:*' should match ({tool}, {func}), got {result:?}"
         );
     }
 }
@@ -173,8 +162,7 @@ fn bare_id_without_colon_matches_tool_only_not_function() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "tool 'execute' should match bare id 'execute', got {:?}",
-        result
+        "tool 'execute' should match bare id 'execute', got {result:?}"
     );
 
     // Tool "bash" with function "execute" does NOT match
@@ -182,8 +170,7 @@ fn bare_id_without_colon_matches_tool_only_not_function() {
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "bare id 'execute' should NOT match tool 'bash' even though function is 'execute', got {:?}",
-        result2
+        "bare id 'execute' should NOT match tool 'bash' even though function is 'execute', got {result2:?}"
     );
 }
 
@@ -197,16 +184,14 @@ fn wildcard_suffix_in_both_tool_and_function_via_colon() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "'bash*:exec*' should match (bash_v2, execute_cmd), got {:?}",
-        result
+        "'bash*:exec*' should match (bash_v2, execute_cmd), got {result:?}"
     );
 
     let action2 = make_action("bash_v2", "read_file");
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "'bash*:exec*' should NOT match function 'read_file', got {:?}",
-        result2
+        "'bash*:exec*' should NOT match function 'read_file', got {result2:?}"
     );
 }
 
@@ -220,15 +205,13 @@ fn prefix_wildcard_in_both_tool_and_function_via_colon() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "'*sh:*cute' should match (bash, execute), got {:?}",
-        result
+        "'*sh:*cute' should match (bash, execute), got {result:?}"
     );
 
     let action2 = make_action("python", "execute");
     let result2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "'*sh' should NOT match tool 'python', got {:?}",
-        result2
+        "'*sh' should NOT match tool 'python', got {result2:?}"
     );
 }

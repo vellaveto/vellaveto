@@ -200,8 +200,7 @@ impl SecureTaskManager {
         if tasks.len() >= MAX_SECURE_TASKS {
             tracing::warn!(max = MAX_SECURE_TASKS, "Secure task manager at capacity");
             return Err(TaskSecurityError::IntegrityViolation(format!(
-                "Maximum secure tasks ({}) reached",
-                MAX_SECURE_TASKS,
+                "Maximum secure tasks ({MAX_SECURE_TASKS}) reached",
             )));
         }
 
@@ -392,10 +391,7 @@ impl SecureTaskManager {
         let checkpoint_id = format!("cp-{}", uuid::Uuid::new_v4());
 
         // Create signature message
-        let message = format!(
-            "{}|{}|{}|{}|{}",
-            checkpoint_id, task_id, sequence, state_hash, created_at
-        );
+        let message = format!("{checkpoint_id}|{task_id}|{sequence}|{state_hash}|{created_at}");
         let signature = signing_key.sign(message.as_bytes());
 
         let checkpoint = TaskCheckpoint {
@@ -415,8 +411,7 @@ impl SecureTaskManager {
         if checkpoints.len() >= MAX_CHECKPOINTS {
             tracing::warn!(max = MAX_CHECKPOINTS, "Checkpoint store at capacity");
             return Err(TaskSecurityError::IntegrityViolation(format!(
-                "Maximum checkpoints ({}) reached",
-                MAX_CHECKPOINTS,
+                "Maximum checkpoints ({MAX_CHECKPOINTS}) reached",
             )));
         }
         checkpoints.insert(checkpoint_id, checkpoint.clone());
@@ -632,7 +627,7 @@ impl SecureTaskManager {
         // Add random component for uniqueness
         let mut random = [0u8; 16];
         getrandom::getrandom(&mut random)
-            .map_err(|e| TaskSecurityError::EncryptionFailed(format!("RNG failed: {}", e)))?;
+            .map_err(|e| TaskSecurityError::EncryptionFailed(format!("RNG failed: {e}")))?;
         mac.update(&random);
         Ok(hex::encode(mac.finalize().into_bytes()))
     }
@@ -666,7 +661,7 @@ impl SecureTaskManager {
         let mut hasher = Sha256::new();
         hasher.update(sequence.to_le_bytes());
         hasher.update(prev_hash.as_bytes());
-        hasher.update(format!("{}", new_status).as_bytes());
+        hasher.update(format!("{new_status}").as_bytes());
         hasher.update(timestamp.as_bytes());
         if let Some(ref agent) = triggered_by {
             hasher.update(agent.as_bytes());

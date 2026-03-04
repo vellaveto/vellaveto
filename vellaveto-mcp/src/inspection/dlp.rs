@@ -1723,8 +1723,7 @@ mod tests {
         let findings = scan_response_for_secrets(&response);
         assert!(
             !findings.is_empty(),
-            "Response DLP must detect base64-encoded AWS key: {}",
-            encoded
+            "Response DLP must detect base64-encoded AWS key: {encoded}"
         );
     }
 
@@ -1753,8 +1752,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.location.contains("resource.text")),
-            "Finding location must indicate resource.text. Got: {:?}",
-            findings
+            "Finding location must indicate resource.text. Got: {findings:?}"
         );
     }
 
@@ -1793,15 +1791,13 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             !findings.is_empty(),
-            "Base64-encoded AWS key should be detected, encoded as: {}",
-            encoded
+            "Base64-encoded AWS key should be detected, encoded as: {encoded}"
         );
         assert!(
             findings
                 .iter()
                 .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("base64")),
-            "Finding should indicate base64 decoding, got: {:?}",
-            findings
+            "Finding should indicate base64 decoding, got: {findings:?}"
         );
     }
 
@@ -1830,20 +1826,18 @@ mod tests {
         // R4-14: URL-encoded AWS key should be detected.
         // URL-encode each character as %XX
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let encoded: String = raw_key.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let encoded: String = raw_key.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"data": encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             !findings.is_empty(),
-            "URL-encoded AWS key should be detected, encoded as: {}",
-            encoded
+            "URL-encoded AWS key should be detected, encoded as: {encoded}"
         );
         assert!(
             findings
                 .iter()
                 .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("url_encoded")),
-            "Finding should indicate URL decoding, got: {:?}",
-            findings
+            "Finding should indicate URL decoding, got: {findings:?}"
         );
     }
 
@@ -1857,7 +1851,7 @@ mod tests {
                 if b.is_ascii_alphanumeric() {
                     (b as char).to_string()
                 } else {
-                    format!("%{:02X}", b)
+                    format!("%{b:02X}")
                 }
             })
             .collect();
@@ -1865,8 +1859,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             !findings.is_empty(),
-            "URL-encoded private key header should be detected, encoded as: {}",
-            encoded
+            "URL-encoded private key header should be detected, encoded as: {encoded}"
         );
         assert!(findings
             .iter()
@@ -1915,8 +1908,7 @@ mod tests {
         assert_eq!(
             aws_findings.len(),
             1,
-            "Direct match should produce exactly one finding, got: {:?}",
-            aws_findings
+            "Direct match should produce exactly one finding, got: {aws_findings:?}"
         );
         assert!(
             !aws_findings[0].location.contains("base64"),
@@ -1936,7 +1928,7 @@ mod tests {
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
         let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
         // Percent-encode the base64 string
-        let double_encoded: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let double_encoded: String = b64.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"data": double_encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
@@ -1953,7 +1945,7 @@ mod tests {
         // Attacker percent-encodes the secret, then base64-encodes the result
         use base64::Engine;
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let pct: String = raw_key.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let pct: String = raw_key.bytes().map(|b| format!("%{b:02X}")).collect();
         let double_encoded = base64::engine::general_purpose::STANDARD.encode(&pct);
         let params = json!({"data": double_encoded});
         let findings = scan_parameters_for_secrets(&params);
@@ -1971,13 +1963,12 @@ mod tests {
         use base64::Engine;
         let raw = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
         let b64 = base64::engine::general_purpose::STANDARD.encode(raw);
-        let double: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let double: String = b64.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"token": double});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "github_token"),
-            "Double-encoded GitHub token should be detected, findings: {:?}",
-            findings
+            "Double-encoded GitHub token should be detected, findings: {findings:?}"
         );
     }
 
@@ -1989,7 +1980,7 @@ mod tests {
 
         // base64 then percent → should show "base64+url_encoded" or "url_encoded+base64"
         let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
-        let pct_of_b64: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let pct_of_b64: String = b64.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"k": pct_of_b64});
         let findings = scan_parameters_for_secrets(&params);
         // The percent-decode happens first (layer 3), producing the base64 string.
@@ -2002,8 +1993,7 @@ mod tests {
                 .iter()
                 .any(|f| f.location.contains("url_encoded+base64")
                     || f.location.contains("base64+url_encoded")),
-            "Two-layer finding should have combinatorial location label, got: {:?}",
-            findings
+            "Two-layer finding should have combinatorial location label, got: {findings:?}"
         );
     }
 
@@ -2013,13 +2003,12 @@ mod tests {
         use base64::Engine;
         let clean = "Hello, this is a perfectly normal message with no secrets";
         let b64 = base64::engine::general_purpose::STANDARD.encode(clean);
-        let double: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let double: String = b64.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"msg": double});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.is_empty(),
-            "Clean double-encoded string should not trigger DLP, findings: {:?}",
-            findings
+            "Clean double-encoded string should not trigger DLP, findings: {findings:?}"
         );
     }
 
@@ -2146,8 +2135,7 @@ mod tests {
         );
         assert!(
             findings.iter().any(|f| f.location.contains("annotations")),
-            "Finding location should reference annotations, got: {:?}",
-            findings
+            "Finding location should reference annotations, got: {findings:?}"
         );
     }
 
@@ -2171,8 +2159,7 @@ mod tests {
         let findings = scan_response_for_secrets(&response);
         assert!(
             findings.is_empty(),
-            "Clean annotations should not produce DLP findings, got: {:?}",
-            findings
+            "Clean annotations should not produce DLP findings, got: {findings:?}"
         );
     }
 
@@ -2191,8 +2178,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "DLP must detect AWS key encoded with base64url (URL_SAFE with padding), got: {:?}",
-            findings
+            "DLP must detect AWS key encoded with base64url (URL_SAFE with padding), got: {findings:?}"
         );
     }
 
@@ -2206,8 +2192,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "DLP must detect AWS key encoded with base64url-nopad (URL_SAFE_NO_PAD), got: {:?}",
-            findings
+            "DLP must detect AWS key encoded with base64url-nopad (URL_SAFE_NO_PAD), got: {findings:?}"
         );
     }
 
@@ -2228,8 +2213,7 @@ mod tests {
         let findings = scan_response_for_secrets(&response);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "DLP must detect base64url-encoded AWS key in response, got: {:?}",
-            findings
+            "DLP must detect base64url-encoded AWS key in response, got: {findings:?}"
         );
     }
 
@@ -2271,8 +2255,7 @@ mod tests {
             assert_eq!(
                 decoded,
                 Some(original.to_string()),
-                "try_base64_decode must decode {} variant correctly",
-                name
+                "try_base64_decode must decode {name} variant correctly"
             );
         }
     }
@@ -2289,8 +2272,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.pattern_name == "anthropic_api_key"),
-            "Should detect Anthropic API key, got: {:?}",
-            findings
+            "Should detect Anthropic API key, got: {findings:?}"
         );
     }
 
@@ -2302,8 +2284,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "openai_api_key"),
-            "Should detect OpenAI API key, got: {:?}",
-            findings
+            "Should detect OpenAI API key, got: {findings:?}"
         );
     }
 
@@ -2315,8 +2296,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "openai_api_key"),
-            "Should detect OpenAI project API key, got: {:?}",
-            findings
+            "Should detect OpenAI project API key, got: {findings:?}"
         );
     }
 
@@ -2330,8 +2310,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.pattern_name == "huggingface_token"),
-            "Should detect HuggingFace token, got: {:?}",
-            findings
+            "Should detect HuggingFace token, got: {findings:?}"
         );
     }
 
@@ -2343,8 +2322,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "replicate_token"),
-            "Should detect Replicate token, got: {:?}",
-            findings
+            "Should detect Replicate token, got: {findings:?}"
         );
     }
 
@@ -2356,8 +2334,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "groq_api_key"),
-            "Should detect Groq API key, got: {:?}",
-            findings
+            "Should detect Groq API key, got: {findings:?}"
         );
     }
 
@@ -2369,8 +2346,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "cohere_api_key"),
-            "Should detect Cohere API key, got: {:?}",
-            findings
+            "Should detect Cohere API key, got: {findings:?}"
         );
     }
 
@@ -2384,8 +2360,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.pattern_name == "together_api_key"),
-            "Should detect Together.ai API key, got: {:?}",
-            findings
+            "Should detect Together.ai API key, got: {findings:?}"
         );
     }
 
@@ -2437,21 +2412,18 @@ mod tests {
     fn test_dlp_hex_encoded_aws_key_detected() {
         // FIND-R44-003: AWS key hex-encoded should be detected
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let hex_encoded: String = raw_key.bytes().map(|b| format!("{:02x}", b)).collect();
+        let hex_encoded: String = raw_key.bytes().map(|b| format!("{b:02x}")).collect();
         let params = json!({"data": hex_encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Hex-encoded AWS key should be detected, encoded as: {}, findings: {:?}",
-            hex_encoded,
-            findings
+            "Hex-encoded AWS key should be detected, encoded as: {hex_encoded}, findings: {findings:?}"
         );
         assert!(
             findings
                 .iter()
                 .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("hex")),
-            "Finding should indicate hex decoding, got: {:?}",
-            findings
+            "Finding should indicate hex decoding, got: {findings:?}"
         );
     }
 
@@ -2459,13 +2431,12 @@ mod tests {
     fn test_dlp_hex_encoded_github_token_detected() {
         // FIND-R44-003: GitHub token hex-encoded should be detected
         let raw = ["ghp_", "ABCDEFGHIJKLMNOPQRST", "UVWXYZabcdefghijk"].concat();
-        let hex_encoded: String = raw.bytes().map(|b| format!("{:02x}", b)).collect();
+        let hex_encoded: String = raw.bytes().map(|b| format!("{b:02x}")).collect();
         let params = json!({"data": hex_encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "github_token"),
-            "Hex-encoded GitHub token should be detected, findings: {:?}",
-            findings
+            "Hex-encoded GitHub token should be detected, findings: {findings:?}"
         );
     }
 
@@ -2473,13 +2444,12 @@ mod tests {
     fn test_dlp_hex_encoded_uppercase_detected() {
         // FIND-R44-003: Uppercase hex should also work
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
-        let hex_encoded: String = raw_key.bytes().map(|b| format!("{:02X}", b)).collect();
+        let hex_encoded: String = raw_key.bytes().map(|b| format!("{b:02X}")).collect();
         let params = json!({"data": hex_encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Uppercase hex-encoded AWS key should be detected, findings: {:?}",
-            findings
+            "Uppercase hex-encoded AWS key should be detected, findings: {findings:?}"
         );
     }
 
@@ -2532,8 +2502,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.is_empty(),
-            "Clean hex data should not trigger DLP, got: {:?}",
-            findings
+            "Clean hex data should not trigger DLP, got: {findings:?}"
         );
     }
 
@@ -2545,9 +2514,9 @@ mod tests {
         // Layer 3.5 (hex) decodes the outer layer, layer 5.5 (hex+hex) decodes the inner layer.
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
         // First hex encode
-        let hex_once: String = raw_key.bytes().map(|b| format!("{:02x}", b)).collect();
+        let hex_once: String = raw_key.bytes().map(|b| format!("{b:02x}")).collect();
         // Second hex encode
-        let hex_twice: String = hex_once.bytes().map(|b| format!("{:02x}", b)).collect();
+        let hex_twice: String = hex_once.bytes().map(|b| format!("{b:02x}")).collect();
 
         let params = json!({"data": hex_twice});
         let findings = scan_parameters_for_secrets(&params);
@@ -2555,8 +2524,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("(hex+hex)")),
-            "FIND-R213-003: Double-hex-encoded AWS key must be detected via (hex+hex) layer, findings: {:?}",
-            findings
+            "FIND-R213-003: Double-hex-encoded AWS key must be detected via (hex+hex) layer, findings: {findings:?}"
         );
     }
 
@@ -2575,8 +2543,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Should detect AWS key with combining marks stripped: {:?}",
-            findings
+            "Should detect AWS key with combining marks stripped: {findings:?}"
         );
     }
 
@@ -2589,8 +2556,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "github_token"),
-            "Should detect GitHub token with combining grave accent stripped: {:?}",
-            findings
+            "Should detect GitHub token with combining grave accent stripped: {findings:?}"
         );
     }
 
@@ -2607,8 +2573,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Should detect AWS key with extended combining marks stripped: {:?}",
-            findings
+            "Should detect AWS key with extended combining marks stripped: {findings:?}"
         );
     }
 
@@ -2623,14 +2588,12 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Should detect AWS key hidden in JSON object key: {:?}",
-            findings
+            "Should detect AWS key hidden in JSON object key: {findings:?}"
         );
         // Verify location shows it was found in a key
         assert!(
             findings.iter().any(|f| f.location.contains("<key:")),
-            "Finding location should indicate it was in a key: {:?}",
-            findings
+            "Finding location should indicate it was in a key: {findings:?}"
         );
     }
 
@@ -2645,8 +2608,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "github_token"),
-            "Should detect GitHub token in nested object key: {:?}",
-            findings
+            "Should detect GitHub token in nested object key: {findings:?}"
         );
     }
 
@@ -2661,8 +2623,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.is_empty(),
-            "Clean keys should not trigger DLP: {:?}",
-            findings
+            "Clean keys should not trigger DLP: {findings:?}"
         );
     }
 
@@ -2676,13 +2637,12 @@ mod tests {
         use base64::Engine;
         let raw_key = "AKIAIOSFODNN7EXAMPLE";
         let b64 = base64::engine::general_purpose::STANDARD.encode(raw_key);
-        let double_encoded: String = b64.bytes().map(|b| format!("%{:02X}", b)).collect();
+        let double_encoded: String = b64.bytes().map(|b| format!("%{b:02X}")).collect();
         let params = json!({"data": double_encoded});
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "aws_access_key"),
-            "Double-encoded secret must always be detected (no time budget gate), findings: {:?}",
-            findings
+            "Double-encoded secret must always be detected (no time budget gate), findings: {findings:?}"
         );
     }
 
@@ -2696,8 +2656,7 @@ mod tests {
             findings
                 .iter()
                 .any(|f| f.pattern_name == "supabase_secret_key"),
-            "Supabase service-role secret key must be detected, findings: {:?}",
-            findings
+            "Supabase service-role secret key must be detected, findings: {findings:?}"
         );
     }
 
@@ -2707,8 +2666,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "wandb_api_key"),
-            "Weights & Biases API key must be detected, findings: {:?}",
-            findings
+            "Weights & Biases API key must be detected, findings: {findings:?}"
         );
     }
 
@@ -2722,8 +2680,7 @@ mod tests {
         let findings = scan_parameters_for_secrets(&params);
         assert!(
             findings.iter().any(|f| f.pattern_name == "gcp_api_key"),
-            "Google AIza (Gemini) key must be detected, findings: {:?}",
-            findings
+            "Google AIza (Gemini) key must be detected, findings: {findings:?}"
         );
     }
 
@@ -2735,7 +2692,7 @@ mod tests {
         use base64::Engine;
         let secret = "sk-ant-api03-ThisIsAVeryLongSecretKeyThatShouldBeDetectedByEntropy";
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(secret);
-        let url = format!("https://attacker.com/callback?data={}", encoded);
+        let url = format!("https://attacker.com/callback?data={encoded}");
         let result = detect_url_data_exfiltration(&url);
         assert!(
             result.is_some(),
@@ -2758,7 +2715,7 @@ mod tests {
     fn test_r226_url_exfil_high_entropy_path() {
         // Hex-encoded secret in URL path segment
         let hex_data = "a1b2c3d4e5f6789012345678901234567890abcdef";
-        let url = format!("https://evil.com/exfil/{}", hex_data);
+        let url = format!("https://evil.com/exfil/{hex_data}");
         let result = detect_url_data_exfiltration(&url);
         assert!(
             result.is_some(),
@@ -2810,8 +2767,7 @@ mod tests {
             .any(|f| f.pattern_name == "url_data_exfiltration");
         assert!(
             has_url_exfil,
-            "URL exfiltration should be detected via DLP pipeline: {:?}",
-            findings
+            "URL exfiltration should be detected via DLP pipeline: {findings:?}"
         );
     }
 
@@ -2824,16 +2780,14 @@ mod tests {
         let entropy = shannon_entropy(&random_ish);
         assert!(
             entropy > 7.0,
-            "256 unique bytes should have ~8 bits entropy, got {}",
-            entropy
+            "256 unique bytes should have ~8 bits entropy, got {entropy}"
         );
         // Repeated pattern → low entropy
         let pattern = b"aaabbbccc";
         let entropy = shannon_entropy(pattern);
         assert!(
             entropy < 2.0,
-            "Simple repeated pattern should have low entropy, got {}",
-            entropy
+            "Simple repeated pattern should have low entropy, got {entropy}"
         );
     }
 

@@ -121,15 +121,14 @@ impl PolicyConfig {
         // Empty patterns match everything, which would cause excessive false positives.
         for (i, pattern) in self.injection.extra_patterns.iter().enumerate() {
             if pattern.is_empty() {
-                return Err(format!("injection.extra_patterns[{}] must not be empty", i));
+                return Err(format!("injection.extra_patterns[{i}] must not be empty"));
             }
             // SECURITY (FIND-R216-001): Reject control/format characters in injection
             // extra_patterns — zero-width chars could bypass pattern matching or inject
             // invisible text into audit logs.
             if contains_control_chars(pattern) {
                 return Err(format!(
-                    "injection.extra_patterns[{}] contains control or format characters",
-                    i
+                    "injection.extra_patterns[{i}] contains control or format characters"
                 ));
             }
         }
@@ -139,8 +138,7 @@ impl PolicyConfig {
         for (i, pattern) in self.injection.disabled_patterns.iter().enumerate() {
             if contains_control_chars(pattern) {
                 return Err(format!(
-                    "injection.disabled_patterns[{}] contains control or format characters",
-                    i
+                    "injection.disabled_patterns[{i}] contains control or format characters"
                 ));
             }
         }
@@ -166,7 +164,7 @@ impl PolicyConfig {
         }
         for (i, pattern) in self.dlp.disabled_patterns.iter().enumerate() {
             if pattern.is_empty() {
-                return Err(format!("dlp.disabled_patterns[{}] must not be empty", i));
+                return Err(format!("dlp.disabled_patterns[{i}] must not be empty"));
             }
             if pattern.len() > MAX_DLP_DISABLED_PATTERN_LEN {
                 return Err(format!(
@@ -196,7 +194,7 @@ impl PolicyConfig {
             // SECURITY: Validate DLP pattern name — reject empty, oversized,
             // and control-character-containing names.
             if name.is_empty() {
-                return Err(format!("dlp.extra_patterns[{}] name must not be empty", i));
+                return Err(format!("dlp.extra_patterns[{i}] name must not be empty"));
             }
             if name.len() > MAX_DLP_PATTERN_NAME_LEN {
                 return Err(format!(
@@ -208,16 +206,14 @@ impl PolicyConfig {
             }
             if contains_control_chars(name) {
                 return Err(format!(
-                    "dlp.extra_patterns[{}] name contains control or format characters",
-                    i
+                    "dlp.extra_patterns[{i}] name contains control or format characters"
                 ));
             }
             // SECURITY (FIND-R216-014): Validate DLP pattern string for control/format
             // characters — zero-width chars in regex could alter matching behavior.
             if contains_control_chars(pattern) {
                 return Err(format!(
-                    "dlp.extra_patterns[{}] pattern contains control or format characters",
-                    i
+                    "dlp.extra_patterns[{i}] pattern contains control or format characters"
                 ));
             }
             if pattern.len() > MAX_PATTERN_LEN {
@@ -231,8 +227,7 @@ impl PolicyConfig {
             }
             if let Err(e) = regex::Regex::new(pattern) {
                 return Err(format!(
-                    "dlp.extra_patterns[{}] '{}' has invalid regex: {}",
-                    i, name, e
+                    "dlp.extra_patterns[{i}] '{name}' has invalid regex: {e}"
                 ));
             }
         }
@@ -247,7 +242,7 @@ impl PolicyConfig {
             // SECURITY (FIND-R137-002): Validate pattern.name for empty, length,
             // and control characters. The name appears in error messages and logs.
             if pattern.name.is_empty() {
-                return Err(format!("audit.custom_pii_patterns[{}].name is empty", i));
+                return Err(format!("audit.custom_pii_patterns[{i}].name is empty"));
             }
             if pattern.name.len() > 256 {
                 return Err(format!(
@@ -258,8 +253,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(&pattern.name) {
                 return Err(format!(
-                    "audit.custom_pii_patterns[{}].name contains control or format characters",
-                    i
+                    "audit.custom_pii_patterns[{i}].name contains control or format characters"
                 ));
             }
             // SECURITY (FIND-R216-013): Validate pattern.pattern for control/format chars.
@@ -267,8 +261,7 @@ impl PolicyConfig {
             // invisible content into compiled patterns.
             if contains_control_chars(&pattern.pattern) {
                 return Err(format!(
-                    "audit.custom_pii_patterns[{}].pattern contains control or format characters",
-                    i
+                    "audit.custom_pii_patterns[{i}].pattern contains control or format characters"
                 ));
             }
             if pattern.pattern.len() > MAX_PATTERN_LEN {
@@ -306,8 +299,7 @@ impl PolicyConfig {
             }
             if !key_trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err(format!(
-                    "manifest.trusted_keys[{}] must be hex-encoded (0-9, a-f, A-F only)",
-                    i
+                    "manifest.trusted_keys[{i}] must be hex-encoded (0-9, a-f, A-F only)"
                 ));
             }
         }
@@ -324,7 +316,7 @@ impl PolicyConfig {
         const MAX_KNOWN_TOOL_NAME_LEN: usize = 256;
         for (i, name) in self.known_tool_names.iter().enumerate() {
             if name.is_empty() {
-                return Err(format!("known_tool_names[{}] must not be empty", i));
+                return Err(format!("known_tool_names[{i}] must not be empty"));
             }
             if name.len() > MAX_KNOWN_TOOL_NAME_LEN {
                 return Err(format!(
@@ -336,8 +328,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(name) {
                 return Err(format!(
-                    "known_tool_names[{}] contains control or format characters",
-                    i,
+                    "known_tool_names[{i}] contains control or format characters",
                 ));
             }
         }
@@ -378,7 +369,7 @@ impl PolicyConfig {
         }
         for (i, origin) in self.allowed_origins.iter().enumerate() {
             if origin.is_empty() {
-                return Err(format!("allowed_origins[{}] must not be empty", i));
+                return Err(format!("allowed_origins[{i}] must not be empty"));
             }
             if origin.len() > MAX_ORIGIN_LEN {
                 return Err(format!(
@@ -390,8 +381,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(origin) {
                 return Err(format!(
-                    "allowed_origins[{}] contains control or format characters",
-                    i
+                    "allowed_origins[{i}] contains control or format characters"
                 ));
             }
         }
@@ -495,8 +485,7 @@ impl PolicyConfig {
                 let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
                 if loopbacks.contains(&host_stripped) {
                     return Err(format!(
-                        "audit_export.webhook_url must not target localhost/loopback, got '{}'",
-                        host
+                        "audit_export.webhook_url must not target localhost/loopback, got '{host}'"
                     ));
                 }
                 // SECURITY (R31-SUP-1): Reject private/cloud-metadata IP ranges to prevent
@@ -514,8 +503,7 @@ impl PolicyConfig {
                         || ip.is_broadcast(); // 255.255.255.255
                     if is_private {
                         return Err(format!(
-                            "audit_export.webhook_url must not target private/internal IP ranges, got '{}'",
-                            host
+                            "audit_export.webhook_url must not target private/internal IP ranges, got '{host}'"
                         ));
                     }
                 }
@@ -551,8 +539,7 @@ impl PolicyConfig {
                             || mapped_ip.is_broadcast();
                         if is_private_v4 {
                             return Err(format!(
-                                "audit_export.webhook_url must not target private/internal IP ranges (IPv4-mapped IPv6), got '{}'",
-                                host
+                                "audit_export.webhook_url must not target private/internal IP ranges (IPv4-mapped IPv6), got '{host}'"
                             ));
                         }
                     }
@@ -566,8 +553,7 @@ impl PolicyConfig {
                         || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
                     if is_private {
                         return Err(format!(
-                            "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{}'",
-                            host
+                            "audit_export.webhook_url must not target private/internal IPv6 ranges, got '{host}'"
                         ));
                     }
                 }
@@ -739,8 +725,7 @@ impl PolicyConfig {
         for (i, template) in self.semantic_detection.extra_templates.iter().enumerate() {
             if template.is_empty() {
                 return Err(format!(
-                    "semantic_detection.extra_templates[{}] must not be empty",
-                    i
+                    "semantic_detection.extra_templates[{i}] must not be empty"
                 ));
             }
             if template.len() > MAX_SEMANTIC_TEMPLATE_LEN {
@@ -753,8 +738,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(template) {
                 return Err(format!(
-                    "semantic_detection.extra_templates[{}] contains control or format characters",
-                    i
+                    "semantic_detection.extra_templates[{i}] contains control or format characters"
                 ));
             }
         }
@@ -817,14 +801,12 @@ impl PolicyConfig {
             for comp in &self.shadow_agent.fingerprint_components {
                 if !valid_components.contains(&comp.as_str()) {
                     return Err(format!(
-                        "shadow_agent.fingerprint_components has invalid component '{}', valid values are {:?}",
-                        comp, valid_components
+                        "shadow_agent.fingerprint_components has invalid component '{comp}', valid values are {valid_components:?}"
                     ));
                 }
                 if contains_control_chars(comp) {
                     return Err(format!(
-                        "shadow_agent.fingerprint_components contains control or format characters in '{}'",
-                        comp
+                        "shadow_agent.fingerprint_components contains control or format characters in '{comp}'"
                     ));
                 }
             }
@@ -907,8 +889,7 @@ impl PolicyConfig {
             }
             if vellaveto_types::has_dangerous_chars(model) {
                 return Err(format!(
-                    "sampling_detection.allowed_models[{}] contains control or format characters",
-                    i
+                    "sampling_detection.allowed_models[{i}] contains control or format characters"
                 ));
             }
         }
@@ -923,10 +904,7 @@ impl PolicyConfig {
         }
         for (i, agent) in self.cross_agent.trusted_agents.iter().enumerate() {
             if agent.is_empty() {
-                return Err(format!(
-                    "cross_agent.trusted_agents[{}] must not be empty",
-                    i
-                ));
+                return Err(format!("cross_agent.trusted_agents[{i}] must not be empty"));
             }
             if agent.len() > MAX_CROSS_AGENT_TRUSTED_AGENT_LEN {
                 return Err(format!(
@@ -938,8 +916,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(agent) {
                 return Err(format!(
-                    "cross_agent.trusted_agents[{}] contains control or format characters",
-                    i
+                    "cross_agent.trusted_agents[{i}] contains control or format characters"
                 ));
             }
         }
@@ -1007,8 +984,7 @@ impl PolicyConfig {
             }
             if vellaveto_types::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "advanced_threat.protected_tool_patterns[{}] contains control or format characters",
-                    i
+                    "advanced_threat.protected_tool_patterns[{i}] contains control or format characters"
                 ));
             }
         }
@@ -1085,7 +1061,7 @@ impl PolicyConfig {
         }
         for (i, suite) in self.tls.cipher_suites.iter().enumerate() {
             if suite.is_empty() {
-                return Err(format!("tls.cipher_suites[{}] is empty", i));
+                return Err(format!("tls.cipher_suites[{i}] is empty"));
             }
             if suite.len() > MAX_CIPHER_SUITE_LEN {
                 return Err(format!(
@@ -1097,8 +1073,7 @@ impl PolicyConfig {
             }
             if contains_control_chars(suite) {
                 return Err(format!(
-                    "tls.cipher_suites[{}] contains control or format characters",
-                    i
+                    "tls.cipher_suites[{i}] contains control or format characters"
                 ));
             }
         }
@@ -1184,14 +1159,12 @@ impl PolicyConfig {
             let p = Path::new(data_path);
             if p.is_absolute() {
                 return Err(format!(
-                    "etdi.data_path must be a relative path, got '{}'",
-                    data_path
+                    "etdi.data_path must be a relative path, got '{data_path}'"
                 ));
             }
             if p.components().any(|c| matches!(c, Component::ParentDir)) {
                 return Err(format!(
-                    "etdi.data_path must not contain '..' components, got '{}'",
-                    data_path
+                    "etdi.data_path must not contain '..' components, got '{data_path}'"
                 ));
             }
         }
@@ -1220,14 +1193,12 @@ impl PolicyConfig {
             let p = Path::new(pins_path);
             if p.is_absolute() {
                 return Err(format!(
-                    "etdi.version_pinning.pins_path must be a relative path, got '{}'",
-                    pins_path
+                    "etdi.version_pinning.pins_path must be a relative path, got '{pins_path}'"
                 ));
             }
             if p.components().any(|c| matches!(c, Component::ParentDir)) {
                 return Err(format!(
-                    "etdi.version_pinning.pins_path must not contain '..' components, got '{}'",
-                    pins_path
+                    "etdi.version_pinning.pins_path must not contain '..' components, got '{pins_path}'"
                 ));
             }
         }
@@ -1423,7 +1394,7 @@ impl PolicyConfig {
                 // Previous inline code was missing IPv4-mapped IPv6 detection
                 // (::ffff:10.x.x.x, ::ffff:169.254.x.x, etc.).
                 vellaveto_types::validate_url_no_ssrf(trimmed)
-                    .map_err(|e| format!("jit_access.notification_webhook {}", e))?;
+                    .map_err(|e| format!("jit_access.notification_webhook {e}"))?;
             }
         }
 
@@ -1650,8 +1621,7 @@ impl PolicyConfig {
         // SECURITY (FIND-R100-012): Per-policy rule validation — field bounds
         // and control character rejection.
         for (i, rule) in self.policies.iter().enumerate() {
-            rule.validate()
-                .map_err(|e| format!("policies[{}]: {}", i, e))?;
+            rule.validate().map_err(|e| format!("policies[{i}]: {e}"))?;
         }
 
         // SECURITY (FIND-R180-001, FIND-R211-001): Wire sub-config validate()
@@ -1724,7 +1694,7 @@ impl PolicyConfig {
         // SECURITY: Empty/whitespace-only config files are almost always operator error.
         // Reject them explicitly instead of silently loading defaults.
         if content.trim().is_empty() {
-            return Err(format!("Config file '{}' is empty", path).into());
+            return Err(format!("Config file '{path}' is empty").into());
         }
         // SECURITY (FIND-R46-014): Reject unknown file extensions instead of silently
         // falling back to TOML. Silent fallback can mask misconfiguration — e.g., a
@@ -1735,9 +1705,8 @@ impl PolicyConfig {
             Self::from_json(&content)?
         } else {
             return Err(format!(
-                "Config file '{}' has unsupported extension. \
-                 Supported extensions: .toml, .json",
-                path
+                "Config file '{path}' has unsupported extension. \
+                 Supported extensions: .toml, .json"
             )
             .into());
         };

@@ -85,8 +85,7 @@ fn test_infer_name_match() {
     assert!(
         downstream.contains(&"fs::read_file".to_string())
             || downstream.contains(&"fs::write_file".to_string()),
-        "Expected file_search to have downstream edges to read_file or write_file, got: {:?}",
-        downstream
+        "Expected file_search to have downstream edges to read_file or write_file, got: {downstream:?}"
     );
 }
 
@@ -125,8 +124,7 @@ fn test_infer_cross_server() {
     // Should have more edges than just Owns edges (3 tools + 1 tool = 4 Owns)
     assert!(
         all_edges >= 4,
-        "Expected at least the Owns edges, got {}",
-        all_edges
+        "Expected at least the Owns edges, got {all_edges}"
     );
 }
 

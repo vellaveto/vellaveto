@@ -38,7 +38,7 @@ fn validate_tool_name(name: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Tool name must be 1-{} characters", MAX_TOOL_NAME_LEN),
+                error: format!("Tool name must be 1-{MAX_TOOL_NAME_LEN} characters"),
             }),
         ));
     }

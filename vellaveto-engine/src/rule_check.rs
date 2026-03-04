@@ -55,7 +55,7 @@ impl PolicyEngine {
                     Ok(n) => n,
                     Err(e) => {
                         return Some(Verdict::Deny {
-                            reason: format!("Path normalization failed: {}", e),
+                            reason: format!("Path normalization failed: {e}"),
                         })
                     }
                 };
@@ -193,7 +193,7 @@ impl PolicyEngine {
                 Ok(ip) => ip,
                 Err(_) => {
                     return Some(Verdict::Deny {
-                        reason: format!("Invalid resolved IP '{}'", ip_str),
+                        reason: format!("Invalid resolved IP '{ip_str}'"),
                     })
                 }
             };

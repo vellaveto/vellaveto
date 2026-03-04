@@ -54,7 +54,7 @@ fn main() {
 
     println!("Serialization/Deserialization Benchmark");
     println!("=======================================");
-    println!("({} iterations per measurement)", iterations);
+    println!("({iterations} iterations per measurement)");
     println!();
 
     // --- Action ---
@@ -67,7 +67,7 @@ fn main() {
         "complex_tool".to_string(),
         "process_batch".to_string(),
         json!({
-            "files": (0..100).map(|i| format!("/path/{}", i)).collect::<Vec<_>>(),
+            "files": (0..100).map(|i| format!("/path/{i}")).collect::<Vec<_>>(),
             "config": {"depth": 5, "recursive": true, "filters": ["*.rs", "*.toml"]},
         }),
     );

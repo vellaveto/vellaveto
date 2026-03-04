@@ -177,8 +177,7 @@ impl TransportHealthTracker {
                             )
                             .increment(1);
                             return Err(format!(
-                                "transport {:?} circuit open for upstream '{}'",
-                                protocol, upstream_id
+                                "transport {protocol:?} circuit open for upstream '{upstream_id}'"
                             ));
                         }
                     }
@@ -232,8 +231,7 @@ impl TransportHealthTracker {
                         let elapsed = now.saturating_sub(stats.half_open_in_flight_since);
                         if elapsed < HALF_OPEN_PROBE_TIMEOUT_SECS {
                             return Err(format!(
-                                "transport {:?} half-open probe already in flight for upstream '{}'",
-                                protocol, upstream_id
+                                "transport {protocol:?} half-open probe already in flight for upstream '{upstream_id}'"
                             ));
                         }
                         // Stale probe — clear and allow new one.
@@ -892,7 +890,7 @@ mod tests {
 
         // Add a few entries and verify they're tracked.
         for i in 0..5 {
-            tracker.record_failure(&format!("up-{}", i), TransportProtocol::Http);
+            tracker.record_failure(&format!("up-{i}"), TransportProtocol::Http);
         }
         let summary = tracker.summary();
         assert_eq!(summary.total, 5);
@@ -906,7 +904,7 @@ mod tests {
 
         // Record success for many unique upstreams.
         for i in 0..20 {
-            tracker.record_success(&format!("up-{}", i), TransportProtocol::Http);
+            tracker.record_success(&format!("up-{i}"), TransportProtocol::Http);
         }
         let summary = tracker.summary();
         assert_eq!(summary.total, 20);

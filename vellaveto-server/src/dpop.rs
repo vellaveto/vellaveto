@@ -428,11 +428,11 @@ impl DpopVerifier {
         // Decode header
         let header_bytes = URL_SAFE_NO_PAD.decode(parts[0]).map_err(|e| {
             self.increment_failures();
-            DpopError::MalformedProof(format!("invalid header base64: {}", e))
+            DpopError::MalformedProof(format!("invalid header base64: {e}"))
         })?;
         let header: DpopHeader = serde_json::from_slice(&header_bytes).map_err(|e| {
             self.increment_failures();
-            DpopError::MalformedProof(format!("invalid header JSON: {}", e))
+            DpopError::MalformedProof(format!("invalid header JSON: {e}"))
         })?;
 
         // Verify typ
@@ -447,8 +447,7 @@ impl DpopVerifier {
         if jwk_size > MAX_JWK_SIZE {
             self.increment_failures();
             return Err(DpopError::MalformedProof(format!(
-                "JWK size {} exceeds maximum {}",
-                jwk_size, MAX_JWK_SIZE
+                "JWK size {jwk_size} exceeds maximum {MAX_JWK_SIZE}"
             )));
         }
         let key_type = jwk.get("kty").and_then(|v| v.as_str()).ok_or_else(|| {
@@ -469,11 +468,11 @@ impl DpopVerifier {
         // Decode claims
         let claims_bytes = URL_SAFE_NO_PAD.decode(parts[1]).map_err(|e| {
             self.increment_failures();
-            DpopError::MalformedProof(format!("invalid claims base64: {}", e))
+            DpopError::MalformedProof(format!("invalid claims base64: {e}"))
         })?;
         let claims: DpopClaims = serde_json::from_slice(&claims_bytes).map_err(|e| {
             self.increment_failures();
-            DpopError::MalformedProof(format!("invalid claims JSON: {}", e))
+            DpopError::MalformedProof(format!("invalid claims JSON: {e}"))
         })?;
 
         // Validate claim fields
@@ -792,8 +791,7 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
     fn validate_jwk_member(value: &str, field: &str) -> Result<(), DpopError> {
         if value.contains('"') || value.contains('\\') {
             return Err(DpopError::MalformedProof(format!(
-                "JWK '{}' contains invalid characters",
-                field
+                "JWK '{field}' contains invalid characters"
             )));
         }
         Ok(())
@@ -808,21 +806,21 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
             validate_jwk_member(crv, "crv")?;
             validate_jwk_member(x, "x")?;
             validate_jwk_member(y, "y")?;
-            format!(r#"{{"crv":"{}","kty":"EC","x":"{}","y":"{}"}}"#, crv, x, y)
+            format!(r#"{{"crv":"{crv}","kty":"EC","x":"{x}","y":"{y}"}}"#)
         }
         "RSA" => {
             let e = jwk.get("e").and_then(|v| v.as_str()).unwrap_or("");
             let n = jwk.get("n").and_then(|v| v.as_str()).unwrap_or("");
             validate_jwk_member(e, "e")?;
             validate_jwk_member(n, "n")?;
-            format!(r#"{{"e":"{}","kty":"RSA","n":"{}"}}"#, e, n)
+            format!(r#"{{"e":"{e}","kty":"RSA","n":"{n}"}}"#)
         }
         "OKP" => {
             let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
             let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
             validate_jwk_member(crv, "crv")?;
             validate_jwk_member(x, "x")?;
-            format!(r#"{{"crv":"{}","kty":"OKP","x":"{}"}}"#, crv, x)
+            format!(r#"{{"crv":"{crv}","kty":"OKP","x":"{x}"}}"#)
         }
         other => {
             return Err(DpopError::UnsupportedKeyType(other.to_string()));
@@ -905,7 +903,7 @@ fn build_test_proof(claims: &DpopClaims, jwk: &serde_json::Value) -> String {
     // For testing, we use a dummy signature. In production, this would
     // be a real EC/Ed25519/RSA signature.
     let sig_b64 = URL_SAFE_NO_PAD.encode([0u8; 64]);
-    format!("{}.{}.{}", header_b64, claims_b64, sig_b64)
+    format!("{header_b64}.{claims_b64}.{sig_b64}")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1043,7 +1041,7 @@ mod tests {
         let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
         let claims_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&test_claims()).unwrap());
         let sig_b64 = URL_SAFE_NO_PAD.encode([0u8; 64]);
-        let proof = format!("{}.{}.{}", header_b64, claims_b64, sig_b64);
+        let proof = format!("{header_b64}.{claims_b64}.{sig_b64}");
         let result = verifier.verify_proof(&proof, "POST", "/api", None, None);
         assert!(matches!(result, Err(DpopError::InvalidType(_))));
     }
@@ -1443,7 +1441,7 @@ mod tests {
     #[test]
     fn test_verifier_debug() {
         let verifier = DpopVerifier::new(DpopConfig::default());
-        let debug_str = format!("{:?}", verifier);
+        let debug_str = format!("{verifier:?}");
         assert!(debug_str.contains("DpopVerifier"));
         assert!(debug_str.contains("verification_count"));
     }

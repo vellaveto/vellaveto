@@ -70,8 +70,7 @@ impl ExtensionHandler for AuditQueryExtension {
                 "version": "1.0.0",
             })),
             _ => Err(ExtensionError::MethodNotFound(format!(
-                "Unknown method: {}",
-                method
+                "Unknown method: {method}"
             ))),
         }
     }

@@ -91,8 +91,7 @@ mod with_discovery_feature {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Known qualified tool should be allowed, got: {:?}",
-            verdict
+            "Known qualified tool should be allowed, got: {verdict:?}"
         );
     }
 
@@ -119,8 +118,7 @@ mod with_discovery_feature {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Known unqualified tool should be allowed, got: {:?}",
-            verdict
+            "Known unqualified tool should be allowed, got: {verdict:?}"
         );
     }
 
@@ -149,11 +147,10 @@ mod with_discovery_feature {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains("not found in topology"),
-                    "Expected topology denial reason, got: {}",
-                    reason
+                    "Expected topology denial reason, got: {reason}"
                 );
             }
-            _ => panic!("Unknown tool should be denied, got: {:?}", verdict),
+            _ => panic!("Unknown tool should be denied, got: {verdict:?}"),
         }
     }
 
@@ -182,11 +179,10 @@ mod with_discovery_feature {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains("did you mean"),
-                    "Expected suggestion in denial reason, got: {}",
-                    reason
+                    "Expected suggestion in denial reason, got: {reason}"
                 );
             }
-            _ => panic!("Typo tool should be denied, got: {:?}", verdict),
+            _ => panic!("Typo tool should be denied, got: {verdict:?}"),
         }
     }
 
@@ -212,8 +208,7 @@ mod with_discovery_feature {
         // With no topology loaded, guard bypasses → falls through to policy engine
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Should bypass topology when no graph loaded, got: {:?}",
-            verdict
+            "Should bypass topology when no graph loaded, got: {verdict:?}"
         );
     }
 
@@ -393,8 +388,7 @@ mod with_discovery_feature {
         let write_verdict = engine.evaluate_action(&write, &policies).unwrap();
         assert!(
             matches!(write_verdict, Verdict::Deny { .. }),
-            "write_file should be denied by policy, got: {:?}",
-            write_verdict
+            "write_file should be denied by policy, got: {write_verdict:?}"
         );
 
         // Unknown tool — denied by topology guard before policy evaluation
@@ -403,11 +397,10 @@ mod with_discovery_feature {
             Verdict::Deny { reason } => {
                 assert!(
                     reason.contains("not found in topology"),
-                    "Expected topology-based denial, got: {}",
-                    reason
+                    "Expected topology-based denial, got: {reason}"
                 );
             }
-            other => panic!("Unknown tool should be denied, got: {:?}", other),
+            other => panic!("Unknown tool should be denied, got: {other:?}"),
         }
 
         // Step 6: Verify fingerprint consistency

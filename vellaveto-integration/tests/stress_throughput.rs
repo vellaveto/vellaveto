@@ -38,7 +38,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Allow {}", id),
+        name: format!("Allow {id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -49,7 +49,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Deny {}", id),
+        name: format!("Deny {id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -64,11 +64,11 @@ fn generate_mixed_policies(count: usize) -> Vec<Policy> {
     for i in 0..count {
         let priority = (count as i32) - (i as i32);
         let policy = match i % 3 {
-            0 => allow_policy(&format!("tool_{}:*", i), priority),
-            1 => deny_policy(&format!("blocked_{}:*", i), priority),
+            0 => allow_policy(&format!("tool_{i}:*"), priority),
+            1 => deny_policy(&format!("blocked_{i}:*"), priority),
             _ => Policy {
-                id: format!("cond_{}:*", i),
-                name: format!("Conditional {}", i),
+                id: format!("cond_{i}:*"),
+                name: format!("Conditional {i}"),
                 policy_type: PolicyType::Conditional {
                     conditions: json!({"time_window": {"after": "00:00", "before": "23:59"}}),
                 },
@@ -139,7 +139,7 @@ fn test_concurrent_evaluation_no_data_race() {
                     let mut verdicts = Vec::with_capacity(evals_per_thread);
                     for i in 0..evals_per_thread {
                         let action =
-                            make_action(&format!("tool_{}", i % 50), &format!("func_t{}_{}", t, i));
+                            make_action(&format!("tool_{}", i % 50), &format!("func_t{t}_{i}"));
                         let verdict = engine.evaluate_action(&action, &[]).unwrap();
                         verdicts.push(verdict);
                     }
@@ -195,13 +195,11 @@ fn test_multi_tenant_isolation_under_concurrent_load() {
         let ea = Arc::clone(&engine_a);
         let handle_a = s.spawn(move || {
             for i in 0..evals_per_tenant {
-                let action = make_action(&format!("a_tool_{}", i), "read");
+                let action = make_action(&format!("a_tool_{i}"), "read");
                 let verdict = ea.evaluate_action(&action, &[]).unwrap();
                 assert!(
                     matches!(verdict, Verdict::Allow),
-                    "Tenant A: expected Allow for a_tool_{}, got {:?}",
-                    i,
-                    verdict,
+                    "Tenant A: expected Allow for a_tool_{i}, got {verdict:?}",
                 );
             }
         });
@@ -210,13 +208,11 @@ fn test_multi_tenant_isolation_under_concurrent_load() {
         let eb = Arc::clone(&engine_b);
         let handle_b = s.spawn(move || {
             for i in 0..evals_per_tenant {
-                let action = make_action(&format!("b_tool_{}", i), "write");
+                let action = make_action(&format!("b_tool_{i}"), "write");
                 let verdict = eb.evaluate_action(&action, &[]).unwrap();
                 assert!(
                     matches!(verdict, Verdict::Allow),
-                    "Tenant B: expected Allow for b_tool_{}, got {:?}",
-                    i,
-                    verdict,
+                    "Tenant B: expected Allow for b_tool_{i}, got {verdict:?}",
                 );
             }
         });
@@ -225,13 +221,11 @@ fn test_multi_tenant_isolation_under_concurrent_load() {
         let ec = Arc::clone(&engine_c);
         let handle_c = s.spawn(move || {
             for i in 0..evals_per_tenant {
-                let action = make_action(&format!("any_tool_{}", i), "delete");
+                let action = make_action(&format!("any_tool_{i}"), "delete");
                 let verdict = ec.evaluate_action(&action, &[]).unwrap();
                 assert!(
                     matches!(verdict, Verdict::Deny { .. }),
-                    "Tenant C: expected Deny for any_tool_{}, got {:?}",
-                    i,
-                    verdict,
+                    "Tenant C: expected Deny for any_tool_{i}, got {verdict:?}",
                 );
             }
         });
@@ -344,7 +338,7 @@ fn test_concurrent_audit_logging_no_entry_loss() {
             let logger = Arc::clone(&logger);
             handles.push(tokio::spawn(async move {
                 for i in 0..entries_per_task {
-                    let action = make_action(&format!("task_{}_tool", t), &format!("func_{}", i));
+                    let action = make_action(&format!("task_{t}_tool"), &format!("func_{i}"));
                     let metadata = json!({"task": t, "index": i});
                     logger
                         .log_entry(&action, &Verdict::Allow, metadata)
@@ -392,7 +386,7 @@ fn test_memory_stable_under_sustained_evaluation() {
 
     // Evaluate 100K distinct actions — if this completes, no OOM or unbounded leak
     for i in 0..100_000u64 {
-        let action = make_action(&format!("tool_{}", i % 100), &format!("func_{}", i));
+        let action = make_action(&format!("tool_{}", i % 100), &format!("func_{i}"));
         let verdict = engine.evaluate_action(&action, &[]);
         assert!(
             verdict.is_ok(),
@@ -424,7 +418,7 @@ fn test_p99_latency_under_5ms_with_100_policies() {
 
     // Measure
     for i in 0..sample_count {
-        let action = make_action(&format!("tool_{}", i % 100), &format!("measure_{}", i));
+        let action = make_action(&format!("tool_{}", i % 100), &format!("measure_{i}"));
         let start = Instant::now();
         let _verdict = engine.evaluate_action(&action, &[]).unwrap();
         durations.push(start.elapsed());

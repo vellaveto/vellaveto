@@ -1174,7 +1174,7 @@ mod tests {
 
         for i in 0..5 {
             let mut node = ExecutionNode::new(
-                format!("node{}", i),
+                format!("node{i}"),
                 "session1".to_string(),
                 if i % 2 == 0 { "filesystem" } else { "network" }.to_string(),
                 "test".to_string(),
@@ -1239,12 +1239,12 @@ mod tests {
 
         for i in 0..3 {
             let node = ExecutionNode::new(
-                format!("node{}", i),
-                format!("session{}", i),
+                format!("node{i}"),
+                format!("session{i}"),
                 "test".to_string(),
                 "test".to_string(),
             );
-            store.add_node(&format!("session{}", i), node).await;
+            store.add_node(&format!("session{i}"), node).await;
         }
 
         let sessions = store.list_sessions().await;
@@ -1263,7 +1263,7 @@ mod tests {
         // Fill to capacity.
         for i in 0..MAX_NODES_PER_GRAPH {
             let node = ExecutionNode::new(
-                format!("node{}", i),
+                format!("node{i}"),
                 "session1".to_string(),
                 "tool_a".to_string(),
                 "fn_a".to_string(),

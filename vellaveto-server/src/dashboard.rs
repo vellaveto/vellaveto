@@ -692,13 +692,13 @@ fn format_duration(secs: u64) -> String {
     let s = secs % 60;
 
     if days > 0 {
-        format!("{}d {}h {}m", days, hours, mins)
+        format!("{days}d {hours}h {mins}m")
     } else if hours > 0 {
-        format!("{}h {}m {}s", hours, mins, s)
+        format!("{hours}h {mins}m {s}s")
     } else if mins > 0 {
-        format!("{}m {}s", mins, s)
+        format!("{mins}m {s}s")
     } else {
-        format!("{}s", s)
+        format!("{s}s")
     }
 }
 

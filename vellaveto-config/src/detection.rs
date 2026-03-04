@@ -242,8 +242,7 @@ impl RateLimitConfig {
         if let Some(cap) = self.per_ip_max_capacity {
             if cap > MAX_IP_CAPACITY {
                 return Err(format!(
-                    "rate_limit.per_ip_max_capacity must be <= {}, got {}",
-                    MAX_IP_CAPACITY, cap
+                    "rate_limit.per_ip_max_capacity must be <= {MAX_IP_CAPACITY}, got {cap}"
                 ));
             }
         }
@@ -262,13 +261,10 @@ impl RateLimitConfig {
         ] {
             if let Some(v) = value {
                 if v == 0 {
-                    return Err(format!("rate_limit.{} must be > 0 when set", name));
+                    return Err(format!("rate_limit.{name} must be > 0 when set"));
                 }
                 if v > MAX_RPS {
-                    return Err(format!(
-                        "rate_limit.{} must be <= {}, got {}",
-                        name, MAX_RPS, v
-                    ));
+                    return Err(format!("rate_limit.{name} must be <= {MAX_RPS}, got {v}"));
                 }
             }
         }
@@ -340,8 +336,7 @@ impl AuditConfig {
             let valid_levels = ["Off", "KeysOnly", "KeysAndPatterns"];
             if !valid_levels.contains(&level.as_str()) {
                 return Err(format!(
-                    "audit.redaction_level must be one of {:?}, got '{}'",
-                    valid_levels, level
+                    "audit.redaction_level must be one of {valid_levels:?}, got '{level}'"
                 ));
             }
             if vellaveto_types::has_dangerous_chars(level) {
@@ -575,8 +570,7 @@ impl MultimodalPolicyConfig {
         for (i, ct) in self.content_types.iter().enumerate() {
             if vellaveto_types::has_dangerous_chars(ct) {
                 return Err(format!(
-                    "multimodal.content_types[{}] contains control or format characters",
-                    i
+                    "multimodal.content_types[{i}] contains control or format characters"
                 ));
             }
         }
@@ -593,8 +587,7 @@ impl MultimodalPolicyConfig {
         for (i, ct) in self.blocked_content_types.iter().enumerate() {
             if vellaveto_types::has_dangerous_chars(ct) {
                 return Err(format!(
-                    "multimodal.blocked_content_types[{}] contains control or format characters",
-                    i
+                    "multimodal.blocked_content_types[{i}] contains control or format characters"
                 ));
             }
         }

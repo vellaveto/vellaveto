@@ -82,10 +82,7 @@ pub(super) async fn read_bounded_response(
     // Fast path: if Content-Length is known and exceeds limit, reject immediately
     if let Some(len) = resp.content_length() {
         if len as usize > max_size {
-            return Err(format!(
-                "Response too large: {} bytes (max {})",
-                len, max_size
-            ));
+            return Err(format!("Response too large: {len} bytes (max {max_size})"));
         }
     }
 
@@ -95,7 +92,7 @@ pub(super) async fn read_bounded_response(
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
         // SECURITY (FIND-R74-001): Use saturating_add to prevent theoretical overflow.
         if body.len().saturating_add(chunk.len()) > max_size {
-            return Err(format!("Response exceeded {} byte limit", max_size));
+            return Err(format!("Response exceeded {max_size} byte limit"));
         }
         body.extend_from_slice(&chunk);
     }
@@ -222,7 +219,7 @@ pub(super) async fn verify_manifest_from_response(
                     .log_entry(
                         &action,
                         &Verdict::Deny {
-                            reason: format!("Manifest verification failed: {:?}", discrepancies),
+                            reason: format!("Manifest verification failed: {discrepancies:?}"),
                         },
                         serde_json::json!({
                             "source": "http_proxy",

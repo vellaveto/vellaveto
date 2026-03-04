@@ -329,13 +329,13 @@ impl MemoryTracker {
             }
             serde_json::Value::Object(map) => {
                 for (key, val) in map {
-                    let child_path = format!("{}.{}", path, key);
+                    let child_path = format!("{path}.{key}");
                     self.check_value_inner(val, &child_path, matches, depth + 1);
                 }
             }
             serde_json::Value::Array(arr) => {
                 for (i, val) in arr.iter().enumerate() {
-                    let child_path = format!("{}[{}]", path, i);
+                    let child_path = format!("{path}[{i}]");
                     self.check_value_inner(val, &child_path, matches, depth + 1);
                 }
             }
@@ -890,8 +890,7 @@ mod tests {
         assert!(
             !matches.is_empty(),
             "Should detect replayed base64-encoded blob string in parameters. \
-             Encoded form: {}",
-            encoded
+             Encoded form: {encoded}"
         );
     }
 

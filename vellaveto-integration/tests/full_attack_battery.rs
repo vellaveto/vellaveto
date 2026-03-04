@@ -197,8 +197,7 @@ fn attack_mcp03_tool_squatting_cyrillic_homoglyph() {
     let alerts = detect_squatting(malicious, &known);
     assert!(
         !alerts.is_empty(),
-        "ATTACK SUCCEEDED: Cyrillic homoglyph squatting not detected for '{}'",
-        malicious
+        "ATTACK SUCCEEDED: Cyrillic homoglyph squatting not detected for '{malicious}'"
     );
 }
 
@@ -243,9 +242,7 @@ fn attack_mcp03_tool_squatting_typosquat() {
         let alerts = detect_squatting(malicious, &known);
         assert!(
             !alerts.is_empty(),
-            "ATTACK SUCCEEDED: Typosquat '{}' not detected (expected similar to '{}')",
-            malicious,
-            expected_similar
+            "ATTACK SUCCEEDED: Typosquat '{malicious}' not detected (expected similar to '{expected_similar}')"
         );
     }
 }
@@ -261,8 +258,7 @@ fn attack_mcp03_tool_squatting_greek_omicron() {
     let alerts = detect_squatting(malicious, &known);
     assert!(
         !alerts.is_empty(),
-        "ATTACK SUCCEEDED: Greek omicron squatting not detected for '{}'",
-        malicious
+        "ATTACK SUCCEEDED: Greek omicron squatting not detected for '{malicious}'"
     );
 }
 
@@ -486,8 +482,7 @@ fn attack_path_traversal_triple_encoded() {
     // After iterative decode, should resolve
     assert!(
         !normalized.contains("%2e") && !normalized.contains("%2E"),
-        "Triple encoding should be fully resolved, got: {}",
-        normalized
+        "Triple encoding should be fully resolved, got: {normalized}"
     );
 }
 
@@ -575,8 +570,7 @@ fn attack_ssrf_ipv6_loopback() {
     let domain = PolicyEngine::extract_domain("http://[::1]/path");
     assert!(
         domain == "::1" || domain == "[::1]",
-        "IPv6 loopback should be extracted, got: {}",
-        domain
+        "IPv6 loopback should be extracted, got: {domain}"
     );
 }
 
@@ -588,8 +582,7 @@ fn attack_domain_port_bypass() {
     let domain = PolicyEngine::extract_domain("https://evil.com:8080/path");
     assert_eq!(
         domain, "evil.com",
-        "ATTACK SUCCEEDED: Port included in domain '{}'",
-        domain
+        "ATTACK SUCCEEDED: Port included in domain '{domain}'"
     );
 }
 
@@ -977,8 +970,7 @@ fn attack_elicitation_rate_limit() {
         let verdict = inspect_elicitation(&params, &config, i);
         assert!(
             matches!(verdict, ElicitationVerdict::Allow),
-            "Elicitation {} should be allowed",
-            i
+            "Elicitation {i} should be allowed"
         );
     }
 
@@ -1068,9 +1060,7 @@ fn attack_audit_cef_pipe_injection() {
     // CEF:0|vendor|product|version|sigId|name|severity|extensions = 7 unescaped pipes
     assert!(
         unescaped_pipe_count == 7,
-        "ATTACK SUCCEEDED: Expected 7 unescaped pipes in CEF, got {}. Line: {}",
-        unescaped_pipe_count,
-        cef
+        "ATTACK SUCCEEDED: Expected 7 unescaped pipes in CEF, got {unescaped_pipe_count}. Line: {cef}"
     );
 }
 
@@ -1105,8 +1095,7 @@ fn attack_audit_cef_equals_injection() {
         // Check that "cs2=injected" does NOT appear as a raw extension field
         assert!(
             !extensions.contains("cs2=injected_field"),
-            "ATTACK SUCCEEDED: CEF extension injection — fake field injected! Extensions: {}",
-            extensions
+            "ATTACK SUCCEEDED: CEF extension injection — fake field injected! Extensions: {extensions}"
         );
     }
 }
@@ -1142,8 +1131,7 @@ fn attack_dos_redos_nested_quantifier() {
     let result = PolicyEngine::with_policies(false, &[policy]);
     assert!(
         result.is_err(),
-        "ATTACK SUCCEEDED: ReDoS pattern accepted at compile time! Got: {:?}",
-        result
+        "ATTACK SUCCEEDED: ReDoS pattern accepted at compile time! Got: {result:?}"
     );
 }
 
@@ -1154,7 +1142,7 @@ fn attack_dos_redos_nested_quantifier() {
 fn attack_dos_parameter_exhaustion() {
     let mut params = serde_json::Map::new();
     for i in 0..10_000 {
-        params.insert(format!("param_{}", i), json!("value"));
+        params.insert(format!("param_{i}"), json!("value"));
     }
 
     let action = Action::new(
@@ -1277,15 +1265,11 @@ fn attack_resource_read_empty_uri() {
         MessageType::Invalid { reason, .. } => {
             assert!(
                 reason.contains("empty") || reason.to_lowercase().contains("uri"),
-                "Should mention empty URI in reason: {}",
-                reason
+                "Should mention empty URI in reason: {reason}"
             );
         }
         MessageType::ResourceRead { uri, .. } => {
-            panic!(
-                "ATTACK SUCCEEDED: Empty URI accepted as valid ResourceRead: '{}'",
-                uri
-            );
+            panic!("ATTACK SUCCEEDED: Empty URI accepted as valid ResourceRead: '{uri}'");
         }
         _ => {} // Other classification is acceptable if not ResourceRead
     }
@@ -1466,8 +1450,7 @@ async fn attack_r9_2_self_approval_prevention() {
     let err = result.unwrap_err();
     assert!(
         err.to_string().contains("Self-approval denied"),
-        "Error should mention self-approval denial, got: {}",
-        err
+        "Error should mention self-approval denial, got: {err}"
     );
 
     // Different principal CAN approve
@@ -1553,8 +1536,7 @@ fn attack_r226_sandworm_index_project_injection() {
     let matches = inspect_for_injection(description);
     assert!(
         !matches.is_empty(),
-        "SANDWORM index_project injection must be detected: got {:?}",
-        matches
+        "SANDWORM index_project injection must be detected: got {matches:?}"
     );
 }
 

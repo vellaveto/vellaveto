@@ -235,12 +235,12 @@ fn bench_squatting_detection(c: &mut Criterion) {
     });
 
     group.bench_function("build_known_tools_10", |b| {
-        let config_tools: Vec<String> = (0..10).map(|i| format!("tool_{}", i)).collect();
+        let config_tools: Vec<String> = (0..10).map(|i| format!("tool_{i}")).collect();
         b.iter(|| build_known_tools(black_box(&config_tools)))
     });
 
     group.bench_function("build_known_tools_100", |b| {
-        let config_tools: Vec<String> = (0..100).map(|i| format!("tool_{}", i)).collect();
+        let config_tools: Vec<String> = (0..100).map(|i| format!("tool_{i}")).collect();
         b.iter(|| build_known_tools(black_box(&config_tools)))
     });
 

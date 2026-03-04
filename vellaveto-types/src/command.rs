@@ -28,8 +28,7 @@ pub fn resolve_executable(command: &str, path_env: Option<&OsStr>) -> Result<Pat
     }
 
     Err(format!(
-        "command '{}' not found in PATH; pass absolute path or include it in PATH",
-        command
+        "command '{command}' not found in PATH; pass absolute path or include it in PATH"
     ))
 }
 

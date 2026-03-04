@@ -176,7 +176,7 @@ fn policy_json_consumed_by_engine() {
 
     match engine.evaluate_action(&action, &[policy]).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -320,7 +320,7 @@ fn extreme_priorities_survive_json_roundtrip() {
     for priority in [i32::MIN, i32::MAX, 0, -1, 1] {
         let policy = Policy {
             id: "*".to_string(),
-            name: format!("pri-{}", priority),
+            name: format!("pri-{priority}"),
             policy_type: PolicyType::Deny,
             priority,
             path_rules: None,
@@ -330,8 +330,7 @@ fn extreme_priorities_survive_json_roundtrip() {
         let deserialized: Policy = serde_json::from_str(&json_str).unwrap();
         assert_eq!(
             deserialized.priority, priority,
-            "Priority {} should survive roundtrip",
-            priority
+            "Priority {priority} should survive roundtrip"
         );
     }
 }

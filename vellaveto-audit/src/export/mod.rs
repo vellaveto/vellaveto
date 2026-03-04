@@ -126,11 +126,7 @@ pub fn to_cef(entry: &AuditEntry) -> String {
             && (ts.as_bytes()[ts.len() - 6] == b'+' || ts.as_bytes()[ts.len() - 6] == b'-')
         || ts.len() >= 5
             && (ts.as_bytes()[ts.len() - 5] == b'+' || ts.as_bytes()[ts.len() - 5] == b'-');
-    let ts_with_tz = if has_tz {
-        ts.clone()
-    } else {
-        format!("{}Z", ts)
-    };
+    let ts_with_tz = if has_tz { ts.clone() } else { format!("{ts}Z") };
     let rt_escaped = cef_escape_ext(&ts_with_tz);
     let rt_val = truncate_bytes(&rt_escaped, CEF_EXT_MAX_BYTES);
     let cs1_escaped = cef_escape_ext(&entry.id);
@@ -339,13 +335,11 @@ mod tests {
         let cef = to_cef(&entry);
         assert!(
             cef.contains("cs2=blocked by policy X"),
-            "CEF should include deny reason, got: {}",
-            cef
+            "CEF should include deny reason, got: {cef}"
         );
         assert!(
             cef.contains("cs2Label=denyReason"),
-            "CEF should label deny reason, got: {}",
-            cef
+            "CEF should label deny reason, got: {cef}"
         );
     }
 
@@ -355,8 +349,7 @@ mod tests {
         let cef = to_cef(&entry);
         assert!(
             !cef.contains("cs2="),
-            "Allow verdict should have no reason field, got: {}",
-            cef
+            "Allow verdict should have no reason field, got: {cef}"
         );
     }
 
@@ -367,8 +360,7 @@ mod tests {
         let allow_cef = to_cef(&allow_entry);
         assert!(
             allow_cef.contains("|1|"),
-            "Allow should have severity 1, got: {}",
-            allow_cef
+            "Allow should have severity 1, got: {allow_cef}"
         );
 
         // RequireApproval -> severity 5
@@ -382,8 +374,7 @@ mod tests {
         let approval_cef = to_cef(&approval_entry);
         assert!(
             approval_cef.contains("|5|"),
-            "RequireApproval should have severity 5, got: {}",
-            approval_cef
+            "RequireApproval should have severity 5, got: {approval_cef}"
         );
 
         // Deny -> severity 8
@@ -397,8 +388,7 @@ mod tests {
         let deny_cef = to_cef(&deny_entry);
         assert!(
             deny_cef.contains("|8|"),
-            "Deny should have severity 8, got: {}",
-            deny_cef
+            "Deny should have severity 8, got: {deny_cef}"
         );
     }
 
@@ -546,8 +536,7 @@ mod tests {
         // That's 7 unescaped pipes
         assert!(
             unescaped_pipes >= 7,
-            "CEF should have at least 7 unescaped pipes, got {}",
-            unescaped_pipes
+            "CEF should have at least 7 unescaped pipes, got {unescaped_pipes}"
         );
     }
 
@@ -599,8 +588,7 @@ mod tests {
         let cef = to_cef(&entry_with_eq);
         assert!(
             cef.contains("cs1=entry\\=id\\=test"),
-            "Equals signs in extension values must be escaped: {}",
-            cef
+            "Equals signs in extension values must be escaped: {cef}"
         );
     }
 
@@ -778,8 +766,7 @@ mod tests {
         let cef = to_cef(&entry);
         assert!(
             cef.contains("rt=2026-02-26T14:30:00Z"),
-            "Timestamp without TZ must get Z appended, got: {}",
-            cef
+            "Timestamp without TZ must get Z appended, got: {cef}"
         );
     }
 
@@ -790,8 +777,7 @@ mod tests {
         let cef = to_cef(&entry);
         assert!(
             cef.contains("rt=2026-02-04T12:00:00Z"),
-            "Timestamp with Z must be preserved, got: {}",
-            cef
+            "Timestamp with Z must be preserved, got: {cef}"
         );
     }
 
@@ -803,8 +789,7 @@ mod tests {
         let cef = to_cef(&entry);
         assert!(
             cef.contains("rt=2026-02-26T14:30:00+05:30"),
-            "Timestamp with offset must be preserved, got: {}",
-            cef
+            "Timestamp with offset must be preserved, got: {cef}"
         );
     }
 }

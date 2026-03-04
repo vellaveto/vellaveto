@@ -31,7 +31,7 @@ fn smoke_empty_policies_returns_deny() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Deny { reason } => assert_eq!(reason, "No policies defined"),
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -73,7 +73,7 @@ fn smoke_wildcard_deny_denies() {
         .unwrap();
     match result {
         Verdict::Deny { reason } => assert!(reason.contains("deny-all")),
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 

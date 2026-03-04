@@ -45,8 +45,7 @@ impl ModelProjection for ClaudeProjection {
         let call_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if call_type != "tool_use" {
             return Err(ProjectorError::ParseError(format!(
-                "expected type 'tool_use', got '{}'",
-                call_type
+                "expected type 'tool_use', got '{call_type}'"
             )));
         }
 

@@ -27,7 +27,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", id),
+        name: format!("cond-{id}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -38,7 +38,7 @@ fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) ->
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -115,8 +115,7 @@ fn require_approval_string_true_fails_closed() {
     // as_bool() on "true" returns None → unwrap_or(true) → fail-closed to RequireApproval
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 
@@ -135,8 +134,7 @@ fn require_approval_integer_one_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 

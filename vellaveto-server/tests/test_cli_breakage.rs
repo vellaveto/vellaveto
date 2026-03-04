@@ -125,8 +125,7 @@ id = "bash:*"
     let verdict = parsed.get("verdict").unwrap();
     assert!(
         verdict.get("Deny").is_some(),
-        "bash tool should be denied, got: {}",
-        verdict
+        "bash tool should be denied, got: {verdict}"
     );
 }
 
@@ -219,8 +218,7 @@ policies = []
     // Empty policies → fail-closed  Deny
     assert!(
         verdict.get("Deny").is_some(),
-        "Empty policies should deny (fail-closed), got: {}",
-        verdict
+        "Empty policies should deny (fail-closed), got: {verdict}"
     );
 }
 
@@ -252,8 +250,7 @@ policy_type = "Allow"
     // New validation format outputs "Configuration is VALID" instead of "Config OK"
     assert!(
         stdout.contains("Configuration is VALID") || stdout.contains("Policies loaded"),
-        "Expected validation output, got: {}",
-        stdout
+        "Expected validation output, got: {stdout}"
     );
 }
 

@@ -45,7 +45,7 @@ pub fn generate_evidence_pack(
         // EvidenceFramework is #[non_exhaustive] — fail-closed for unknown variants.
         _ => EvidencePack {
             framework,
-            framework_name: format!("{}", framework),
+            framework_name: format!("{framework}"),
             generated_at: chrono::Utc::now().to_rfc3339(),
             organization_name: organization_name.to_string(),
             system_id: system_id.to_string(),
@@ -299,7 +299,7 @@ fn generate_iso42001_pack(org: &str, sys_id: &str) -> EvidencePack {
                 .get(&major)
                 .copied()
                 .unwrap_or(("Other Clauses", "Additional clause requirements"));
-            make_section(&format!("clause-{}", major), title, desc, items)
+            make_section(&format!("clause-{major}"), title, desc, items)
         })
         .collect();
 
@@ -359,7 +359,7 @@ fn generate_eu_ai_act_pack(org: &str, sys_id: &str) -> EvidencePack {
             vellaveto_capability: a
                 .capabilities
                 .iter()
-                .map(|c| format!("{:?}", c))
+                .map(|c| format!("{c:?}"))
                 .collect::<Vec<_>>()
                 .join(", "),
             evidence_description: a.evidence.join("; "),
@@ -546,8 +546,7 @@ fn build_pack(
 
     if critical_gaps.is_empty() {
         recommendations.push(format!(
-            "All {} requirements have evidence — maintain through continuous monitoring",
-            framework,
+            "All {framework} requirements have evidence — maintain through continuous monitoring",
         ));
     }
 
@@ -785,8 +784,7 @@ mod tests {
             let pack = generate_evidence_pack(*fw, "Test", "test");
             assert!(
                 !pack.recommendations.is_empty(),
-                "{} pack has no recommendations",
-                fw,
+                "{fw} pack has no recommendations",
             );
         }
     }

@@ -23,7 +23,7 @@ fn action(tool: &str, function: &str) -> Action {
 fn allow(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -34,7 +34,7 @@ fn allow(id: &str, priority: i32) -> Policy {
 fn deny(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -61,8 +61,7 @@ fn tool_only_id_matches_any_function() {
         assert_eq!(
             result,
             Verdict::Allow,
-            "Tool-only ID 'bash' should match function '{}'",
-            func
+            "Tool-only ID 'bash' should match function '{func}'"
         );
     }
 }

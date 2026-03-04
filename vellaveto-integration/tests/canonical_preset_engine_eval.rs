@@ -152,10 +152,7 @@ fn deny_all_overrides_allow_all() {
     let action = make_action("any", "thing", json!({}));
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "deny_all(1000) should override allow_all(1), got {:?}",
-            other
-        ),
+        other => panic!("deny_all(1000) should override allow_all(1), got {other:?}"),
     }
 }
 
@@ -177,10 +174,7 @@ fn bash_block_policy_id_matching_behavior() {
     let action = make_action("bash_block", "exec", json!({}));
     match engine.evaluate_action(&action, &dangerous).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!(
-            "bash_block ID should match tool 'bash_block', got {:?}",
-            other
-        ),
+        other => panic!("bash_block ID should match tool 'bash_block', got {other:?}"),
     }
 
     // An action with tool="bash" does NOT match id="bash_block" (no wildcard in ID)
@@ -192,10 +186,7 @@ fn bash_block_policy_id_matching_behavior() {
                 "Should fall through to default deny"
             );
         }
-        other => panic!(
-            "tool='bash' should NOT match id='bash_block', got {:?}",
-            other
-        ),
+        other => panic!("tool='bash' should NOT match id='bash_block', got {other:?}"),
     }
 }
 
@@ -212,7 +203,7 @@ fn system_block_forbidden_parameters() {
         Verdict::Deny { reason } => {
             assert!(reason.contains("rm"), "Should mention forbidden param 'rm'");
         }
-        other => panic!("Expected Deny for forbidden param, got {:?}", other),
+        other => panic!("Expected Deny for forbidden param, got {other:?}"),
     }
 }
 
@@ -240,7 +231,7 @@ fn file_protection_requires_approval() {
     let action = make_action("file_protection", "anything", json!({}));
     match engine.evaluate_action(&action, &dangerous).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!("file_protection should require approval, got {:?}", other),
+        other => panic!("file_protection should require approval, got {other:?}"),
     }
 }
 
@@ -268,20 +259,16 @@ fn dangerous_tools_with_allow_all_fallback() {
     let bash = make_action("bash_block", "exec", json!({}));
     match engine.evaluate_action(&bash, &policies).unwrap() {
         Verdict::RequireApproval { .. } => {}
-        other => panic!(
-            "bash_block should require approval even with allow-all fallback, got {:?}",
-            other
-        ),
+        other => {
+            panic!("bash_block should require approval even with allow-all fallback, got {other:?}")
+        }
     }
 
     // "system_block" with forbidden param → deny (priority 900)
     let sys = make_action("system_block", "run", json!({"delete": true}));
     match engine.evaluate_action(&sys, &policies).unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "system_block with forbidden param should deny, got {:?}",
-            other
-        ),
+        other => panic!("system_block with forbidden param should deny, got {other:?}"),
     }
 
     // "system_block" without forbidden param → allow (conditional passes through)

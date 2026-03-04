@@ -25,7 +25,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -36,7 +36,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -183,8 +183,7 @@ fn star_alone_matches_everything() {
         let result = engine.evaluate_action(action, &policies).unwrap();
         assert!(
             matches!(result, Verdict::Allow),
-            "* should match action {:?}",
-            action
+            "* should match action {action:?}"
         );
     }
 }

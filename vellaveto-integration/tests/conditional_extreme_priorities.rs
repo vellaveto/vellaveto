@@ -22,7 +22,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("cond-{}", id),
+        name: format!("cond-{id}"),
         policy_type: PolicyType::Conditional { conditions },
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn conditional_policy(id: &str, priority: i32, conditions: serde_json::Value) ->
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -44,7 +44,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -71,8 +71,7 @@ fn conditional_vs_deny_at_i32_max() {
     // Deny should win because the sort puts Deny before non-Deny at equal priority
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny should win over Conditional at equal i32::MAX priority: got {:?}",
-        result
+        "Deny should win over Conditional at equal i32::MAX priority: got {result:?}"
     );
 }
 
@@ -115,13 +114,11 @@ fn conditional_vs_allow_at_i32_max_both_match() {
     // Let's just document both are valid verdicts:
     assert!(
         matches!(result1, Verdict::RequireApproval { .. }) || matches!(result1, Verdict::Allow),
-        "Should be RequireApproval or Allow: got {:?}",
-        result1
+        "Should be RequireApproval or Allow: got {result1:?}"
     );
     assert!(
         matches!(result2, Verdict::RequireApproval { .. }) || matches!(result2, Verdict::Allow),
-        "Should be RequireApproval or Allow: got {:?}",
-        result2
+        "Should be RequireApproval or Allow: got {result2:?}"
     );
 }
 
@@ -142,8 +139,7 @@ fn deny_at_min_plus_1_beats_conditional_at_min() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at MIN+1 should beat Conditional at MIN: got {:?}",
-        result
+        "Deny at MIN+1 should beat Conditional at MIN: got {result:?}"
     );
 }
 
@@ -160,8 +156,7 @@ fn sole_conditional_at_i32_min_produces_require_approval() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Sole conditional at i32::MIN should produce RequireApproval: got {:?}",
-        result
+        "Sole conditional at i32::MIN should produce RequireApproval: got {result:?}"
     );
 }
 
@@ -183,8 +178,7 @@ fn conditional_forbidden_at_max_priority_denies() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Forbidden param at MAX priority should deny: got {:?}",
-        result
+        "Forbidden param at MAX priority should deny: got {result:?}"
     );
 }
 
@@ -201,8 +195,7 @@ fn conditional_forbidden_at_max_priority_allows_when_absent() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Absent forbidden param at MAX priority should allow: got {:?}",
-        result
+        "Absent forbidden param at MAX priority should allow: got {result:?}"
     );
 }
 
@@ -224,8 +217,7 @@ fn allow_at_max_deny_at_zero_conditional_at_min() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at i32::MAX should win: got {:?}",
-        result
+        "Allow at i32::MAX should win: got {result:?}"
     );
 }
 
@@ -243,8 +235,7 @@ fn deny_at_max_allow_at_zero_conditional_at_min() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at i32::MAX should win: got {:?}",
-        result
+        "Deny at i32::MAX should win: got {result:?}"
     );
 }
 
@@ -262,7 +253,6 @@ fn conditional_at_max_allow_at_zero_deny_at_min() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Conditional at i32::MAX should win: got {:?}",
-        result
+        "Conditional at i32::MAX should win: got {result:?}"
     );
 }

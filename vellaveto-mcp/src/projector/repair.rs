@@ -1009,8 +1009,7 @@ mod tests {
         let err = extract_json_from_code_block(&huge).unwrap_err();
         assert!(
             err.to_string().contains("input too large"),
-            "Expected 'input too large', got: {}",
-            err
+            "Expected 'input too large', got: {err}"
         );
     }
 
@@ -1023,8 +1022,7 @@ mod tests {
         if let Err(e) = result {
             assert!(
                 !e.to_string().contains("input too large"),
-                "1MiB input should not be size-rejected: {}",
-                e
+                "1MiB input should not be size-rejected: {e}"
             );
         }
     }

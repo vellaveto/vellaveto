@@ -121,7 +121,7 @@ pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, 
                 "path normalization hit decode iteration limit — returning \"/\" (possible adversarial input)"
             );
             return Err(EngineError::PathNormalization {
-                reason: format!("decode iteration limit ({}) exceeded", max_iterations),
+                reason: format!("decode iteration limit ({max_iterations}) exceeded"),
             });
         }
         current = Cow::Owned(decoded.into_owned());
@@ -167,7 +167,7 @@ pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, 
     // patterns like "/etc/**". Prepend '/' to make it matchable.
     let s = s.into_owned();
     if !s.starts_with('/') {
-        return Ok(format!("/{}", s));
+        return Ok(format!("/{s}"));
     }
 
     Ok(s)

@@ -39,8 +39,8 @@ const LOOPBACK_HOSTS: &[&str] = &["localhost", "127.0.0.1", "[::1]"];
 pub fn build_loopback_origins(port: u16) -> Vec<String> {
     let mut origins = Vec::with_capacity(LOOPBACK_HOSTS.len() * 2);
     for host in LOOPBACK_HOSTS {
-        origins.push(format!("http://{}:{}", host, port));
-        origins.push(format!("https://{}:{}", host, port));
+        origins.push(format!("http://{host}:{port}"));
+        origins.push(format!("https://{host}:{port}"));
     }
     origins
 }

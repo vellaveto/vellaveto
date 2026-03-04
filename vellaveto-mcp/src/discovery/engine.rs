@@ -160,7 +160,7 @@ impl DiscoveryEngine {
             let token_cost = (schema_str.len() + name.len() + description.len()) / 4;
 
             let metadata = ToolMetadata {
-                tool_id: format!("{}:{}", server_id, name),
+                tool_id: format!("{server_id}:{name}"),
                 name: name.to_string(),
                 description: description.to_string(),
                 server_id: server_id.to_string(),
@@ -254,7 +254,7 @@ fn compute_schema_hash(schema: &Value) -> String {
 /// Simple keyword heuristic — security-critical tools get High,
 /// data-modifying tools get Medium, read-only tools get Low.
 fn infer_sensitivity(name: &str, description: &str) -> ToolSensitivity {
-    let text = format!("{} {}", name, description).to_lowercase();
+    let text = format!("{name} {description}").to_lowercase();
 
     const HIGH_KEYWORDS: &[&str] = &[
         "delete",
@@ -318,7 +318,7 @@ fn contains_word(text: &str, keyword: &str) -> bool {
 ///
 /// Maps common keywords to domain categories.
 fn infer_domain_tags(name: &str, description: &str) -> Vec<String> {
-    let text = format!("{} {}", name, description).to_lowercase();
+    let text = format!("{name} {description}").to_lowercase();
     let mut tags = Vec::new();
 
     const DOMAIN_MAP: &[(&[&str], &str)] = &[

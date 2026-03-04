@@ -63,8 +63,7 @@ fn test_single_allow_policy_permits_action() {
 
     assert!(
         matches!(verdict, Verdict::Allow),
-        "a matching Allow policy should produce Verdict::Allow, got {:?}",
-        verdict
+        "a matching Allow policy should produce Verdict::Allow, got {verdict:?}"
     );
 }
 
@@ -80,8 +79,7 @@ fn test_single_deny_policy_blocks_action() {
 
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "a matching Deny policy should produce Verdict::Deny, got {:?}",
-        verdict
+        "a matching Deny policy should produce Verdict::Deny, got {verdict:?}"
     );
 }
 
@@ -104,8 +102,7 @@ fn test_deny_overrides_allow_same_priority() {
 
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "deny should override allow at same priority, got {:?}",
-        verdict
+        "deny should override allow at same priority, got {verdict:?}"
     );
 }
 
@@ -126,8 +123,7 @@ fn test_deny_overrides_allow_regardless_of_order() {
 
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "deny should override allow regardless of insertion order, got {:?}",
-        verdict
+        "deny should override allow regardless of insertion order, got {verdict:?}"
     );
 }
 
@@ -160,7 +156,7 @@ fn test_higher_priority_policy_wins() {
             // Deny-overrides-all: deny always wins regardless of priority
         }
         other => {
-            panic!("unexpected verdict variant: {:?}", other);
+            panic!("unexpected verdict variant: {other:?}");
         }
     }
 }
@@ -180,8 +176,7 @@ fn test_empty_policy_list_non_strict() {
     // Default behavior should be documented — either default-allow or default-deny.
     assert!(
         result.is_ok(),
-        "empty policy list should not cause an error in non-strict mode, got {:?}",
-        result
+        "empty policy list should not cause an error in non-strict mode, got {result:?}"
     );
 }
 
@@ -270,8 +265,7 @@ fn test_wildcard_policy_matches_any_function() {
     // If not, it's treated as no match.
     assert!(
         result.is_ok(),
-        "wildcard policy should not cause engine error, got {:?}",
-        result
+        "wildcard policy should not cause engine error, got {result:?}"
     );
 }
 
@@ -285,8 +279,7 @@ fn test_star_star_wildcard_matches_everything() {
 
     assert!(
         result.is_ok(),
-        "universal wildcard should not cause engine error, got {:?}",
-        result
+        "universal wildcard should not cause engine error, got {result:?}"
     );
 
     if let Ok(verdict) = result {
@@ -338,7 +331,7 @@ fn test_very_long_strings() {
     let long_str = "a".repeat(10_000);
     let action = make_action(&long_str, &long_str);
     let policies = vec![allow_policy(
-        &format!("{}:{}", long_str, long_str),
+        &format!("{long_str}:{long_str}"),
         "Long policy",
         0,
     )];
@@ -367,8 +360,7 @@ fn test_negative_priority() {
     // Or if deny-always-wins, still Deny
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "higher priority deny should beat lower priority allow, got {:?}",
-        verdict
+        "higher priority deny should beat lower priority allow, got {verdict:?}"
     );
 }
 
@@ -412,8 +404,7 @@ fn test_action_with_complex_parameters() {
 
     assert!(
         matches!(verdict, Verdict::Allow),
-        "action with complex params should be evaluated normally, got {:?}",
-        verdict
+        "action with complex params should be evaluated normally, got {verdict:?}"
     );
 }
 
@@ -442,8 +433,8 @@ fn test_large_policy_set() {
     let mut policies: Vec<Policy> = (0..1000)
         .map(|i| {
             allow_policy(
-                &format!("other_tool_{}:other_func_{}", i, i),
-                &format!("Unrelated policy {}", i),
+                &format!("other_tool_{i}:other_func_{i}"),
+                &format!("Unrelated policy {i}"),
                 i,
             )
         })
@@ -458,8 +449,7 @@ fn test_large_policy_set() {
 
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "the matching deny should be found among 1000+ policies, got {:?}",
-        verdict
+        "the matching deny should be found among 1000+ policies, got {verdict:?}"
     );
 }
 
@@ -485,13 +475,11 @@ fn test_strict_and_non_strict_agree_on_explicit_allow() {
     // Both modes should agree when there's an explicit matching Allow policy
     assert!(
         matches!(verdict_strict, Verdict::Allow),
-        "strict mode should allow when policy explicitly allows, got {:?}",
-        verdict_strict
+        "strict mode should allow when policy explicitly allows, got {verdict_strict:?}"
     );
     assert!(
         matches!(verdict_lax, Verdict::Allow),
-        "non-strict should allow when policy explicitly allows, got {:?}",
-        verdict_lax
+        "non-strict should allow when policy explicitly allows, got {verdict_lax:?}"
     );
 }
 
@@ -512,12 +500,10 @@ fn test_strict_and_non_strict_agree_on_explicit_deny() {
 
     assert!(
         matches!(verdict_strict, Verdict::Deny { .. }),
-        "strict mode should deny, got {:?}",
-        verdict_strict
+        "strict mode should deny, got {verdict_strict:?}"
     );
     assert!(
         matches!(verdict_lax, Verdict::Deny { .. }),
-        "non-strict should deny, got {:?}",
-        verdict_lax
+        "non-strict should deny, got {verdict_lax:?}"
     );
 }

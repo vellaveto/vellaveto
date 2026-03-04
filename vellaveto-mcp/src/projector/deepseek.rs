@@ -129,10 +129,7 @@ impl ModelProjection for DeepSeekProjection {
 
             let arguments = match function.get("arguments") {
                 Some(Value::String(s)) => serde_json::from_str(s).map_err(|e| {
-                    ProjectorError::ParseError(format!(
-                        "failed to parse 'function.arguments': {}",
-                        e
-                    ))
+                    ProjectorError::ParseError(format!("failed to parse 'function.arguments': {e}"))
                 })?,
                 Some(v) => v.clone(),
                 None => Value::Object(serde_json::Map::new()),
@@ -377,8 +374,7 @@ mod tests {
         let err = extract_json_from_response(&huge).unwrap_err();
         assert!(
             err.to_string().contains("input too large"),
-            "Expected 'input too large', got: {}",
-            err
+            "Expected 'input too large', got: {err}"
         );
     }
 
@@ -390,8 +386,7 @@ mod tests {
         if let Err(e) = result {
             assert!(
                 !e.to_string().contains("input too large"),
-                "1MiB input should not be size-rejected: {}",
-                e
+                "1MiB input should not be size-rejected: {e}"
             );
         }
     }

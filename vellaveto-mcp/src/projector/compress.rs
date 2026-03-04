@@ -617,9 +617,7 @@ mod tests {
         let result_tokens = SchemaCompressor::estimate_tokens(&result);
         assert!(
             result_tokens <= budget,
-            "expected tokens <= {}, got {}",
-            budget,
-            result_tokens
+            "expected tokens <= {budget}, got {result_tokens}"
         );
     }
 
@@ -811,7 +809,7 @@ mod tests {
             json!({}),
         ] {
             let tokens = SchemaCompressor::estimate_tokens(&val);
-            assert!(tokens > 0, "Expected >0 tokens for {:?}", val);
+            assert!(tokens > 0, "Expected >0 tokens for {val:?}");
         }
     }
 }

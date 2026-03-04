@@ -702,8 +702,7 @@ async fn relay_client_to_upstream(
                             let verdict = if state.injection_blocking {
                                 Verdict::Deny {
                                     reason: format!(
-                                        "WS request injection blocked: {:?}",
-                                        injection_matches
+                                        "WS request injection blocked: {injection_matches:?}"
                                     ),
                                 }
                             } else {
@@ -857,8 +856,7 @@ async fn relay_client_to_upstream(
                         if is_flagged {
                             let verdict = Verdict::Deny {
                                 reason: format!(
-                                    "Tool '{}' blocked: annotations changed (rug-pull detected)",
-                                    tool_name
+                                    "Tool '{tool_name}' blocked: annotations changed (rug-pull detected)"
                                 ),
                             };
                             if let Err(e) = state
@@ -900,8 +898,7 @@ async fn relay_client_to_upstream(
                                     .map(|f| format!("{} at {}", f.pattern_name, f.location))
                                     .collect();
                                 let audit_reason = format!(
-                                    "DLP: secrets detected in tool parameters: {:?}",
-                                    patterns
+                                    "DLP: secrets detected in tool parameters: {patterns:?}"
                                 );
                                 tracing::warn!(
                                     "SECURITY: DLP blocking WS tool '{}' in session {}: {}",
@@ -970,8 +967,7 @@ async fn relay_client_to_upstream(
                             if let Some(match_count) = poisoning_detected {
                                 let poison_action = extractor::extract_action(tool_name, arguments);
                                 let deny_reason = format!(
-                                    "Memory poisoning detected: {} replayed data fragment(s) in tool '{}'",
-                                    match_count, tool_name
+                                    "Memory poisoning detected: {match_count} replayed data fragment(s) in tool '{tool_name}'"
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1015,7 +1011,7 @@ async fn relay_client_to_upstream(
                                     reason
                                 );
                                 let verdict = Verdict::Deny {
-                                    reason: format!("Circuit breaker open: {}", reason),
+                                    reason: format!("Circuit breaker open: {reason}"),
                                 };
                                 if let Err(e) = state
                                     .audit
@@ -1184,7 +1180,7 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -1227,7 +1223,7 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -1460,7 +1456,7 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 // Treat as deny for audit, but preserve approval semantics.
-                                let deny_reason = format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {reason}");
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -1548,8 +1544,7 @@ async fn relay_client_to_upstream(
                             if let Some(match_count) = poisoning_detected {
                                 let poison_action = extractor::extract_resource_action(uri);
                                 let deny_reason = format!(
-                                    "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
-                                    match_count
+                                    "Memory poisoning detected: {match_count} replayed data fragment(s) in resources/read"
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1599,8 +1594,7 @@ async fn relay_client_to_upstream(
                                 let action = extractor::extract_resource_action(uri);
                                 let verdict = Verdict::Deny {
                                     reason: format!(
-                                        "Resource '{}' blocked: server flagged by rug-pull detection",
-                                        uri
+                                        "Resource '{uri}' blocked: server flagged by rug-pull detection"
                                     ),
                                 };
                                 if let Err(e) = state
@@ -1689,7 +1683,7 @@ async fn relay_client_to_upstream(
                                     reason
                                 );
                                 let verdict = Verdict::Deny {
-                                    reason: format!("Circuit breaker open: {}", reason),
+                                    reason: format!("Circuit breaker open: {reason}"),
                                 };
                                 if let Err(e) = state
                                     .audit
@@ -1754,7 +1748,7 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -1799,7 +1793,7 @@ async fn relay_client_to_upstream(
                                         e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -2010,7 +2004,7 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {reason}");
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -2229,8 +2223,7 @@ async fn relay_client_to_upstream(
                                 let poison_action =
                                     extractor::extract_task_action(task_method, task_id.as_deref());
                                 let deny_reason = format!(
-                                    "Memory poisoning detected: {} replayed data fragment(s) in task '{}'",
-                                    match_count, task_method
+                                    "Memory poisoning detected: {match_count} replayed data fragment(s) in task '{task_method}'"
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2294,8 +2287,7 @@ async fn relay_client_to_upstream(
                                         &dlp_action,
                                         &Verdict::Deny {
                                             reason: format!(
-                                                "DLP: secrets detected in task request: {:?}",
-                                                patterns
+                                                "DLP: secrets detected in task request: {patterns:?}"
                                             ),
                                         },
                                         json!({
@@ -2358,7 +2350,7 @@ async fn relay_client_to_upstream(
                                         "Task policy evaluation error: {}", e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -2398,7 +2390,7 @@ async fn relay_client_to_upstream(
                                         "Task policy evaluation error: {}", e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -2587,7 +2579,7 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {reason}");
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -2671,8 +2663,7 @@ async fn relay_client_to_upstream(
                                 extractor::extract_extension_action(extension_id, method, &params);
                             let audit_verdict = Verdict::Deny {
                                 reason: format!(
-                                    "DLP blocked: secret detected in extension parameters: {:?}",
-                                    patterns
+                                    "DLP blocked: secret detected in extension parameters: {patterns:?}"
                                 ),
                             };
                             if let Err(e) = state.audit.log_entry(
@@ -2743,7 +2734,7 @@ async fn relay_client_to_upstream(
                             super::helpers::resolve_domains(&mut action).await;
                         }
 
-                        let ext_key = format!("extension:{}:{}", extension_id, method);
+                        let ext_key = format!("extension:{extension_id}:{method}");
 
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for extension methods. Matches ToolCall/ResourceRead fixes.
@@ -2775,7 +2766,7 @@ async fn relay_client_to_upstream(
                                         "Extension policy evaluation error: {}", e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -2813,7 +2804,7 @@ async fn relay_client_to_upstream(
                                         "Extension policy evaluation error: {}", e
                                     );
                                     Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {}", e),
+                                        reason: format!("Policy evaluation failed: {e}"),
                                     }
                                 }
                             };
@@ -3021,7 +3012,7 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {}", reason);
+                                let deny_reason = format!("Requires approval: {reason}");
                                 if let Err(e) = state
                                     .audit
                                     .log_entry(
@@ -3253,8 +3244,7 @@ async fn relay_client_to_upstream(
                                 let verdict = if state.response_dlp_blocking {
                                     Verdict::Deny {
                                         reason: format!(
-                                            "Notification blocked: secrets detected ({:?})",
-                                            patterns
+                                            "Notification blocked: secrets detected ({patterns:?})"
                                         ),
                                     }
                                 } else {
@@ -3321,8 +3311,7 @@ async fn relay_client_to_upstream(
                                     let verdict = if state.injection_blocking {
                                         Verdict::Deny {
                                             reason: format!(
-                                                "WS passthrough injection blocked: {:?}",
-                                                injection_matches
+                                                "WS passthrough injection blocked: {injection_matches:?}"
                                             ),
                                         }
                                     } else {
@@ -3677,7 +3666,7 @@ async fn relay_upstream_to_client(
 
                             let verdict = if state.response_dlp_blocking {
                                 Verdict::Deny {
-                                    reason: format!("WS response DLP blocked: {:?}", patterns),
+                                    reason: format!("WS response DLP blocked: {patterns:?}"),
                                 }
                             } else {
                                 Verdict::Allow
@@ -3751,8 +3740,7 @@ async fn relay_upstream_to_client(
                                 let verdict = if state.injection_blocking {
                                     Verdict::Deny {
                                         reason: format!(
-                                            "WS response injection blocked: {:?}",
-                                            injection_matches
+                                            "WS response injection blocked: {injection_matches:?}"
                                         ),
                                     }
                                 } else {
@@ -4002,7 +3990,7 @@ async fn relay_upstream_to_client(
                             );
                             let verdict = if state.response_dlp_blocking {
                                 Verdict::Deny {
-                                    reason: format!("WS non-JSON DLP: {:?}", patterns),
+                                    reason: format!("WS non-JSON DLP: {patterns:?}"),
                                 }
                             } else {
                                 Verdict::Allow
@@ -4137,7 +4125,7 @@ async fn relay_upstream_to_client(
                                 .log_entry(
                                     &action,
                                     &Verdict::Deny {
-                                        reason: format!("WS binary frame DLP: {:?}", patterns),
+                                        reason: format!("WS binary frame DLP: {patterns:?}"),
                                     },
                                     json!({
                                         "source": "ws_proxy",
@@ -4207,9 +4195,9 @@ async fn relay_upstream_to_client(
 /// validation in HTTP and gRPC transports (FIND-R42-015).
 pub fn convert_to_ws_url(http_url: &str) -> String {
     if let Some(rest) = http_url.strip_prefix("https://") {
-        format!("wss://{}", rest)
+        format!("wss://{rest}")
     } else if let Some(rest) = http_url.strip_prefix("http://") {
-        format!("ws://{}", rest)
+        format!("ws://{rest}")
     } else if http_url.starts_with("wss://") || http_url.starts_with("ws://") {
         // Already a WebSocket URL — use as-is
         http_url.to_string()
@@ -4243,7 +4231,7 @@ async fn connect_upstream_ws(
     let connect_timeout = Duration::from_secs(10);
     match tokio::time::timeout(connect_timeout, tokio_tungstenite::connect_async(url)).await {
         Ok(Ok((ws_stream, _response))) => Ok(ws_stream),
-        Ok(Err(e)) => Err(format!("WebSocket connection error: {}", e)),
+        Ok(Err(e)) => Err(format!("WebSocket connection error: {e}")),
         Err(_) => Err("WebSocket connection timeout (10s)".to_string()),
     }
 }
@@ -4309,7 +4297,7 @@ async fn validate_ws_structured_content_response(
                 .log_entry(
                     &action,
                     &Verdict::Deny {
-                        reason: format!("WS structuredContent validation failed: {:?}", violations),
+                        reason: format!("WS structuredContent validation failed: {violations:?}"),
                     },
                     json!({"source": "ws_proxy", "event": "output_schema_violation_ws"}),
                 )
@@ -4537,10 +4525,7 @@ fn make_ws_error_response_with_data(
         "error": Value::Object(error),
     });
     serde_json::to_string(&response).unwrap_or_else(|_| {
-        format!(
-            r#"{{"jsonrpc":"2.0","error":{{"code":{},"message":"{}"}},"id":null}}"#,
-            code, message
-        )
+        format!(r#"{{"jsonrpc":"2.0","error":{{"code":{code},"message":"{message}"}},"id":null}}"#)
     })
 }
 

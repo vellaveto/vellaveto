@@ -78,10 +78,7 @@ fn negative_priority_is_lower_than_zero() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // correct: higher priority wins
-        other => panic!(
-            "Expected Deny from priority 0 over Allow at -100, got {:?}",
-            other
-        ),
+        other => panic!("Expected Deny from priority 0 over Allow at -100, got {other:?}"),
     }
 }
 
@@ -99,7 +96,7 @@ fn negative_priority_allow_vs_negative_deny_same_priority() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // deny-overrides at same priority
-        other => panic!("Expected Deny at tied negative priority, got {:?}", other),
+        other => panic!("Expected Deny at tied negative priority, got {other:?}"),
     }
 }
 
@@ -147,17 +144,14 @@ fn deny_overrides_allow_at_same_priority_with_many_policies() {
 
     // Flood with allows at priority 50, single deny at priority 50
     let mut policies: Vec<Policy> = (0..10)
-        .map(|i| allow_policy("*", &format!("allow-{}", i), 50))
+        .map(|i| allow_policy("*", &format!("allow-{i}"), 50))
         .collect();
     policies.push(deny_policy("*", "single-deny", 50));
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // deny-overrides
-        other => panic!(
-            "Deny should override many Allows at same priority, got {:?}",
-            other
-        ),
+        other => panic!("Deny should override many Allows at same priority, got {other:?}"),
     }
 }
 
@@ -188,7 +182,7 @@ fn wildcard_star_matches_empty_strings() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // * matches everything
-        other => panic!("Wildcard '*' should match empty tool/func, got {:?}", other),
+        other => panic!("Wildcard '*' should match empty tool/func, got {other:?}"),
     }
 }
 
@@ -202,10 +196,7 @@ fn colon_in_id_splits_tool_and_function_patterns() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "'bash:execute' should match action bash/execute, got {:?}",
-            other
-        ),
+        other => panic!("'bash:execute' should match action bash/execute, got {other:?}"),
     }
 }
 
@@ -219,7 +210,7 @@ fn colon_id_with_wildcard_function() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("'file:*' should match file/delete, got {:?}", other),
+        other => panic!("'file:*' should match file/delete, got {other:?}"),
     }
 }
 
@@ -233,7 +224,7 @@ fn colon_id_with_wildcard_tool() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("'*:upload' should match network/upload, got {:?}", other),
+        other => panic!("'*:upload' should match network/upload, got {other:?}"),
     }
 }
 
@@ -248,7 +239,7 @@ fn prefix_wildcard_in_tool_pattern() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("'my_bash*' should match 'my_bash_tool', got {:?}", other),
+        other => panic!("'my_bash*' should match 'my_bash_tool', got {other:?}"),
     }
 }
 
@@ -265,7 +256,7 @@ fn suffix_wildcard_in_tool_pattern() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!("'*bash' should match 'super_bash', got {:?}", other),
+        other => panic!("'*bash' should match 'super_bash', got {other:?}"),
     }
 }
 
@@ -285,14 +276,10 @@ fn no_match_falls_through_to_default_deny() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("No matching policy"),
-                "Default deny reason should mention 'No matching policy', got: {}",
-                reason
+                "Default deny reason should mention 'No matching policy', got: {reason}"
             );
         }
-        other => panic!(
-            "Unmatched action should be denied by default, got {:?}",
-            other
-        ),
+        other => panic!("Unmatched action should be denied by default, got {other:?}"),
     }
 }
 
@@ -335,11 +322,10 @@ fn conditional_forbidden_param_present_denies() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("force"),
-                "Reason should mention forbidden param 'force': {}",
-                reason
+                "Reason should mention forbidden param 'force': {reason}"
             );
         }
-        other => panic!("Forbidden parameter present should deny, got {:?}", other),
+        other => panic!("Forbidden parameter present should deny, got {other:?}"),
     }
 }
 
@@ -380,11 +366,10 @@ fn conditional_required_param_missing_denies() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("auth_token"),
-                "Should mention missing param: {}",
-                reason
+                "Should mention missing param: {reason}"
             );
         }
-        other => panic!("Missing required param should deny, got {:?}", other),
+        other => panic!("Missing required param should deny, got {other:?}"),
     }
 }
 
@@ -428,8 +413,7 @@ fn conditional_require_approval_takes_precedence_over_forbidden() {
     match &verdict {
         Verdict::RequireApproval { .. } => {} // require_approval checked first
         other => panic!(
-            "require_approval should take precedence over forbidden_parameters, got {:?}",
-            other
+            "require_approval should take precedence over forbidden_parameters, got {other:?}"
         ),
     }
 }
@@ -444,7 +428,7 @@ fn hundred_policies_correct_verdict_from_highest_priority() {
     let action = make_action("target", "func");
 
     let mut policies: Vec<Policy> = (0..99)
-        .map(|i| allow_policy(&format!("other_{}:*", i), &format!("filler-{}", i), i))
+        .map(|i| allow_policy(&format!("other_{i}:*"), &format!("filler-{i}"), i))
         .collect();
 
     // The one deny policy at highest priority targeting our action
@@ -453,10 +437,7 @@ fn hundred_policies_correct_verdict_from_highest_priority() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Highest priority deny among 100 policies should win, got {:?}",
-            other
-        ),
+        other => panic!("Highest priority deny among 100 policies should win, got {other:?}"),
     }
 }
 
@@ -475,10 +456,7 @@ fn policies_evaluated_in_priority_order_not_insertion_order() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     match &verdict {
         Verdict::Deny { .. } => {} // priority 100 deny wins
-        other => panic!(
-            "Highest priority should win regardless of insertion order, got {:?}",
-            other
-        ),
+        other => panic!("Highest priority should win regardless of insertion order, got {other:?}"),
     }
 
     // Now reverse: high priority first, but it's Allow
@@ -505,11 +483,10 @@ fn strict_mode_empty_policies_still_denies() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("No policies"),
-                "Strict mode empty policies reason: {}",
-                reason
+                "Strict mode empty policies reason: {reason}"
             );
         }
-        other => panic!("Strict mode empty policies should deny, got {:?}", other),
+        other => panic!("Strict mode empty policies should deny, got {other:?}"),
     }
 }
 

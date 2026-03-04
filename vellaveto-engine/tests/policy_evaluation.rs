@@ -51,7 +51,7 @@ fn engine_allows_action_with_allow_policy() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Allow => {}
-        other => panic!("Expected Allow, got {:?}", other),
+        other => panic!("Expected Allow, got {other:?}"),
     }
 }
 
@@ -67,7 +67,7 @@ fn engine_denies_action_with_deny_policy() {
         Verdict::Deny { reason } => {
             assert!(!reason.is_empty(), "Deny verdict should include a reason");
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -83,10 +83,7 @@ fn empty_policies_always_deny() {
         assert!(result.is_ok());
         match result.unwrap() {
             Verdict::Deny { .. } => {}
-            other => panic!(
-                "Empty policies should deny (strict={}), got {:?}",
-                strict, other
-            ),
+            other => panic!("Empty policies should deny (strict={strict}), got {other:?}"),
         }
     }
 }
@@ -105,7 +102,7 @@ fn higher_priority_policy_wins() {
     // Higher priority deny should override lower priority allow
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Higher-priority deny should win, got {:?}", other),
+        other => panic!("Higher-priority deny should win, got {other:?}"),
     }
 }
 
@@ -116,9 +113,9 @@ fn evaluate_multiple_actions_sequentially() {
 
     // Engine should be reusable across multiple evaluations
     for i in 0..10 {
-        let action = sample_action("file", &format!("read_{}", i));
+        let action = sample_action("file", &format!("read_{i}"));
         let result = engine.evaluate_action(&action, &policies);
-        assert!(result.is_ok(), "Evaluation {} failed unexpectedly", i);
+        assert!(result.is_ok(), "Evaluation {i} failed unexpectedly");
     }
 }
 
@@ -132,7 +129,7 @@ fn no_matching_policy_denies() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!("Non-matching policy should result in deny, got {:?}", other),
+        other => panic!("Non-matching policy should result in deny, got {other:?}"),
     }
 }
 

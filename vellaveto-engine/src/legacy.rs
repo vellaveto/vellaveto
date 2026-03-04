@@ -170,7 +170,7 @@ impl PolicyEngine {
                 Ok(n) => n,
                 Err(e) => {
                     return Ok(Some(Verdict::Deny {
-                        reason: format!("Path normalization failed: {}", e),
+                        reason: format!("Path normalization failed: {e}"),
                     }))
                 }
             };
@@ -581,7 +581,7 @@ impl PolicyEngine {
                     if !known_keys.contains(&key.as_str()) {
                         return Err(EngineError::InvalidCondition {
                             policy_id: policy.id.clone(),
-                            reason: format!("Unknown condition key '{}' in strict mode", key),
+                            reason: format!("Unknown condition key '{key}' in strict mode"),
                         });
                     }
                 }
@@ -752,7 +752,7 @@ impl PolicyEngine {
             }
             _ => Err(EngineError::InvalidCondition {
                 policy_id: policy.id.clone(),
-                reason: format!("Unknown constraint operator '{}'", op),
+                reason: format!("Unknown constraint operator '{op}'"),
             }),
         }
     }
@@ -773,8 +773,7 @@ impl PolicyEngine {
                     return Err(EngineError::InvalidCondition {
                         policy_id: policy.id.clone(),
                         reason: format!(
-                            "Parameter '{}' is not a string for glob operator",
-                            param_name
+                            "Parameter '{param_name}' is not a string for glob operator"
                         ),
                     });
                 }
@@ -801,7 +800,7 @@ impl PolicyEngine {
             Ok(n) => n,
             Err(e) => {
                 return Ok(Some(Verdict::Deny {
-                    reason: format!("Path normalization failed: {}", e),
+                    reason: format!("Path normalization failed: {e}"),
                 }))
             }
         };
@@ -835,8 +834,7 @@ impl PolicyEngine {
                     return Err(EngineError::InvalidCondition {
                         policy_id: policy.id.clone(),
                         reason: format!(
-                            "Parameter '{}' is not a string for not_glob operator",
-                            param_name
+                            "Parameter '{param_name}' is not a string for not_glob operator"
                         ),
                     });
                 }
@@ -862,7 +860,7 @@ impl PolicyEngine {
             Ok(n) => n,
             Err(e) => {
                 return Ok(Some(Verdict::Deny {
-                    reason: format!("Path normalization failed: {}", e),
+                    reason: format!("Path normalization failed: {e}"),
                 }))
             }
         };
@@ -905,8 +903,7 @@ impl PolicyEngine {
                     return Err(EngineError::InvalidCondition {
                         policy_id: policy.id.clone(),
                         reason: format!(
-                            "Parameter '{}' is not a string for domain_match operator",
-                            param_name
+                            "Parameter '{param_name}' is not a string for domain_match operator"
                         ),
                     });
                 }
@@ -970,8 +967,7 @@ impl PolicyEngine {
                     return Err(EngineError::InvalidCondition {
                         policy_id: policy.id.clone(),
                         reason: format!(
-                            "Parameter '{}' is not a string for domain_not_in operator",
-                            param_name
+                            "Parameter '{param_name}' is not a string for domain_not_in operator"
                         ),
                     });
                 }
@@ -1043,8 +1039,7 @@ impl PolicyEngine {
                     return Err(EngineError::InvalidCondition {
                         policy_id: policy.id.clone(),
                         reason: format!(
-                            "Parameter '{}' is not a string for regex operator",
-                            param_name
+                            "Parameter '{param_name}' is not a string for regex operator"
                         ),
                     });
                 }

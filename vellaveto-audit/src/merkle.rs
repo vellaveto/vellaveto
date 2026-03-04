@@ -511,7 +511,7 @@ impl MerkleTree {
         let mut current = leaf_hash;
         for step in &proof.siblings {
             let sibling = hex::decode(&step.hash)
-                .map_err(|e| AuditError::Validation(format!("Invalid sibling hash hex: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Invalid sibling hash hex: {e}")))?;
             if sibling.len() != HASH_SIZE {
                 return Ok(MerkleVerification {
                     valid: false,
@@ -542,8 +542,7 @@ impl MerkleTree {
             Ok(MerkleVerification {
                 valid: false,
                 failure_reason: Some(format!(
-                    "Root mismatch: computed {} but trusted root is {}",
-                    computed_root, trusted_root
+                    "Root mismatch: computed {computed_root} but trusted root is {trusted_root}"
                 )),
             })
         }
@@ -719,7 +718,7 @@ mod tests {
         for (idx, leaf) in leaves.iter().enumerate() {
             let proof = tree.generate_proof(idx as u64).expect("proof");
             let result = MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
-            assert!(result.valid, "Proof for leaf {} should verify", idx);
+            assert!(result.valid, "Proof for leaf {idx} should verify");
         }
     }
 
@@ -737,8 +736,7 @@ mod tests {
             let result = MerkleTree::verify_proof(*leaf, &proof, &trusted_root).expect("verify");
             assert!(
                 result.valid,
-                "Proof for leaf {} (5-leaf tree) should verify",
-                idx
+                "Proof for leaf {idx} (5-leaf tree) should verify"
             );
         }
     }

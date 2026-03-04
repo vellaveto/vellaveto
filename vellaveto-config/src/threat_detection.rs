@@ -430,8 +430,7 @@ impl DeputyConfig {
         for (i, tool) in self.non_delegatable_tools.iter().enumerate() {
             if tool.is_empty() {
                 return Err(format!(
-                    "deputy.non_delegatable_tools[{}] must not be empty",
-                    i
+                    "deputy.non_delegatable_tools[{i}] must not be empty"
                 ));
             }
             if tool.len() > MAX_NON_DELEGATABLE_TOOL_LEN {
@@ -444,8 +443,7 @@ impl DeputyConfig {
             }
             if vellaveto_types::has_dangerous_chars(tool) {
                 return Err(format!(
-                    "deputy.non_delegatable_tools[{}] contains control or format characters",
-                    i
+                    "deputy.non_delegatable_tools[{i}] contains control or format characters"
                 ));
             }
         }
@@ -838,15 +836,11 @@ impl CrossAgentConfig {
         // (zero-width, bidi overrides) which could bypass agent ID matching.
         for (i, agent) in self.trusted_agents.iter().enumerate() {
             if agent.is_empty() {
-                return Err(format!(
-                    "cross_agent.trusted_agents[{}] must not be empty",
-                    i
-                ));
+                return Err(format!("cross_agent.trusted_agents[{i}] must not be empty"));
             }
             if vellaveto_types::has_dangerous_chars(agent) {
                 return Err(format!(
-                    "cross_agent.trusted_agents[{}] contains control or format characters",
-                    i
+                    "cross_agent.trusted_agents[{i}] contains control or format characters"
                 ));
             }
         }
@@ -1212,7 +1206,7 @@ mod tests {
     fn test_semantic_detection_validate_extra_templates_over_max_rejected() {
         let mut config = SemanticDetectionConfig::default();
         config.extra_templates = (0..=MAX_SEMANTIC_EXTRA_TEMPLATES)
-            .map(|i| format!("template_{}", i))
+            .map(|i| format!("template_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("extra_templates"));
@@ -1274,7 +1268,7 @@ mod tests {
     fn test_deputy_validate_too_many_non_delegatable_tools_rejected() {
         let mut config = DeputyConfig::default();
         config.non_delegatable_tools = (0..=MAX_NON_DELEGATABLE_TOOLS)
-            .map(|i| format!("tool_{}", i))
+            .map(|i| format!("tool_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("non_delegatable_tools"));
@@ -1393,7 +1387,7 @@ mod tests {
     fn test_cross_agent_validate_too_many_trusted_agents_rejected() {
         let mut config = CrossAgentConfig::default();
         config.trusted_agents = (0..=MAX_CROSS_AGENT_TRUSTED_AGENTS)
-            .map(|i| format!("agent_{}", i))
+            .map(|i| format!("agent_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("trusted_agents"));

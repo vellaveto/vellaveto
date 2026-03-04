@@ -49,7 +49,7 @@ async fn verify_invariant(allows: usize, denies: usize, approvals: usize) {
             .log_entry(
                 &action,
                 &Verdict::Deny {
-                    reason: format!("deny_{}", i),
+                    reason: format!("deny_{i}"),
                 },
                 json!({}),
             )
@@ -61,7 +61,7 @@ async fn verify_invariant(allows: usize, denies: usize, approvals: usize) {
             .log_entry(
                 &action,
                 &Verdict::RequireApproval {
-                    reason: format!("approval_{}", i),
+                    reason: format!("approval_{i}"),
                 },
                 json!({}),
             )

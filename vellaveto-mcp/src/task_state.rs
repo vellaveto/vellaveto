@@ -147,8 +147,7 @@ impl TaskStateManager {
             // If still at capacity after eviction, reject
             if tasks.len() >= MAX_TRACKED_TASKS {
                 return Err(format!(
-                    "Maximum tracked tasks ({}) exceeded",
-                    MAX_TRACKED_TASKS
+                    "Maximum tracked tasks ({MAX_TRACKED_TASKS}) exceeded"
                 ));
             }
         }
@@ -218,7 +217,7 @@ impl TaskStateManager {
 
         // Validate the constructed TrackedTask before registering.
         task.validate()
-            .map_err(|e| format!("Task validation failed: {}", e))?;
+            .map_err(|e| format!("Task validation failed: {e}"))?;
 
         self.register_task(task).await?;
         Ok(task_id)
@@ -233,7 +232,7 @@ impl TaskStateManager {
 
         let task = tasks
             .get_mut(task_id)
-            .ok_or_else(|| format!("Task '{}' not found", task_id))?;
+            .ok_or_else(|| format!("Task '{task_id}' not found"))?;
 
         // SECURITY (FIND-R60-004): Enforce terminal state immutability.
         // Once a task reaches Completed, Failed, Cancelled, or Expired, its state
@@ -242,8 +241,7 @@ impl TaskStateManager {
         // undermining audit trail integrity.
         if task.is_terminal() {
             return Err(format!(
-                "Task '{}' is in terminal state and cannot be updated",
-                task_id
+                "Task '{task_id}' is in terminal state and cannot be updated"
             ));
         }
 
@@ -261,7 +259,7 @@ impl TaskStateManager {
 
         let task = tasks
             .get(task_id)
-            .ok_or_else(|| format!("Task '{}' not found", task_id))?;
+            .ok_or_else(|| format!("Task '{task_id}' not found"))?;
 
         // Task already in terminal state
         if task.is_terminal() {
@@ -438,7 +436,7 @@ mod tests {
         let manager = TaskStateManager::new(5, 0);
 
         for i in 0..5 {
-            let task = make_task(&format!("task-{}", i), Some("agent-1"), None);
+            let task = make_task(&format!("task-{i}"), Some("agent-1"), None);
             assert!(manager.register_task(task).await.is_ok());
         }
 

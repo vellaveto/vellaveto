@@ -55,25 +55,21 @@ fn test_query_sanitizer_email_and_filepath_roundtrip_restores_originals() {
     // Original PII values must NOT appear in sanitized output
     assert!(
         !sanitized.contains("/home/alice/medical/records.pdf"),
-        "file path should be sanitized, got: {}",
-        sanitized
+        "file path should be sanitized, got: {sanitized}"
     );
     assert!(
         !sanitized.contains("alice@example.com"),
-        "email should be sanitized, got: {}",
-        sanitized
+        "email should be sanitized, got: {sanitized}"
     );
 
     // Placeholders must be present (categories uppercased: FILEPATH and EMAIL)
     assert!(
         sanitized.contains("[PII_FILEPATH_"),
-        "should contain FILEPATH placeholder, got: {}",
-        sanitized
+        "should contain FILEPATH placeholder, got: {sanitized}"
     );
     assert!(
         sanitized.contains("[PII_EMAIL_"),
-        "should contain EMAIL placeholder, got: {}",
-        sanitized
+        "should contain EMAIL placeholder, got: {sanitized}"
     );
 
     // At least 2 PII mappings recorded (filepath + email)
@@ -347,8 +343,7 @@ fn test_query_sanitizer_clear_prevents_desanitization() {
     let after_clear = sanitizer.desanitize(&sanitized).expect("desanitize");
     assert!(
         after_clear.contains("[PII_EMAIL_"),
-        "placeholder should remain after clear, got: {}",
-        after_clear
+        "placeholder should remain after clear, got: {after_clear}"
     );
     assert!(
         !after_clear.contains("secret@example.com"),

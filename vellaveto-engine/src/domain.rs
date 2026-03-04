@@ -58,28 +58,24 @@ pub fn validate_domain_pattern(pattern: &str) -> Result<(), String> {
     for label in domain.split('.') {
         if label.is_empty() {
             return Err(format!(
-                "Domain '{}' contains an empty label (consecutive dots or trailing dot)",
-                pattern
+                "Domain '{pattern}' contains an empty label (consecutive dots or trailing dot)"
             ));
         }
         if label.len() > 63 {
             // SECURITY (R33-003): Use safe truncation to avoid panics on UTF-8 boundaries.
             let truncated: String = label.chars().take(20).collect();
             return Err(format!(
-                "Label '{}...' in domain '{}' exceeds maximum length of 63 characters",
-                truncated, pattern
+                "Label '{truncated}...' in domain '{pattern}' exceeds maximum length of 63 characters"
             ));
         }
         if label.starts_with('-') || label.ends_with('-') {
             return Err(format!(
-                "Label '{}' in domain '{}' has leading or trailing hyphen",
-                label, pattern
+                "Label '{label}' in domain '{pattern}' has leading or trailing hyphen"
             ));
         }
         if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
             return Err(format!(
-                "Label '{}' in domain '{}' contains invalid characters (only alphanumeric and hyphen allowed)",
-                label, pattern
+                "Label '{label}' in domain '{pattern}' contains invalid characters (only alphanumeric and hyphen allowed)"
             ));
         }
     }
@@ -288,7 +284,7 @@ pub(crate) fn normalize_domain_for_match(s: &str) -> Option<Cow<'_, str>> {
             if wildcard_prefix.is_empty() {
                 Some(Cow::Owned(ascii))
             } else {
-                Some(Cow::Owned(format!("{}{}", wildcard_prefix, ascii)))
+                Some(Cow::Owned(format!("{wildcard_prefix}{ascii}")))
             }
         }
         Err(_) => {
@@ -484,8 +480,7 @@ mod tests {
             // If it normalizes, it should match evil.com
             assert!(
                 match_domain_pattern(zwsp, "evil.com") || normalized.contains("xn--"),
-                "Zero-width domain should either match evil.com or become punycode, got: {}",
-                normalized
+                "Zero-width domain should either match evil.com or become punycode, got: {normalized}"
             );
         }
         // If result is None, that's also fine (fail-closed)
@@ -501,8 +496,7 @@ mod tests {
             // If normalized, verify it maps to punycode or the ASCII equivalent
             assert!(
                 normalized.as_ref() == "example.com" || normalized.contains("xn--"),
-                "Fullwidth should normalize to example.com or punycode, got: {}",
-                normalized
+                "Fullwidth should normalize to example.com or punycode, got: {normalized}"
             );
         }
         // None is also acceptable (fail-closed)

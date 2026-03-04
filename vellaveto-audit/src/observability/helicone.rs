@@ -66,8 +66,7 @@ impl HeliconeExporterConfig {
     ) -> Result<Self, ObservabilityError> {
         let api_key = std::env::var(api_key_env).map_err(|_| {
             ObservabilityError::Configuration(format!(
-                "Missing environment variable: {}",
-                api_key_env
+                "Missing environment variable: {api_key_env}"
             ))
         })?;
         Ok(Self::new(endpoint, api_key))
@@ -93,7 +92,7 @@ impl HeliconeExporter {
             .timeout(Duration::from_secs(config.common.timeout_secs))
             .build()
             .map_err(|e| {
-                ObservabilityError::Configuration(format!("Failed to create HTTP client: {}", e))
+                ObservabilityError::Configuration(format!("Failed to create HTTP client: {e}"))
             })?;
 
         Ok(Self { config, client })
@@ -179,8 +178,7 @@ impl HeliconeExporter {
             Ok(())
         } else if status.as_u16() == 401 || status.as_u16() == 403 {
             Err(ObservabilityError::AuthError(format!(
-                "Authentication failed: {}",
-                status
+                "Authentication failed: {status}"
             )))
         } else if status.as_u16() == 429 {
             // SECURITY (FIND-R71-P3-006): Cap Retry-After at 300 seconds to prevent

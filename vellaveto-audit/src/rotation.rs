@@ -71,7 +71,7 @@ impl AuditLogger {
         if let Some(ref merkle) = self.merkle_tree {
             let mut tree = merkle
                 .lock()
-                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
             tree.initialize()?;
         }
 
@@ -93,7 +93,7 @@ impl AuditLogger {
         // Safe: parent() returns None only for root path "/". Audit log paths
         // are always within a directory, so "." is a safe fallback.
         let parent = self.log_path.parent().unwrap_or(Path::new("."));
-        parent.join(format!("{}.rotation-manifest.jsonl", stem))
+        parent.join(format!("{stem}.rotation-manifest.jsonl"))
     }
 
     /// Rotate the log file if it exceeds `max_file_size`.
@@ -188,7 +188,7 @@ impl AuditLogger {
             }
             let mut tree = merkle
                 .lock()
-                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
             tree.reset();
         }
 
@@ -421,8 +421,7 @@ impl AuditLogger {
                     valid: false,
                     files_checked: i,
                     first_failure: Some(format!(
-                        "Manifest entry {} hash chain broken: expected previous_hash {}, got {}",
-                        i, expected_previous, claimed_previous
+                        "Manifest entry {i} hash chain broken: expected previous_hash {expected_previous}, got {claimed_previous}"
                     )),
                 });
             }
@@ -444,8 +443,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} signed by untrusted key",
-                                i
+                                "Manifest entry {i} signed by untrusted key"
                             )),
                         });
                     }
@@ -475,8 +473,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} failed to canonicalize",
-                                i
+                                "Manifest entry {i} failed to canonicalize"
                             )),
                         });
                     }
@@ -488,8 +485,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid verifying key hex",
-                                i
+                                "Manifest entry {i} has invalid verifying key hex"
                             )),
                         });
                     }
@@ -501,8 +497,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid signature hex",
-                                i
+                                "Manifest entry {i} has invalid signature hex"
                             )),
                         });
                     }
@@ -517,8 +512,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} verifying key wrong length",
-                                i
+                                "Manifest entry {i} verifying key wrong length"
                             )),
                         });
                     }
@@ -530,8 +524,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} signature wrong length",
-                                i
+                                "Manifest entry {i} signature wrong length"
                             )),
                         });
                     }
@@ -543,8 +536,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} has invalid verifying key",
-                                i
+                                "Manifest entry {i} has invalid verifying key"
                             )),
                         });
                     }
@@ -555,8 +547,7 @@ impl AuditLogger {
                         valid: false,
                         files_checked: i,
                         first_failure: Some(format!(
-                            "Manifest entry {} Ed25519 signature invalid",
-                            i
+                            "Manifest entry {i} Ed25519 signature invalid"
                         )),
                     });
                 }
@@ -640,8 +631,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Manifest entry {} v2 requires pqc-hybrid feature to verify",
-                                i
+                                "Manifest entry {i} v2 requires pqc-hybrid feature to verify"
                             )),
                         });
                     }
@@ -652,8 +642,7 @@ impl AuditLogger {
                     valid: false,
                     files_checked: i,
                     first_failure: Some(format!(
-                        "Manifest entry {} is unsigned but signing is required",
-                        i
+                        "Manifest entry {i} is unsigned but signing is required"
                     )),
                 });
             }
@@ -676,8 +665,7 @@ impl AuditLogger {
                             valid: false,
                             files_checked: i,
                             first_failure: Some(format!(
-                                "Cross-rotation linkage broken at segment {}: start_hash '{}' does not match previous tail_hash '{}'",
-                                i, claimed_start_hash, prev_tail
+                                "Cross-rotation linkage broken at segment {i}: start_hash '{claimed_start_hash}' does not match previous tail_hash '{prev_tail}'"
                             )),
                         });
                     }
@@ -717,8 +705,7 @@ impl AuditLogger {
                     valid: false,
                     files_checked: i,
                     first_failure: Some(format!(
-                        "Rotated file path traversal detected: {}",
-                        rotated_file
+                        "Rotated file path traversal detected: {rotated_file}"
                     )),
                 });
             }
@@ -896,7 +883,7 @@ impl AuditLogger {
             .unwrap_or_default();
         let parent = self.log_path.parent().unwrap_or(Path::new("."));
 
-        let candidate = parent.join(format!("{}.{}-{:010}{}", stem, timestamp, seq, ext));
+        let candidate = parent.join(format!("{stem}.{timestamp}-{seq:010}{ext}"));
         if !candidate.exists() {
             return candidate;
         }
@@ -938,7 +925,7 @@ impl AuditLogger {
             let name = entry.file_name().to_string_lossy().to_string();
             // Match pattern: <stem>.<timestamp>.<ext>
             // e.g. "audit.2026-02-02T12-00-00.log"
-            if name.starts_with(&format!("{}.", stem))
+            if name.starts_with(&format!("{stem}."))
                 && name
                     != self
                         .log_path

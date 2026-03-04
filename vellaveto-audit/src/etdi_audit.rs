@@ -62,7 +62,7 @@ impl AuditLogger {
             }),
         );
         let verdict = Verdict::Deny {
-            reason: format!("Signature verification failed: {}", reason),
+            reason: format!("Signature verification failed: {reason}"),
         };
         self.log_entry(
             &action,

@@ -120,9 +120,9 @@ fn deny_reason_preserved_through_audit() {
         for (i, entry) in entries.iter().enumerate() {
             match &entry.verdict {
                 Verdict::Deny { reason } => {
-                    assert_eq!(reason, &reasons[i], "Reason mismatch at index {}", i);
+                    assert_eq!(reason, &reasons[i], "Reason mismatch at index {i}");
                 }
-                other => panic!("Expected Deny at index {}, got {:?}", i, other),
+                other => panic!("Expected Deny at index {i}, got {other:?}"),
             }
         }
     });
@@ -145,7 +145,7 @@ fn require_approval_reason_preserved_through_audit() {
             Verdict::RequireApproval { reason: loaded_reason } => {
                 assert_eq!(loaded_reason, reason);
             }
-            other => panic!("Expected RequireApproval, got {:?}", other),
+            other => panic!("Expected RequireApproval, got {other:?}"),
         }
     });
 }

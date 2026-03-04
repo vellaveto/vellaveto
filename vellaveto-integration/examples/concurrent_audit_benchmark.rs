@@ -74,8 +74,7 @@ fn main() {
             let writes_per_sec = total_writes as f64 / elapsed.as_secs_f64();
 
             println!(
-                "{:<12} {:<12} {:>12.2?} {:>12.0}/s",
-                num_tasks, total_writes, elapsed, writes_per_sec
+                "{num_tasks:<12} {total_writes:<12} {elapsed:>12.2?} {writes_per_sec:>12.0}/s"
             );
         }
     });

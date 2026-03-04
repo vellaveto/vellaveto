@@ -109,8 +109,7 @@ fn triple_duplicate_id_highest_priority_wins() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Highest priority conditional should win: got {:?}",
-        verdict
+        "Highest priority conditional should win: got {verdict:?}"
     );
 }
 
@@ -166,8 +165,8 @@ fn many_duplicates_deny_overrides_is_stable() {
     // Interleave allows and denies
     let mut policies: Vec<Policy> = Vec::new();
     for i in 0..10 {
-        policies.push(allow_policy("*", &format!("allow-{}", i), 50));
-        policies.push(deny_policy("*", &format!("deny-{}", i), 50));
+        policies.push(allow_policy("*", &format!("allow-{i}"), 50));
+        policies.push(deny_policy("*", &format!("deny-{i}"), 50));
     }
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
@@ -192,7 +191,7 @@ fn many_duplicate_allows_consistently_allow() {
     let action = make_action("tool", "func");
 
     let policies: Vec<Policy> = (0..20)
-        .map(|i| allow_policy("*", &format!("allow-{}", i), 50))
+        .map(|i| allow_policy("*", &format!("allow-{i}"), 50))
         .collect();
 
     let verdict = engine.evaluate_action(&action, &policies).unwrap();

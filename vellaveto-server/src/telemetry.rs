@@ -263,8 +263,7 @@ impl TelemetryConfig {
             let loopbacks = ["localhost", "127.0.0.1", "[::1]", "0.0.0.0"];
             if loopbacks.iter().any(|lb| host_for_check == *lb) {
                 return Err(TelemetryError::InvalidConfig(format!(
-                    "otlp.endpoint must not target localhost/loopback, got '{}'",
-                    host
+                    "otlp.endpoint must not target localhost/loopback, got '{host}'"
                 )));
             }
             // Reject private IPv4 ranges
@@ -279,8 +278,7 @@ impl TelemetryConfig {
                     || ip.is_broadcast(); // 255.255.255.255
                 if is_private {
                     return Err(TelemetryError::InvalidConfig(format!(
-                        "otlp.endpoint must not target private/internal IP ranges, got '{}'",
-                        host
+                        "otlp.endpoint must not target private/internal IP ranges, got '{host}'"
                     )));
                 }
             }
@@ -312,8 +310,7 @@ impl TelemetryConfig {
                         || mapped_ip.is_broadcast();
                     if is_private_v4 {
                         return Err(TelemetryError::InvalidConfig(format!(
-                            "otlp.endpoint must not target private/internal IP ranges (IPv4-mapped IPv6), got '{}'",
-                            host
+                            "otlp.endpoint must not target private/internal IP ranges (IPv4-mapped IPv6), got '{host}'"
                         )));
                     }
                 }
@@ -323,8 +320,7 @@ impl TelemetryConfig {
                     || (segs[0] & 0xffc0) == 0xfe80; // fe80::/10 (link-local)
                 if is_private {
                     return Err(TelemetryError::InvalidConfig(format!(
-                        "otlp.endpoint must not target private/internal IPv6 ranges, got '{}'",
-                        host
+                        "otlp.endpoint must not target private/internal IPv6 ranges, got '{host}'"
                     )));
                 }
             }
@@ -570,8 +566,7 @@ fn build_sampler(config: &SamplingConfig) -> Result<Sampler, TelemetryError> {
             ))))
         }
         strategy => Err(TelemetryError::InvalidSampling(format!(
-            "unknown sampling strategy: {}",
-            strategy
+            "unknown sampling strategy: {strategy}"
         ))),
     }
 }
@@ -632,7 +627,7 @@ impl Drop for TelemetryGuard {
             if let Err(e) = provider.shutdown() {
                 // Log at debug level since this happens during shutdown
                 // and higher levels might not be visible
-                eprintln!("Warning: Telemetry provider shutdown error: {}", e);
+                eprintln!("Warning: Telemetry provider shutdown error: {e}");
             }
         }
     }

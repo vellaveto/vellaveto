@@ -54,8 +54,7 @@ fn require_approval_checked_before_forbidden_params() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "require_approval should fire before forbidden_parameters, got {:?}",
-        result
+        "require_approval should fire before forbidden_parameters, got {result:?}"
     );
 }
 
@@ -96,11 +95,10 @@ fn forbidden_checked_before_required() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("forbidden"),
-                "Should be denied for forbidden param, got: {}",
-                reason
+                "Should be denied for forbidden param, got: {reason}"
             );
         }
-        other => panic!("Expected Deny for forbidden param, got {:?}", other),
+        other => panic!("Expected Deny for forbidden param, got {other:?}"),
     }
 }
 
@@ -120,11 +118,10 @@ fn missing_required_param_denies() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("token"),
-                "Reason should mention 'token', got: {}",
-                reason
+                "Reason should mention 'token', got: {reason}"
             );
         }
-        other => panic!("Expected Deny for missing required param, got {:?}", other),
+        other => panic!("Expected Deny for missing required param, got {other:?}"),
     }
 }
 
@@ -192,8 +189,7 @@ fn require_approval_string_value_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 
@@ -208,8 +204,7 @@ fn require_approval_integer_one_fails_closed() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Non-boolean require_approval should fail-closed to RequireApproval, got {:?}",
-        result
+        "Non-boolean require_approval should fail-closed to RequireApproval, got {result:?}"
     );
 }
 

@@ -512,10 +512,7 @@ impl PluginManager {
                         Ok(()) => v,
                         Err(e) => PluginVerdict {
                             allow: false,
-                            reason: Some(format!(
-                                "plugin '{}' returned invalid verdict: {}",
-                                name, e
-                            )),
+                            reason: Some(format!("plugin '{name}' returned invalid verdict: {e}")),
                         },
                     }
                 }
@@ -523,7 +520,7 @@ impl PluginManager {
                     // Fail-closed: plugin error -> deny
                     PluginVerdict {
                         allow: false,
-                        reason: Some(format!("plugin '{}' error: {}", name, e)),
+                        reason: Some(format!("plugin '{name}' error: {e}")),
                     }
                 }
             };

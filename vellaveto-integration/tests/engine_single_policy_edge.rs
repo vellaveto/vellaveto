@@ -48,12 +48,7 @@ fn single_wildcard_allow_permits_any_action() {
 
     for action in &actions {
         let v = engine.evaluate_action(action, &policies).unwrap();
-        assert_eq!(
-            v,
-            Verdict::Allow,
-            "Wildcard allow should permit {:?}",
-            action
-        );
+        assert_eq!(v, Verdict::Allow, "Wildcard allow should permit {action:?}");
     }
 }
 
@@ -399,9 +394,8 @@ fn prefix_wildcard_on_function_part() {
     match &v {
         Verdict::Deny { reason } => assert!(
             reason.contains("No matching policy"),
-            "Should be default deny, got: {}",
-            reason
+            "Should be default deny, got: {reason}"
         ),
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }

@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
     // Optional: Verify warrant canary
     if let Some(canary_path) = &cli.canary {
         let canary_json = std::fs::read_to_string(canary_path)
-            .context(format!("Failed to read canary file: {}", canary_path))?;
+            .context(format!("Failed to read canary file: {canary_path}"))?;
         let canary: vellaveto_canary::WarrantCanary =
             serde_json::from_str(&canary_json).context("Failed to parse canary JSON")?;
         match vellaveto_canary::verify_canary(&canary) {
@@ -179,7 +179,7 @@ async fn main() -> Result<()> {
             }
             Err(e) => {
                 tracing::error!("Warrant canary verification error: {}", e);
-                anyhow::bail!("Warrant canary verification failed: {}", e);
+                anyhow::bail!("Warrant canary verification failed: {e}");
             }
         }
     }
@@ -191,13 +191,8 @@ async fn main() -> Result<()> {
         .context("Command list is empty after validation")?;
 
     let path_env = std::env::var_os("PATH");
-    let resolved_child_cmd = resolve_executable(child_cmd, path_env.as_deref()).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to resolve MCP server command '{}': {}",
-            child_cmd,
-            e
-        )
-    })?;
+    let resolved_child_cmd = resolve_executable(child_cmd, path_env.as_deref())
+        .map_err(|e| anyhow::anyhow!("Failed to resolve MCP server command '{child_cmd}': {e}"))?;
 
     let resolved_child_cmd_display = resolved_child_cmd.display().to_string();
 
@@ -207,9 +202,7 @@ async fn main() -> Result<()> {
     {
         tracing::error!("Supply chain verification FAILED: {}", reason);
         anyhow::bail!(
-            "Refusing to spawn MCP server '{}': supply chain verification failed — {}",
-            resolved_child_cmd_display,
-            reason
+            "Refusing to spawn MCP server '{resolved_child_cmd_display}': supply chain verification failed — {reason}"
         );
     } else if policy_config.supply_chain.enabled {
         tracing::info!(
@@ -235,8 +228,7 @@ async fn main() -> Result<()> {
     cmd.env("TZ", "UTC");
 
     let mut child = cmd.spawn().context(format!(
-        "Failed to spawn child MCP server: {}",
-        resolved_child_cmd_display
+        "Failed to spawn child MCP server: {resolved_child_cmd_display}"
     ))?;
 
     let child_pid_display = child
@@ -255,11 +247,8 @@ async fn main() -> Result<()> {
     match child.try_wait() {
         Ok(Some(status)) => {
             anyhow::bail!(
-                "Child MCP server exited immediately (PID {}, status: {}). \
-                 Check that '{}' is a valid executable.",
-                child_pid_display,
-                status,
-                resolved_child_cmd_display
+                "Child MCP server exited immediately (PID {child_pid_display}, status: {status}). \
+                 Check that '{resolved_child_cmd_display}' is a valid executable."
             );
         }
         Ok(None) => {
@@ -441,7 +430,7 @@ async fn main() -> Result<()> {
         }
         Err(e) => {
             tracing::error!("Shield error: {}", e);
-            Err(anyhow::anyhow!("Shield error: {}", e))
+            Err(anyhow::anyhow!("Shield error: {e}"))
         }
     }
 }

@@ -21,8 +21,8 @@ use vellaveto_types::{Action, Policy, PolicyType};
 fn make_policies(count: usize) -> Vec<Policy> {
     (0..count)
         .map(|i| Policy {
-            id: format!("tool_{}:func_{}", i, i),
-            name: format!("Policy {}", i),
+            id: format!("tool_{i}:func_{i}"),
+            name: format!("Policy {i}"),
             policy_type: if i % 2 == 0 {
                 PolicyType::Allow
             } else {
@@ -64,7 +64,7 @@ fn main() {
 
     println!("Policy Scaling Benchmark");
     println!("========================");
-    println!("Iterations per measurement: {}", iterations);
+    println!("Iterations per measurement: {iterations}");
     println!();
 
     println!(
@@ -95,8 +95,8 @@ fn main() {
 
     let conditional_policies: Vec<Policy> = (0i32..1000)
         .map(|i| Policy {
-            id: format!("tool_{}:func_{}", i, i),
-            name: format!("Conditional {}", i),
+            id: format!("tool_{i}:func_{i}"),
+            name: format!("Conditional {i}"),
             policy_type: PolicyType::Conditional {
                 conditions: json!({
                     "forbidden_parameters": ["secret", "password", "token"],

@@ -298,7 +298,7 @@ fn finding_5_valid_tool_name_still_works() {
         MessageType::ToolCall { tool_name, .. } => {
             assert_eq!(tool_name, "read_file");
         }
-        other => panic!("Expected ToolCall, got {:?}", other),
+        other => panic!("Expected ToolCall, got {other:?}"),
     }
 }
 
@@ -792,8 +792,7 @@ fn finding_8_domain_policy_blocks_evil_despite_at_bypass_attempt() {
     let verdict = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "evil.com must be blocked even with @ in query: got {:?}",
-        verdict
+        "evil.com must be blocked even with @ in query: got {verdict:?}"
     );
 }
 
@@ -931,9 +930,8 @@ async fn finding_13_require_approval_verdict_recorded_correctly() {
         }
         other => {
             panic!(
-                "Expected RequireApproval in audit log, got {:?}. \
-                 This means the audit is recording the wrong verdict.",
-                other
+                "Expected RequireApproval in audit log, got {other:?}. \
+                 This means the audit is recording the wrong verdict."
             );
         }
     }
@@ -1030,8 +1028,7 @@ fn combined_domain_bypass_with_path_traversal() {
     let verdict = engine.evaluate_action(&action, &[deny_policy]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Combined attack must be blocked: got {:?}",
-        verdict
+        "Combined attack must be blocked: got {verdict:?}"
     );
 }
 
@@ -1054,8 +1051,7 @@ fn combined_empty_tool_name_with_deny_policy() {
             );
         }
         other => panic!(
-            "Empty tool name must be caught as Invalid before reaching engine: got {:?}",
-            other
+            "Empty tool name must be caught as Invalid before reaching engine: got {other:?}"
         ),
     }
 }
@@ -1139,7 +1135,7 @@ async fn finding_4_hash_chain_ordering_consistent_after_writes() {
             .log_entry(
                 &action,
                 &Verdict::Deny {
-                    reason: format!("entry {}", i),
+                    reason: format!("entry {i}"),
                 },
                 json!({"seq": i}),
             )
@@ -1512,8 +1508,7 @@ async fn finding_12_approval_creation_failure_denies_request() {
     let verdict_str = serde_json::to_string(verdict).unwrap();
     assert!(
         verdict_str.contains("Deny") || verdict_str.contains("deny"),
-        "Verdict must be Deny when approval creation fails, got: {}",
-        verdict_str
+        "Verdict must be Deny when approval creation fails, got: {verdict_str}"
     );
 
     // approval_id must be null/absent since creation failed
@@ -1543,8 +1538,7 @@ fn r19_path_null_bytes_denied() {
     let err_str = err.to_string();
     assert!(
         err_str.contains("null byte"),
-        "Error message should mention null byte: {}",
-        err_str
+        "Error message should mention null byte: {err_str}"
     );
 }
 
@@ -1566,22 +1560,20 @@ fn r19_path_iteration_exhaustion_denied() {
         // Each wrap: %XX becomes %25XX
         encoded = encoded.replace('%', "%25");
     }
-    let deeply_encoded = format!("/etc/passwd{}", encoded);
+    let deeply_encoded = format!("/etc/passwd{encoded}");
 
     // With max_iterations=5, this should fail
     let result = PolicyEngine::normalize_path_bounded(&deeply_encoded, 5);
     assert!(
         result.is_err(),
-        "Iteration exhaustion must return error, not normalize to '/'. Got: {:?}",
-        result
+        "Iteration exhaustion must return error, not normalize to '/'. Got: {result:?}"
     );
 
     let err = result.unwrap_err();
     let err_str = err.to_string();
     assert!(
         err_str.contains("iteration") || err_str.contains("limit"),
-        "Error message should mention iteration limit: {}",
-        err_str
+        "Error message should mention iteration limit: {err_str}"
     );
 }
 
@@ -1632,8 +1624,7 @@ fn r19_path_empty_after_normalization_denied() {
                 // If it succeeds, the result must be "/" or a meaningful path, not empty
                 assert!(
                     !normalized.is_empty(),
-                    "Path '{}' normalized to empty string, which is invalid",
-                    path
+                    "Path '{path}' normalized to empty string, which is invalid"
                 );
             }
             Err(_) => {
@@ -1689,8 +1680,7 @@ async fn r19_audit_rotation_corrupted_log_skipped() {
                 // Empty string would indicate the bug
                 assert!(
                     !hash.is_empty() || entry.get("entry_count") == Some(&json!(0)),
-                    "Manifest entry has empty tail_hash but non-zero entry count: {}",
-                    line
+                    "Manifest entry has empty tail_hash but non-zero entry count: {line}"
                 );
             }
         }
@@ -1738,8 +1728,7 @@ async fn r19_audit_rotation_missing_hash_skipped() {
                         .unwrap_or("");
                     assert!(
                         !tail_hash.is_empty(),
-                        "Manifest has entry_count={} but empty tail_hash",
-                        count
+                        "Manifest has entry_count={count} but empty tail_hash"
                     );
                 }
             }
@@ -1776,7 +1765,7 @@ async fn r19_add_policy_compile_failure_no_state_change() {
     let response: serde_json::Value = serde_json::from_str(&result).unwrap();
     // Check error is absent or null
     let has_error = response.get("error").map(|e| !e.is_null()).unwrap_or(false);
-    assert!(!has_error, "Valid policy add should succeed: {}", result);
+    assert!(!has_error, "Valid policy add should succeed: {result}");
 
     // List policies to verify one exists
     let list_req = r#"{"jsonrpc": "2.0", "id": "2", "method": "list_policies", "params": {}}"#;
@@ -1821,8 +1810,7 @@ async fn r19_add_policy_compile_failure_no_state_change() {
     let has_error = response.get("error").map(|e| !e.is_null()).unwrap_or(false);
     assert!(
         has_error,
-        "Invalid policy add should return error response: {}",
-        result
+        "Invalid policy add should return error response: {result}"
     );
 
     // List policies again - should still have only 1
@@ -2006,8 +1994,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         let body_lower = body_str.to_lowercase();
         assert!(
             body_lower.contains("deny"),
-            "Missing 'tool' field must fail-closed to Deny: {}",
-            body_str
+            "Missing 'tool' field must fail-closed to Deny: {body_str}"
         );
     }
 
@@ -2027,8 +2014,7 @@ async fn find_r46_it003_malformed_json_request_body_rejected() {
         let body_lower = body_str.to_lowercase();
         assert!(
             body_lower.contains("deny"),
-            "Empty JSON object must fail-closed to Deny: {}",
-            body_str
+            "Empty JSON object must fail-closed to Deny: {body_str}"
         );
     }
 
@@ -2090,9 +2076,7 @@ fn find_r46_it004_ssrf_private_ip_10_blocked() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Private IP {} (10.0.0.0/8) must be blocked by SSRF protection: got {:?}",
-            ip,
-            verdict
+            "Private IP {ip} (10.0.0.0/8) must be blocked by SSRF protection: got {verdict:?}"
         );
     }
 }
@@ -2134,9 +2118,7 @@ fn find_r46_it004_ssrf_private_ip_172_16_blocked() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Private IP {} (172.16.0.0/12) must be blocked by SSRF protection: got {:?}",
-            ip,
-            verdict
+            "Private IP {ip} (172.16.0.0/12) must be blocked by SSRF protection: got {verdict:?}"
         );
     }
 }
@@ -2178,9 +2160,7 @@ fn find_r46_it004_ssrf_private_ip_192_168_blocked() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Private IP {} (192.168.0.0/16) must be blocked by SSRF protection: got {:?}",
-            ip,
-            verdict
+            "Private IP {ip} (192.168.0.0/16) must be blocked by SSRF protection: got {verdict:?}"
         );
     }
 }
@@ -2227,9 +2207,7 @@ fn find_r46_it004_ssrf_loopback_blocked() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Loopback/link-local IP {} must be blocked by SSRF protection: got {:?}",
-            ip,
-            verdict
+            "Loopback/link-local IP {ip} must be blocked by SSRF protection: got {verdict:?}"
         );
     }
 }
@@ -2275,9 +2253,7 @@ fn find_r46_it004_ssrf_public_ip_allowed() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "Public IP {} should be allowed: got {:?}",
-            ip,
-            verdict
+            "Public IP {ip} should be allowed: got {verdict:?}"
         );
     }
 }
@@ -2317,7 +2293,6 @@ fn find_r46_it004_ssrf_no_resolved_ips_with_domain_denied() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Missing resolved_ips with target_domains must fail-closed: got {:?}",
-        verdict
+        "Missing resolved_ips with target_domains must fail-closed: got {verdict:?}"
     );
 }

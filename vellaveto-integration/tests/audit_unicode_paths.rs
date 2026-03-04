@@ -99,7 +99,7 @@ fn emoji_filename_write_and_load() {
         assert_eq!(entries.len(), 1);
         match &entries[0].verdict {
             Verdict::Deny { reason } => assert_eq!(reason, "test"),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     });
 }

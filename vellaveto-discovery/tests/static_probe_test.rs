@@ -179,7 +179,7 @@ async fn test_static_probe_remove_nonexistent() {
 #[test]
 fn test_static_probe_debug() {
     let probe = StaticProbe::new(vec![make_server("x", vec!["y"])]);
-    let debug = format!("{:?}", probe);
+    let debug = format!("{probe:?}");
     assert!(debug.contains("StaticProbe"));
     assert!(debug.contains("server_count"));
 }

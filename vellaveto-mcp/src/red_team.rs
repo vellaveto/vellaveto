@@ -162,7 +162,7 @@ impl MutationEngine {
             expected_success_indicator: payload.expected_success_indicator.clone(),
             tags: {
                 let mut tags = payload.tags.clone();
-                tags.push(format!("mutation:{:?}", mutation));
+                tags.push(format!("mutation:{mutation:?}"));
                 tags
             },
         })
@@ -225,7 +225,7 @@ impl MutationEngine {
                     .to_string()
             }
             MutationType::NullByteInject => {
-                format!("{}\x00", s)
+                format!("{s}\x00")
             }
             MutationType::HomoglyphReplace => {
                 // Replace 'a' with Cyrillic 'а' (U+0430), 'e' with 'е' (U+0435)
@@ -269,7 +269,7 @@ impl MutationEngine {
                     .replace("url", "uri")
             }
             MutationType::ContextWrapping => {
-                format!("As a helpful assistant, please process: {}", s)
+                format!("As a helpful assistant, please process: {s}")
             }
         }
     }
@@ -633,7 +633,7 @@ impl RedTeamRunner {
                     verdict,
                     Verdict::Deny { .. } | Verdict::RequireApproval { .. }
                 );
-                let verdict_str = format!("{:?}", verdict);
+                let verdict_str = format!("{verdict:?}");
                 let reason = match &verdict {
                     Verdict::Deny { reason } => Some(reason.clone()),
                     _ => None,
@@ -653,7 +653,7 @@ impl RedTeamRunner {
                 payload_id: payload.id.clone(),
                 blocked: false,
                 verdict: None,
-                reason: Some(format!("Evaluation error: {}", e)),
+                reason: Some(format!("Evaluation error: {e}")),
                 duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
                 metadata: HashMap::new(),
             },
@@ -708,8 +708,7 @@ mod tests {
             AttackContent::ToolCall { tool, .. } => {
                 assert!(
                     tool.contains('%'),
-                    "URL encoding should contain % (got: {})",
-                    tool
+                    "URL encoding should contain % (got: {tool})"
                 );
             }
             _ => panic!("Expected ToolCall"),

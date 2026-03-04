@@ -35,7 +35,7 @@ pub fn generate_did_plc(genesis: &DidPlcGenesisOperation) -> Result<DidPlc, DidP
     // SECURITY (FIND-R178-001): Validate genesis bounds before clone+serialize.
     genesis
         .validate()
-        .map_err(|e| DidPlcError::MissingField(format!("genesis validation failed: {}", e)))?;
+        .map_err(|e| DidPlcError::MissingField(format!("genesis validation failed: {e}")))?;
 
     // Validate required fields
     if genesis.op_type.is_empty() {
@@ -53,9 +53,9 @@ pub fn generate_did_plc(genesis: &DidPlcGenesisOperation) -> Result<DidPlc, DidP
 
     // Canonicalize JSON (RFC 8785)
     let json_bytes = serde_json::to_vec(&genesis_for_hash)
-        .map_err(|e| DidPlcError::SigningError(format!("JSON serialization failed: {}", e)))?;
+        .map_err(|e| DidPlcError::SigningError(format!("JSON serialization failed: {e}")))?;
     let canonical = serde_json_canonicalizer::to_string(&json_bytes)
-        .map_err(|e| DidPlcError::SigningError(format!("JSON canonicalization failed: {}", e)))?;
+        .map_err(|e| DidPlcError::SigningError(format!("JSON canonicalization failed: {e}")))?;
 
     // SHA-256 hash
     let mut hasher = Sha256::new();
@@ -112,7 +112,7 @@ pub fn generate_did_plc_from_key(
     }
 
     // Construct a did:key-style identifier (simplified)
-    let key_id = format!("did:key:z{}:{}", key_algorithm, public_key_hex);
+    let key_id = format!("did:key:z{key_algorithm}:{public_key_hex}");
 
     let genesis = DidPlcGenesisOperation {
         op_type: "plc_operation".to_string(),
@@ -142,8 +142,7 @@ pub fn validate_did_plc(did: &str) -> Result<(), DidPlcError> {
             did
         };
         DidPlcError::InvalidFormat(format!(
-            "expected 'did:plc:<24-char-base32-suffix>', got '{}'",
-            display
+            "expected 'did:plc:<24-char-base32-suffix>', got '{display}'"
         ))
     })
 }
@@ -400,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_generate_did_plc_genesis_exceeds_max_entries() {
-        let many_keys: Vec<String> = (0..101).map(|i| format!("did:key:zKey{:04}", i)).collect();
+        let many_keys: Vec<String> = (0..101).map(|i| format!("did:key:zKey{i:04}")).collect();
         let genesis = DidPlcGenesisOperation {
             op_type: "plc_operation".to_string(),
             rotation_keys: many_keys,

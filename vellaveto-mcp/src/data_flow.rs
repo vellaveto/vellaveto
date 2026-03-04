@@ -112,8 +112,7 @@ impl std::fmt::Display for DataFlowError {
             DataFlowError::MaxFindingsTooLarge => {
                 write!(
                     f,
-                    "max_findings must be <= {}",
-                    MAX_DATA_FLOW_CONFIG_MAX_FINDINGS
+                    "max_findings must be <= {MAX_DATA_FLOW_CONFIG_MAX_FINDINGS}"
                 )
             }
             DataFlowError::InvalidMaxFingerprints => {
@@ -122,8 +121,7 @@ impl std::fmt::Display for DataFlowError {
             DataFlowError::MaxFingerprintsTooLarge => {
                 write!(
                     f,
-                    "max_fingerprints_per_pattern must be <= {}",
-                    MAX_DATA_FLOW_CONFIG_MAX_FINGERPRINTS
+                    "max_fingerprints_per_pattern must be <= {MAX_DATA_FLOW_CONFIG_MAX_FINGERPRINTS}"
                 )
             }
         }
@@ -994,7 +992,7 @@ mod tests {
             target_domains: vec!["evil.com".to_string()],
             exact_match: true,
         };
-        let display = format!("{}", alert);
+        let display = format!("{alert}");
         assert!(display.contains("aws_access_key"));
         assert!(display.contains("read_secrets"));
         assert!(display.contains("http_post"));
@@ -1011,16 +1009,16 @@ mod tests {
             target_domains: vec!["attacker.com".to_string()],
             exact_match: false,
         };
-        let display = format!("{}", alert);
+        let display = format!("{alert}");
         assert!(!display.contains("EXACT MATCH"));
     }
 
     #[test]
     fn test_error_display() {
         let e = DataFlowError::InvalidMaxFindings;
-        assert!(format!("{}", e).contains("max_findings"));
+        assert!(format!("{e}").contains("max_findings"));
         let e = DataFlowError::InvalidMaxFingerprints;
-        assert!(format!("{}", e).contains("max_fingerprints"));
+        assert!(format!("{e}").contains("max_fingerprints"));
     }
 
     // ── Fingerprint determinism ───────────────────

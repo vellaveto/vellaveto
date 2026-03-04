@@ -27,7 +27,7 @@ fn runtime_mt() -> tokio::runtime::Runtime {
 
 fn make_action(id: usize) -> Action {
     Action::new(
-        format!("rw_tool_{}", id),
+        format!("rw_tool_{id}"),
         "test".to_string(),
         json!({"id": id}),
     )
@@ -64,7 +64,7 @@ fn concurrent_writers_and_readers_no_panic() {
                         Verdict::Allow
                     } else {
                         Verdict::Deny {
-                            reason: format!("w{}-e{}", w, i),
+                            reason: format!("w{w}-e{i}"),
                         }
                     };
                     // Writes should not panic

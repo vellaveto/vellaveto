@@ -23,7 +23,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -34,7 +34,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -74,9 +74,7 @@ fn concurrent_evaluations_are_deterministic() {
                     let verdict = engine.evaluate_action(&action, &policies).unwrap();
                     assert!(
                         matches!(verdict, Verdict::Deny { .. }),
-                        "Task {} expected Deny, got {:?}",
-                        i,
-                        verdict
+                        "Task {i} expected Deny, got {verdict:?}"
                     );
                 } else {
                     let action = make_action("file", "read", json!({"i": i}));
@@ -84,9 +82,7 @@ fn concurrent_evaluations_are_deterministic() {
                     assert_eq!(
                         verdict,
                         Verdict::Allow,
-                        "Task {} expected Allow, got {:?}",
-                        i,
-                        verdict
+                        "Task {i} expected Allow, got {verdict:?}"
                     );
                 }
             }));
@@ -95,7 +91,7 @@ fn concurrent_evaluations_are_deterministic() {
         for (i, handle) in handles.into_iter().enumerate() {
             handle
                 .await
-                .unwrap_or_else(|e| panic!("Task {} panicked: {:?}", i, e));
+                .unwrap_or_else(|e| panic!("Task {i} panicked: {e:?}"));
         }
     });
 }
@@ -142,8 +138,7 @@ fn concurrent_conditional_evaluations() {
                         let v = engine.evaluate_action(&action, &policies).unwrap();
                         assert!(
                             matches!(v, Verdict::RequireApproval { .. }),
-                            "Expected RequireApproval, got {:?}",
-                            v
+                            "Expected RequireApproval, got {v:?}"
                         );
                     }
                     1 => {
@@ -152,15 +147,14 @@ fn concurrent_conditional_evaluations() {
                         let v = engine.evaluate_action(&action, &policies).unwrap();
                         assert!(
                             matches!(v, Verdict::Deny { .. }),
-                            "Expected Deny, got {:?}",
-                            v
+                            "Expected Deny, got {v:?}"
                         );
                     }
                     _ => {
                         // Non-network without forbidden param -> Allow (conditions pass)
                         let action = make_action("db", "query", json!({"table": "users"}));
                         let v = engine.evaluate_action(&action, &policies).unwrap();
-                        assert_eq!(v, Verdict::Allow, "Expected Allow, got {:?}", v);
+                        assert_eq!(v, Verdict::Allow, "Expected Allow, got {v:?}");
                     }
                 }
             }));
@@ -197,17 +191,13 @@ fn concurrent_different_policy_sets_no_contamination() {
                     assert_eq!(
                         v,
                         Verdict::Allow,
-                        "Even task {} got {:?} instead of Allow",
-                        i,
-                        v
+                        "Even task {i} got {v:?} instead of Allow"
                     );
                 } else {
                     let v = engine.evaluate_action(&action, &deny_policies).unwrap();
                     assert!(
                         matches!(v, Verdict::Deny { .. }),
-                        "Odd task {} got {:?} instead of Deny",
-                        i,
-                        v
+                        "Odd task {i} got {v:?} instead of Deny"
                     );
                 }
             }));

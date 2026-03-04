@@ -176,7 +176,7 @@ proptest! {
         prefix in "(/\\.\\./){1,5}",
         suffix in "[a-z]{0,10}",
     ) {
-        let path = format!("{}{}", prefix, suffix);
+        let path = format!("{prefix}{suffix}");
         let normalized = match PolicyEngine::normalize_path(&path) {
             Ok(s) => s,
             Err(_) => return Ok(()), // Path caused error — skip
@@ -197,7 +197,7 @@ proptest! {
     fn extract_domain_is_lowercase(
         domain in "[A-Za-z]{3,10}\\.[A-Za-z]{2,5}",
     ) {
-        let url = format!("https://{}/path", domain);
+        let url = format!("https://{domain}/path");
         let result = PolicyEngine::extract_domain(&url);
 
         prop_assert_eq!(result.clone(), result.to_lowercase(),
@@ -266,7 +266,7 @@ proptest! {
         domain in "[a-z]{3,10}\\.[a-z]{2,5}",
         path in "/[a-z]{1,20}",
     ) {
-        let url = format!("https://{}{}", domain, path);
+        let url = format!("https://{domain}{path}");
         let result = PolicyEngine::extract_domain(&url);
 
         prop_assert!(!result.contains('/'),
@@ -324,7 +324,7 @@ proptest! {
         key2 in "[a-z]{1,5}",
         value in "[a-z]{1,10}",
     ) {
-        let dotted_key = format!("{}.{}", key1, key2);
+        let dotted_key = format!("{key1}.{key2}");
         // Only literal dotted key exists (no nested equivalent)
         let params = json!({dotted_key.clone(): value.clone()});
         let result = PolicyEngine::get_param_by_path(&params, &dotted_key);
@@ -346,7 +346,7 @@ proptest! {
         val_exact in "[a-z]{1,5}",
         val_nested in "[A-Z]{1,5}", // Different case to guarantee different values
     ) {
-        let dotted_key = format!("{}.{}", key1, key2);
+        let dotted_key = format!("{key1}.{key2}");
         // Both a literal dotted key AND nested traversal exist with DIFFERENT values
         let params = json!({
             dotted_key.clone(): val_exact.clone(),
@@ -466,9 +466,9 @@ proptest! {
         tool in "[a-z]{3,10}",
         path_suffix in "[a-z]{1,10}",
     ) {
-        let target_path = format!("/home/user/.aws/{}", path_suffix);
+        let target_path = format!("/home/user/.aws/{path_suffix}");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow with blocked path".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -502,9 +502,9 @@ proptest! {
         tool in "[a-z]{3,10}",
         filename in "[a-z]{1,10}",
     ) {
-        let target_path = format!("/tmp/{}", filename);
+        let target_path = format!("/tmp/{filename}");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow with allowed path".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -533,9 +533,9 @@ proptest! {
         filename in "[a-z]{1,10}",
     ) {
         // Allowed list only permits /tmp/**, but target is /etc/
-        let target_path = format!("/etc/{}", filename);
+        let target_path = format!("/etc/{filename}");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow only tmp".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -569,7 +569,7 @@ proptest! {
         tool in "[a-z]{3,10}",
     ) {
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow with strict path rules".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -600,9 +600,9 @@ proptest! {
     ) {
         let traversal = "../".repeat(depth);
         // Construct path like /safe/../../etc/filename which normalizes to /etc/filename
-        let target_path = format!("/safe/{}{}", traversal, filename);
+        let target_path = format!("/safe/{traversal}{filename}");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow only safe".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -636,9 +636,9 @@ proptest! {
         filename in "[a-z]{1,10}",
     ) {
         // Path matches BOTH allowed and blocked — blocked must win
-        let target_path = format!("/data/secret/{}", filename);
+        let target_path = format!("/data/secret/{filename}");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Conflict: allowed and blocked overlap".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -677,9 +677,9 @@ proptest! {
         tool in "[a-z]{3,10}",
         subdomain in "[a-z]{2,8}",
     ) {
-        let domain = format!("{}.evil.com", subdomain);
+        let domain = format!("{subdomain}.evil.com");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow with blocked domains".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -714,9 +714,9 @@ proptest! {
         tool in "[a-z]{3,10}",
         subdomain in "[a-z]{2,8}",
     ) {
-        let domain = format!("{}.trusted.com", subdomain);
+        let domain = format!("{subdomain}.trusted.com");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow trusted domains".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -745,9 +745,9 @@ proptest! {
         tool in "[a-z]{3,10}",
         subdomain in "[a-z]{2,8}",
     ) {
-        let domain = format!("{}.untrusted.com", subdomain);
+        let domain = format!("{subdomain}.untrusted.com");
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow only trusted".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -782,7 +782,7 @@ proptest! {
         tool in "[a-z]{3,10}",
     ) {
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow with strict network rules".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -814,7 +814,7 @@ proptest! {
         // Use uppercase in the action domain; pattern is lowercase
         let domain_upper = format!("{}.TRUSTED.COM", subdomain.to_uppercase());
         let policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow trusted".to_string(),
             policy_type: PolicyType::Allow,
             priority: 10,
@@ -843,14 +843,14 @@ proptest! {
         subdomain in "[a-z]{2,8}",
     ) {
         // *.example.com must match sub.example.com
-        let good_domain = format!("{}.example.com", subdomain);
+        let good_domain = format!("{subdomain}.example.com");
         prop_assert!(
             PolicyEngine::match_domain_pattern(&good_domain, "*.example.com"),
             "*.example.com must match '{}'", good_domain
         );
 
         // *.example.com must NOT match notexample.com (suffix attack)
-        let bad_domain = format!("{}example.com", subdomain);
+        let bad_domain = format!("{subdomain}example.com");
         prop_assert!(
             !PolicyEngine::match_domain_pattern(&bad_domain, "*.example.com"),
             "*.example.com must NOT match '{}' (suffix attack)", bad_domain
@@ -903,7 +903,7 @@ proptest! {
         // Create two policies that both match the same tool pattern
         // Allow has higher priority (higher number), Deny has lower priority
         let allow_policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow tool".to_string(),
             policy_type: PolicyType::Allow,
             priority: allow_priority,
@@ -911,7 +911,7 @@ proptest! {
             network_rules: None,
         };
         let deny_policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Deny tool".to_string(),
             policy_type: PolicyType::Deny,
             priority: deny_priority,
@@ -951,7 +951,7 @@ proptest! {
     ) {
         // Two policies with same priority, different verdicts
         let allow_policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Allow policy".to_string(),
             policy_type: PolicyType::Allow,
             priority,
@@ -959,7 +959,7 @@ proptest! {
             network_rules: None,
         };
         let deny_policy = Policy {
-            id: format!("{}:*", tool),
+            id: format!("{tool}:*"),
             name: "Deny policy".to_string(),
             policy_type: PolicyType::Deny,
             priority, // Same priority

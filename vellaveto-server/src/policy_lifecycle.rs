@@ -218,7 +218,7 @@ impl InMemoryPolicyVersionStore {
 
     /// Generate a version ID. Using a simple format for in-memory store.
     fn make_version_id(policy_id: &str, version: u64) -> String {
-        format!("{}-v{}", policy_id, version)
+        format!("{policy_id}-v{version}")
     }
 
     /// Get current timestamp as ISO 8601 string.
@@ -259,15 +259,14 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         // Validate the policy itself
         policy
             .validate()
-            .map_err(|e| LifecycleError::Validation(format!("Policy validation: {}", e)))?;
+            .map_err(|e| LifecycleError::Validation(format!("Policy validation: {e}")))?;
 
         let mut map = self.versions.write().await;
 
         // Check total capacity
         if Self::total_versions(&map) >= MAX_TOTAL_VERSIONS {
             return Err(LifecycleError::CapacityExceeded(format!(
-                "Total version limit ({}) reached",
-                MAX_TOTAL_VERSIONS
+                "Total version limit ({MAX_TOTAL_VERSIONS}) reached"
             )));
         }
 
@@ -275,8 +274,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         // memory exhaustion via many unique policy IDs with few versions each.
         if !map.contains_key(policy_id) && map.len() >= MAX_TRACKED_POLICIES {
             return Err(LifecycleError::CapacityExceeded(format!(
-                "Tracked policy limit ({}) reached",
-                MAX_TRACKED_POLICIES
+                "Tracked policy limit ({MAX_TRACKED_POLICIES}) reached"
             )));
         }
 
@@ -603,8 +601,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
             PolicyVersionStatus::Draft | PolicyVersionStatus::Staging => {}
             _ => {
                 return Err(LifecycleError::InvalidTransition(format!(
-                    "Cannot revert to {} status — only Draft or Staging are valid revert targets",
-                    original_status
+                    "Cannot revert to {original_status} status — only Draft or Staging are valid revert targets"
                 )));
             }
         }
@@ -668,8 +665,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
         // Check total capacity
         if Self::total_versions(&map) >= MAX_TOTAL_VERSIONS {
             return Err(LifecycleError::CapacityExceeded(format!(
-                "Total version limit ({}) reached",
-                MAX_TOTAL_VERSIONS
+                "Total version limit ({MAX_TOTAL_VERSIONS}) reached"
             )));
         }
 
@@ -704,7 +700,7 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
             created_by: created_by.to_string(),
             created_at: Self::now_iso8601(),
             status: PolicyVersionStatus::Draft,
-            comment: Some(format!("Rollback from version {}", to_version)),
+            comment: Some(format!("Rollback from version {to_version}")),
             approvals: Vec::new(),
             required_approvals: self.config.required_approvals,
             previous_version_id: Some(source_version_id),
@@ -842,7 +838,7 @@ mod tests {
     fn test_policy(id: &str) -> Policy {
         Policy {
             id: id.to_string(),
-            name: format!("Test Policy {}", id),
+            name: format!("Test Policy {id}"),
             policy_type: PolicyType::Allow,
             priority: 0,
             path_rules: None,
@@ -1205,8 +1201,7 @@ mod tests {
             .await;
         assert!(
             matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("valid revert targets")),
-            "expected InvalidTransition, got: {:?}",
-            result
+            "expected InvalidTransition, got: {result:?}"
         );
     }
 
@@ -1240,7 +1235,7 @@ mod tests {
 
         // Create versions for MAX_TRACKED_POLICIES distinct policies
         for i in 0..super::MAX_TRACKED_POLICIES {
-            let pid = format!("pol-{}", i);
+            let pid = format!("pol-{i}");
             store
                 .create_version(&pid, test_policy(&pid), "alice", None)
                 .await
@@ -1253,8 +1248,7 @@ mod tests {
             .await;
         assert!(
             matches!(result, Err(LifecycleError::CapacityExceeded(ref msg)) if msg.contains("Tracked policy limit")),
-            "expected CapacityExceeded, got: {:?}",
-            result
+            "expected CapacityExceeded, got: {result:?}"
         );
     }
 
@@ -1275,8 +1269,7 @@ mod tests {
         let result = store.promote_version("pol-1", 1).await;
         assert!(
             matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("rollback")),
-            "expected InvalidTransition about rollback, got: {:?}",
-            result
+            "expected InvalidTransition about rollback, got: {result:?}"
         );
     }
 
@@ -1308,8 +1301,7 @@ mod tests {
         let result = store.promote_version("pol-1", 2).await;
         assert!(
             matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("already in staging")),
-            "expected InvalidTransition about staging, got: {:?}",
-            result
+            "expected InvalidTransition about staging, got: {result:?}"
         );
     }
 
@@ -1332,8 +1324,7 @@ mod tests {
         let result = store.promote_version("pol-1", 1).await;
         assert!(
             matches!(result, Err(LifecycleError::InvalidTransition(ref msg)) if msg.contains("Staging period not yet elapsed")),
-            "expected staging period not elapsed, got: {:?}",
-            result
+            "expected staging period not elapsed, got: {result:?}"
         );
     }
 
@@ -1375,11 +1366,10 @@ mod tests {
         assert!(pv.staged_at.is_some(), "staged_at should be set on Staging");
         // Verify it's a valid ISO 8601 timestamp
         let ts = pv.staged_at.unwrap();
-        assert!(ts.ends_with('Z'), "staged_at should end with Z: {}", ts);
+        assert!(ts.ends_with('Z'), "staged_at should end with Z: {ts}");
         assert!(
             ts.len() >= 20,
-            "staged_at should be at least 20 chars: {}",
-            ts
+            "staged_at should be at least 20 chars: {ts}"
         );
     }
 
@@ -1400,8 +1390,7 @@ mod tests {
             .await;
         assert!(
             matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
-            "Cyrillic homoglyph self-approval must be rejected, got: {:?}",
-            result
+            "Cyrillic homoglyph self-approval must be rejected, got: {result:?}"
         );
     }
 
@@ -1419,8 +1408,7 @@ mod tests {
             .await;
         assert!(
             matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
-            "Greek homoglyph self-approval must be rejected, got: {:?}",
-            result
+            "Greek homoglyph self-approval must be rejected, got: {result:?}"
         );
     }
 
@@ -1445,8 +1433,7 @@ mod tests {
         let result = store.approve_version("pol-1", 1, "b\u{043E}b", None).await;
         assert!(
             matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Already approved")),
-            "Homoglyph duplicate approval must be rejected, got: {:?}",
-            result
+            "Homoglyph duplicate approval must be rejected, got: {result:?}"
         );
     }
 
@@ -1469,8 +1456,7 @@ mod tests {
         // This should be detected as self-approval since İ lowercases to i̇ (i + combining dot above)
         assert!(
             matches!(result, Err(LifecycleError::Validation(ref msg)) if msg.contains("Self-approval")),
-            "Unicode case fold parity: {:?}",
-            result
+            "Unicode case fold parity: {result:?}"
         );
     }
 
@@ -1497,8 +1483,7 @@ mod tests {
         let result = store.promote_version("pol-1", 1).await;
         assert!(
             matches!(result, Err(LifecycleError::ApprovalRequired(_))),
-            "auto_approve_roles should NOT bypass approval without role verification: {:?}",
-            result
+            "auto_approve_roles should NOT bypass approval without role verification: {result:?}"
         );
     }
 

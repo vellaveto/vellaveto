@@ -790,7 +790,7 @@ mod tests {
         signed.extend_from_slice(body);
         let hmac = compute_hmac_sha256(secret.as_bytes(), &signed);
 
-        let header = format!("ts={};h1={}", ts, hmac);
+        let header = format!("ts={ts};h1={hmac}");
         assert!(verify_paddle_signature(&header, body, secret));
     }
 
@@ -799,7 +799,7 @@ mod tests {
         let secret = "pdl_test_secret";
         let body = b"{\"event_type\":\"subscription.created\"}";
         let ts = current_ts();
-        let header = format!("ts={};h1=deadbeef", ts);
+        let header = format!("ts={ts};h1=deadbeef");
         assert!(!verify_paddle_signature(&header, body, secret));
     }
 
@@ -808,7 +808,7 @@ mod tests {
         assert!(!verify_paddle_signature("", b"body", "secret"));
         let ts = current_ts();
         assert!(!verify_paddle_signature(
-            &format!("ts={}", ts),
+            &format!("ts={ts}"),
             b"body",
             "secret"
         ));
@@ -827,7 +827,7 @@ mod tests {
         signed.extend_from_slice(body);
         let hmac = compute_hmac_sha256(secret.as_bytes(), &signed);
 
-        let header = format!("ts={};h1={}", stale_ts, hmac);
+        let header = format!("ts={stale_ts};h1={hmac}");
         assert!(!verify_paddle_signature(&header, body, secret));
     }
 
@@ -843,7 +843,7 @@ mod tests {
         signed.extend_from_slice(body);
         let hmac = compute_hmac_sha256(secret.as_bytes(), &signed);
 
-        let header = format!("t={},v1={}", ts, hmac);
+        let header = format!("t={ts},v1={hmac}");
         assert!(verify_stripe_signature(&header, body, secret));
     }
 
@@ -852,7 +852,7 @@ mod tests {
         let secret = "whsec_test_secret";
         let body = b"{\"type\":\"invoice.paid\"}";
         let ts = current_ts();
-        let header = format!("t={},v1=deadbeef", ts);
+        let header = format!("t={ts},v1=deadbeef");
         assert!(!verify_stripe_signature(&header, body, secret));
     }
 
@@ -861,7 +861,7 @@ mod tests {
         assert!(!verify_stripe_signature("", b"body", "secret"));
         let ts = current_ts();
         assert!(!verify_stripe_signature(
-            &format!("t={}", ts),
+            &format!("t={ts}"),
             b"body",
             "secret"
         ));
@@ -879,7 +879,7 @@ mod tests {
         signed.extend_from_slice(body);
         let hmac = compute_hmac_sha256(b"whsec_test_secret", &signed);
 
-        let header = format!("t={},v1={}", stale_ts, hmac);
+        let header = format!("t={stale_ts},v1={hmac}");
         assert!(!verify_stripe_signature(&header, body, "whsec_test_secret"));
     }
 
@@ -894,7 +894,7 @@ mod tests {
         signed.extend_from_slice(body);
         let hmac = compute_hmac_sha256(b"correct_secret", &signed);
 
-        let header = format!("t={},v1={}", ts, hmac);
+        let header = format!("t={ts},v1={hmac}");
         assert!(!verify_stripe_signature(&header, body, "wrong_secret"));
     }
 

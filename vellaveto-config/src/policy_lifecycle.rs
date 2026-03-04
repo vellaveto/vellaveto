@@ -103,21 +103,16 @@ impl PolicyLifecycleConfig {
         }
         for (i, role) in self.auto_approve_roles.iter().enumerate() {
             if role.is_empty() || role.trim().is_empty() {
-                return Err(format!(
-                    "policy_lifecycle.auto_approve_roles[{}] is empty",
-                    i
-                ));
+                return Err(format!("policy_lifecycle.auto_approve_roles[{i}] is empty"));
             }
             if role.len() > MAX_ROLE_LEN {
                 return Err(format!(
-                    "policy_lifecycle.auto_approve_roles[{}] exceeds {} chars",
-                    i, MAX_ROLE_LEN
+                    "policy_lifecycle.auto_approve_roles[{i}] exceeds {MAX_ROLE_LEN} chars"
                 ));
             }
             if has_dangerous_chars(role) {
                 return Err(format!(
-                    "policy_lifecycle.auto_approve_roles[{}] contains invalid characters",
-                    i
+                    "policy_lifecycle.auto_approve_roles[{i}] contains invalid characters"
                 ));
             }
         }
@@ -140,7 +135,7 @@ impl PolicyLifecycleConfig {
                 );
             }
             validate_url_no_ssrf(url)
-                .map_err(|e| format!("policy_lifecycle.notification_webhook_url: {}", e))?;
+                .map_err(|e| format!("policy_lifecycle.notification_webhook_url: {e}"))?;
         }
         // max_versions_per_policy
         if self.max_versions_per_policy == 0 {

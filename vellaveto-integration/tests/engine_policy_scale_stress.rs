@@ -33,8 +33,8 @@ fn thousand_non_matching_then_one_match() {
 
     let mut policies: Vec<Policy> = (0..1000)
         .map(|i| Policy {
-            id: format!("nonmatch_{}:nonmatch_{}", i, i),
-            name: format!("noise-{}", i),
+            id: format!("nonmatch_{i}:nonmatch_{i}"),
+            name: format!("noise-{i}"),
             policy_type: PolicyType::Allow,
             priority: i,
             path_rules: None,
@@ -54,8 +54,7 @@ fn thousand_non_matching_then_one_match() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Should find the matching Allow policy among 1000 non-matching, got {:?}",
-        result
+        "Should find the matching Allow policy among 1000 non-matching, got {result:?}"
     );
 }
 
@@ -67,8 +66,8 @@ fn thousand_non_matching_defaults_to_deny() {
 
     let policies: Vec<Policy> = (0..1000)
         .map(|i| Policy {
-            id: format!("other_{}:other_{}", i, i),
-            name: format!("noise-{}", i),
+            id: format!("other_{i}:other_{i}"),
+            name: format!("noise-{i}"),
             policy_type: PolicyType::Allow,
             priority: i,
             path_rules: None,
@@ -81,7 +80,7 @@ fn thousand_non_matching_defaults_to_deny() {
         Verdict::Deny { reason } => {
             assert_eq!(reason, "No matching policy");
         }
-        other => panic!("1000 non-matching should default to Deny, got {:?}", other),
+        other => panic!("1000 non-matching should default to Deny, got {other:?}"),
     }
 }
 
@@ -99,7 +98,7 @@ fn thousand_matching_allows_highest_priority_wins() {
     let mut policies: Vec<Policy> = (0..1000)
         .map(|i| Policy {
             id: "*".to_string(),
-            name: format!("allow-{}", i),
+            name: format!("allow-{i}"),
             policy_type: PolicyType::Allow,
             priority: i,
             path_rules: None,
@@ -124,8 +123,7 @@ fn thousand_matching_allows_highest_priority_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at priority 1000 should override 1000 Allows, got {:?}",
-        result
+        "Deny at priority 1000 should override 1000 Allows, got {result:?}"
     );
 }
 
@@ -144,7 +142,7 @@ fn mixed_500_allow_500_deny_highest_deny_wins() {
     for i in 0..500 {
         policies.push(Policy {
             id: "*".to_string(),
-            name: format!("allow-{}", i),
+            name: format!("allow-{i}"),
             policy_type: PolicyType::Allow,
             priority: i * 2, // even priorities: 0, 2, 4, ..., 998,
             path_rules: None,
@@ -154,7 +152,7 @@ fn mixed_500_allow_500_deny_highest_deny_wins() {
     for i in 0..500 {
         policies.push(Policy {
             id: "*".to_string(),
-            name: format!("deny-{}", i),
+            name: format!("deny-{i}"),
             policy_type: PolicyType::Deny,
             priority: i * 2 + 1, // odd priorities: 1, 3, 5, ..., 999,
             path_rules: None,
@@ -166,8 +164,7 @@ fn mixed_500_allow_500_deny_highest_deny_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Deny at priority 999 (highest) should win, got {:?}",
-        result
+        "Deny at priority 999 (highest) should win, got {result:?}"
     );
 }
 
@@ -181,7 +178,7 @@ fn mixed_types_allow_at_top_wins() {
     for i in 0..500 {
         policies.push(Policy {
             id: "*".to_string(),
-            name: format!("allow-{}", i),
+            name: format!("allow-{i}"),
             policy_type: PolicyType::Allow,
             priority: i,
             path_rules: None,
@@ -189,7 +186,7 @@ fn mixed_types_allow_at_top_wins() {
         });
         policies.push(Policy {
             id: "*".to_string(),
-            name: format!("deny-{}", i),
+            name: format!("deny-{i}"),
             policy_type: PolicyType::Deny,
             priority: i,
             path_rules: None,
@@ -210,7 +207,6 @@ fn mixed_types_allow_at_top_wins() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Allow at priority 1000 should beat all others, got {:?}",
-        result
+        "Allow at priority 1000 should beat all others, got {result:?}"
     );
 }

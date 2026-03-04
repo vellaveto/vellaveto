@@ -1117,7 +1117,7 @@ mod tests {
             current: 10_000,
             max: 10_000,
         };
-        let msg = format!("{:?}", err);
+        let msg = format!("{err:?}");
         assert!(msg.contains("ChainDepthExceeded"));
         assert!(msg.contains("10000"));
     }

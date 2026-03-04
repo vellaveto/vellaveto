@@ -312,8 +312,7 @@ impl ThreatIntelClient {
         if let Some(content_length) = response.content_length() {
             if content_length > MAX_THREAT_RESPONSE_BYTES as u64 {
                 return Err(ThreatIntelError::InvalidResponse(format!(
-                    "{} response Content-Length {} exceeds limit {}",
-                    provider_name, content_length, MAX_THREAT_RESPONSE_BYTES
+                    "{provider_name} response Content-Length {content_length} exceeds limit {MAX_THREAT_RESPONSE_BYTES}"
                 )));
             }
         }
@@ -339,7 +338,7 @@ impl ThreatIntelClient {
         value: &str,
     ) -> Result<Vec<ThreatIndicator>, ThreatIntelError> {
         // TAXII query format
-        let url = format!("{}/objects", endpoint);
+        let url = format!("{endpoint}/objects");
 
         let response = self
             .client
@@ -361,7 +360,7 @@ impl ThreatIntelClient {
 
         let body_bytes = Self::read_bounded_response(response, "TAXII").await?;
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
-            ThreatIntelError::InvalidResponse(format!("TAXII response JSON decode failed: {}", e))
+            ThreatIntelError::InvalidResponse(format!("TAXII response JSON decode failed: {e}"))
         })?;
         self.parse_stix_objects(&body)
     }
@@ -373,7 +372,7 @@ impl ThreatIntelClient {
         indicator_type: IndicatorType,
         value: &str,
     ) -> Result<Vec<ThreatIndicator>, ThreatIntelError> {
-        let url = format!("{}/attributes/restSearch", endpoint);
+        let url = format!("{endpoint}/attributes/restSearch");
 
         let body = serde_json::json!({
             "returnFormat": "json",
@@ -392,7 +391,7 @@ impl ThreatIntelClient {
 
         let body_bytes = Self::read_bounded_response(response, "MISP").await?;
         let body: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
-            ThreatIntelError::InvalidResponse(format!("MISP response JSON decode failed: {}", e))
+            ThreatIntelError::InvalidResponse(format!("MISP response JSON decode failed: {e}"))
         })?;
         self.parse_misp_response(&body)
     }
@@ -419,8 +418,7 @@ impl ThreatIntelClient {
         let indicators: Vec<ThreatIndicator> =
             serde_json::from_slice(&body_bytes).map_err(|e| {
                 ThreatIntelError::InvalidResponse(format!(
-                    "custom provider JSON decode failed: {}",
-                    e
+                    "custom provider JSON decode failed: {e}"
                 ))
             })?;
         Ok(indicators)
@@ -627,7 +625,7 @@ fn build_custom_indicator_url(
     value: &str,
 ) -> Result<reqwest::Url, ThreatIntelError> {
     let mut url = reqwest::Url::parse(endpoint).map_err(|e| {
-        ThreatIntelError::InvalidResponse(format!("invalid custom provider endpoint: {}", e))
+        ThreatIntelError::InvalidResponse(format!("invalid custom provider endpoint: {e}"))
     })?;
 
     {
@@ -889,7 +887,7 @@ mod tests {
             source: "test".to_string(),
             description: None,
             tags: (0..MAX_INDICATOR_TAGS)
-                .map(|i| format!("tag-{}", i))
+                .map(|i| format!("tag-{i}"))
                 .collect(),
             first_seen: None,
             last_seen: None,
@@ -907,7 +905,7 @@ mod tests {
             source: "test".to_string(),
             description: None,
             tags: (0..=MAX_INDICATOR_TAGS)
-                .map(|i| format!("tag-{}", i))
+                .map(|i| format!("tag-{i}"))
                 .collect(),
             first_seen: None,
             last_seen: None,

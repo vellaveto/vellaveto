@@ -298,23 +298,23 @@ impl ToolManifest {
             .ok_or_else(|| "Manifest has no signature".to_string())?;
 
         let sig_bytes: [u8; 64] = hex::decode(sig_hex)
-            .map_err(|e| format!("Invalid signature hex: {}", e))?
+            .map_err(|e| format!("Invalid signature hex: {e}"))?
             .try_into()
             .map_err(|_| "Signature must be 64 bytes".to_string())?;
 
         let key_bytes: [u8; 32] = hex::decode(trusted_key_hex)
-            .map_err(|e| format!("Invalid key hex: {}", e))?
+            .map_err(|e| format!("Invalid key hex: {e}"))?
             .try_into()
             .map_err(|_| "Verifying key must be 32 bytes".to_string())?;
 
         let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
         let verifying_key = VerifyingKey::from_bytes(&key_bytes)
-            .map_err(|e| format!("Invalid verifying key: {}", e))?;
+            .map_err(|e| format!("Invalid verifying key: {e}"))?;
 
         let content = self.signing_content();
         verifying_key
             .verify(&content, &signature)
-            .map_err(|e| format!("Signature verification failed: {}", e))
+            .map_err(|e| format!("Signature verification failed: {e}"))
     }
 
     /// Verify the manifest signature against any of the given trusted keys.
@@ -501,7 +501,7 @@ impl ManifestConfig {
         }
         for (i, key) in self.trusted_keys.iter().enumerate() {
             if key.is_empty() {
-                return Err(format!("manifest.trusted_keys[{}] must not be empty", i));
+                return Err(format!("manifest.trusted_keys[{i}] must not be empty"));
             }
             if key.len() > MAX_MANIFEST_KEY_LEN {
                 return Err(format!(
@@ -512,7 +512,7 @@ impl ManifestConfig {
                 ));
             }
             if !key.chars().all(|c| c.is_ascii_hexdigit()) {
-                return Err(format!("manifest.trusted_keys[{}] must be hex-encoded", i));
+                return Err(format!("manifest.trusted_keys[{i}] must be hex-encoded"));
             }
         }
         if let Some(ref path) = self.manifest_path {
@@ -539,8 +539,7 @@ impl ManifestConfig {
             let p = Path::new(path);
             if p.components().any(|c| matches!(c, Component::ParentDir)) {
                 return Err(format!(
-                    "manifest.manifest_path must not contain '..' components, got '{}'",
-                    path
+                    "manifest.manifest_path must not contain '..' components, got '{path}'"
                 ));
             }
         }
@@ -563,7 +562,7 @@ impl ManifestConfig {
         // Check signature if required
         if self.require_signature && !self.trusted_keys.is_empty() {
             if let Err(sig_err) = pinned.verify_signature_any(&self.trusted_keys) {
-                let msg = format!("Manifest signature verification failed: {}", sig_err);
+                let msg = format!("Manifest signature verification failed: {sig_err}");
                 if self.enforcement == ManifestEnforcement::Block {
                     return Err(vec![msg]);
                 }

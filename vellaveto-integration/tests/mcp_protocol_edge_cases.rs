@@ -161,7 +161,7 @@ fn large_action_deserializes_successfully() {
         let mut map = serde_json::Map::new();
         for i in 0..1000 {
             map.insert(
-                format!("key_{}", i),
+                format!("key_{i}"),
                 json!(format!("value_{}", "x".repeat(100))),
             );
         }

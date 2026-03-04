@@ -69,8 +69,7 @@ impl TrafficPaddingConfig {
         for (i, &size) in self.size_buckets.iter().enumerate() {
             if size == 0 {
                 return Err(ShieldProxyError::TrafficPadding(format!(
-                    "size_buckets[{}] must be > 0",
-                    i
+                    "size_buckets[{i}] must be > 0"
                 )));
             }
         }

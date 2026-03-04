@@ -763,7 +763,7 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> String {
             Err(_) => {
                 // Fail-closed: return a unique hash based on schema debug repr
                 // so that any schema that can't be serialized gets a distinct hash.
-                let debug_repr = format!("{:?}", schema);
+                let debug_repr = format!("{schema:?}");
                 let mut hasher = Sha256::new();
                 hasher.update(b"__SERIALIZATION_FAILED__");
                 hasher.update(debug_repr.as_bytes());
@@ -1296,9 +1296,9 @@ mod tests {
         {
             let mut entries = registry.entries.write().await;
             for i in 0..MAX_REGISTRY_ENTRIES {
-                let mut e = ToolEntry::new(format!("tool_{}", i), String::new());
+                let mut e = ToolEntry::new(format!("tool_{i}"), String::new());
                 e.compute_trust_score();
-                entries.insert(format!("tool_{}", i), e);
+                entries.insert(format!("tool_{i}"), e);
             }
             assert_eq!(entries.len(), MAX_REGISTRY_ENTRIES);
         }

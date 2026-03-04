@@ -61,10 +61,10 @@ impl std::fmt::Display for FederationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::JwksFetchFailed { org_id, source } => {
-                write!(f, "JWKS fetch failed for {}: {}", org_id, source)
+                write!(f, "JWKS fetch failed for {org_id}: {source}")
             }
             Self::JwtValidationFailed { org_id, source } => {
-                write!(f, "JWT validation failed for {}: {}", org_id, source)
+                write!(f, "JWT validation failed for {org_id}: {source}")
             }
             Self::NoMatchingKey { org_id, kid } => {
                 // SECURITY (FIND-R50-040): Sanitize kid value in error messages
@@ -74,15 +74,14 @@ impl std::fmt::Display for FederationError {
                 let safe_kid = vellaveto_types::sanitize_for_log(kid, 128);
                 write!(
                     f,
-                    "no matching key in JWKS for org {}, kid '{}'",
-                    org_id, safe_kid
+                    "no matching key in JWKS for org {org_id}, kid '{safe_kid}'"
                 )
             }
             Self::DisallowedAlgorithm(alg) => {
-                write!(f, "disallowed JWT algorithm: {}", alg)
+                write!(f, "disallowed JWT algorithm: {alg}")
             }
             Self::InvalidHeader(msg) => {
-                write!(f, "invalid JWT header: {}", msg)
+                write!(f, "invalid JWT header: {msg}")
             }
         }
     }
@@ -150,8 +149,7 @@ impl FederatedClaims {
             let serialized_len = serde_json::to_string(value).map(|s| s.len()).unwrap_or(0);
             if serialized_len > MAX_EXTRA_CLAIM_VALUE_BYTES {
                 return Err(format!(
-                    "federated JWT extra claim '{}' is {} bytes, max is {}",
-                    key, serialized_len, MAX_EXTRA_CLAIM_VALUE_BYTES
+                    "federated JWT extra claim '{key}' is {serialized_len} bytes, max is {MAX_EXTRA_CLAIM_VALUE_BYTES}"
                 ));
             }
         }
@@ -229,7 +227,7 @@ impl FederationResolver {
             decode_header(token).map_err(|e| FederationError::InvalidHeader(e.to_string()))?;
 
         let alg = header.alg;
-        let alg_str = format!("{:?}", alg);
+        let alg_str = format!("{alg:?}");
         if !ALLOWED_ALGORITHMS.contains(&alg) {
             return Err(FederationError::DisallowedAlgorithm(alg_str));
         }
@@ -509,8 +507,7 @@ impl FederationResolver {
                 return Err(FederationError::JwksFetchFailed {
                     org_id: org_id.to_string(),
                     source: format!(
-                        "JWKS Content-Length {} exceeds {} byte limit",
-                        len, MAX_JWKS_BODY_BYTES
+                        "JWKS Content-Length {len} exceeds {MAX_JWKS_BODY_BYTES} byte limit"
                     ),
                 });
             }
@@ -535,7 +532,7 @@ impl FederationResolver {
             if body.len().saturating_add(chunk.len()) > MAX_JWKS_BODY_BYTES {
                 return Err(FederationError::JwksFetchFailed {
                     org_id: org_id.to_string(),
-                    source: format!("JWKS response exceeds {} byte limit", MAX_JWKS_BODY_BYTES),
+                    source: format!("JWKS response exceeds {MAX_JWKS_BODY_BYTES} byte limit"),
                 });
             }
             body.extend_from_slice(&chunk);
@@ -543,7 +540,7 @@ impl FederationResolver {
 
         serde_json::from_slice(&body).map_err(|e| FederationError::JwksFetchFailed {
             org_id: org_id.to_string(),
-            source: format!("invalid JWKS JSON: {}", e),
+            source: format!("invalid JWKS JSON: {e}"),
         })
     }
 
@@ -1252,7 +1249,7 @@ mod tests {
             .encode(r#"{"alg":"RS256","typ":"JWT"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"iss":"https://auth.example.com","sub":"test"}"#);
-        let token = format!("{}.{}.fake-sig", header, payload);
+        let token = format!("{header}.{payload}.fake-sig");
         assert_eq!(
             extract_issuer_from_payload(&token),
             Some("https://auth.example.com".to_string())
@@ -1264,7 +1261,7 @@ mod tests {
         use base64::Engine;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"alg":"RS256"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{"sub":"test"}"#);
-        let token = format!("{}.{}.sig", header, payload);
+        let token = format!("{header}.{payload}.sig");
         assert_eq!(extract_issuer_from_payload(&token), None);
     }
 
@@ -1280,7 +1277,7 @@ mod tests {
             .encode(r#"{"alg":"RS256","typ":"JWT","kid":"key-1"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"iss":"https://auth.unknown.com","sub":"test","exp":9999999999}"#);
-        let token = format!("{}.{}.fake-sig", header, payload);
+        let token = format!("{header}.{payload}.fake-sig");
 
         let result = resolver.validate_federated_token(&token).await;
         assert!(result.is_ok());
@@ -1311,7 +1308,7 @@ mod tests {
             .encode(r#"{"alg":"RS256","typ":"JWT","kid":"key-1"}"#);
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"iss":"https://auth.nojwks.com","sub":"test","exp":9999999999}"#);
-        let token = format!("{}.{}.fake-sig", header, payload);
+        let token = format!("{header}.{payload}.fake-sig");
 
         let result = resolver.validate_federated_token(&token).await;
         assert!(result.is_err());
@@ -1319,7 +1316,7 @@ mod tests {
             FederationError::JwksFetchFailed { org_id, .. } => {
                 assert_eq!(org_id, "no-jwks");
             }
-            other => panic!("Expected JwksFetchFailed, got: {}", other),
+            other => panic!("Expected JwksFetchFailed, got: {other}"),
         }
     }
 }

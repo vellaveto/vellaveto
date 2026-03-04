@@ -84,8 +84,7 @@ impl ExtensionConfig {
         for (i, pat) in self.allowed_extensions.iter().enumerate() {
             if pat.is_empty() {
                 return Err(format!(
-                    "extension.allowed_extensions[{}] must not be empty",
-                    i
+                    "extension.allowed_extensions[{i}] must not be empty"
                 ));
             }
             if pat.len() > MAX_EXTENSION_PATTERN_LEN {
@@ -98,16 +97,14 @@ impl ExtensionConfig {
             }
             if vellaveto_types::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "extension.allowed_extensions[{}] contains control or format characters",
-                    i
+                    "extension.allowed_extensions[{i}] contains control or format characters"
                 ));
             }
         }
         for (i, pat) in self.blocked_extensions.iter().enumerate() {
             if pat.is_empty() {
                 return Err(format!(
-                    "extension.blocked_extensions[{}] must not be empty",
-                    i
+                    "extension.blocked_extensions[{i}] must not be empty"
                 ));
             }
             if pat.len() > MAX_EXTENSION_PATTERN_LEN {
@@ -120,16 +117,14 @@ impl ExtensionConfig {
             }
             if vellaveto_types::has_dangerous_chars(pat) {
                 return Err(format!(
-                    "extension.blocked_extensions[{}] contains control or format characters",
-                    i
+                    "extension.blocked_extensions[{i}] contains control or format characters"
                 ));
             }
         }
         for (i, key) in self.trusted_public_keys.iter().enumerate() {
             if key.is_empty() {
                 return Err(format!(
-                    "extension.trusted_public_keys[{}] must not be empty",
-                    i
+                    "extension.trusted_public_keys[{i}] must not be empty"
                 ));
             }
             if key.len() > MAX_TRUSTED_KEY_LEN {
@@ -142,8 +137,7 @@ impl ExtensionConfig {
             }
             if !key.chars().all(|c| c.is_ascii_hexdigit()) {
                 return Err(format!(
-                    "extension.trusted_public_keys[{}] must be hex-encoded",
-                    i
+                    "extension.trusted_public_keys[{i}] must be hex-encoded"
                 ));
             }
         }

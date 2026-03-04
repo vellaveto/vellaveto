@@ -95,7 +95,7 @@ async fn multiple_entries_preserve_order() {
     let (logger, _dir) = setup_logger();
 
     for i in 0..5 {
-        let action = sample_action("tool", &format!("action_{}", i));
+        let action = sample_action("tool", &format!("action_{i}"));
         logger
             .log_entry(&action, &Verdict::Allow, json!({"index": i}))
             .await
@@ -171,7 +171,7 @@ async fn concurrent_writes_all_captured() {
         handles.push(tokio::spawn(async move {
             let action = Action::new(
                 "tool".to_string(),
-                format!("concurrent_{}", i),
+                format!("concurrent_{i}"),
                 json!({"thread": i}),
             );
             lg.log_entry(&action, &Verdict::Allow, json!({}))
@@ -201,7 +201,7 @@ async fn large_metadata_does_not_corrupt_log() {
 
     let mut meta = serde_json::Map::new();
     for i in 0..500 {
-        meta.insert(format!("field_{}", i), json!(format!("value_{}", i)));
+        meta.insert(format!("field_{i}"), json!(format!("value_{}", i)));
     }
 
     logger
@@ -274,7 +274,7 @@ async fn report_after_many_entries() {
     let (logger, _dir) = setup_logger();
 
     for i in 0..50 {
-        let action = sample_action("tool", &format!("fn_{}", i));
+        let action = sample_action("tool", &format!("fn_{i}"));
         let verdict = if i % 3 == 0 {
             Verdict::Deny {
                 reason: "blocked".to_string(),
@@ -313,7 +313,7 @@ async fn detect_duplicate_ids_unique_entries_returns_empty() {
     let (logger, _dir) = setup_logger();
 
     for i in 0..5 {
-        let action = sample_action("file", &format!("read_{}", i));
+        let action = sample_action("file", &format!("read_{i}"));
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
             .await
@@ -372,7 +372,7 @@ async fn detect_duplicate_ids_sorted_by_count_descending() {
     // Create 3 entries
     logger.initialize_chain().await.unwrap();
     for i in 0..3 {
-        let action = sample_action("file", &format!("read_{}", i));
+        let action = sample_action("file", &format!("read_{i}"));
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
             .await
@@ -469,7 +469,7 @@ async fn detect_heartbeat_gap_no_gap_in_rapid_entries() {
     let (logger, _dir) = setup_logger();
 
     for i in 0..5 {
-        let action = sample_action("file", &format!("read_{}", i));
+        let action = sample_action("file", &format!("read_{i}"));
         logger
             .log_entry(&action, &Verdict::Allow, json!({}))
             .await
@@ -518,7 +518,6 @@ async fn detect_heartbeat_gap_finds_injected_gap() {
     let (_, _, gap_secs) = gap.unwrap();
     assert!(
         gap_secs > 3600,
-        "Gap should be >3600 seconds, got {}",
-        gap_secs
+        "Gap should be >3600 seconds, got {gap_secs}"
     );
 }

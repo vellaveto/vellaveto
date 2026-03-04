@@ -302,7 +302,7 @@ impl TokenSecurityAnalyzer {
                     smuggle_type: SmugglingType::SpecialToken,
                     pattern: token.clone(),
                     confidence: 0.9,
-                    description: format!("Special token '{}' detected in input", token),
+                    description: format!("Special token '{token}' detected in input"),
                 });
             }
         }
@@ -322,7 +322,7 @@ impl TokenSecurityAnalyzer {
         if combining_count > 10 {
             return Some(SmugglingAlert {
                 smuggle_type: SmugglingType::UnicodeNormalization,
-                pattern: format!("{} combining characters", combining_count),
+                pattern: format!("{combining_count} combining characters"),
                 confidence: (combining_count as f32 / 20.0).min(1.0),
                 description: "Excessive combining characters may indicate normalization attack"
                     .to_string(),
@@ -334,7 +334,7 @@ impl TokenSecurityAnalyzer {
         if confusables > 5 {
             return Some(SmugglingAlert {
                 smuggle_type: SmugglingType::UnicodeNormalization,
-                pattern: format!("{} confusable characters", confusables),
+                pattern: format!("{confusables} confusable characters"),
                 confidence: (confusables as f32 / 15.0).min(1.0),
                 description: "Multiple confusable Unicode characters detected".to_string(),
             });
@@ -402,7 +402,7 @@ impl TokenSecurityAnalyzer {
         if unusual_whitespace_count > 5 {
             return Some(SmugglingAlert {
                 smuggle_type: SmugglingType::TokenBoundary,
-                pattern: format!("{} unusual whitespace chars", unusual_whitespace_count),
+                pattern: format!("{unusual_whitespace_count} unusual whitespace chars"),
                 confidence: (unusual_whitespace_count as f32 / 10.0).min(1.0),
                 description: "Unusual whitespace characters may manipulate tokenization"
                     .to_string(),
@@ -416,7 +416,7 @@ impl TokenSecurityAnalyzer {
             if count > 10 {
                 return Some(SmugglingAlert {
                     smuggle_type: SmugglingType::TokenBoundary,
-                    pattern: format!("{} occurrences of '{}'", count, pattern),
+                    pattern: format!("{count} occurrences of '{pattern}'"),
                     confidence: 0.6,
                     description: "Excessive boundary markers may indicate context manipulation"
                         .to_string(),
@@ -487,8 +487,7 @@ impl TokenSecurityAnalyzer {
                     budget: self.config.default_context_budget,
                     usage_percent: 100.0,
                     description: format!(
-                        "Session context capacity reached ({}) after cleanup",
-                        MAX_SESSION_CONTEXTS
+                        "Session context capacity reached ({MAX_SESSION_CONTEXTS}) after cleanup"
                     ),
                 });
             }

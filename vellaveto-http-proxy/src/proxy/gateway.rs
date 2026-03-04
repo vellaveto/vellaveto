@@ -565,7 +565,7 @@ mod tests {
     fn test_router_from_config_empty_backends() {
         let config = test_config(vec![]);
         let err = GatewayRouter::from_config(&config).unwrap_err();
-        assert!(err.contains("at least one backend"), "got: {}", err);
+        assert!(err.contains("at least one backend"), "got: {err}");
     }
 
     #[test]
@@ -575,7 +575,7 @@ mod tests {
             backend("dup", "http://b:8000", &["b_"]),
         ]);
         let err = GatewayRouter::from_config(&config).unwrap_err();
-        assert!(err.contains("duplicate backend id"), "got: {}", err);
+        assert!(err.contains("duplicate backend id"), "got: {err}");
     }
 
     #[test]
@@ -585,7 +585,7 @@ mod tests {
             default_backend("d2", "http://b:8000"),
         ]);
         let err = GatewayRouter::from_config(&config).unwrap_err();
-        assert!(err.contains("multiple default backends"), "got: {}", err);
+        assert!(err.contains("multiple default backends"), "got: {err}");
     }
 
     #[test]
@@ -910,7 +910,7 @@ mod tests {
             transport_urls: std::collections::HashMap::new(),
         }]);
         let err = config.validate().unwrap_err();
-        assert!(err.contains("id must not be empty"), "got: {}", err);
+        assert!(err.contains("id must not be empty"), "got: {err}");
     }
 
     #[test]
@@ -923,7 +923,7 @@ mod tests {
             transport_urls: std::collections::HashMap::new(),
         }]);
         let err = config.validate().unwrap_err();
-        assert!(err.contains("weight must be >= 1"), "got: {}", err);
+        assert!(err.contains("weight must be >= 1"), "got: {err}");
     }
 
     #[test]

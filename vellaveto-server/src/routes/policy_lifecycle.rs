@@ -781,3 +781,201 @@ pub async fn lifecycle_status(
         )
     })?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_input_string tests ──────────────────────────────────────
+
+    #[test]
+    fn test_validate_input_string_valid() {
+        assert!(validate_input_string("field", "hello", 256).is_ok());
+    }
+
+    #[test]
+    fn test_validate_input_string_at_max_len() {
+        let val = "a".repeat(256);
+        assert!(validate_input_string("field", &val, 256).is_ok());
+    }
+
+    #[test]
+    fn test_validate_input_string_empty_rejected() {
+        let err = validate_input_string("created_by", "", 256).unwrap_err();
+        let body = err.1 .0;
+        assert_eq!(body["error"], "created_by must be non-empty");
+    }
+
+    #[test]
+    fn test_validate_input_string_whitespace_only_rejected() {
+        let err = validate_input_string("created_by", "   ", 256).unwrap_err();
+        let body = err.1 .0;
+        assert_eq!(body["error"], "created_by must be non-empty");
+    }
+
+    #[test]
+    fn test_validate_input_string_exceeds_max_len_rejected() {
+        let val = "a".repeat(257);
+        let err = validate_input_string("comment", &val, 256).unwrap_err();
+        let body = err.1 .0;
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("exceeds 256 chars"));
+    }
+
+    #[test]
+    fn test_validate_input_string_control_chars_rejected() {
+        let err = validate_input_string("field", "hello\x00world", 256).unwrap_err();
+        let body = err.1 .0;
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("contains invalid characters"));
+    }
+
+    #[test]
+    fn test_validate_input_string_newline_rejected() {
+        let err = validate_input_string("field", "line1\nline2", 256).unwrap_err();
+        let body = err.1 .0;
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("contains invalid characters"));
+    }
+
+    #[test]
+    fn test_validate_input_string_tab_rejected() {
+        let err = validate_input_string("field", "with\ttab", 256).unwrap_err();
+        let body = err.1 .0;
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("contains invalid characters"));
+    }
+
+    #[test]
+    fn test_validate_input_string_unicode_content_accepted() {
+        // Normal Unicode letters should be accepted
+        assert!(validate_input_string("field", "Hallgrimur", 256).is_ok());
+    }
+
+    // ── lifecycle_error_response tests ────────────────────────────────────
+
+    #[test]
+    fn test_lifecycle_error_response_not_found() {
+        let (status, body) =
+            lifecycle_error_response(LifecycleError::PolicyNotFound("test-pol".to_string()));
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.0["error"]
+            .as_str()
+            .unwrap()
+            .contains("Policy not found"));
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_version_not_found() {
+        let (status, body) =
+            lifecycle_error_response(LifecycleError::VersionNotFound("test-pol".to_string(), 42));
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.0["error"]
+            .as_str()
+            .unwrap()
+            .contains("Version not found"));
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_invalid_transition() {
+        let (status, _body) = lifecycle_error_response(LifecycleError::InvalidTransition(
+            "cannot promote".to_string(),
+        ));
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_approval_required() {
+        let (status, _body) = lifecycle_error_response(LifecycleError::ApprovalRequired(
+            "needs approval".to_string(),
+        ));
+        assert_eq!(status, StatusCode::PRECONDITION_FAILED);
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_capacity_exceeded() {
+        let (status, _body) = lifecycle_error_response(LifecycleError::CapacityExceeded(
+            "too many versions".to_string(),
+        ));
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_validation() {
+        let (status, _body) =
+            lifecycle_error_response(LifecycleError::Validation("bad input".to_string()));
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_lifecycle_error_response_internal_redacted() {
+        let (status, body) =
+            lifecycle_error_response(LifecycleError::Internal("secret details".to_string()));
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        // Internal errors must NOT leak details to client
+        let msg = body.0["error"].as_str().unwrap();
+        assert_eq!(msg, "Internal error");
+        assert!(!msg.contains("secret"));
+    }
+
+    // ── CreateVersionRequest serde tests ─────────────────────────────────
+
+    #[test]
+    fn test_create_version_request_denies_unknown_fields() {
+        let json_str = r#"{"policy":{"id":"p1","name":"test","policy_type":"Allow","priority":0},"created_by":"admin","extra":true}"#;
+        let result: Result<CreateVersionRequest, _> = serde_json::from_str(json_str);
+        assert!(result.is_err());
+    }
+
+    // ── ApproveVersionRequest serde tests ────────────────────────────────
+
+    #[test]
+    fn test_approve_version_request_denies_unknown_fields() {
+        let json_str = r#"{"approved_by":"admin","bogus":"x"}"#;
+        let result: Result<ApproveVersionRequest, _> = serde_json::from_str(json_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_approve_version_request_with_comment() {
+        let json_str = r#"{"approved_by":"admin","comment":"looks good"}"#;
+        let result: Result<ApproveVersionRequest, _> = serde_json::from_str(json_str);
+        assert!(result.is_ok());
+        let req = result.unwrap();
+        assert_eq!(req.approved_by, "admin");
+        assert_eq!(req.comment.as_deref(), Some("looks good"));
+    }
+
+    #[test]
+    fn test_approve_version_request_without_comment() {
+        let json_str = r#"{"approved_by":"admin"}"#;
+        let result: Result<ApproveVersionRequest, _> = serde_json::from_str(json_str);
+        assert!(result.is_ok());
+        assert!(result.unwrap().comment.is_none());
+    }
+
+    // ── RollbackRequest serde tests ──────────────────────────────────────
+
+    #[test]
+    fn test_rollback_request_denies_unknown_fields() {
+        let json_str = r#"{"to_version":1,"created_by":"admin","extra":true}"#;
+        let result: Result<RollbackRequest, _> = serde_json::from_str(json_str);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_rollback_request_valid() {
+        let json_str = r#"{"to_version":5,"created_by":"admin"}"#;
+        let req: RollbackRequest = serde_json::from_str(json_str).unwrap();
+        assert_eq!(req.to_version, 5);
+        assert_eq!(req.created_by, "admin");
+    }
+}

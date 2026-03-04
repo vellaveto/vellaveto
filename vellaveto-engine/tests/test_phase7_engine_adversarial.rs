@@ -138,11 +138,10 @@ fn exploit_31_path_normalization_deep_encoding_limit() {
         // If still encoded after 5 iterations, the traversal is hidden
         // and the path won't match policy patterns for /home/secret
         eprintln!(
-            "FINDING: After 5 decode iterations, path is '{}' — still contains encoded sequences",
-            normalized
+            "FINDING: After 5 decode iterations, path is '{normalized}' — still contains encoded sequences"
         );
     } else if !resolved_traversal {
-        eprintln!("Path decoded but traversal not resolved: '{}'", normalized);
+        eprintln!("Path decoded but traversal not resolved: '{normalized}'");
     }
 }
 
@@ -234,8 +233,7 @@ fn domain_extraction_ipv6_with_zone_id() {
     // SECURITY (R31-ENG-5): Brackets stripped for consistent domain matching
     assert!(
         domain.starts_with("fe80::"),
-        "IPv6 with zone ID should be extracted without brackets: got '{}'",
-        domain
+        "IPv6 with zone ID should be extracted without brackets: got '{domain}'"
     );
 }
 
@@ -245,8 +243,7 @@ fn domain_extraction_empty_authority() {
     let domain = PolicyEngine::extract_domain("file:///etc/passwd");
     assert!(
         domain.is_empty() || domain == "/etc/passwd",
-        "file:// URL domain extraction should not extract path as domain: got '{}'",
-        domain
+        "file:// URL domain extraction should not extract path as domain: got '{domain}'"
     );
 }
 
@@ -257,8 +254,7 @@ fn domain_extraction_data_uri() {
     // Should not extract the content as a domain
     assert!(
         !domain.contains("script"),
-        "data: URI content should not be extracted as domain: got '{}'",
-        domain
+        "data: URI content should not be extracted as domain: got '{domain}'"
     );
 }
 
@@ -269,8 +265,7 @@ fn domain_match_unicode_domain() {
     let matches = PolicyEngine::match_domain_pattern(domain, "*.evil.com");
     assert!(
         matches,
-        "Unicode subdomain should still match wildcard parent: '{}'",
-        domain
+        "Unicode subdomain should still match wildcard parent: '{domain}'"
     );
 }
 
@@ -278,7 +273,7 @@ fn domain_match_unicode_domain() {
 fn domain_match_very_long_subdomain() {
     // Very long subdomain to test for buffer issues
     let long_sub = "a".repeat(1000);
-    let domain = format!("{}.evil.com", long_sub);
+    let domain = format!("{long_sub}.evil.com");
     let matches = PolicyEngine::match_domain_pattern(&domain, "*.evil.com");
     assert!(matches, "Very long subdomain should match wildcard pattern");
 }

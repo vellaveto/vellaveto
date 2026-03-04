@@ -52,8 +52,7 @@ fn regex_catastrophic_backtracking_rejected() {
     let result = PolicyEngine::with_policies(false, &[policy]);
     assert!(
         result.is_err(),
-        "Nested quantifier pattern '^(a+)+b$' must be rejected at compile time. Got: {:?}",
-        result
+        "Nested quantifier pattern '^(a+)+b$' must be rejected at compile time. Got: {result:?}"
     );
 }
 
@@ -94,8 +93,7 @@ fn regex_long_input_does_not_hang() {
 
     assert!(
         elapsed.as_secs() < 5,
-        "Regex evaluation on 100K input took {:?} — possible ReDoS",
-        elapsed
+        "Regex evaluation on 100K input took {elapsed:?} — possible ReDoS"
     );
 }
 
@@ -137,9 +135,7 @@ fn ip_address_format_domain_bypass() {
         let result = engine.evaluate_action(&action, &[]);
         assert!(
             matches!(result, Ok(Verdict::Deny { .. })),
-            "IP '{}' must be denied when only 'trusted.com' is allowed. Got: {:?}",
-            ip,
-            result
+            "IP '{ip}' must be denied when only 'trusted.com' is allowed. Got: {result:?}"
         );
     }
 }
@@ -177,9 +173,7 @@ fn policy_id_unicode_lookalike() {
     // an attacker from using Cyrillic 'а' to bypass a Deny policy for 'admin'.
     assert!(
         matches!(result, Ok(Verdict::Allow)),
-        "Cyrillic lookalike '{}' should match ASCII 'admin' after homoglyph normalization. Got: {:?}",
-        cyrillic_admin,
-        result
+        "Cyrillic lookalike '{cyrillic_admin}' should match ASCII 'admin' after homoglyph normalization. Got: {result:?}"
     );
 }
 
@@ -202,8 +196,7 @@ fn wildcard_domain_doesnt_match_suffix_attack() {
     for domain in &non_matching {
         assert!(
             !PolicyEngine::match_domain_pattern(domain, "*.example.com"),
-            "'*.example.com' must NOT match '{}' (suffix attack)",
-            domain
+            "'*.example.com' must NOT match '{domain}' (suffix attack)"
         );
     }
 
@@ -218,8 +211,7 @@ fn wildcard_domain_doesnt_match_suffix_attack() {
     for domain in &matching {
         assert!(
             PolicyEngine::match_domain_pattern(domain, "*.example.com"),
-            "'*.example.com' must match '{}'",
-            domain
+            "'*.example.com' must match '{domain}'"
         );
     }
 }
@@ -277,7 +269,7 @@ async fn concurrent_policy_evaluation_deterministic() {
     let first = &results[0];
     for (i, result) in results.iter().enumerate() {
         assert_eq!(
-            format!("{:?}", first),
+            format!("{first:?}"),
             format!("{:?}", result),
             "Concurrent evaluation {} differs from first",
             i
@@ -287,8 +279,7 @@ async fn concurrent_policy_evaluation_deterministic() {
     // And they must all be Allow (path /tmp/test.txt matches /tmp/**)
     assert!(
         matches!(first, Ok(Verdict::Allow)),
-        "Expected Allow for /tmp/test.txt. Got: {:?}",
-        first
+        "Expected Allow for /tmp/test.txt. Got: {first:?}"
     );
 }
 
@@ -325,8 +316,7 @@ async fn concurrent_blocked_path_consistently_denies() {
         let result = h.await.unwrap();
         assert!(
             matches!(result, Ok(Verdict::Deny { .. })),
-            "Blocked path must consistently deny. Got: {:?}",
-            result
+            "Blocked path must consistently deny. Got: {result:?}"
         );
     }
 }

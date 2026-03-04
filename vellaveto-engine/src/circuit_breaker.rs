@@ -1013,7 +1013,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..MAX_TRACKED_CIRCUITS {
-            manager.record_failure(&format!("tool_{}", i));
+            manager.record_failure(&format!("tool_{i}"));
         }
 
         // Next new tool should be rejected (fail-closed → Open)
@@ -1039,7 +1039,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..MAX_TRACKED_CIRCUITS {
-            manager.record_success(&format!("tool_{}", i));
+            manager.record_success(&format!("tool_{i}"));
         }
 
         // New tool success should be silently skipped

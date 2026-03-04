@@ -76,12 +76,12 @@ fn entry_ids_are_valid_uuid_v4_format() {
 
         // UUID v4 format: 8-4-4-4-12 hex chars
         let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.len(), 5, "UUID should have 5 parts: {}", id);
-        assert_eq!(parts[0].len(), 8, "Part 1 should be 8 chars: {}", id);
-        assert_eq!(parts[1].len(), 4, "Part 2 should be 4 chars: {}", id);
-        assert_eq!(parts[2].len(), 4, "Part 3 should be 4 chars: {}", id);
-        assert_eq!(parts[3].len(), 4, "Part 4 should be 4 chars: {}", id);
-        assert_eq!(parts[4].len(), 12, "Part 5 should be 12 chars: {}", id);
+        assert_eq!(parts.len(), 5, "UUID should have 5 parts: {id}");
+        assert_eq!(parts[0].len(), 8, "Part 1 should be 8 chars: {id}");
+        assert_eq!(parts[1].len(), 4, "Part 2 should be 4 chars: {id}");
+        assert_eq!(parts[2].len(), 4, "Part 3 should be 4 chars: {id}");
+        assert_eq!(parts[3].len(), 4, "Part 4 should be 4 chars: {id}");
+        assert_eq!(parts[4].len(), 12, "Part 5 should be 12 chars: {id}");
     });
 }
 
@@ -176,7 +176,7 @@ fn logged_entry_preserves_deny_reason() {
         let entries = logger.load_entries().await.unwrap();
         match &entries[0].verdict {
             Verdict::Deny { reason: r } => assert_eq!(r, &reason),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     });
 }

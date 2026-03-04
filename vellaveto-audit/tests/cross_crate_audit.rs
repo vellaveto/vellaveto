@@ -62,12 +62,12 @@ fn test_log_and_load_multiple_entries() {
         let logger = AuditLogger::new(tmp.path().join("audit.log"));
 
         for i in 0..10 {
-            let action = make_action("tool", &format!("func_{}", i));
+            let action = make_action("tool", &format!("func_{i}"));
             let verdict = if i % 2 == 0 {
                 Verdict::Allow
             } else {
                 Verdict::Deny {
-                    reason: format!("denied action {}", i),
+                    reason: format!("denied action {i}"),
                 }
             };
             logger

@@ -546,7 +546,7 @@ mod tests {
     fn test_jsonrpc_id_key_exact_max_length_string_accepted() {
         let exact_string = "x".repeat(MAX_JSONRPC_ID_KEY_LEN);
         let id = Value::String(exact_string.clone());
-        assert_eq!(jsonrpc_id_key(&id), Some(format!("s:{}", exact_string)));
+        assert_eq!(jsonrpc_id_key(&id), Some(format!("s:{exact_string}")));
     }
 
     #[test]

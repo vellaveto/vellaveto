@@ -71,8 +71,7 @@ fn validate_pack_string(field_name: &str, value: &str) -> Result<(), String> {
     }
     if vellaveto_types::has_dangerous_chars(value) {
         return Err(format!(
-            "{} contains control or format characters",
-            field_name,
+            "{field_name} contains control or format characters",
         ));
     }
     Ok(())

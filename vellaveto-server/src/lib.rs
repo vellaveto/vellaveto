@@ -1227,7 +1227,7 @@ impl AppState {
             cluster
                 .health_check()
                 .await
-                .map_err(|e| format!("Cluster backend unhealthy: {}", e))
+                .map_err(|e| format!("Cluster backend unhealthy: {e}"))
         } else {
             Ok(())
         }
@@ -1247,8 +1247,8 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
 
     // SECURITY (R29-SRV-4): Do not include config_path in error messages
     // to prevent filesystem layout leakage if the error is surfaced.
-    let policy_config = PolicyConfig::load_file(config_path)
-        .map_err(|e| format!("Failed to load config: {}", e))?;
+    let policy_config =
+        PolicyConfig::load_file(config_path).map_err(|e| format!("Failed to load config: {e}"))?;
 
     // SECURITY (R12-RELOAD-1): Warn if non-policy config sections have
     // non-default values, since only policy + OPA runtime settings are
@@ -1397,7 +1397,7 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
     }
 
     crate::opa::configure_runtime_client(&policy_config.opa)
-        .map_err(|e| format!("Reload rejected: failed to reconfigure OPA runtime: {}", e))?;
+        .map_err(|e| format!("Reload rejected: failed to reconfigure OPA runtime: {e}"))?;
 
     // SECURITY (R15-CFG-2): Single atomic swap of engine + policies.
     // Previously two separate ArcSwap stores had a microsecond-wide race
@@ -1691,7 +1691,7 @@ mod tests {
         for i in 0..50u32 {
             let ip: std::net::IpAddr = std::net::Ipv4Addr::from(i.wrapping_add(167_772_160)).into(); // 10.0.0.x
             let result = limiter.check(ip);
-            assert!(result.is_none(), "IP {} should be allowed", ip);
+            assert!(result.is_none(), "IP {ip} should be allowed");
         }
         assert_eq!(limiter.len(), 50);
 
@@ -1741,8 +1741,7 @@ mod tests {
             let result = limiter.check(ip);
             assert!(
                 result.is_none(),
-                "Request {} within burst should be allowed",
-                i
+                "Request {i} within burst should be allowed"
             );
         }
         // After exhausting the burst, the next request should be rate-limited

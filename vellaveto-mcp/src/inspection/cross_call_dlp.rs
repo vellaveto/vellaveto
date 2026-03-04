@@ -111,7 +111,7 @@ impl CrossCallDlpTracker {
             if !tail_bytes.is_empty() {
                 // Build combined: previous_tail + current_value
                 if let Ok(tail_str) = std::str::from_utf8(tail_bytes) {
-                    let combined = format!("{}{}", tail_str, current_value);
+                    let combined = format!("{tail_str}{current_value}");
                     let overlap_len = tail_str.len();
 
                     // Scan the combined string
@@ -239,8 +239,7 @@ mod tests {
         // forming "...AKIA" + "IOSFODNN7EXAMPLE..." which matches the AWS pattern
         assert!(
             has_aws,
-            "Expected AWS key detection from cross-call overlap, got: {:?}",
-            all_findings
+            "Expected AWS key detection from cross-call overlap, got: {all_findings:?}"
         );
     }
 
@@ -260,8 +259,7 @@ mod tests {
             .any(|f| f.pattern_name.contains("jwt") || f.location.contains("cross-call"));
         assert!(
             has_jwt,
-            "Expected JWT detection from cross-call overlap, got: {:?}",
-            findings2
+            "Expected JWT detection from cross-call overlap, got: {findings2:?}"
         );
     }
 
@@ -341,8 +339,7 @@ mod tests {
             .any(|f| f.pattern_name.contains("private_key") || f.location.contains("cross-call"));
         assert!(
             has_key,
-            "Expected private key detection from cross-call overlap, got: {:?}",
-            findings2
+            "Expected private key detection from cross-call overlap, got: {findings2:?}"
         );
     }
 

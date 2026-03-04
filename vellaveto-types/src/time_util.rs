@@ -225,9 +225,9 @@ mod tests {
     #[test]
     fn test_parse_iso8601_secs_rejects_day_31_in_30day_months() {
         for month in &["04", "06", "09", "11"] {
-            let ts = format!("2026-{}-31T00:00:00Z", month);
+            let ts = format!("2026-{month}-31T00:00:00Z");
             let result = parse_iso8601_secs(&ts);
-            assert!(result.is_err(), "Month {} has only 30 days", month);
+            assert!(result.is_err(), "Month {month} has only 30 days");
         }
     }
 
@@ -241,10 +241,7 @@ mod tests {
         // Should be within 1 day of actual epoch (86400 seconds)
         assert!(
             diff < 86400,
-            "Epoch calculation off by {} seconds (result={}, expected={})",
-            diff,
-            result,
-            actual_epoch
+            "Epoch calculation off by {diff} seconds (result={result}, expected={actual_epoch})"
         );
     }
 
@@ -253,14 +250,11 @@ mod tests {
     fn test_parse_iso8601_secs_monotonic_all_months() {
         let mut prev = 0u64;
         for month in 1..=12 {
-            let ts = format!("2026-{:02}-01T00:00:00Z", month);
+            let ts = format!("2026-{month:02}-01T00:00:00Z");
             let val = parse_iso8601_secs(&ts).unwrap();
             assert!(
                 val > prev,
-                "Month {} must be greater than previous (got {} <= {})",
-                month,
-                val,
-                prev
+                "Month {month} must be greater than previous (got {val} <= {prev})"
             );
             prev = val;
         }

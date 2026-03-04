@@ -529,7 +529,7 @@ mod tests {
         let tracker = LeastAgencyTracker::new(0.5);
         // Fill up to MAX
         for i in 0..MAX_TRACKED_SESSIONS {
-            tracker.register_grants(&format!("a{}", i), "s", &["p".to_string()]);
+            tracker.register_grants(&format!("a{i}"), "s", &["p".to_string()]);
         }
         // One more should evict
         tracker.register_grants("overflow-agent", "s", &["p".to_string()]);
@@ -651,7 +651,7 @@ mod tests {
         let tracker = LeastAgencyTracker::new(0.5);
         // Generate more than MAX_GRANTS_PER_SESSION policy IDs
         let policy_ids: Vec<String> = (0..MAX_GRANTS_PER_SESSION + 500)
-            .map(|i| format!("policy_{}", i))
+            .map(|i| format!("policy_{i}"))
             .collect();
         tracker.register_grants("agent-1", "sess-1", &policy_ids);
 
@@ -669,7 +669,7 @@ mod tests {
     #[test]
     fn test_grants_within_limit_all_accepted() {
         let tracker = LeastAgencyTracker::new(0.5);
-        let policy_ids: Vec<String> = (0..100).map(|i| format!("p_{}", i)).collect();
+        let policy_ids: Vec<String> = (0..100).map(|i| format!("p_{i}")).collect();
         tracker.register_grants("agent-1", "sess-1", &policy_ids);
 
         let trackers = tracker.trackers.read().unwrap_or_else(|e| e.into_inner());

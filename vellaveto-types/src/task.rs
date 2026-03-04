@@ -285,7 +285,7 @@ impl TrackedTask {
         }
         if !self.created_at.is_empty() {
             crate::time_util::parse_iso8601_secs(&self.created_at)
-                .map_err(|e| format!("TrackedTask created_at is not valid ISO 8601: {}", e))?;
+                .map_err(|e| format!("TrackedTask created_at is not valid ISO 8601: {e}"))?;
         }
         if let Some(ref ea) = self.expires_at {
             if ea.len() > Self::MAX_TIMESTAMP_LEN {
@@ -303,7 +303,7 @@ impl TrackedTask {
             }
             if !ea.is_empty() {
                 crate::time_util::parse_iso8601_secs(ea)
-                    .map_err(|e| format!("TrackedTask expires_at is not valid ISO 8601: {}", e))?;
+                    .map_err(|e| format!("TrackedTask expires_at is not valid ISO 8601: {e}"))?;
             }
         }
         if let Some(ref cb) = self.created_by {
@@ -543,7 +543,7 @@ impl SecureTask {
         // SECURITY (FIND-R67-FC-002): Validate the inner TrackedTask first.
         self.task
             .validate()
-            .map_err(|e| format!("SecureTask inner task: {}", e))?;
+            .map_err(|e| format!("SecureTask inner task: {e}"))?;
 
         if self.state_chain.len() > MAX_STATE_CHAIN {
             return Err(format!(
@@ -574,7 +574,7 @@ impl SecureTask {
             // which checks all fields including hash, prev_hash, timestamp, triggered_by.
             transition
                 .validate()
-                .map_err(|e| format!("SecureTask state_chain[{}]: {}", i, e))?;
+                .map_err(|e| format!("SecureTask state_chain[{i}]: {e}"))?;
         }
         Ok(())
     }
@@ -792,7 +792,7 @@ impl TaskResumeResult {
     pub fn validate(&self) -> Result<(), String> {
         if let Some(ref task) = self.task {
             task.validate()
-                .map_err(|e| format!("TaskResumeResult task: {}", e))?;
+                .map_err(|e| format!("TaskResumeResult task: {e}"))?;
         }
         if let Some(ref reason) = self.denial_reason {
             if reason.len() > Self::MAX_DENIAL_REASON_LEN {

@@ -293,3 +293,89 @@ pub async fn delete_tenant(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── default_true tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_default_true_returns_true() {
+        assert!(default_true());
+    }
+
+    // ── TenantRequest serde tests ────────────────────────────────────────
+
+    #[test]
+    fn test_tenant_request_minimal() {
+        let req: TenantRequest =
+            serde_json::from_str(r#"{"id":"t1","name":"Tenant One"}"#).unwrap();
+        assert_eq!(req.id, "t1");
+        assert_eq!(req.name, "Tenant One");
+        assert!(req.enabled); // default_true
+        assert!(req.quotas.is_none());
+        assert!(req.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_tenant_request_with_enabled_false() {
+        let req: TenantRequest =
+            serde_json::from_str(r#"{"id":"t1","name":"T","enabled":false}"#).unwrap();
+        assert!(!req.enabled);
+    }
+
+    #[test]
+    fn test_tenant_request_with_metadata() {
+        let req: TenantRequest =
+            serde_json::from_str(r#"{"id":"t1","name":"T","metadata":{"env":"prod"}}"#).unwrap();
+        assert_eq!(req.metadata.get("env").map(|v| v.as_str()), Some("prod"));
+    }
+
+    #[test]
+    fn test_tenant_request_denies_unknown_fields() {
+        let result: Result<TenantRequest, _> =
+            serde_json::from_str(r#"{"id":"t1","name":"T","extra":true}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tenant_request_missing_required_field_rejected() {
+        // Missing "name" field
+        let result: Result<TenantRequest, _> = serde_json::from_str(r#"{"id":"t1"}"#);
+        assert!(result.is_err());
+    }
+
+    // ── TenantResponse serialization tests ───────────────────────────────
+
+    #[test]
+    fn test_tenant_response_serializes() {
+        let tenant = Tenant {
+            id: "t1".to_string(),
+            name: "Test".to_string(),
+            enabled: true,
+            quotas: TenantQuotas::default(),
+            metadata: HashMap::new(),
+            created_at: Some("2026-01-01T00:00:00Z".to_string()),
+            updated_at: Some("2026-01-01T00:00:00Z".to_string()),
+        };
+        let resp = TenantResponse { tenant };
+        let value = serde_json::to_value(&resp).unwrap();
+        assert_eq!(value["tenant"]["id"], "t1");
+        assert_eq!(value["tenant"]["name"], "Test");
+        assert_eq!(value["tenant"]["enabled"], true);
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_max_tenants_list_bounded() {
+        assert!(MAX_TENANTS_LIST > 0);
+        assert!(MAX_TENANTS_LIST <= 10_000);
+    }
+
+    #[test]
+    fn test_default_tenant_id_is_nonempty() {
+        assert!(!DEFAULT_TENANT_ID.is_empty());
+    }
+}

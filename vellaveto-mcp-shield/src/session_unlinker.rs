@@ -87,8 +87,7 @@ impl SessionUnlinker {
 
         if bindings.contains_key(session_id) {
             return Err(ShieldError::SessionIsolation(format!(
-                "session '{}' already active",
-                session_id
+                "session '{session_id}' already active"
             )));
         }
 

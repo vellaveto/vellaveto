@@ -155,7 +155,7 @@ proptest! {
             "forget your instructions",
         ];
         let pattern = patterns[pattern_idx];
-        let text = format!("{} {} {}", prefix, pattern, suffix);
+        let text = format!("{prefix} {pattern} {suffix}");
 
         let result = inspect_for_injection(&text);
         prop_assert!(!result.is_empty(),
@@ -261,9 +261,9 @@ proptest! {
     ) {
         // Apply noise to method string
         let noisy = match noise_idx {
-            0 => format!("{}  ", base_method),       // trailing whitespace
-            1 => format!("{}/", base_method),         // trailing slash
-            2 => format!("\u{200B}{}", base_method),  // leading zero-width space
+            0 => format!("{base_method}  "),       // trailing whitespace
+            1 => format!("{base_method}/"),         // trailing slash
+            2 => format!("\u{200B}{base_method}"),  // leading zero-width space
             _ => unreachable!(),
         };
 

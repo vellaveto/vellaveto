@@ -137,8 +137,7 @@ impl EvidenceItem {
             }
             if crate::has_dangerous_chars(gap) {
                 return Err(format!(
-                    "EvidenceItem.gaps[{}] contains control or format characters",
-                    i,
+                    "EvidenceItem.gaps[{i}] contains control or format characters",
                 ));
             }
         }
@@ -156,8 +155,7 @@ impl EvidenceItem {
         }
         if crate::has_dangerous_chars(value) {
             return Err(format!(
-                "EvidenceItem.{} contains control or format characters",
-                name,
+                "EvidenceItem.{name} contains control or format characters",
             ));
         }
         Ok(())

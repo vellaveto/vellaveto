@@ -21,7 +21,7 @@ fn make_action(tool: &str, function: &str) -> Action {
 fn allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("allow-{}", id),
+        name: format!("allow-{id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -32,7 +32,7 @@ fn allow_policy(id: &str, priority: i32) -> Policy {
 fn deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("deny-{}", id),
+        name: format!("deny-{id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -120,9 +120,9 @@ fn id_without_colon_does_not_match_different_tool() {
     // No match → default deny (different reason)
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("No matching policy"), "got: {}", reason);
+            assert!(reason.contains("No matching policy"), "got: {reason}");
         }
-        other => panic!("expected Deny, got {:?}", other),
+        other => panic!("expected Deny, got {other:?}"),
     }
 }
 

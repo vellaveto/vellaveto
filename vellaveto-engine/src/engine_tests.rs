@@ -776,8 +776,7 @@ fn test_missing_param_skips_when_configured() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "All constraints skipped → fail-closed deny, got: {:?}",
-        verdict
+        "All constraints skipped → fail-closed deny, got: {verdict:?}"
     );
 }
 
@@ -1209,8 +1208,7 @@ fn test_json_path_missing_intermediate_skip() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "All constraints skipped → fail-closed deny, got: {:?}",
-        verdict
+        "All constraints skipped → fail-closed deny, got: {verdict:?}"
     );
 }
 
@@ -1601,7 +1599,7 @@ fn test_normalize_path_deep_encoding_returns_root() {
         // Encode the leading '%' as %25
         encoded = format!("%25{}", &encoded[1..]);
     }
-    let input = format!("/etc/{}asswd", encoded);
+    let input = format!("/etc/{encoded}asswd");
     assert!(
         PolicyEngine::normalize_path(&input).is_err(),
         "Encoding requiring >20 decode iterations should fail-closed with Err"
@@ -1615,7 +1613,7 @@ fn test_normalize_path_bounded_custom_limit() {
     for _ in 0..5 {
         encoded = format!("%25{}", &encoded[1..]);
     }
-    let input = format!("/etc/{}asswd", encoded);
+    let input = format!("/etc/{encoded}asswd");
 
     // With limit=10, 5 iterations succeeds.
     assert_eq!(
@@ -1874,8 +1872,7 @@ fn test_wildcard_scan_catches_nested_url() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: nested URL matches *.evil.com, got: {:?}",
-        result
+        "Should deny: nested URL matches *.evil.com, got: {result:?}"
     );
 }
 
@@ -1897,8 +1894,7 @@ fn test_wildcard_scan_allows_when_no_match() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Should allow: no values match *.evil.com, got: {:?}",
-        result
+        "Should allow: no values match *.evil.com, got: {result:?}"
     );
 }
 
@@ -1923,8 +1919,7 @@ fn test_wildcard_scan_catches_path_in_array() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: array contains path matching /home/*/.ssh/**, got: {:?}",
-        result
+        "Should deny: array contains path matching /home/*/.ssh/**, got: {result:?}"
     );
 }
 
@@ -1950,8 +1945,7 @@ fn test_wildcard_scan_regex_across_all_values() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: deeply nested value matches rm -rf, got: {:?}",
-        result
+        "Should deny: deeply nested value matches rm -rf, got: {result:?}"
     );
 }
 
@@ -1974,8 +1968,7 @@ fn test_wildcard_scan_no_string_values_on_missing_deny() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: no string values found (fail-closed), got: {:?}",
-        result
+        "Should deny: no string values found (fail-closed), got: {result:?}"
     );
 }
 
@@ -2018,8 +2011,7 @@ fn test_wildcard_scan_no_string_values_on_missing_skip() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: all constraints skipped (fail-closed), got: {:?}",
-        result
+        "Should deny: all constraints skipped (fail-closed), got: {result:?}"
     );
 }
 
@@ -2048,8 +2040,7 @@ fn test_wildcard_scan_deeply_nested_value() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Should deny: /etc/shadow found 5 levels deep, got: {:?}",
-        result
+        "Should deny: /etc/shadow found 5 levels deep, got: {result:?}"
     );
 }
 
@@ -2087,8 +2078,7 @@ fn test_wildcard_scan_require_approval_on_match() {
     let result = engine.evaluate_action(&action, &[policy]).unwrap();
     assert!(
         matches!(result, Verdict::RequireApproval { .. }),
-        "Should require approval: value contains 'password', got: {:?}",
-        result
+        "Should require approval: value contains 'password', got: {result:?}"
     );
 }
 
@@ -2136,8 +2126,7 @@ fn test_wildcard_scan_combined_with_specific_param() {
         .unwrap();
     assert!(
         matches!(result1, Verdict::Allow),
-        "First constraint (mode=safe→allow) should fire first, got: {:?}",
-        result1
+        "First constraint (mode=safe→allow) should fire first, got: {result1:?}"
     );
 
     // mode=other → doesn't match eq, wildcard scans and finds /etc/shadow → deny
@@ -2152,8 +2141,7 @@ fn test_wildcard_scan_combined_with_specific_param() {
     let result2 = engine.evaluate_action(&action2, &[policy]).unwrap();
     assert!(
         matches!(result2, Verdict::Deny { .. }),
-        "Wildcard should catch /etc/shadow when first constraint doesn't fire, got: {:?}",
-        result2
+        "Wildcard should catch /etc/shadow when first constraint doesn't fire, got: {result2:?}"
     );
 }
 
@@ -2533,9 +2521,7 @@ fn test_require_approval_non_boolean_fail_closed() {
         let verdict = engine.evaluate_action(&action, &[]).unwrap();
         assert!(
             matches!(verdict, Verdict::RequireApproval { .. }),
-            "Non-boolean require_approval {:?} should fail-closed to RequireApproval, got {:?}",
-            bad_value,
-            verdict
+            "Non-boolean require_approval {bad_value:?} should fail-closed to RequireApproval, got {verdict:?}"
         );
     }
 }
@@ -2684,8 +2670,7 @@ fn test_compiled_on_missing_skip() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "All constraints skipped → fail-closed deny, got: {:?}",
-        verdict
+        "All constraints skipped → fail-closed deny, got: {verdict:?}"
     );
 }
 
@@ -3004,8 +2989,7 @@ fn test_policy_id_qualifier_e2e_credential_block() {
     let verdict = engine.evaluate_action(&cred_action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Qualified policy ID *:*:credential-block must deny credential access, got: {:?}",
-        verdict
+        "Qualified policy ID *:*:credential-block must deny credential access, got: {verdict:?}"
     );
 
     let safe_action = action_with(
@@ -3016,8 +3000,7 @@ fn test_policy_id_qualifier_e2e_credential_block() {
     let verdict = engine.evaluate_action(&safe_action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Safe path must be allowed, got: {:?}",
-        verdict
+        "Safe path must be allowed, got: {verdict:?}"
     );
 }
 
@@ -3069,8 +3052,7 @@ fn test_on_no_match_continue_skips_to_next_policy() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "on_no_match=continue must skip to next policy (Deny), got: {:?}",
-        verdict
+        "on_no_match=continue must skip to next policy (Deny), got: {verdict:?}"
     );
 
     // Legacy path
@@ -3078,8 +3060,7 @@ fn test_on_no_match_continue_skips_to_next_policy() {
     let verdict = legacy_engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Legacy path: on_no_match=continue must skip to next policy (Deny), got: {:?}",
-        verdict
+        "Legacy path: on_no_match=continue must skip to next policy (Deny), got: {verdict:?}"
     );
 }
 
@@ -3126,8 +3107,7 @@ fn test_on_no_match_default_returns_allow() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Default (no on_no_match) must return Allow from first policy, got: {:?}",
-        verdict
+        "Default (no on_no_match) must return Allow from first policy, got: {verdict:?}"
     );
 }
 
@@ -3197,8 +3177,7 @@ fn test_on_no_match_continue_policy_chain() {
     let v = engine.evaluate_action(&cred_action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Credentials must be denied: {:?}",
-        v
+        "Credentials must be denied: {v:?}"
     );
 
     // Evil domain → skips policy 1, blocked by policy 2
@@ -3210,8 +3189,7 @@ fn test_on_no_match_continue_policy_chain() {
     let v = engine.evaluate_action(&evil_action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Evil domain must be denied: {:?}",
-        v
+        "Evil domain must be denied: {v:?}"
     );
 
     // Safe action → skips policies 1 and 2, allowed by policy 3
@@ -3223,8 +3201,7 @@ fn test_on_no_match_continue_policy_chain() {
     let v = engine.evaluate_action(&safe_action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Safe path must be allowed: {:?}",
-        v
+        "Safe path must be allowed: {v:?}"
     );
 
     // Verify legacy path parity
@@ -3235,8 +3212,7 @@ fn test_on_no_match_continue_policy_chain() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Legacy: credentials denied: {:?}",
-        v
+        "Legacy: credentials denied: {v:?}"
     );
 
     let v = legacy_engine
@@ -3244,8 +3220,7 @@ fn test_on_no_match_continue_policy_chain() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Legacy: evil domain denied: {:?}",
-        v
+        "Legacy: evil domain denied: {v:?}"
     );
 
     let v = legacy_engine
@@ -3253,8 +3228,7 @@ fn test_on_no_match_continue_policy_chain() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Legacy: safe path allowed: {:?}",
-        v
+        "Legacy: safe path allowed: {v:?}"
     );
 }
 
@@ -3300,8 +3274,7 @@ fn test_on_no_match_continue_fail_closed_exception() {
     let v = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Empty params with on_no_match=continue must skip to Allow, got: {:?}",
-        v
+        "Empty params with on_no_match=continue must skip to Allow, got: {v:?}"
     );
 
     // Legacy path parity
@@ -3309,8 +3282,7 @@ fn test_on_no_match_continue_fail_closed_exception() {
     let v = legacy_engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Legacy: empty params with on_no_match=continue must skip to Allow, got: {:?}",
-        v
+        "Legacy: empty params with on_no_match=continue must skip to Allow, got: {v:?}"
     );
 }
 
@@ -3354,8 +3326,7 @@ fn test_on_no_match_continue_fail_closed_without_flag() {
     let v = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Empty params WITHOUT on_no_match=continue must fail-closed Deny, got: {:?}",
-        v
+        "Empty params WITHOUT on_no_match=continue must fail-closed Deny, got: {v:?}"
     );
 }
 
@@ -3399,8 +3370,7 @@ fn test_on_no_match_invalid_value_treated_as_default() {
     let v = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "on_no_match='deny' (invalid) must behave as default (Allow from first policy), got: {:?}",
-        v
+        "on_no_match='deny' (invalid) must behave as default (Allow from first policy), got: {v:?}"
     );
 }
 
@@ -3445,8 +3415,7 @@ fn test_on_no_match_continue_with_require_approval() {
     let v = engine.evaluate_action(&dangerous, &[]).unwrap();
     assert!(
         matches!(v, Verdict::RequireApproval { .. }),
-        "Dangerous command must require approval: {:?}",
-        v
+        "Dangerous command must require approval: {v:?}"
     );
 
     // Safe command: skips policy 1, allowed by policy 2
@@ -3454,8 +3423,7 @@ fn test_on_no_match_continue_with_require_approval() {
     let v = engine.evaluate_action(&safe, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Safe command must be allowed: {:?}",
-        v
+        "Safe command must be allowed: {v:?}"
     );
 
     // No command param: skips policy 1 (on_missing defaults to deny, BUT
@@ -3466,8 +3434,7 @@ fn test_on_no_match_continue_with_require_approval() {
     // Missing "command" param → fail-closed Deny (since on_missing not set to "skip")
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Missing param without on_missing=skip must fail-closed: {:?}",
-        v
+        "Missing param without on_missing=skip must fail-closed: {v:?}"
     );
 }
 
@@ -3511,8 +3478,7 @@ fn test_on_no_match_continue_traced_evaluation() {
     let (verdict, trace) = engine.evaluate_action_traced(&safe_action).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Traced: safe action must be allowed: {:?}",
-        verdict
+        "Traced: safe action must be allowed: {verdict:?}"
     );
     // Verify trace captured the policy evaluation
     assert!(
@@ -3631,8 +3597,8 @@ fn test_tool_index_evaluation_matches_linear_scan() {
     let mut policies = Vec::new();
     for i in 0..50 {
         policies.push(Policy {
-            id: format!("tool_{}:func", i),
-            name: format!("Policy {}", i),
+            id: format!("tool_{i}:func"),
+            name: format!("Policy {i}"),
             policy_type: PolicyType::Deny,
             priority: 100,
             path_rules: None,
@@ -4138,7 +4104,7 @@ fn test_traced_verdict_consistency() {
 
     let (verdict, trace) = engine.evaluate_action_traced(&action).unwrap();
     assert_eq!(
-        format!("{:?}", verdict),
+        format!("{verdict:?}"),
         format!("{:?}", trace.verdict),
         "Returned verdict must match trace verdict"
     );
@@ -4192,16 +4158,14 @@ fn test_traced_ip_rules_enforced() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Non-traced path must deny private IP. Got: {:?}",
-        verdict
+        "Non-traced path must deny private IP. Got: {verdict:?}"
     );
 
     // Traced path must also deny (was previously bypassed)
     let (traced_verdict, _trace) = engine.evaluate_action_traced(&action).unwrap();
     assert!(
         matches!(traced_verdict, Verdict::Deny { .. }),
-        "Traced path must deny private IP (R17-ENGINE-1 regression). Got: {:?}",
-        traced_verdict
+        "Traced path must deny private IP (R17-ENGINE-1 regression). Got: {traced_verdict:?}"
     );
 }
 
@@ -4271,8 +4235,7 @@ fn test_path_rules_blocked_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
-        "Blocked path should deny, got: {:?}",
-        verdict
+        "Blocked path should deny, got: {verdict:?}"
     );
 }
 
@@ -4311,8 +4274,7 @@ fn test_path_rules_allowed_only_safe_paths() {
     let verdict = engine.evaluate_action(&action_ok, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Path in allowed list should be allowed, got: {:?}",
-        verdict
+        "Path in allowed list should be allowed, got: {verdict:?}"
     );
 
     // Disallowed path
@@ -4320,8 +4282,7 @@ fn test_path_rules_allowed_only_safe_paths() {
     let verdict = engine.evaluate_action(&action_bad, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
-        "Path not in allowed list should deny, got: {:?}",
-        verdict
+        "Path not in allowed list should deny, got: {verdict:?}"
     );
 }
 
@@ -4341,8 +4302,7 @@ fn test_path_rules_blocked_takes_precedence_over_allowed() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
-        "Blocked pattern should take precedence even if path matches allowed, got: {:?}",
-        verdict
+        "Blocked pattern should take precedence even if path matches allowed, got: {verdict:?}"
     );
 }
 
@@ -4367,8 +4327,7 @@ fn test_path_rules_normalization_prevents_bypass() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Path traversal should be normalized and still blocked, got: {:?}",
-        verdict
+        "Path traversal should be normalized and still blocked, got: {verdict:?}"
     );
 }
 
@@ -4389,8 +4348,7 @@ fn test_path_rules_no_paths_in_action_allows() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "With no target_paths, path rules should not block, got: {:?}",
-        verdict
+        "With no target_paths, path rules should not block, got: {verdict:?}"
     );
 }
 
@@ -4412,8 +4370,7 @@ fn test_network_rules_blocked_domain_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked")),
-        "Blocked domain should deny, got: {:?}",
-        verdict
+        "Blocked domain should deny, got: {verdict:?}"
     );
 }
 
@@ -4460,8 +4417,7 @@ fn test_network_rules_allowed_only() {
     let verdict = engine.evaluate_action(&action_bad, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
-        "Domain not in allowed list should deny, got: {:?}",
-        verdict
+        "Domain not in allowed list should deny, got: {verdict:?}"
     );
 }
 
@@ -4482,8 +4438,7 @@ fn test_network_rules_no_domains_in_action_allows() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "With no target_domains, network rules should not block, got: {:?}",
-        verdict
+        "With no target_domains, network rules should not block, got: {verdict:?}"
     );
 }
 
@@ -4524,8 +4479,7 @@ fn test_ip_rules_block_private_loopback() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Loopback 127.0.0.1 should be blocked, got: {:?}",
-        verdict
+        "Loopback 127.0.0.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4542,9 +4496,7 @@ fn test_ip_rules_block_private_rfc1918() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-            "RFC 1918 address {} should be blocked, got: {:?}",
-            ip,
-            verdict
+            "RFC 1918 address {ip} should be blocked, got: {verdict:?}"
         );
     }
 }
@@ -4560,8 +4512,7 @@ fn test_ip_rules_block_private_link_local() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Link-local 169.254.x should be blocked, got: {:?}",
-        verdict
+        "Link-local 169.254.x should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4576,8 +4527,7 @@ fn test_ip_rules_block_private_ipv6_loopback() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "IPv6 loopback ::1 should be blocked, got: {:?}",
-        verdict
+        "IPv6 loopback ::1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4592,8 +4542,7 @@ fn test_ip_rules_block_private_ipv4_mapped_v6() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "IPv4-mapped v6 ::ffff:127.0.0.1 should be blocked, got: {:?}",
-        verdict
+        "IPv4-mapped v6 ::ffff:127.0.0.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4609,8 +4558,7 @@ fn test_ip_rules_block_private_ipv6_ula() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "ULA fc00::1 should be blocked, got: {:?}",
-        verdict
+        "ULA fc00::1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4626,8 +4574,7 @@ fn test_ip_rules_block_private_ipv6_link_local() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Link-local fe80::1 should be blocked, got: {:?}",
-        verdict
+        "Link-local fe80::1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4643,8 +4590,7 @@ fn test_ip_rules_block_private_ipv6_multicast() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Multicast ff02::1 should be blocked, got: {:?}",
-        verdict
+        "Multicast ff02::1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4660,8 +4606,7 @@ fn test_ip_rules_block_private_ipv6_documentation() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Documentation 2001:db8::1 should be blocked, got: {:?}",
-        verdict
+        "Documentation 2001:db8::1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4677,8 +4622,7 @@ fn test_ip_rules_block_private_6to4_embedded() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "6to4 with embedded private IP should be blocked, got: {:?}",
-        verdict
+        "6to4 with embedded private IP should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4699,8 +4643,7 @@ fn test_ip_rules_block_private_teredo_embedded() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Teredo with embedded private IP should be blocked, got: {:?}",
-        verdict
+        "Teredo with embedded private IP should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4716,8 +4659,7 @@ fn test_ip_rules_block_private_nat64_embedded() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "NAT64 with embedded private IP should be blocked, got: {:?}",
-        verdict
+        "NAT64 with embedded private IP should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4734,8 +4676,7 @@ fn test_ip_rules_block_private_ipv4_compatible_v6() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "IPv4-compatible ::10.0.0.1 should be blocked, got: {:?}",
-        verdict
+        "IPv4-compatible ::10.0.0.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4751,8 +4692,7 @@ fn test_ip_rules_block_private_ipv4_compatible_loopback() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "IPv4-compatible ::127.0.0.1 should be blocked, got: {:?}",
-        verdict
+        "IPv4-compatible ::127.0.0.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4770,8 +4710,7 @@ fn test_ip_rules_block_private_6to4_cgnat() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "6to4 with embedded CGNAT should be blocked, got: {:?}",
-        verdict
+        "6to4 with embedded CGNAT should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4788,8 +4727,7 @@ fn test_ip_rules_block_private_nat64_cgnat() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "NAT64 with embedded CGNAT should be blocked, got: {:?}",
-        verdict
+        "NAT64 with embedded CGNAT should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4806,8 +4744,7 @@ fn test_ip_rules_block_private_nat64_local_use() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "NAT64 local-use with embedded private IPv4 should be blocked, got: {:?}",
-        verdict
+        "NAT64 local-use with embedded private IPv4 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4826,8 +4763,7 @@ fn test_ip_rules_allow_nat64_local_use_public() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "NAT64 local-use with public IPv4 should be allowed, got: {:?}",
-        verdict
+        "NAT64 local-use with public IPv4 should be allowed, got: {verdict:?}"
     );
 }
 
@@ -4848,8 +4784,7 @@ fn test_ip_rules_block_private_teredo_cgnat() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Teredo with embedded CGNAT should be blocked, got: {:?}",
-        verdict
+        "Teredo with embedded CGNAT should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4866,8 +4801,7 @@ fn test_ip_rules_block_private_ipv4_mapped_cgnat() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "IPv4-mapped with embedded CGNAT should be blocked, got: {:?}",
-        verdict
+        "IPv4-mapped with embedded CGNAT should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4884,8 +4818,7 @@ fn test_ip_rules_block_cgnat_range() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "CGNAT 100.100.1.1 should be blocked by block_private, got: {:?}",
-        verdict
+        "CGNAT 100.100.1.1 should be blocked by block_private, got: {verdict:?}"
     );
 }
 
@@ -4901,8 +4834,7 @@ fn test_ip_rules_block_class_e_reserved() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "Class E 240.0.0.1 should be blocked, got: {:?}",
-        verdict
+        "Class E 240.0.0.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4918,8 +4850,7 @@ fn test_ip_rules_block_6to4_relay_anycast() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "6to4 relay 192.88.99.1 should be blocked, got: {:?}",
-        verdict
+        "6to4 relay 192.88.99.1 should be blocked, got: {verdict:?}"
     );
 }
 
@@ -4935,8 +4866,7 @@ fn test_ip_rules_block_zero_network() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("private")),
-        "0.1.2.3 should be blocked by block_private, got: {:?}",
-        verdict
+        "0.1.2.3 should be blocked by block_private, got: {verdict:?}"
     );
 }
 
@@ -4951,8 +4881,7 @@ fn test_ip_rules_allow_public_ip() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Public IP 8.8.8.8 should be allowed, got: {:?}",
-        verdict
+        "Public IP 8.8.8.8 should be allowed, got: {verdict:?}"
     );
 }
 
@@ -4970,8 +4899,7 @@ fn test_ip_rules_blocked_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
-        "IP in blocked CIDR should be denied, got: {:?}",
-        verdict
+        "IP in blocked CIDR should be denied, got: {verdict:?}"
     );
 
     // IP outside blocked CIDR -> allow
@@ -4979,8 +4907,7 @@ fn test_ip_rules_blocked_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "IP outside blocked CIDR should be allowed, got: {:?}",
-        verdict
+        "IP outside blocked CIDR should be allowed, got: {verdict:?}"
     );
 }
 
@@ -4998,8 +4925,7 @@ fn test_ip_rules_allowed_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "IP in allowed CIDR should pass, got: {:?}",
-        verdict
+        "IP in allowed CIDR should pass, got: {verdict:?}"
     );
 
     // IP not in allowed CIDR -> deny
@@ -5007,8 +4933,7 @@ fn test_ip_rules_allowed_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
-        "IP outside allowed CIDR should be denied, got: {:?}",
-        verdict
+        "IP outside allowed CIDR should be denied, got: {verdict:?}"
     );
 }
 
@@ -5026,8 +4951,7 @@ fn test_ip_rules_no_resolved_ips_with_domains_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("no resolved IPs")),
-        "Missing resolved IPs should fail-closed, got: {:?}",
-        verdict
+        "Missing resolved IPs should fail-closed, got: {verdict:?}"
     );
 }
 
@@ -5043,8 +4967,7 @@ fn test_ip_rules_no_domains_no_resolved_ips_passes() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "No targets should pass IP rules, got: {:?}",
-        verdict
+        "No targets should pass IP rules, got: {verdict:?}"
     );
 }
 
@@ -5058,8 +4981,7 @@ fn test_ip_rules_invalid_cidr_compile_error() {
     let result = PolicyEngine::with_policies(false, &policies);
     assert!(
         result.is_err(),
-        "Invalid CIDR should cause compile error, got: {:?}",
-        result
+        "Invalid CIDR should cause compile error, got: {result:?}"
     );
 }
 
@@ -5081,8 +5003,7 @@ fn test_ip_rules_none_skips_check() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "No ip_rules should not affect domain-only evaluation, got: {:?}",
-        verdict
+        "No ip_rules should not affect domain-only evaluation, got: {verdict:?}"
     );
 }
 
@@ -5097,8 +5018,7 @@ fn test_ip_rules_invalid_resolved_ip_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("Invalid resolved IP")),
-        "Unparseable IP should be denied, got: {:?}",
-        verdict
+        "Unparseable IP should be denied, got: {verdict:?}"
     );
 }
 
@@ -5119,8 +5039,7 @@ fn test_ip_rules_ipv4_mapped_v6_blocked_by_v4_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
-        "IPv4-mapped IPv6 in blocked CIDR should be denied, got: {:?}",
-        verdict
+        "IPv4-mapped IPv6 in blocked CIDR should be denied, got: {verdict:?}"
     );
 
     // Regular IPv4 in same CIDR -> also denied (baseline)
@@ -5128,8 +5047,7 @@ fn test_ip_rules_ipv4_mapped_v6_blocked_by_v4_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("blocked CIDR")),
-        "Plain IPv4 in blocked CIDR should be denied, got: {:?}",
-        verdict
+        "Plain IPv4 in blocked CIDR should be denied, got: {verdict:?}"
     );
 }
 
@@ -5148,8 +5066,7 @@ fn test_ip_rules_ipv4_mapped_v6_allowed_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "IPv4-mapped IPv6 in allowed CIDR should pass, got: {:?}",
-        verdict
+        "IPv4-mapped IPv6 in allowed CIDR should pass, got: {verdict:?}"
     );
 
     // Mapped form of non-allowed IP -> denied
@@ -5157,8 +5074,7 @@ fn test_ip_rules_ipv4_mapped_v6_allowed_cidr() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { ref reason } if reason.contains("not in allowed")),
-        "IPv4-mapped IPv6 outside allowed CIDR should be denied, got: {:?}",
-        verdict
+        "IPv4-mapped IPv6 outside allowed CIDR should be denied, got: {verdict:?}"
     );
 }
 
@@ -5228,8 +5144,7 @@ fn test_multiple_paths_one_blocked_denies_all() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "If any path is blocked, entire action should be denied, got: {:?}",
-        verdict
+        "If any path is blocked, entire action should be denied, got: {verdict:?}"
     );
 }
 
@@ -5520,9 +5435,9 @@ mod proptests {
                 ) {
                     // Encode each character as %XX
                     let encoded: String = seg.bytes()
-                        .map(|b| format!("%{:02X}", b))
+                        .map(|b| format!("%{b:02X}"))
                         .collect();
-                    let input = format!("/{}", encoded);
+                    let input = format!("/{encoded}");
                     match PolicyEngine::normalize_path(&input) {
                         Err(_) => {}
                         Ok(once) => {
@@ -5554,7 +5469,7 @@ mod proptests {
                     scheme in prop_oneof![Just("http"), Just("https"), Just("ftp")],
                     host in "[a-zA-Z]{1,10}(\\.[a-zA-Z]{1,5}){1,3}",
                 ) {
-                    let url = format!("{}://{}/path", scheme, host);
+                    let url = format!("{scheme}://{host}/path");
                     let domain = PolicyEngine::extract_domain(&url);
                     let lowered = domain.to_lowercase();
                     prop_assert_eq!(
@@ -5570,7 +5485,7 @@ mod proptests {
                     user in "[a-z]{1,8}",
                     suffix in "[a-z_/.]{0,15}",
                 ) {
-                    let path = format!("/home/{}/.aws/{}", user, suffix);
+                    let path = format!("/home/{user}/.aws/{suffix}");
                     let action = Action::new("file_system".to_string(), "read_file".to_string(), json!({ "path": path }));
                     // not_glob denies when the path does NOT match the allowlist.
                     // A path under .aws should NOT be in a project allowlist.
@@ -5617,7 +5532,7 @@ mod proptests {
         ) {
             // Only test when the two values actually differ
             prop_assume!(val_literal != val_nested);
-            let dotted = format!("{}.{}", key_a, key_b);
+            let dotted = format!("{key_a}.{key_b}");
             // Build params with both a literal "a.b" key and a nested a.b path
             let params = json!({
                 dotted.clone(): val_literal,
@@ -5639,7 +5554,7 @@ mod proptests {
             key_b in "[a-z]{1,5}",
             val in "[a-z0-9]{1,10}",
         ) {
-            let dotted = format!("{}.{}", key_a, key_b);
+            let dotted = format!("{key_a}.{key_b}");
             let params = json!({
                 dotted.clone(): val.clone(),
                 key_a.clone(): { key_b.clone(): val.clone() },
@@ -5757,7 +5672,7 @@ fn test_validate_domain_pattern_invalid() {
 
     // Label longer than 63 characters
     let long_label = "a".repeat(64);
-    let long_domain = format!("{}.example.com", long_label);
+    let long_domain = format!("{long_label}.example.com");
     assert!(
         PolicyEngine::validate_domain_pattern(&long_domain).is_err(),
         "Label > 63 chars should be rejected"
@@ -5776,7 +5691,7 @@ fn test_validate_domain_pattern_invalid() {
     );
 
     // Total domain length > 253 characters
-    let labels: Vec<String> = (0..50).map(|i| format!("label{}", i)).collect();
+    let labels: Vec<String> = (0..50).map(|i| format!("label{i}")).collect();
     let huge_domain = labels.join(".");
     assert!(huge_domain.len() > 253);
     assert!(
@@ -6111,8 +6026,7 @@ fn test_context_max_calls_empty_counts_denies_fail_closed() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "MaxCalls with empty call_counts must deny (fail-closed), got: {:?}",
-        v
+        "MaxCalls with empty call_counts must deny (fail-closed), got: {v:?}"
     );
 }
 
@@ -6132,8 +6046,7 @@ fn test_context_max_calls_wildcard_empty_counts_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "MaxCalls wildcard with empty call_counts must deny, got: {:?}",
-        v
+        "MaxCalls wildcard with empty call_counts must deny, got: {v:?}"
     );
 }
 
@@ -6156,8 +6069,7 @@ fn test_context_max_calls_in_window_empty_history_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "MaxCallsInWindow with empty history must deny (fail-closed), got: {:?}",
-        v
+        "MaxCallsInWindow with empty history must deny (fail-closed), got: {v:?}"
     );
 }
 
@@ -6184,8 +6096,7 @@ fn test_context_max_calls_in_window_nonempty_counts_empty_history_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R21-ENG-1: MaxCallsInWindow with empty history must deny even if call_counts non-empty, got: {:?}",
-        v
+        "R21-ENG-1: MaxCallsInWindow with empty history must deny even if call_counts non-empty, got: {v:?}"
     );
 }
 
@@ -6209,8 +6120,7 @@ fn test_context_max_calls_in_window_large_window_r34_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R34-ENG-2: MaxCallsInWindow with large window must correctly count, got: {:?}",
-        v
+        "R34-ENG-2: MaxCallsInWindow with large window must correctly count, got: {v:?}"
     );
 }
 
@@ -6234,8 +6144,7 @@ fn test_context_max_calls_with_zero_count_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "MaxCalls with non-empty counts and tool count 0 should allow, got: {:?}",
-        v
+        "MaxCalls with non-empty counts and tool count 0 should allow, got: {v:?}"
     );
 }
 
@@ -6305,11 +6214,7 @@ fn test_context_agent_id_case_insensitive() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(
-        matches!(v, Verdict::Allow),
-        "lowercase should match: {:?}",
-        v
-    );
+    assert!(matches!(v, Verdict::Allow), "lowercase should match: {v:?}");
 
     // Mixed case variant should be allowed
     let ctx = EvaluationContext {
@@ -6319,11 +6224,7 @@ fn test_context_agent_id_case_insensitive() {
     let v = engine
         .evaluate_action_with_context(&action, &[], Some(&ctx))
         .unwrap();
-    assert!(
-        matches!(v, Verdict::Allow),
-        "uppercase should match: {:?}",
-        v
-    );
+    assert!(matches!(v, Verdict::Allow), "uppercase should match: {v:?}");
 
     // Case variation of blocked agent should be blocked
     let policy2 = make_context_policy(json!([
@@ -6339,8 +6240,7 @@ fn test_context_agent_id_case_insensitive() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "case variant of blocked should deny: {:?}",
-        v
+        "case variant of blocked should deny: {v:?}"
     );
 }
 
@@ -6391,8 +6291,7 @@ fn test_context_none_denies_when_conditions_exist() {
     let v = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Expected Deny when context conditions exist but no context provided, got {:?}",
-        v
+        "Expected Deny when context conditions exist but no context provided, got {v:?}"
     );
 }
 
@@ -7069,8 +6968,7 @@ fn test_agent_identity_missing_with_require_attestation_false() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: Missing identity with issuer requirement should deny, got: {:?}",
-        v
+        "R38-ENG-1: Missing identity with issuer requirement should deny, got: {v:?}"
     );
 }
 
@@ -7152,8 +7050,7 @@ fn test_agent_identity_fallback_to_agent_id() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Valid identity + matching agent_id should allow, got: {:?}",
-        v
+        "Valid identity + matching agent_id should allow, got: {v:?}"
     );
 
     // R39-ENG-1: With only legacy agent_id (no identity header) and blocked_issuers
@@ -7168,8 +7065,7 @@ fn test_agent_identity_fallback_to_agent_id() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R39-ENG-1: No identity + blocked_issuers should deny even with legacy agent_id, got: {:?}",
-        v
+        "R39-ENG-1: No identity + blocked_issuers should deny even with legacy agent_id, got: {v:?}"
     );
 
     // With issuer requirement configured + no identity header - should deny (R38-ENG-1)
@@ -7191,8 +7087,7 @@ fn test_agent_identity_fallback_to_agent_id() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: Issuer requirement + no identity header must deny, got: {:?}",
-        v
+        "R38-ENG-1: Issuer requirement + no identity header must deny, got: {v:?}"
     );
 }
 
@@ -7218,8 +7113,7 @@ fn test_r34_eng_5_max_calls_case_insensitive() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R34-ENG-5: Case-varied call counts should sum for rate limit, got: {:?}",
-        v
+        "R34-ENG-5: Case-varied call counts should sum for rate limit, got: {v:?}"
     );
 }
 
@@ -7243,8 +7137,7 @@ fn test_r34_eng_5_max_calls_in_window_case_insensitive() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R34-ENG-5: Case-varied previous actions should sum for window rate limit, got: {:?}",
-        v
+        "R34-ENG-5: Case-varied previous actions should sum for window rate limit, got: {v:?}"
     );
 }
 
@@ -7271,8 +7164,7 @@ fn test_max_calls_mixed_case_tool_pattern_r36_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R36-ENG-1: Mixed-case pattern should match lowercased keys (under limit), got: {:?}",
-        v
+        "R36-ENG-1: Mixed-case pattern should match lowercased keys (under limit), got: {v:?}"
     );
 
     // At the limit — should deny.
@@ -7287,8 +7179,7 @@ fn test_max_calls_mixed_case_tool_pattern_r36_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R36-ENG-1: Mixed-case pattern should match lowercased keys (at limit), got: {:?}",
-        v
+        "R36-ENG-1: Mixed-case pattern should match lowercased keys (at limit), got: {v:?}"
     );
 }
 
@@ -7314,8 +7205,7 @@ fn test_max_calls_in_window_mixed_case_tool_pattern_r36_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R36-ENG-1: Mixed-case window pattern should match lowercased actions, got: {:?}",
-        v
+        "R36-ENG-1: Mixed-case window pattern should match lowercased actions, got: {v:?}"
     );
 }
 
@@ -7343,14 +7233,12 @@ fn test_agent_identity_match_no_attestation_but_identity_required_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: No identity + required_issuer should deny, got: {:?}",
-        v
+        "R38-ENG-1: No identity + required_issuer should deny, got: {v:?}"
     );
     if let Verdict::Deny { reason } = &v {
         assert!(
             reason.contains("identity restrictions configured"),
-            "Deny reason should mention identity restrictions, got: {}",
-            reason
+            "Deny reason should mention identity restrictions, got: {reason}"
         );
     }
 }
@@ -7375,8 +7263,7 @@ fn test_agent_identity_match_no_attestation_subject_required_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: No identity + required_subject should deny, got: {:?}",
-        v
+        "R38-ENG-1: No identity + required_subject should deny, got: {v:?}"
     );
 }
 
@@ -7400,8 +7287,7 @@ fn test_agent_identity_match_no_attestation_audience_required_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: No identity + required_audience should deny, got: {:?}",
-        v
+        "R38-ENG-1: No identity + required_audience should deny, got: {v:?}"
     );
 }
 
@@ -7425,8 +7311,7 @@ fn test_agent_identity_match_no_attestation_claims_required_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R38-ENG-1: No identity + required_claims should deny, got: {:?}",
-        v
+        "R38-ENG-1: No identity + required_claims should deny, got: {v:?}"
     );
 }
 
@@ -7453,8 +7338,7 @@ fn test_agent_identity_match_no_attestation_blocked_only_denies_r39_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R39-ENG-1: No identity + blocked_issuers should deny, got: {:?}",
-        v
+        "R39-ENG-1: No identity + blocked_issuers should deny, got: {v:?}"
     );
 }
 
@@ -7520,14 +7404,12 @@ fn test_agent_identity_blocked_issuers_only_no_header_denies_r39_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R39-ENG-1: No identity + blocked_issuers should deny, got: {:?}",
-        v
+        "R39-ENG-1: No identity + blocked_issuers should deny, got: {v:?}"
     );
     if let Verdict::Deny { reason } = &v {
         assert!(
             reason.contains("identity restrictions configured"),
-            "Deny reason should mention identity restrictions, got: {}",
-            reason
+            "Deny reason should mention identity restrictions, got: {reason}"
         );
     }
 }
@@ -7552,14 +7434,12 @@ fn test_agent_identity_blocked_subjects_only_no_header_denies_r39_eng_1() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R39-ENG-1: No identity + blocked_subjects should deny, got: {:?}",
-        v
+        "R39-ENG-1: No identity + blocked_subjects should deny, got: {v:?}"
     );
     if let Verdict::Deny { reason } = &v {
         assert!(
             reason.contains("identity restrictions configured"),
-            "Deny reason should mention identity restrictions, got: {}",
-            reason
+            "Deny reason should mention identity restrictions, got: {reason}"
         );
     }
 }
@@ -7586,8 +7466,7 @@ fn test_agent_identity_blocked_issuers_with_header_allows_non_blocked_r39_eng_1(
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R39-ENG-1: Non-blocked identity should allow, got: {:?}",
-        v
+        "R39-ENG-1: Non-blocked identity should allow, got: {v:?}"
     );
 }
 
@@ -7600,8 +7479,7 @@ fn test_normalize_domain_rejects_space_r39_eng_3() {
     let result = PolicyEngine::normalize_domain_for_match("evil.com ");
     assert!(
         result.is_none(),
-        "R39-ENG-3: Domain with space should return None, got: {:?}",
-        result
+        "R39-ENG-3: Domain with space should return None, got: {result:?}"
     );
 }
 
@@ -7611,8 +7489,7 @@ fn test_normalize_domain_rejects_colon_r39_eng_3() {
     let result = PolicyEngine::normalize_domain_for_match("evil.com:8080");
     assert!(
         result.is_none(),
-        "R39-ENG-3: Domain with colon should return None, got: {:?}",
-        result
+        "R39-ENG-3: Domain with colon should return None, got: {result:?}"
     );
 }
 
@@ -7622,8 +7499,7 @@ fn test_normalize_domain_rejects_at_sign_r39_eng_3() {
     let result = PolicyEngine::normalize_domain_for_match("user@evil.com");
     assert!(
         result.is_none(),
-        "R39-ENG-3: Domain with @ should return None, got: {:?}",
-        result
+        "R39-ENG-3: Domain with @ should return None, got: {result:?}"
     );
 }
 
@@ -7633,8 +7509,7 @@ fn test_normalize_domain_rejects_slash_r39_eng_3() {
     let result = PolicyEngine::normalize_domain_for_match("evil.com/path");
     assert!(
         result.is_none(),
-        "R39-ENG-3: Domain with slash should return None, got: {:?}",
-        result
+        "R39-ENG-3: Domain with slash should return None, got: {result:?}"
     );
 }
 
@@ -7670,8 +7545,7 @@ fn test_normalize_domain_rejects_null_byte_r39_eng_3() {
     let result = PolicyEngine::normalize_domain_for_match("evil\0.com");
     assert!(
         result.is_none(),
-        "R39-ENG-3: Domain with null byte should return None, got: {:?}",
-        result
+        "R39-ENG-3: Domain with null byte should return None, got: {result:?}"
     );
 }
 
@@ -7703,8 +7577,7 @@ fn test_agent_identity_required_issuer_case_insensitive_r40_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R40-ENG-2: Mixed-case required_issuer should match lowercase JWT issuer, got: {:?}",
-        v
+        "R40-ENG-2: Mixed-case required_issuer should match lowercase JWT issuer, got: {v:?}"
     );
 }
 
@@ -7734,8 +7607,7 @@ fn test_agent_identity_required_issuer_lowercase_matches_uppercase_jwt_r40_eng_2
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R40-ENG-2: Lowercase required_issuer should match uppercase JWT issuer, got: {:?}",
-        v
+        "R40-ENG-2: Lowercase required_issuer should match uppercase JWT issuer, got: {v:?}"
     );
 }
 
@@ -7765,8 +7637,7 @@ fn test_agent_identity_required_subject_case_insensitive_r40_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R40-ENG-2: Mixed-case required_subject should match lowercase JWT subject, got: {:?}",
-        v
+        "R40-ENG-2: Mixed-case required_subject should match lowercase JWT subject, got: {v:?}"
     );
 }
 
@@ -7796,8 +7667,7 @@ fn test_agent_identity_required_audience_case_insensitive_r40_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R40-ENG-2: Uppercase required_audience should match lowercase JWT audience, got: {:?}",
-        v
+        "R40-ENG-2: Uppercase required_audience should match lowercase JWT audience, got: {v:?}"
     );
 }
 
@@ -7827,8 +7697,7 @@ fn test_agent_identity_audience_mixed_case_in_jwt_array_r40_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "R40-ENG-2: Audience in JWT array with different case should still match, got: {:?}",
-        v
+        "R40-ENG-2: Audience in JWT array with different case should still match, got: {v:?}"
     );
 }
 
@@ -7858,8 +7727,7 @@ fn test_agent_identity_required_issuer_mismatch_still_denies_r40_eng_2() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "R40-ENG-2: Different issuer should still deny even with case-insensitive matching, got: {:?}",
-        v
+        "R40-ENG-2: Different issuer should still deny even with case-insensitive matching, got: {v:?}"
     );
 }
 
@@ -7890,8 +7758,7 @@ fn test_context_max_chain_depth_under_limit_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Chain depth 1 <= 3 should allow, got: {:?}",
-        v
+        "Chain depth 1 <= 3 should allow, got: {v:?}"
     );
 }
 
@@ -7919,8 +7786,7 @@ fn test_context_max_chain_depth_over_limit_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Chain depth 3 > 2 should deny, got: {:?}",
-        v
+        "Chain depth 3 > 2 should deny, got: {v:?}"
     );
 }
 
@@ -7950,8 +7816,7 @@ fn test_context_max_chain_depth_exact_limit_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Chain depth 2 == max_depth 2 should allow (> exclusive semantics), got: {:?}",
-        v
+        "Chain depth 2 == max_depth 2 should allow (> exclusive semantics), got: {v:?}"
     );
 }
 
@@ -7979,8 +7844,7 @@ fn test_context_max_chain_depth_below_limit_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Chain depth 1 < max 2 should allow, got: {:?}",
-        v
+        "Chain depth 1 < max 2 should allow, got: {v:?}"
     );
 }
 
@@ -8010,8 +7874,7 @@ fn test_context_resource_indicator_matching_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Matching resource should allow, got: {:?}",
-        v
+        "Matching resource should allow, got: {v:?}"
     );
 }
 
@@ -8036,8 +7899,7 @@ fn test_context_resource_indicator_missing_when_required_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Missing resource when required should deny, got: {:?}",
-        v
+        "Missing resource when required should deny, got: {v:?}"
     );
 }
 
@@ -8062,8 +7924,7 @@ fn test_context_resource_indicator_not_in_allowed_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Non-matching resource should deny, got: {:?}",
-        v
+        "Non-matching resource should deny, got: {v:?}"
     );
 }
 
@@ -8080,8 +7941,7 @@ fn test_context_resource_indicator_no_identity_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "No identity with allowed_resources should deny, got: {:?}",
-        v
+        "No identity with allowed_resources should deny, got: {v:?}"
     );
 }
 
@@ -8110,8 +7970,7 @@ fn test_context_capability_required_present_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Agent with required capability should allow, got: {:?}",
-        v
+        "Agent with required capability should allow, got: {v:?}"
     );
 }
 
@@ -8136,8 +7995,7 @@ fn test_context_capability_required_missing_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Missing required capability should deny, got: {:?}",
-        v
+        "Missing required capability should deny, got: {v:?}"
     );
 }
 
@@ -8162,8 +8020,7 @@ fn test_context_capability_blocked_present_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Blocked capability present should deny, got: {:?}",
-        v
+        "Blocked capability present should deny, got: {v:?}"
     );
 }
 
@@ -8180,8 +8037,7 @@ fn test_context_capability_no_identity_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "No identity with required capabilities should deny, got: {:?}",
-        v
+        "No identity with required capabilities should deny, got: {v:?}"
     );
 }
 
@@ -8206,8 +8062,7 @@ fn test_context_capability_case_insensitive() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Case-insensitive capability match should allow, got: {:?}",
-        v
+        "Case-insensitive capability match should allow, got: {v:?}"
     );
 }
 
@@ -8236,8 +8091,7 @@ fn test_context_step_up_auth_sufficient_level_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Auth level 3 >= 2 should allow, got: {:?}",
-        v
+        "Auth level 3 >= 2 should allow, got: {v:?}"
     );
 }
 
@@ -8262,8 +8116,7 @@ fn test_context_step_up_auth_insufficient_level_returns_require_approval() {
         .unwrap();
     assert!(
         matches!(v, Verdict::RequireApproval { .. }),
-        "Auth level 2 < 4 should require approval, got: {:?}",
-        v
+        "Auth level 2 < 4 should require approval, got: {v:?}"
     );
 }
 
@@ -8280,8 +8133,7 @@ fn test_context_step_up_auth_no_identity_returns_require_approval() {
         .unwrap();
     assert!(
         matches!(v, Verdict::RequireApproval { .. }),
-        "No identity defaults to level 0 < 1, should require approval, got: {:?}",
-        v
+        "No identity defaults to level 0 < 1, should require approval, got: {v:?}"
     );
 }
 
@@ -8302,8 +8154,7 @@ fn test_context_deputy_validation_no_principal_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "No principal when required should deny, got: {:?}",
-        v
+        "No principal when required should deny, got: {v:?}"
     );
 }
 
@@ -8323,8 +8174,7 @@ fn test_context_deputy_validation_with_principal_allows() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "With agent_id as principal should allow, got: {:?}",
-        v
+        "With agent_id as principal should allow, got: {v:?}"
     );
 }
 
@@ -8352,8 +8202,7 @@ fn test_context_deputy_validation_depth_exceeded_denies() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Delegation depth 3 > 2 should deny, got: {:?}",
-        v
+        "Delegation depth 3 > 2 should deny, got: {v:?}"
     );
 }
 
@@ -8377,8 +8226,7 @@ fn test_context_circuit_breaker_marker_passes_through() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Circuit breaker marker should pass through, got: {:?}",
-        v
+        "Circuit breaker marker should pass through, got: {v:?}"
     );
 }
 
@@ -8395,8 +8243,7 @@ fn test_context_shadow_agent_marker_passes_through() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Shadow agent marker should pass through, got: {:?}",
-        v
+        "Shadow agent marker should pass through, got: {v:?}"
     );
 }
 
@@ -8413,8 +8260,7 @@ fn test_context_schema_poisoning_marker_passes_through() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Schema poisoning marker should pass through, got: {:?}",
-        v
+        "Schema poisoning marker should pass through, got: {v:?}"
     );
 }
 
@@ -8431,8 +8277,7 @@ fn test_context_async_task_policy_marker_passes_through() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Async task policy marker should pass through, got: {:?}",
-        v
+        "Async task policy marker should pass through, got: {v:?}"
     );
 }
 
@@ -8451,8 +8296,7 @@ fn test_require_capability_token_missing_denied() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Missing token should deny: {:?}",
-        v
+        "Missing token should deny: {v:?}"
     );
 }
 
@@ -8490,8 +8334,7 @@ fn test_require_capability_token_present_allowed() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Allow),
-        "Token present should allow: {:?}",
-        v
+        "Token present should allow: {v:?}"
     );
 }
 
@@ -8529,8 +8372,7 @@ fn test_require_capability_token_holder_mismatch_denied() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Holder mismatch should deny: {:?}",
-        v
+        "Holder mismatch should deny: {v:?}"
     );
 }
 
@@ -8569,8 +8411,7 @@ fn test_require_capability_token_issuer_allowlist_denied() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Wrong issuer should deny: {:?}",
-        v
+        "Wrong issuer should deny: {v:?}"
     );
 }
 
@@ -8609,8 +8450,7 @@ fn test_require_capability_token_depth_insufficient() {
         .unwrap();
     assert!(
         matches!(v, Verdict::Deny { .. }),
-        "Insufficient depth should deny: {:?}",
-        v
+        "Insufficient depth should deny: {v:?}"
     );
 }
 
@@ -8689,8 +8529,7 @@ fn test_legacy_sort_deny_still_beats_allow_at_same_priority() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Deny should still beat Allow at same priority, got: {:?}",
-        verdict
+        "Deny should still beat Allow at same priority, got: {verdict:?}"
     );
 }
 
@@ -8752,13 +8591,11 @@ fn test_on_no_match_continue_equivalence_compiled_vs_legacy() {
     // then the fallback Allow matches).
     assert!(
         matches!(legacy_verdict, Verdict::Allow),
-        "Legacy path should produce Allow, got: {:?}",
-        legacy_verdict
+        "Legacy path should produce Allow, got: {legacy_verdict:?}"
     );
     assert!(
         matches!(compiled_verdict, Verdict::Allow),
-        "Compiled path should produce Allow, got: {:?}",
-        compiled_verdict
+        "Compiled path should produce Allow, got: {compiled_verdict:?}"
     );
 }
 
@@ -8908,8 +8745,7 @@ fn test_compile_policies_collects_all_errors_not_just_first() {
     assert_eq!(
         errors.len(),
         2,
-        "Should collect all errors, got: {:?}",
-        errors
+        "Should collect all errors, got: {errors:?}"
     );
 }
 
@@ -9831,8 +9667,7 @@ fn test_constraint_all_skipped_fail_closed() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "All skipped should fail-closed, got: {:?}",
-        verdict
+        "All skipped should fail-closed, got: {verdict:?}"
     );
 }
 
@@ -9966,8 +9801,7 @@ fn test_context_time_window_within_allows() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Within window should allow, got: {:?}",
-        verdict
+        "Within window should allow, got: {verdict:?}"
     );
 }
 
@@ -10535,7 +10369,7 @@ fn test_context_max_chain_depth_under_allows() {
 fn test_context_max_chain_depth_over_denies() {
     let chain: Vec<vellaveto_types::CallChainEntry> = (0..6)
         .map(|i| vellaveto_types::CallChainEntry {
-            agent_id: format!("agent-{}", i),
+            agent_id: format!("agent-{i}"),
             tool: "tool".to_string(),
             function: "op".to_string(),
             timestamp: String::new(),
@@ -10876,8 +10710,7 @@ fn test_require_capability_token_holder_homoglyph_normalization_allows() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "Homoglyph-normalized holder should match agent_id: {:?}",
-        verdict
+        "Homoglyph-normalized holder should match agent_id: {verdict:?}"
     );
 }
 
@@ -10916,8 +10749,7 @@ fn test_require_capability_token_holder_different_after_normalization_denies() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Different holder should still deny: {:?}",
-        verdict
+        "Different holder should still deny: {verdict:?}"
     );
 }
 
@@ -11418,8 +11250,7 @@ fn assert_compiled_legacy_equivalent(policies: &[Policy], action: &Action) {
     let compiled_kind = std::mem::discriminant(&compiled_verdict);
     assert_eq!(
         legacy_kind, compiled_kind,
-        "Verdict mismatch: legacy={:?}, compiled={:?}",
-        legacy_verdict, compiled_verdict
+        "Verdict mismatch: legacy={legacy_verdict:?}, compiled={compiled_verdict:?}"
     );
 }
 
@@ -11646,8 +11477,7 @@ fn test_r46_004_legacy_match_pattern_infix_wildcard_treated_as_prefix() {
     // "file_*_write" != "file_read_write", so it should NOT match → deny.
     assert!(
         matches!(result, Ok(Verdict::Deny { .. })),
-        "Legacy infix wildcard should not match (treated as exact): {:?}",
-        result
+        "Legacy infix wildcard should not match (treated as exact): {result:?}"
     );
 }
 
@@ -11682,8 +11512,7 @@ fn test_r46_005_json_depth_deeply_nested_returns_capped_depth() {
     // Should be capped at or above MAX_JSON_DEPTH_LIMIT (128) without OOM/crash
     assert!(
         depth >= 128,
-        "Deeply nested JSON should trigger depth limit, got {}",
-        depth
+        "Deeply nested JSON should trigger depth limit, got {depth}"
     );
 }
 
@@ -11693,17 +11522,13 @@ fn test_r46_005_json_depth_wide_json_bounded() {
     // at depth 0 — should terminate via node budget
     let mut obj = serde_json::Map::new();
     for i in 0..12000 {
-        obj.insert(format!("k{}", i), json!("v"));
+        obj.insert(format!("k{i}"), json!("v"));
     }
     let val = serde_json::Value::Object(obj);
     let depth = PolicyEngine::json_depth(&val);
     // Should be 1 (flat object, each value is at depth 1)
     // The important thing is it doesn't OOM
-    assert!(
-        depth <= 2,
-        "Wide flat JSON should have low depth: {}",
-        depth
-    );
+    assert!(depth <= 2, "Wide flat JSON should have low depth: {depth}");
 }
 
 #[test]
@@ -11711,7 +11536,7 @@ fn test_r46_005_json_depth_normal_json() {
     let val = json!({"a": {"b": [1, 2, {"c": true}]}});
     let depth = PolicyEngine::json_depth(&val);
     // a=1, b=2, array=3, items=3, c_obj=4, c_val=4
-    assert!((3..=5).contains(&depth), "Normal JSON depth: {}", depth);
+    assert!((3..=5).contains(&depth), "Normal JSON depth: {depth}");
 }
 
 // ═══════════════════════════════════════════════════
@@ -11791,8 +11616,7 @@ fn test_r46_007_redos_alternation_with_quantifier_rejected() {
     let result = PolicyEngine::validate_regex_safety("(a|b)+");
     assert!(
         result.is_err(),
-        "Alternation with outer quantifier should be rejected: {:?}",
-        result
+        "Alternation with outer quantifier should be rejected: {result:?}"
     );
 }
 
@@ -11801,8 +11625,7 @@ fn test_r46_007_redos_alternation_star_rejected() {
     let result = PolicyEngine::validate_regex_safety("(foo|bar)*");
     assert!(
         result.is_err(),
-        "Alternation with outer * should be rejected: {:?}",
-        result
+        "Alternation with outer * should be rejected: {result:?}"
     );
 }
 
@@ -12836,7 +12659,7 @@ fn test_workflow_template_compile_cycle_rejects() {
     let result = PolicyEngine::with_policies(false, &[policy]);
     assert!(result.is_err(), "Expected compile error for cycle");
     let errs = result.unwrap_err();
-    let err = format!("{:?}", errs);
+    let err = format!("{errs:?}");
     assert!(
         err.contains("cycle") || err.contains("entry point"),
         "Error should mention cycle: {err}"

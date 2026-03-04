@@ -311,9 +311,9 @@ impl RekorVerifier {
 
         // Compute leaf hash using canonical JSON (RFC 8785) for deterministic hashing
         let body_json = serde_json::to_value(&entry.body)
-            .map_err(|e| RekorError::InvalidProof(format!("Failed to serialize body: {}", e)))?;
+            .map_err(|e| RekorError::InvalidProof(format!("Failed to serialize body: {e}")))?;
         let canonical_bytes = serde_json_canonicalizer::to_vec(&body_json)
-            .map_err(|e| RekorError::InvalidProof(format!("Failed to canonicalize body: {}", e)))?;
+            .map_err(|e| RekorError::InvalidProof(format!("Failed to canonicalize body: {e}")))?;
         let mut leaf_hasher = Sha256::new();
         leaf_hasher.update([0x00]); // RFC 6962 leaf domain separator
         leaf_hasher.update(&canonical_bytes);
@@ -323,7 +323,7 @@ impl RekorVerifier {
         let mut index = proof.log_index;
         for hash_hex in &proof.hashes {
             let sibling = hex::decode(hash_hex)
-                .map_err(|e| RekorError::InvalidHash(format!("Bad hex in proof: {}", e)))?;
+                .map_err(|e| RekorError::InvalidHash(format!("Bad hex in proof: {e}")))?;
 
             if sibling.len() != 32 {
                 return Err(RekorError::InvalidHash(format!(

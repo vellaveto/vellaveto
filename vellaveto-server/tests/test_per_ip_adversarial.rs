@@ -588,8 +588,7 @@ async fn regression_24_error_message_does_not_leak_architecture() {
     // Must NOT contain "Per-IP" or any architecture-revealing text
     assert!(
         !error_msg.contains("Per-IP") && !error_msg.contains("per-ip"),
-        "Error message '{}' must not reveal which rate limiter triggered",
-        error_msg
+        "Error message '{error_msg}' must not reveal which rate limiter triggered"
     );
     assert_eq!(
         error_msg, "Rate limit exceeded. Try again later.",

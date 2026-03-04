@@ -241,7 +241,7 @@ impl<'a> SmartFallbackChain<'a> {
                             endpoint_url: target.url.clone(),
                             succeeded: false,
                             duration_ms,
-                            error: Some(format!("server error: HTTP {}", status)),
+                            error: Some(format!("server error: HTTP {status}")),
                         });
 
                         continue;
@@ -340,7 +340,7 @@ impl<'a> SmartFallbackChain<'a> {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("HTTP request error: {}", e))?;
+            .map_err(|e| format!("HTTP request error: {e}"))?;
 
         let status = resp.status().as_u16();
 
@@ -348,8 +348,7 @@ impl<'a> SmartFallbackChain<'a> {
         if let Some(len) = resp.content_length() {
             if len as usize > MAX_RESPONSE_BODY_BYTES {
                 return Err(format!(
-                    "response body too large: {} bytes (max {})",
-                    len, MAX_RESPONSE_BODY_BYTES
+                    "response body too large: {len} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                 ));
             }
         }
@@ -364,12 +363,11 @@ impl<'a> SmartFallbackChain<'a> {
         while let Some(chunk) = resp
             .chunk()
             .await
-            .map_err(|e| format!("HTTP response body error: {}", e))?
+            .map_err(|e| format!("HTTP response body error: {e}"))?
         {
             if response_body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BODY_BYTES {
                 return Err(format!(
-                    "response body too large: >{} bytes (max {})",
-                    MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES
+                    "response body too large: >{MAX_RESPONSE_BODY_BYTES} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                 ));
             }
             response_body.extend_from_slice(&chunk);
@@ -400,7 +398,7 @@ impl<'a> SmartFallbackChain<'a> {
             let (mut ws, _) =
                 tokio_tungstenite::connect_async_with_config(url, Some(ws_config), false)
                     .await
-                    .map_err(|e| format!("WebSocket connect error: {}", e))?;
+                    .map_err(|e| format!("WebSocket connect error: {e}"))?;
 
             use futures_util::SinkExt;
             // SECURITY (FIND-R43-026): Reject invalid UTF-8 instead of silently
@@ -409,18 +407,18 @@ impl<'a> SmartFallbackChain<'a> {
                 .map_err(|_| "WebSocket body contains invalid UTF-8".to_string())?;
             ws.send(Message::Text(body_text.into()))
                 .await
-                .map_err(|e| format!("WebSocket send error: {}", e))?;
+                .map_err(|e| format!("WebSocket send error: {e}"))?;
 
             use futures_util::StreamExt;
             let response = ws
                 .next()
                 .await
                 .ok_or_else(|| "WebSocket closed without response".to_string())?
-                .map_err(|e| format!("WebSocket receive error: {}", e))?;
+                .map_err(|e| format!("WebSocket receive error: {e}"))?;
 
             ws.close(None)
                 .await
-                .map_err(|e| format!("WebSocket close error: {}", e))?;
+                .map_err(|e| format!("WebSocket close error: {e}"))?;
 
             let response_bytes = match response {
                 Message::Text(t) => {
@@ -445,7 +443,7 @@ impl<'a> SmartFallbackChain<'a> {
                     bytes::Bytes::from(Vec::from(b.as_ref()))
                 }
                 other => {
-                    return Err(format!("unexpected WebSocket message type: {:?}", other));
+                    return Err(format!("unexpected WebSocket message type: {other:?}"));
                 }
             };
 
@@ -495,14 +493,14 @@ impl<'a> SmartFallbackChain<'a> {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| format!("stdio spawn error: {}", e))?;
+            .map_err(|e| format!("stdio spawn error: {e}"))?;
 
         // Write to stdin and drop it to signal EOF.
         if let Some(mut stdin) = child.stdin.take() {
             stdin
                 .write_all(&body)
                 .await
-                .map_err(|e| format!("stdio write error: {}", e))?;
+                .map_err(|e| format!("stdio write error: {e}"))?;
         }
 
         // Take stdout/stderr handles before waiting, so child is not consumed.
@@ -528,7 +526,7 @@ impl<'a> SmartFallbackChain<'a> {
                         .take((MAX_RESPONSE_BODY_BYTES as u64) + 1)
                         .read_to_end(&mut stdout_buf)
                         .await
-                        .map_err(|e| format!("stdio stdout read error: {}", e));
+                        .map_err(|e| format!("stdio stdout read error: {e}"));
                     read_result.map(|_| stdout_buf)
                 };
 
@@ -538,12 +536,11 @@ impl<'a> SmartFallbackChain<'a> {
 
                 let stdout_buf = stdout_result?;
                 let status = status_result
-                    .map_err(|e| format!("stdio wait error: {}", e))?;
+                    .map_err(|e| format!("stdio wait error: {e}"))?;
 
                 if stdout_buf.len() > MAX_RESPONSE_BODY_BYTES {
                     return Err(format!(
-                        "stdio stdout too large: >{} bytes (max {})",
-                        MAX_RESPONSE_BODY_BYTES, MAX_RESPONSE_BODY_BYTES
+                        "stdio stdout too large: >{MAX_RESPONSE_BODY_BYTES} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                     ));
                 }
 
@@ -650,7 +647,7 @@ mod tests {
                     assert!(attempt.error.as_ref().unwrap().contains("circuit open"));
                 }
             }
-            other => panic!("expected AllTransportsFailed, got {:?}", other),
+            other => panic!("expected AllTransportsFailed, got {other:?}"),
         }
     }
 
@@ -726,7 +723,7 @@ mod tests {
                 // Second attempt tried HTTP but connection refused.
                 assert!(!history.attempts[1].succeeded);
             }
-            other => panic!("expected AllTransportsFailed, got {:?}", other),
+            other => panic!("expected AllTransportsFailed, got {other:?}"),
         }
     }
 
@@ -761,7 +758,7 @@ mod tests {
     #[test]
     fn test_smart_fallback_error_display() {
         let err = SmartFallbackError::NoTargets;
-        assert_eq!(format!("{}", err), "no transport targets provided");
+        assert_eq!(format!("{err}"), "no transport targets provided");
 
         let err = SmartFallbackError::AllTransportsFailed {
             history: FallbackNegotiationHistory {
@@ -776,7 +773,7 @@ mod tests {
                 total_duration_ms: 100,
             },
         };
-        assert!(format!("{}", err).contains("1 transport(s) failed"));
+        assert!(format!("{err}").contains("1 transport(s) failed"));
     }
 
     #[test]
@@ -826,7 +823,7 @@ mod tests {
                 assert!(history.successful_transport.is_none());
                 assert!(history.total_duration_ms > 0 || history.attempts[0].duration_ms == 0);
             }
-            other => panic!("expected AllTransportsFailed, got {:?}", other),
+            other => panic!("expected AllTransportsFailed, got {other:?}"),
         }
     }
 
@@ -864,7 +861,7 @@ mod tests {
                 assert_eq!(res.history.attempts.len(), 1);
                 assert!(res.history.attempts[0].succeeded);
             }
-            Err(e) => panic!("expected success, got: {}", e),
+            Err(e) => panic!("expected success, got: {e}"),
         }
     }
 }

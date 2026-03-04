@@ -107,8 +107,7 @@ impl PolicyApproval {
         }
         if self.approved_by.len() > MAX_LIFECYCLE_IDENTITY_LEN {
             return Err(format!(
-                "approved_by exceeds {} chars",
-                MAX_LIFECYCLE_IDENTITY_LEN
+                "approved_by exceeds {MAX_LIFECYCLE_IDENTITY_LEN} chars"
             ));
         }
         if has_dangerous_chars(&self.approved_by) {
@@ -122,12 +121,11 @@ impl PolicyApproval {
         }
         // Validate timestamp format
         crate::time_util::parse_iso8601_secs(&self.approved_at)
-            .map_err(|e| format!("approved_at: {}", e))?;
+            .map_err(|e| format!("approved_at: {e}"))?;
         if let Some(ref c) = self.comment {
             if c.len() > MAX_VERSION_COMMENT_LEN {
                 return Err(format!(
-                    "approval comment exceeds {} chars",
-                    MAX_VERSION_COMMENT_LEN
+                    "approval comment exceeds {MAX_VERSION_COMMENT_LEN} chars"
                 ));
             }
             if has_dangerous_chars(c) {
@@ -185,8 +183,7 @@ impl PolicyVersion {
         }
         if self.version_id.len() > MAX_LIFECYCLE_IDENTITY_LEN {
             return Err(format!(
-                "version_id exceeds {} chars",
-                MAX_LIFECYCLE_IDENTITY_LEN
+                "version_id exceeds {MAX_LIFECYCLE_IDENTITY_LEN} chars"
             ));
         }
         if has_dangerous_chars(&self.version_id) {
@@ -208,17 +205,14 @@ impl PolicyVersion {
             return Err("version must be >= 1".to_string());
         }
         // policy
-        self.policy
-            .validate()
-            .map_err(|e| format!("policy: {}", e))?;
+        self.policy.validate().map_err(|e| format!("policy: {e}"))?;
         // created_by
         if self.created_by.is_empty() || self.created_by.trim().is_empty() {
             return Err("created_by must be non-empty".to_string());
         }
         if self.created_by.len() > MAX_LIFECYCLE_IDENTITY_LEN {
             return Err(format!(
-                "created_by exceeds {} chars",
-                MAX_LIFECYCLE_IDENTITY_LEN
+                "created_by exceeds {MAX_LIFECYCLE_IDENTITY_LEN} chars"
             ));
         }
         if has_dangerous_chars(&self.created_by) {
@@ -232,11 +226,11 @@ impl PolicyVersion {
             return Err("created_at contains invalid characters".to_string());
         }
         crate::time_util::parse_iso8601_secs(&self.created_at)
-            .map_err(|e| format!("created_at: {}", e))?;
+            .map_err(|e| format!("created_at: {e}"))?;
         // comment
         if let Some(ref c) = self.comment {
             if c.len() > MAX_VERSION_COMMENT_LEN {
-                return Err(format!("comment exceeds {} chars", MAX_VERSION_COMMENT_LEN));
+                return Err(format!("comment exceeds {MAX_VERSION_COMMENT_LEN} chars"));
             }
             if has_dangerous_chars(c) {
                 return Err("comment contains invalid characters".to_string());
@@ -251,8 +245,7 @@ impl PolicyVersion {
             ));
         }
         for (i, a) in self.approvals.iter().enumerate() {
-            a.validate()
-                .map_err(|e| format!("approval[{}]: {}", i, e))?;
+            a.validate().map_err(|e| format!("approval[{i}]: {e}"))?;
         }
         // required_approvals
         if self.required_approvals as usize > MAX_REQUIRED_APPROVERS {
@@ -269,14 +262,13 @@ impl PolicyVersion {
             if has_dangerous_chars(ts) {
                 return Err("staged_at contains invalid characters".to_string());
             }
-            crate::time_util::parse_iso8601_secs(ts).map_err(|e| format!("staged_at: {}", e))?;
+            crate::time_util::parse_iso8601_secs(ts).map_err(|e| format!("staged_at: {e}"))?;
         }
         // previous_version_id
         if let Some(ref prev) = self.previous_version_id {
             if prev.len() > MAX_LIFECYCLE_IDENTITY_LEN {
                 return Err(format!(
-                    "previous_version_id exceeds {} chars",
-                    MAX_LIFECYCLE_IDENTITY_LEN
+                    "previous_version_id exceeds {MAX_LIFECYCLE_IDENTITY_LEN} chars"
                 ));
             }
             if has_dangerous_chars(prev) {
@@ -308,10 +300,7 @@ impl PolicyVersionDiff {
             return Err("policy_id must be non-empty".to_string());
         }
         if self.policy_id.len() > MAX_DIFF_POLICY_ID_LEN {
-            return Err(format!(
-                "policy_id exceeds {} chars",
-                MAX_DIFF_POLICY_ID_LEN
-            ));
+            return Err(format!("policy_id exceeds {MAX_DIFF_POLICY_ID_LEN} chars"));
         }
         if has_dangerous_chars(&self.policy_id) {
             return Err("policy_id contains invalid characters".to_string());
@@ -327,13 +316,10 @@ impl PolicyVersionDiff {
         // to prevent unbounded allocation and dangerous character injection.
         for (i, change) in self.changes.iter().enumerate() {
             if change.len() > MAX_DIFF_CHANGE_LEN {
-                return Err(format!(
-                    "changes[{}] exceeds {} chars",
-                    i, MAX_DIFF_CHANGE_LEN
-                ));
+                return Err(format!("changes[{i}] exceeds {MAX_DIFF_CHANGE_LEN} chars"));
             }
             if has_dangerous_chars(change) {
-                return Err(format!("changes[{}] contains invalid characters", i));
+                return Err(format!("changes[{i}] contains invalid characters"));
             }
         }
         Ok(())
@@ -371,13 +357,13 @@ impl StagingComparisonEntry {
             return Err("timestamp contains invalid characters".to_string());
         }
         crate::time_util::parse_iso8601_secs(&self.timestamp)
-            .map_err(|e| format!("timestamp: {}", e))?;
+            .map_err(|e| format!("timestamp: {e}"))?;
         // tool
         if self.tool.is_empty() {
             return Err("tool must be non-empty".to_string());
         }
         if self.tool.len() > MAX_STAGING_NAME_LEN {
-            return Err(format!("tool exceeds {} chars", MAX_STAGING_NAME_LEN));
+            return Err(format!("tool exceeds {MAX_STAGING_NAME_LEN} chars"));
         }
         if has_dangerous_chars(&self.tool) {
             return Err("tool contains invalid characters".to_string());
@@ -387,7 +373,7 @@ impl StagingComparisonEntry {
             return Err("function must be non-empty".to_string());
         }
         if self.function.len() > MAX_STAGING_NAME_LEN {
-            return Err(format!("function exceeds {} chars", MAX_STAGING_NAME_LEN));
+            return Err(format!("function exceeds {MAX_STAGING_NAME_LEN} chars"));
         }
         if has_dangerous_chars(&self.function) {
             return Err("function contains invalid characters".to_string());
@@ -398,8 +384,7 @@ impl StagingComparisonEntry {
         }
         if self.active_verdict.len() > MAX_VERDICT_STRING_LEN {
             return Err(format!(
-                "active_verdict exceeds {} chars",
-                MAX_VERDICT_STRING_LEN
+                "active_verdict exceeds {MAX_VERDICT_STRING_LEN} chars"
             ));
         }
         if has_dangerous_chars(&self.active_verdict) {
@@ -411,8 +396,7 @@ impl StagingComparisonEntry {
         }
         if self.staging_verdict.len() > MAX_VERDICT_STRING_LEN {
             return Err(format!(
-                "staging_verdict exceeds {} chars",
-                MAX_VERDICT_STRING_LEN
+                "staging_verdict exceeds {MAX_VERDICT_STRING_LEN} chars"
             ));
         }
         if has_dangerous_chars(&self.staging_verdict) {
@@ -449,10 +433,7 @@ impl StagingReport {
         // SECURITY (FIND-R209-004): Enforce length bound on policy_id,
         // matching PolicyVersionDiff::validate() which uses MAX_DIFF_POLICY_ID_LEN.
         if self.policy_id.len() > MAX_DIFF_POLICY_ID_LEN {
-            return Err(format!(
-                "policy_id exceeds {} chars",
-                MAX_DIFF_POLICY_ID_LEN
-            ));
+            return Err(format!("policy_id exceeds {MAX_DIFF_POLICY_ID_LEN} chars"));
         }
         if has_dangerous_chars(&self.policy_id) {
             return Err("policy_id contains invalid characters".to_string());
@@ -476,7 +457,7 @@ impl StagingReport {
         for (i, entry) in self.divergences.iter().enumerate() {
             entry
                 .validate()
-                .map_err(|e| format!("divergences[{}]: {}", i, e))?;
+                .map_err(|e| format!("divergences[{i}]: {e}"))?;
         }
         // IMP-R206-010: Validate staging_started_at timestamp (parity
         // with PolicyApproval::validate and PolicyVersion::validate).
@@ -487,7 +468,7 @@ impl StagingReport {
             return Err("staging_started_at contains invalid characters".to_string());
         }
         crate::time_util::parse_iso8601_secs(&self.staging_started_at)
-            .map_err(|e| format!("staging_started_at: {}", e))?;
+            .map_err(|e| format!("staging_started_at: {e}"))?;
         Ok(())
     }
 }

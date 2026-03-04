@@ -674,8 +674,7 @@ impl CollusionDetector {
             agent_ids: Vec::new(),
             target: tracker_name.to_string(),
             description: format!(
-                "{} tracker at capacity ({}) — possible evasion attack",
-                tracker_name, max
+                "{tracker_name} tracker at capacity ({max}) — possible evasion attack"
             ),
             detected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1520,8 +1519,7 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("min_entropy_observations must be > 0"),
-            "Expected min_entropy_observations error, got: {}",
-            err,
+            "Expected min_entropy_observations error, got: {err}",
         );
     }
 

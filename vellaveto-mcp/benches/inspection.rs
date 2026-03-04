@@ -310,9 +310,9 @@ fn bench_data_flow_tracking(c: &mut Criterion) {
                 DlpFindingWithFingerprint::from_finding(
                     DlpFinding {
                         pattern_name: format!("pattern_{}", i % 5),
-                        location: format!("result.content[{}].text", i),
+                        location: format!("result.content[{i}].text"),
                     },
-                    Some(&format!("secret_value_{}", i)),
+                    Some(&format!("secret_value_{i}")),
                 )
             })
             .collect();
@@ -331,12 +331,12 @@ fn bench_data_flow_tracking(c: &mut Criterion) {
         for i in 0..50 {
             let findings = vec![DlpFindingWithFingerprint::from_finding(
                 DlpFinding {
-                    pattern_name: format!("resp_pattern_{}", i),
+                    pattern_name: format!("resp_pattern_{i}"),
                     location: "text".to_string(),
                 },
-                Some(&format!("resp_secret_{}", i)),
+                Some(&format!("resp_secret_{i}")),
             )];
-            tracker.record_response_findings(&format!("tool_{}", i), &findings);
+            tracker.record_response_findings(&format!("tool_{i}"), &findings);
         }
 
         let req_findings = vec![DlpFindingWithFingerprint::from_finding(

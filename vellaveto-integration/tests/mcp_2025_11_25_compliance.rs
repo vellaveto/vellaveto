@@ -47,8 +47,7 @@ fn test_tool_name_validation_spec_examples() {
     for name in valid {
         assert!(
             vellaveto_types::validate_mcp_tool_name(name).is_ok(),
-            "'{}' should be valid",
-            name
+            "'{name}' should be valid"
         );
     }
 
@@ -65,8 +64,7 @@ fn test_tool_name_validation_spec_examples() {
     for name in invalid {
         assert!(
             vellaveto_types::validate_mcp_tool_name(name).is_err(),
-            "'{}' should be invalid",
-            name
+            "'{name}' should be invalid"
         );
     }
 }
@@ -221,8 +219,7 @@ fn test_last_event_id_valid_ids_accepted() {
     for id in good_ids {
         assert!(
             !id.chars().any(|c| c.is_control()),
-            "'{}' should not contain control chars",
-            id
+            "'{id}' should not contain control chars"
         );
         assert!(id.len() <= 128);
     }
@@ -248,10 +245,7 @@ fn test_www_authenticate_scope_quotes_stripped() {
 #[test]
 fn test_www_authenticate_header_format_rfc6750() {
     let required_scope = "mcp:tools mcp:resources";
-    let header = format!(
-        "Bearer error=\"insufficient_scope\", scope=\"{}\"",
-        required_scope
-    );
+    let header = format!("Bearer error=\"insufficient_scope\", scope=\"{required_scope}\"");
     assert!(header.starts_with("Bearer "));
     assert!(header.contains("error=\"insufficient_scope\""));
     assert!(header.contains("scope=\"mcp:tools mcp:resources\""));

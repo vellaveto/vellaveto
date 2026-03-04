@@ -46,8 +46,8 @@ fn main() {
     );
 
     match engine.evaluate_action(&read_action, &policies) {
-        Ok(verdict) => println!("file:read -> {:?}", verdict),
-        Err(e) => eprintln!("Error: {}", e),
+        Ok(verdict) => println!("file:read -> {verdict:?}"),
+        Err(e) => eprintln!("Error: {e}"),
     }
 
     let delete_action = Action::new(
@@ -57,15 +57,15 @@ fn main() {
     );
 
     match engine.evaluate_action(&delete_action, &policies) {
-        Ok(verdict) => println!("file:delete -> {:?}", verdict),
-        Err(e) => eprintln!("Error: {}", e),
+        Ok(verdict) => println!("file:delete -> {verdict:?}"),
+        Err(e) => eprintln!("Error: {e}"),
     }
 
     let strict_engine = PolicyEngine::new(true);
     let unmatched_action = Action::new("network".to_string(), "connect".to_string(), json!({}));
 
     match strict_engine.evaluate_action(&unmatched_action, &policies) {
-        Ok(verdict) => println!("network:connect (strict) -> {:?}", verdict),
-        Err(e) => println!("network:connect (strict) -> error: {}", e),
+        Ok(verdict) => println!("network:connect (strict) -> {verdict:?}"),
+        Err(e) => println!("network:connect (strict) -> error: {e}"),
     }
 }

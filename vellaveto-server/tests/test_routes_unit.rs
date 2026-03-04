@@ -2178,8 +2178,7 @@ async fn health_returns_degraded_when_cluster_unhealthy() {
     let cluster_err = json["cluster"].as_str().unwrap();
     assert!(
         cluster_err.contains("unhealthy") || cluster_err.contains("Redis"),
-        "Error message should indicate cluster issue: {}",
-        cluster_err
+        "Error message should indicate cluster issue: {cluster_err}"
     );
 }
 

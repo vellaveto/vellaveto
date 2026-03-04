@@ -203,8 +203,7 @@ impl DidPlcGenesisOperation {
                 // SECURITY (FIND-R216-014): Reject control/format chars in entries.
                 if crate::core::has_dangerous_chars(entry) {
                     return Err(DidPlcError::InvalidFormat(format!(
-                        "{}[{}] contains control or format characters",
-                        name, i,
+                        "{name}[{i}] contains control or format characters",
                     )));
                 }
             }
@@ -228,8 +227,7 @@ impl DidPlcGenesisOperation {
             // SECURITY (FIND-R216-014): Reject control/format chars in service fields.
             if crate::core::has_dangerous_chars(&svc.id) {
                 return Err(DidPlcError::InvalidFormat(format!(
-                    "services[{}].id contains control or format characters",
-                    i,
+                    "services[{i}].id contains control or format characters",
                 )));
             }
             if svc.service_type.len() > Self::MAX_ENTRY_LEN {
@@ -242,8 +240,7 @@ impl DidPlcGenesisOperation {
             }
             if crate::core::has_dangerous_chars(&svc.service_type) {
                 return Err(DidPlcError::InvalidFormat(format!(
-                    "services[{}].service_type contains control or format characters",
-                    i,
+                    "services[{i}].service_type contains control or format characters",
                 )));
             }
             if svc.endpoint.len() > Self::MAX_ENTRY_LEN {
@@ -256,8 +253,7 @@ impl DidPlcGenesisOperation {
             }
             if crate::core::has_dangerous_chars(&svc.endpoint) {
                 return Err(DidPlcError::InvalidFormat(format!(
-                    "services[{}].endpoint contains control or format characters",
-                    i,
+                    "services[{i}].endpoint contains control or format characters",
                 )));
             }
         }
@@ -312,15 +308,15 @@ pub enum DidPlcError {
 impl fmt::Display for DidPlcError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DidPlcError::InvalidFormat(msg) => write!(f, "Invalid DID:PLC format: {}", msg),
+            DidPlcError::InvalidFormat(msg) => write!(f, "Invalid DID:PLC format: {msg}"),
             DidPlcError::MissingField(field) => {
-                write!(f, "Missing required field in genesis operation: {}", field)
+                write!(f, "Missing required field in genesis operation: {field}")
             }
-            DidPlcError::SigningError(msg) => write!(f, "DID:PLC signing error: {}", msg),
+            DidPlcError::SigningError(msg) => write!(f, "DID:PLC signing error: {msg}"),
             DidPlcError::VerificationFailed(msg) => {
-                write!(f, "DID:PLC verification failed: {}", msg)
+                write!(f, "DID:PLC verification failed: {msg}")
             }
-            DidPlcError::ResolutionError(msg) => write!(f, "DID:PLC resolution error: {}", msg),
+            DidPlcError::ResolutionError(msg) => write!(f, "DID:PLC resolution error: {msg}"),
         }
     }
 }
@@ -380,7 +376,7 @@ mod tests {
     #[test]
     fn test_did_plc_display() {
         let did = DidPlc::from_parts("ewvi7nxsareczkwkx5pz6q6e".to_string()).unwrap();
-        assert_eq!(format!("{}", did), "did:plc:ewvi7nxsareczkwkx5pz6q6e");
+        assert_eq!(format!("{did}"), "did:plc:ewvi7nxsareczkwkx5pz6q6e");
     }
 
     #[test]

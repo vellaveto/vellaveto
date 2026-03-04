@@ -140,7 +140,7 @@ impl UsageSummary {
         for (i, period) in self.periods.iter().enumerate() {
             period
                 .validate()
-                .map_err(|e| format!("periods[{}]: {}", i, e))?;
+                .map_err(|e| format!("periods[{i}]: {e}"))?;
         }
         Ok(())
     }
@@ -170,7 +170,7 @@ fn validate_metering_tenant_id(id: &str) -> Result<(), String> {
 /// Validate a timestamp string for metering types.
 fn validate_metering_timestamp(ts: &str, field: &str) -> Result<(), String> {
     if ts.is_empty() {
-        return Err(format!("{} must not be empty", field));
+        return Err(format!("{field} must not be empty"));
     }
     if ts.len() > MAX_TIMESTAMP_LEN {
         return Err(format!(
@@ -181,7 +181,7 @@ fn validate_metering_timestamp(ts: &str, field: &str) -> Result<(), String> {
         ));
     }
     if crate::has_dangerous_chars(ts) {
-        return Err(format!("{} contains control or format characters", field));
+        return Err(format!("{field} contains control or format characters"));
     }
     Ok(())
 }

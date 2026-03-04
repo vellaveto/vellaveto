@@ -743,23 +743,19 @@ async fn list_policies_non_default_tenant_filters_results() {
 
     assert!(
         ids.contains(&"acme:file:allow"),
-        "Tenant 'acme' should see its own policy, got: {:?}",
-        ids
+        "Tenant 'acme' should see its own policy, got: {ids:?}"
     );
     assert!(
         ids.contains(&"_global_:health:allow"),
-        "Tenant 'acme' should see global policies, got: {:?}",
-        ids
+        "Tenant 'acme' should see global policies, got: {ids:?}"
     );
     assert!(
         ids.contains(&"legacy:policy"),
-        "Tenant 'acme' should see legacy policies, got: {:?}",
-        ids
+        "Tenant 'acme' should see legacy policies, got: {ids:?}"
     );
     assert!(
         !ids.contains(&"globex:file:deny"),
-        "Tenant 'acme' must NOT see globex's policy, got: {:?}",
-        ids
+        "Tenant 'acme' must NOT see globex's policy, got: {ids:?}"
     );
 }
 
@@ -964,8 +960,7 @@ async fn remove_policy_not_found_does_not_echo_id() {
     // The policy ID must NOT appear in the error response.
     assert!(
         !error_msg.contains("probe:sensitive:id"),
-        "404 error must not echo the policy ID, got: {}",
-        error_msg
+        "404 error must not echo the policy ID, got: {error_msg}"
     );
     assert_eq!(
         error_msg, "Policy not found",
@@ -1204,8 +1199,7 @@ async fn evaluate_non_default_tenant_does_not_see_other_tenant_policies() {
     assert!(
         verdict.get("Deny").is_some() || verdict.as_str() == Some("deny"),
         "FIND-CREATIVE-001: Non-default tenant must NOT see other tenants' Allow policies. \
-         Expected Deny verdict, got: {:?}",
-        result
+         Expected Deny verdict, got: {result:?}"
     );
     // Verify it is NOT allow
     assert_ne!(

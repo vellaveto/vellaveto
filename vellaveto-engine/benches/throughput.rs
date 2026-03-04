@@ -30,7 +30,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn make_allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Allow {}", id),
+        name: format!("Allow {id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -41,7 +41,7 @@ fn make_allow_policy(id: &str, priority: i32) -> Policy {
 fn make_deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Deny {}", id),
+        name: format!("Deny {id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -52,7 +52,7 @@ fn make_deny_policy(id: &str, priority: i32) -> Policy {
 fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Conditional {}", id),
+        name: format!("Conditional {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -72,7 +72,7 @@ fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: 
 fn make_conditional_regex_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Regex {}", id),
+        name: format!("Regex {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -100,8 +100,8 @@ fn generate_throughput_policies(n: usize) -> Vec<Policy> {
             0 => {
                 // Allow with path rules
                 policies.push(Policy {
-                    id: format!("file_{}:*", i),
-                    name: format!("File allow {}", i),
+                    id: format!("file_{i}:*"),
+                    name: format!("File allow {i}"),
                     policy_type: PolicyType::Allow,
                     priority,
                     path_rules: Some(PathRules {
@@ -113,13 +113,13 @@ fn generate_throughput_policies(n: usize) -> Vec<Policy> {
             }
             1 => {
                 // Deny policy
-                policies.push(make_deny_policy(&format!("blocked_{}:*", i), priority));
+                policies.push(make_deny_policy(&format!("blocked_{i}:*"), priority));
             }
             2 => {
                 // Allow with network rules
                 policies.push(Policy {
-                    id: format!("http_{}:*", i),
-                    name: format!("HTTP allow {}", i),
+                    id: format!("http_{i}:*"),
+                    name: format!("HTTP allow {i}"),
                     policy_type: PolicyType::Allow,
                     priority,
                     path_rules: None,
@@ -136,26 +136,26 @@ fn generate_throughput_policies(n: usize) -> Vec<Policy> {
             3 => {
                 // Conditional glob
                 policies.push(make_conditional_glob_policy(
-                    &format!("glob_{}:*", i),
+                    &format!("glob_{i}:*"),
                     "path",
-                    &format!("/restricted/dir_{}/**", i),
+                    &format!("/restricted/dir_{i}/**"),
                     priority,
                 ));
             }
             4 => {
                 // Conditional regex
                 policies.push(make_conditional_regex_policy(
-                    &format!("regex_{}:*", i),
+                    &format!("regex_{i}:*"),
                     "command",
-                    &format!("^(rm|delete|drop).*item_{}", i),
+                    &format!("^(rm|delete|drop).*item_{i}"),
                     priority,
                 ));
             }
             _ => {
                 // Context-aware policy with forbidden_previous_action
                 policies.push(Policy {
-                    id: format!("ctx_{}:*", i),
-                    name: format!("Context policy {}", i),
+                    id: format!("ctx_{i}:*"),
+                    name: format!("Context policy {i}"),
                     policy_type: PolicyType::Conditional {
                         conditions: json!({
                             "context_conditions": [
@@ -183,12 +183,12 @@ fn generate_diverse_actions(n: usize) -> Vec<Action> {
     for i in 0..n {
         let action = match i % 5 {
             0 => make_action(
-                &format!("file_tool_{}", i),
+                &format!("file_tool_{i}"),
                 "read",
                 json!({"path": format!("/workspace/dir_{}/file_{}.txt", i % 20, i)}),
             ),
             1 => make_action(
-                &format!("http_tool_{}", i),
+                &format!("http_tool_{i}"),
                 "request",
                 json!({
                     "url": format!("https://api-{}.example.com/data", i % 10),
@@ -196,17 +196,17 @@ fn generate_diverse_actions(n: usize) -> Vec<Action> {
                 }),
             ),
             2 => make_action(
-                &format!("db_tool_{}", i),
+                &format!("db_tool_{i}"),
                 "query",
                 json!({"query": format!("SELECT * FROM table_{} LIMIT 100", i % 15)}),
             ),
             3 => make_action(
-                &format!("shell_tool_{}", i),
+                &format!("shell_tool_{i}"),
                 "execute",
                 json!({"command": format!("ls -la /workspace/dir_{}", i % 10)}),
             ),
             _ => make_action(
-                &format!("custom_tool_{}", i),
+                &format!("custom_tool_{i}"),
                 &format!("action_{}", i % 8),
                 json!({"param_a": i, "param_b": format!("value_{}", i)}),
             ),
@@ -308,7 +308,7 @@ fn concurrent_throughput(c: &mut Criterion) {
         let total_elements = thread_count * ITERS_PER_THREAD;
         group.throughput(Throughput::Elements(total_elements));
         group.bench_with_input(
-            BenchmarkId::new("parallel_eval", format!("{}_threads", thread_count)),
+            BenchmarkId::new("parallel_eval", format!("{thread_count}_threads")),
             &thread_count,
             |b, &n_threads| {
                 b.iter(|| {

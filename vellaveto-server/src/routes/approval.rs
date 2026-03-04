@@ -48,7 +48,7 @@ fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Approval ID must be 1-{} characters", MAX_APPROVAL_ID_LEN),
+                error: format!("Approval ID must be 1-{MAX_APPROVAL_ID_LEN} characters"),
             }),
         ));
     }
@@ -101,7 +101,7 @@ pub fn derive_resolver_identity(headers: &HeaderMap, client_value: &str) -> Stri
                         .filter(|c| !crate::routes::is_unsafe_char(*c))
                         .take(256)
                         .collect();
-                    return format!("{} (note: {})", principal, sanitized);
+                    return format!("{principal} (note: {sanitized})");
                 }
                 return principal;
             }
@@ -254,10 +254,7 @@ pub async fn approve_approval(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "resolved_by exceeds maximum length of {} bytes",
-                    MAX_RESOLVED_BY_LEN
-                ),
+                error: format!("resolved_by exceeds maximum length of {MAX_RESOLVED_BY_LEN} bytes"),
             }),
         ));
     }
@@ -397,10 +394,7 @@ pub async fn deny_approval(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "resolved_by exceeds maximum length of {} bytes",
-                    MAX_RESOLVED_BY_LEN
-                ),
+                error: format!("resolved_by exceeds maximum length of {MAX_RESOLVED_BY_LEN} bytes"),
             }),
         ));
     }
@@ -502,4 +496,254 @@ pub async fn deny_approval(
         }
     }
     Ok(Json(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_approval_id tests ───────────────────────────────────────
+
+    #[test]
+    fn test_validate_approval_id_valid_uuid() {
+        assert!(validate_approval_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_valid_short() {
+        assert!(validate_approval_id("abc-123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_single_char() {
+        assert!(validate_approval_id("x").is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_empty_rejected() {
+        let err = validate_approval_id("").unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0.error.contains("1-128"));
+    }
+
+    #[test]
+    fn test_validate_approval_id_too_long_rejected() {
+        let long_id = "a".repeat(129);
+        let err = validate_approval_id(&long_id).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_approval_id_at_max_length() {
+        let id = "a".repeat(128);
+        assert!(validate_approval_id(&id).is_ok());
+    }
+
+    #[test]
+    fn test_validate_approval_id_control_chars_rejected() {
+        let err = validate_approval_id("id\x00inject").unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0.error.contains("invalid characters"));
+    }
+
+    #[test]
+    fn test_validate_approval_id_newline_rejected() {
+        let err = validate_approval_id("id\nline2").unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_validate_approval_id_tab_rejected() {
+        let err = validate_approval_id("id\there").unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+
+    // ── sanitize_resolved_by tests ───────────────────────────────────────
+
+    #[test]
+    fn test_sanitize_resolved_by_clean_input() {
+        assert_eq!(sanitize_resolved_by("admin-user"), "admin-user");
+    }
+
+    #[test]
+    fn test_sanitize_resolved_by_strips_control_chars() {
+        assert_eq!(sanitize_resolved_by("admin\x00user"), "adminuser");
+    }
+
+    #[test]
+    fn test_sanitize_resolved_by_strips_newlines() {
+        assert_eq!(
+            sanitize_resolved_by("admin\ninjected\rlog"),
+            "admininjectedlog"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_resolved_by_strips_tabs() {
+        assert_eq!(sanitize_resolved_by("admin\tuser"), "adminuser");
+    }
+
+    #[test]
+    fn test_sanitize_resolved_by_empty_string() {
+        assert_eq!(sanitize_resolved_by(""), "");
+    }
+
+    #[test]
+    fn test_sanitize_resolved_by_preserves_unicode_letters() {
+        assert_eq!(sanitize_resolved_by("Hallgrimur"), "Hallgrimur");
+    }
+
+    // ── derive_resolver_identity tests ───────────────────────────────────
+
+    #[test]
+    fn test_derive_resolver_identity_no_auth_header() {
+        let headers = HeaderMap::new();
+        let result = derive_resolver_identity(&headers, "admin");
+        assert_eq!(result, "admin");
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_non_bearer_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Basic dXNlcjpwYXNz".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "admin");
+        assert_eq!(result, "admin");
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_bearer_token_binds_hash() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer test-token-value".parse().unwrap(),
+        );
+        let result = derive_resolver_identity(&headers, "user1");
+        assert!(result.starts_with("bearer:"));
+        assert!(result.contains("(note: user1)"));
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_bearer_anonymous_no_note() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer my-api-key".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "anonymous");
+        assert!(result.starts_with("bearer:"));
+        assert!(!result.contains("(note:"));
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_bearer_case_insensitive() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "BEARER my-api-key".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "anonymous");
+        assert!(result.starts_with("bearer:"));
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_empty_bearer_token() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer ".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "admin");
+        // Empty token: falls through to client value
+        assert_eq!(result, "admin");
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_client_value_control_chars_stripped() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer test-token".parse().unwrap());
+        let result = derive_resolver_identity(&headers, "user\x00inject\nlog");
+        assert!(!result.contains('\x00'));
+        assert!(!result.contains('\n'));
+        assert!(result.contains("userinjectlog"));
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_client_value_truncated_at_256() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, "Bearer test-token".parse().unwrap());
+        let long_name = "x".repeat(500);
+        let result = derive_resolver_identity(&headers, &long_name);
+        // The note should be truncated to 256 chars
+        let note_content = result
+            .split("(note: ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches(')');
+        assert!(note_content.len() <= 256);
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_same_token_same_hash() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer deterministic-token".parse().unwrap(),
+        );
+        let result1 = derive_resolver_identity(&headers, "anonymous");
+        let result2 = derive_resolver_identity(&headers, "anonymous");
+        assert_eq!(result1, result2);
+    }
+
+    #[test]
+    fn test_derive_resolver_identity_different_tokens_different_hashes() {
+        let mut h1 = HeaderMap::new();
+        h1.insert(header::AUTHORIZATION, "Bearer token-aaa".parse().unwrap());
+        let mut h2 = HeaderMap::new();
+        h2.insert(header::AUTHORIZATION, "Bearer token-bbb".parse().unwrap());
+        let r1 = derive_resolver_identity(&h1, "anonymous");
+        let r2 = derive_resolver_identity(&h2, "anonymous");
+        assert_ne!(r1, r2);
+    }
+
+    // ── default_resolver tests ───────────────────────────────────────────
+
+    #[test]
+    fn test_default_resolver_returns_anonymous() {
+        assert_eq!(default_resolver(), "anonymous");
+    }
+
+    // ── ResolveRequest serde tests ───────────────────────────────────────
+
+    #[test]
+    fn test_resolve_request_defaults() {
+        let req: ResolveRequest = serde_json::from_str("{}").unwrap();
+        assert_eq!(req.resolved_by, "anonymous");
+        assert!(req.reason.is_none());
+    }
+
+    #[test]
+    fn test_resolve_request_with_fields() {
+        let req: ResolveRequest =
+            serde_json::from_str(r#"{"resolved_by":"admin","reason":"policy review"}"#).unwrap();
+        assert_eq!(req.resolved_by, "admin");
+        assert_eq!(req.reason.as_deref(), Some("policy review"));
+    }
+
+    #[test]
+    fn test_resolve_request_denies_unknown_fields() {
+        let result: Result<ResolveRequest, _> =
+            serde_json::from_str(r#"{"resolved_by":"admin","extra":true}"#);
+        assert!(result.is_err());
+    }
+
+    // ── Constants sanity checks ──────────────────────────────────────────
+
+    #[test]
+    fn test_max_resolved_by_len_reasonable() {
+        assert!(MAX_RESOLVED_BY_LEN > 0);
+        assert!(MAX_RESOLVED_BY_LEN <= 8192);
+    }
+
+    #[test]
+    fn test_max_approval_id_len_reasonable() {
+        assert!(MAX_APPROVAL_ID_LEN >= 36); // UUID length
+        assert!(MAX_APPROVAL_ID_LEN <= 256);
+    }
+
+    #[test]
+    fn test_max_pending_list_reasonable() {
+        assert!(MAX_PENDING_LIST > 0);
+        assert!(MAX_PENDING_LIST <= 10_000);
+    }
 }

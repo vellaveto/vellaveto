@@ -22,7 +22,7 @@ fn make_action() -> Action {
 fn allow(priority: i32) -> Policy {
     Policy {
         id: "*".to_string(),
-        name: format!("allow-{}", priority),
+        name: format!("allow-{priority}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -33,7 +33,7 @@ fn allow(priority: i32) -> Policy {
 fn deny(priority: i32) -> Policy {
     Policy {
         id: "*".to_string(),
-        name: format!("deny-{}", priority),
+        name: format!("deny-{priority}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,

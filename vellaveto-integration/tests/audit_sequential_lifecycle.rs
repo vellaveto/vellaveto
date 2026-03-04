@@ -168,7 +168,7 @@ fn mixed_verdicts_counted_correctly() {
                 .log_entry(
                     &action,
                     &Verdict::Deny {
-                        reason: format!("reason_{}", i),
+                        reason: format!("reason_{i}"),
                     },
                     json!({}),
                 )

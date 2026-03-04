@@ -74,23 +74,22 @@ impl std::fmt::Display for CedarImportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CedarImportError::Parse { line, message } => {
-                write!(f, "parse error at line {}: {}", line, message)
+                write!(f, "parse error at line {line}: {message}")
             }
             CedarImportError::UnsupportedFeature { feature } => {
-                write!(f, "unsupported Cedar feature: {}", feature)
+                write!(f, "unsupported Cedar feature: {feature}")
             }
             CedarImportError::TooManyPolicies { count, max } => {
-                write!(f, "too many policies: {} exceeds maximum {}", count, max)
+                write!(f, "too many policies: {count} exceeds maximum {max}")
             }
             CedarImportError::InputTooLarge { size, max } => {
                 write!(
                     f,
-                    "input too large: {} bytes exceeds maximum {} bytes",
-                    size, max
+                    "input too large: {size} bytes exceeds maximum {max} bytes"
                 )
             }
             CedarImportError::TooManyConditions { count, max } => {
-                write!(f, "too many conditions: {} exceeds maximum {}", count, max)
+                write!(f, "too many conditions: {count} exceeds maximum {max}")
             }
         }
     }
@@ -113,12 +112,11 @@ impl std::fmt::Display for CedarExportError {
             CedarExportError::ConditionalPolicy { policy_id } => {
                 write!(
                     f,
-                    "cannot export conditional policy '{}' to Cedar subset",
-                    policy_id
+                    "cannot export conditional policy '{policy_id}' to Cedar subset"
                 )
             }
             CedarExportError::EmptyPolicyId { index } => {
-                write!(f, "policy at index {} has empty id", index)
+                write!(f, "policy at index {index} has empty id")
             }
         }
     }
@@ -190,7 +188,7 @@ pub fn import_cedar_policies(cedar_text: &str) -> Result<Vec<Policy>, CedarImpor
         if let Err(e) = policy.validate() {
             return Err(CedarImportError::Parse {
                 line: stmt.line,
-                message: format!("imported policy failed validation: {}", e),
+                message: format!("imported policy failed validation: {e}"),
             });
         }
         policies.push(policy);
@@ -660,7 +658,7 @@ fn parse_string_literal(text: &str, line: usize) -> Result<String, CedarImportEr
                 Some(other) => {
                     return Err(CedarImportError::Parse {
                         line,
-                        message: format!("invalid escape sequence '\\{}'", other),
+                        message: format!("invalid escape sequence '\\{other}'"),
                     });
                 }
                 None => {
@@ -681,8 +679,7 @@ fn parse_string_literal(text: &str, line: usize) -> Result<String, CedarImportEr
             return Err(CedarImportError::Parse {
                 line,
                 message: format!(
-                    "string literal exceeds maximum length of {} bytes",
-                    MAX_STRING_LITERAL_LEN
+                    "string literal exceeds maximum length of {MAX_STRING_LITERAL_LEN} bytes"
                 ),
             });
         }
@@ -778,8 +775,8 @@ fn build_policy(
         None
     };
 
-    let policy_id = format!("cedar-{}:{}", tool, idx);
-    let policy_name = format!("Cedar policy {} (line {})", idx, line);
+    let policy_id = format!("cedar-{tool}:{idx}");
+    let policy_name = format!("Cedar policy {idx} (line {line})");
 
     Ok(Policy {
         id: policy_id,
@@ -797,7 +794,7 @@ fn truncate_for_error(s: &str, max_len: usize) -> String {
         s.to_string()
     } else {
         let truncated: String = s.chars().take(max_len).collect();
-        format!("{}...", truncated)
+        format!("{truncated}...")
     }
 }
 
@@ -1134,7 +1131,7 @@ mod tests {
         let result = import_cedar_policies(cedar);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        let msg = format!("{}", err);
+        let msg = format!("{err}");
         assert!(msg.contains("expected 'permit' or 'forbid'"));
     }
 
@@ -1147,7 +1144,7 @@ mod tests {
         let result = import_cedar_policies(cedar);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        let msg = format!("{}", err);
+        let msg = format!("{err}");
         assert!(msg.contains("unsupported Cedar feature"));
     }
 
@@ -1161,7 +1158,7 @@ mod tests {
         let result = import_cedar_policies(&cedar);
         assert!(result.is_err());
         let err = result.unwrap_err();
-        let msg = format!("{}", err);
+        let msg = format!("{err}");
         assert!(msg.contains("too many policies"));
     }
 
@@ -1310,7 +1307,7 @@ mod tests {
     fn test_too_many_conditions() {
         let mut conditions = Vec::new();
         for i in 0..=MAX_CONDITIONS_PER_POLICY {
-            conditions.push(format!("resource.domain == \"d{}.com\"", i));
+            conditions.push(format!("resource.domain == \"d{i}.com\""));
         }
         let cedar = format!(
             "permit(principal, action, resource) when {{ {} }};",

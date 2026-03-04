@@ -23,9 +23,9 @@ pub struct ArticleId(pub String);
 impl ArticleId {
     pub fn new(article: u8, paragraph: Option<u8>) -> Self {
         if let Some(p) = paragraph {
-            Self(format!("Art {}({})", article, p))
+            Self(format!("Art {article}({p})"))
         } else {
-            Self(format!("Art {}", article))
+            Self(format!("Art {article}"))
         }
     }
 }
@@ -81,7 +81,7 @@ pub enum TransparencyCapability {
 
 impl std::fmt::Display for TransparencyCapability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 

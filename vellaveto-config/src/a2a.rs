@@ -202,15 +202,13 @@ impl A2aConfig {
             }
             if vellaveto_types::has_dangerous_chars(method) {
                 return Err(format!(
-                    "a2a.allowed_auth_methods entry '{}' contains control or format characters",
-                    method
+                    "a2a.allowed_auth_methods entry '{method}' contains control or format characters"
                 ));
             }
             if !VALID_A2A_AUTH_METHODS.contains(&method.as_str()) {
                 return Err(format!(
-                    "a2a.allowed_auth_methods contains invalid value '{}'. \
-                     Valid values: {:?}",
-                    method, VALID_A2A_AUTH_METHODS
+                    "a2a.allowed_auth_methods contains invalid value '{method}'. \
+                     Valid values: {VALID_A2A_AUTH_METHODS:?}"
                 ));
             }
         }
@@ -258,15 +256,13 @@ impl A2aConfig {
             }
             if vellaveto_types::has_dangerous_chars(op) {
                 return Err(format!(
-                    "a2a.allowed_task_operations entry '{}' contains control or format characters",
-                    op
+                    "a2a.allowed_task_operations entry '{op}' contains control or format characters"
                 ));
             }
             if !VALID_A2A_TASK_OPERATIONS.contains(&op.as_str()) {
                 return Err(format!(
-                    "a2a.allowed_task_operations contains invalid value '{}'. \
-                     Valid values: {:?}",
-                    op, VALID_A2A_TASK_OPERATIONS
+                    "a2a.allowed_task_operations contains invalid value '{op}'. \
+                     Valid values: {VALID_A2A_TASK_OPERATIONS:?}"
                 ));
             }
         }

@@ -233,7 +233,7 @@ pub fn compute_schema_hash(schema: &serde_json::Value) -> Option<String> {
     let mut hasher = Sha256::new();
     hasher.update(canonical.as_bytes());
     let digest = hasher.finalize();
-    Some(format!("{:x}", digest))
+    Some(format!("{digest:x}"))
 }
 
 /// Analyze a `tools/list` response for rug-pull indicators.
@@ -1123,8 +1123,7 @@ mod tests {
         // The flagged name should be normalized (lowercase, no zero-width)
         assert!(
             flagged.contains(&"evil\u{200b}tool") || flagged.contains(&"eviltool"),
-            "Flagged name should be normalized: {:?}",
-            flagged
+            "Flagged name should be normalized: {flagged:?}"
         );
     }
 
@@ -1281,8 +1280,7 @@ mod tests {
         let flagged = result.flagged_tool_names();
         assert!(
             flagged.contains(&"reаd_file"),
-            "flagged_tool_names must include squatting alerts, got: {:?}",
-            flagged
+            "flagged_tool_names must include squatting alerts, got: {flagged:?}"
         );
     }
 
@@ -1433,8 +1431,7 @@ mod tests {
         let flagged = result.flagged_tool_names();
         assert!(
             flagged.contains(&"vanished_tool"),
-            "Removed tools must appear in flagged_tool_names, got: {:?}",
-            flagged
+            "Removed tools must appear in flagged_tool_names, got: {flagged:?}"
         );
     }
 
@@ -1459,8 +1456,7 @@ mod tests {
         let flagged = result.flagged_tool_names();
         assert!(
             flagged.contains(&"tool_b"),
-            "End-to-end: removed tool must be flagged, got: {:?}",
-            flagged
+            "End-to-end: removed tool must be flagged, got: {flagged:?}"
         );
     }
 
@@ -1543,8 +1539,7 @@ mod tests {
         );
         assert!(
             alerts.iter().any(|a| a.kind == SquattingKind::Homoglyph),
-            "Alert kind must be Homoglyph, got: {:?}",
-            alerts
+            "Alert kind must be Homoglyph, got: {alerts:?}"
         );
     }
 
@@ -1562,8 +1557,7 @@ mod tests {
         let alerts = detect_squatting(math_bold_read_file, &known);
         assert!(
             alerts.is_empty(),
-            "Full Mathematical Bold 'read_file' should NFKC-normalize to exact match, got: {:?}",
-            alerts
+            "Full Mathematical Bold 'read_file' should NFKC-normalize to exact match, got: {alerts:?}"
         );
     }
 
@@ -1590,8 +1584,7 @@ mod tests {
                     && (a.kind == SquattingKind::Levenshtein
                         || a.kind == SquattingKind::MixedScript)
             }),
-            "Expected Levenshtein or MixedScript alert against 'read_file', got: {:?}",
-            alerts
+            "Expected Levenshtein or MixedScript alert against 'read_file', got: {alerts:?}"
         );
     }
 

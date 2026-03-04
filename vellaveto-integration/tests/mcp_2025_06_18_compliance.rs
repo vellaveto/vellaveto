@@ -91,7 +91,7 @@ fn test_structured_content_validated_against_schema() {
     });
     match registry.validate("get_weather", &valid_content) {
         ValidationResult::Valid => {} // expected
-        other => panic!("Expected Valid, got {:?}", other),
+        other => panic!("Expected Valid, got {other:?}"),
     }
 
     // Invalid structuredContent (missing required field) fails
@@ -106,13 +106,13 @@ fn test_structured_content_validated_against_schema() {
                 "Should have at least one violation for missing required field"
             );
         }
-        other => panic!("Expected Invalid, got {:?}", other),
+        other => panic!("Expected Invalid, got {other:?}"),
     }
 
     // Unknown tool returns NoSchema
     match registry.validate("unknown_tool", &valid_content) {
         ValidationResult::NoSchema => {} // expected
-        other => panic!("Expected NoSchema, got {:?}", other),
+        other => panic!("Expected NoSchema, got {other:?}"),
     }
 }
 
@@ -155,7 +155,7 @@ fn test_meta_field_preserved_with_strict_schema() {
     });
     match registry.validate("strict_tool", &content_with_meta) {
         ValidationResult::Valid => {} // expected: _meta is allowed
-        other => panic!("Expected Valid (meta should be preserved), got {:?}", other),
+        other => panic!("Expected Valid (meta should be preserved), got {other:?}"),
     }
 
     // Content with a truly extra property should still fail
@@ -170,7 +170,7 @@ fn test_meta_field_preserved_with_strict_schema() {
                 "Should flag extra_field but not _meta"
             );
         }
-        other => panic!("Expected Invalid for extra_field, got {:?}", other),
+        other => panic!("Expected Invalid for extra_field, got {other:?}"),
     }
 }
 
@@ -312,8 +312,7 @@ fn test_response_dlp_detects_secrets() {
         findings
             .iter()
             .any(|f| f.pattern_name.contains("AWS") || f.pattern_name.contains("aws")),
-        "Finding should identify AWS pattern: {:?}",
-        findings
+        "Finding should identify AWS pattern: {findings:?}"
     );
 }
 
@@ -376,8 +375,7 @@ fn test_response_dlp_clean_passes() {
     let findings = scan_response_for_secrets(&clean_response);
     assert!(
         findings.is_empty(),
-        "Clean response should have no DLP findings: {:?}",
-        findings
+        "Clean response should have no DLP findings: {findings:?}"
     );
 }
 
@@ -522,7 +520,7 @@ fn test_dlp_and_schema_validation_complementary() {
         .unwrap();
     match registry.validate("get_config", structured) {
         ValidationResult::Valid => {} // expected — schema is correct
-        other => panic!("Expected Valid, got {:?}", other),
+        other => panic!("Expected Valid, got {other:?}"),
     }
 
     // But DLP catches the secret

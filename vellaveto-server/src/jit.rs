@@ -558,7 +558,7 @@ mod tests {
                 permissions: HashSet::new(),
                 tools: HashSet::new(),
                 ttl_secs: 3600,
-                reason: format!("test {}", i),
+                reason: format!("test {i}"),
             };
             manager.request_access(request).unwrap();
         }
@@ -647,7 +647,7 @@ mod tests {
                 permissions: HashSet::new(),
                 tools: HashSet::new(),
                 ttl_secs: 3600,
-                reason: format!("test {}", i),
+                reason: format!("test {i}"),
             };
             manager.request_access(request).unwrap();
         }
@@ -666,7 +666,7 @@ mod tests {
                 permissions: HashSet::new(),
                 tools: HashSet::new(),
                 ttl_secs: 3600,
-                reason: format!("test {}", i),
+                reason: format!("test {i}"),
             };
             manager.request_access(request).unwrap();
         }

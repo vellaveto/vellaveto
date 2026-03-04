@@ -55,8 +55,7 @@ fn conditional_policy_requires_approval() {
             );
         }
         other => panic!(
-            "Conditional policy with require_approval should require approval, got {:?}",
-            other
+            "Conditional policy with require_approval should require approval, got {other:?}"
         ),
     }
 }
@@ -83,10 +82,7 @@ fn conditional_policy_with_non_matching_action() {
     // A conditional policy for "shell:*" shouldn't affect a "file:read" action
     match result.unwrap() {
         Verdict::Deny { .. } => {} // No matching policy -> deny (fail-closed)
-        other => panic!(
-            "Non-matching conditional should result in deny (no match), got {:?}",
-            other
-        ),
+        other => panic!("Non-matching conditional should result in deny (no match), got {other:?}"),
     }
 }
 
@@ -121,10 +117,7 @@ fn mixed_policies_conditional_and_deny() {
     // Higher-priority Deny should beat lower-priority Conditional
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Higher-priority Deny should override Conditional, got {:?}",
-            other
-        ),
+        other => panic!("Higher-priority Deny should override Conditional, got {other:?}"),
     }
 }
 
@@ -153,7 +146,7 @@ fn conditional_with_forbidden_parameters() {
                 "Reason should mention forbidden param"
             );
         }
-        other => panic!("Forbidden parameter should trigger deny, got {:?}", other),
+        other => panic!("Forbidden parameter should trigger deny, got {other:?}"),
     }
 }
 
@@ -182,10 +175,7 @@ fn conditional_with_required_parameters() {
                 "Should mention missing required param"
             );
         }
-        other => panic!(
-            "Missing required parameter should trigger deny, got {:?}",
-            other
-        ),
+        other => panic!("Missing required parameter should trigger deny, got {other:?}"),
     }
 }
 
@@ -209,7 +199,7 @@ fn conditional_allows_when_no_conditions_triggered() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Allow => {}
-        other => panic!("No forbidden params present, should allow, got {:?}", other),
+        other => panic!("No forbidden params present, should allow, got {other:?}"),
     }
 }
 
@@ -257,8 +247,7 @@ fn max_chain_depth_zero_allows_direct_calls() {
         .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "max_depth 0 with > allows empty chain (direct calls), got: {:?}",
-        result
+        "max_depth 0 with > allows empty chain (direct calls), got: {result:?}"
     );
 }
 
@@ -321,11 +310,10 @@ fn max_chain_depth_zero_denies_single_hop() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("chain depth"),
-                "Deny reason should mention chain depth: {}",
-                reason
+                "Deny reason should mention chain depth: {reason}"
             );
         }
-        other => panic!("Expected Deny for chain depth > 0, got {:?}", other),
+        other => panic!("Expected Deny for chain depth > 0, got {other:?}"),
     }
 }
 
@@ -357,8 +345,7 @@ fn max_chain_depth_one_allows_single_hop() {
         .unwrap();
     assert!(
         matches!(result, Verdict::Allow),
-        "Single hop should be allowed with max_depth 1 (> exclusive semantics), got: {:?}",
-        result
+        "Single hop should be allowed with max_depth 1 (> exclusive semantics), got: {result:?}"
     );
 }
 
@@ -423,11 +410,10 @@ fn max_chain_depth_one_denies_double_hop() {
         Verdict::Deny { reason } => {
             assert!(
                 reason.contains("chain depth"),
-                "Deny reason should mention chain depth: {}",
-                reason
+                "Deny reason should mention chain depth: {reason}"
             );
         }
-        other => panic!("Expected Deny for chain depth > 1, got {:?}", other),
+        other => panic!("Expected Deny for chain depth > 1, got {other:?}"),
     }
 }
 

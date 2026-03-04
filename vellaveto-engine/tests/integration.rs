@@ -60,7 +60,7 @@ fn strict_mode_denies_with_empty_policy_list() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!("Strict mode + no policies must deny, got {:?}", other),
+        other => panic!("Strict mode + no policies must deny, got {other:?}"),
     }
 }
 
@@ -72,10 +72,7 @@ fn non_strict_mode_also_denies_with_empty_policy_list() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Non-strict + no policies must also deny (fail-closed), got {:?}",
-            other
-        ),
+        other => panic!("Non-strict + no policies must also deny (fail-closed), got {other:?}"),
     }
 }
 
@@ -88,10 +85,7 @@ fn strict_mode_allows_when_explicit_allow_exists() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Allow => {}
-        other => panic!(
-            "Strict mode with explicit allow should allow, got {:?}",
-            other
-        ),
+        other => panic!("Strict mode with explicit allow should allow, got {other:?}"),
     }
 }
 
@@ -109,7 +103,7 @@ fn deny_wins_over_allow_at_equal_priority() {
     assert!(result.is_ok());
     match result.unwrap() {
         Verdict::Deny { .. } | Verdict::Allow => {}
-        other => panic!("Unexpected verdict at equal priority: {:?}", other),
+        other => panic!("Unexpected verdict at equal priority: {other:?}"),
     }
 }
 
@@ -126,10 +120,7 @@ fn highest_priority_deny_overrides_multiple_allows() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Single high-priority deny must override all allows, got {:?}",
-            other
-        ),
+        other => panic!("Single high-priority deny must override all allows, got {other:?}"),
     }
 }
 
@@ -144,10 +135,7 @@ fn highest_priority_allow_overrides_lower_deny() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Allow => {}
-        other => panic!(
-            "High-priority allow should override low deny, got {:?}",
-            other
-        ),
+        other => panic!("High-priority allow should override low deny, got {other:?}"),
     }
 }
 
@@ -168,10 +156,7 @@ fn conditional_triggers_require_approval_on_match() {
         Verdict::RequireApproval { reason } => {
             assert!(!reason.is_empty(), "Approval reason must not be empty");
         }
-        other => panic!(
-            "Matching conditional should require approval, got {:?}",
-            other
-        ),
+        other => panic!("Matching conditional should require approval, got {other:?}"),
     }
 }
 
@@ -188,10 +173,7 @@ fn conditional_does_not_trigger_on_non_matching_action() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {} // No matching policy -> deny (fail-closed)
-        other => panic!(
-            "Non-matching conditional should result in deny, got {:?}",
-            other
-        ),
+        other => panic!("Non-matching conditional should result in deny, got {other:?}"),
     }
 }
 
@@ -211,10 +193,7 @@ fn deny_overrides_conditional_at_higher_priority() {
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Higher-priority deny must beat conditional, got {:?}",
-            other
-        ),
+        other => panic!("Higher-priority deny must beat conditional, got {other:?}"),
     }
 }
 
@@ -237,7 +216,7 @@ fn very_large_parameter_set() {
     let engine = PolicyEngine::new(false);
     let mut params = serde_json::Map::new();
     for i in 0..1000 {
-        params.insert(format!("key_{}", i), json!(format!("value_{}", i)));
+        params.insert(format!("key_{i}"), json!(format!("value_{}", i)));
     }
     let act = action("shell", "execute", serde_json::Value::Object(params));
     let policies = vec![allow("shell:*", "allow-shell", 1)];
@@ -292,9 +271,9 @@ fn engine_is_reusable_across_evaluations() {
     let policies = vec![allow("*", "allow", 1)];
 
     for i in 0..100 {
-        let act = action("tool", &format!("fn_{}", i), json!({"i": i}));
+        let act = action("tool", &format!("fn_{i}"), json!({"i": i}));
         let result = engine.evaluate_action(&act, &policies);
-        assert!(result.is_ok(), "Evaluation #{} should succeed", i);
+        assert!(result.is_ok(), "Evaluation #{i} should succeed");
     }
 }
 
@@ -308,7 +287,7 @@ fn engine_gives_consistent_results() {
         let result = engine.evaluate_action(&act, &policies).unwrap();
         match result {
             Verdict::Deny { .. } => {}
-            other => panic!("Inconsistent result: {:?}", other),
+            other => panic!("Inconsistent result: {other:?}"),
         }
     }
 }
@@ -321,16 +300,13 @@ fn handles_many_policies() {
     let act = action("shell", "execute", json!({}));
 
     let mut policies: Vec<Policy> = (0..100)
-        .map(|i| allow("*", &format!("allow-{}", i), i))
+        .map(|i| allow("*", &format!("allow-{i}"), i))
         .collect();
     policies.push(deny("shell:*", "deny-final", 999));
 
     let result = engine.evaluate_action(&act, &policies).unwrap();
     match result {
         Verdict::Deny { .. } => {}
-        other => panic!(
-            "Single high-priority deny among 100 allows should deny, got {:?}",
-            other
-        ),
+        other => panic!("Single high-priority deny among 100 allows should deny, got {other:?}"),
     }
 }

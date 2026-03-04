@@ -21,11 +21,9 @@ use vellaveto_types::{Action, Policy, PolicyType};
 
 fn make_conditional_policy(num_forbidden: usize, num_required: usize) -> Policy {
     let forbidden: Vec<String> = (0..num_forbidden)
-        .map(|i| format!("forbidden_{}", i))
+        .map(|i| format!("forbidden_{i}"))
         .collect();
-    let required: Vec<String> = (0..num_required)
-        .map(|i| format!("required_{}", i))
-        .collect();
+    let required: Vec<String> = (0..num_required).map(|i| format!("required_{i}")).collect();
 
     Policy {
         id: "*".to_string(),
@@ -46,8 +44,8 @@ fn make_action_with_params(num_params: usize) -> Action {
     let mut params = serde_json::Map::new();
     for i in 0..num_params {
         params.insert(
-            format!("required_{}", i),
-            serde_json::Value::String(format!("val_{}", i)),
+            format!("required_{i}"),
+            serde_json::Value::String(format!("val_{i}")),
         );
     }
     Action::new(
@@ -66,10 +64,7 @@ fn main() {
     println!();
 
     // Vary forbidden parameter count
-    println!(
-        "Forbidden parameter count scaling ({} iterations each):",
-        iterations
-    );
+    println!("Forbidden parameter count scaling ({iterations} iterations each):");
     println!("{:<15} {:>12} {:>12}", "Forbidden", "Total", "Per-eval");
     println!("{}", "-".repeat(39));
 
@@ -95,10 +90,7 @@ fn main() {
     println!();
 
     // Vary required parameter count (all present in action)
-    println!(
-        "Required parameter count scaling ({} iterations each):",
-        iterations
-    );
+    println!("Required parameter count scaling ({iterations} iterations each):");
     println!("{:<15} {:>12} {:>12}", "Required", "Total", "Per-eval");
     println!("{}", "-".repeat(39));
 
@@ -124,10 +116,7 @@ fn main() {
     println!();
 
     // Combined: both forbidden and required
-    println!(
-        "Combined forbidden+required scaling ({} iterations each):",
-        iterations
-    );
+    println!("Combined forbidden+required scaling ({iterations} iterations each):");
     println!(
         "{:<10} {:<10} {:>12} {:>12}",
         "Forbidden", "Required", "Total", "Per-eval"

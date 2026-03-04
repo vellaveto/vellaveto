@@ -278,8 +278,7 @@ fn test_owasp_mcp02_deny_rule_blocks_tool() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Deny policy must block bash tool: got {:?}",
-        verdict
+        "Deny policy must block bash tool: got {verdict:?}"
     );
 }
 
@@ -293,8 +292,7 @@ fn test_owasp_mcp02_no_matching_policy_denies() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Unmatched action must be denied (fail-closed): got {:?}",
-        verdict
+        "Unmatched action must be denied (fail-closed): got {verdict:?}"
     );
 }
 
@@ -306,8 +304,7 @@ fn test_owasp_mcp02_empty_policy_list_denies() {
     let verdict = engine.evaluate_action(&action, &[]).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Empty policy list must deny all (fail-closed): got {:?}",
-        verdict
+        "Empty policy list must deny all (fail-closed): got {verdict:?}"
     );
 }
 
@@ -322,8 +319,7 @@ fn test_owasp_mcp02_wildcard_policy_catches_all() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "*:* must deny {tool}:{func}: got {:?}",
-            verdict
+            "*:* must deny {tool}:{func}: got {verdict:?}"
         );
     }
 }
@@ -341,8 +337,7 @@ fn test_owasp_mcp02_specific_deny_overrides_broad_allow() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Higher-priority deny must override broad allow: got {:?}",
-        verdict
+        "Higher-priority deny must override broad allow: got {verdict:?}"
     );
 }
 
@@ -369,8 +364,7 @@ fn test_owasp_mcp03_unknown_tool_denied_by_allowlist() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Unknown tool function must be denied: got {:?}",
-        verdict
+        "Unknown tool function must be denied: got {verdict:?}"
     );
 }
 
@@ -441,8 +435,7 @@ fn test_owasp_mcp03_strict_allowlist_blocks_all_unknown() {
         let verdict = engine.evaluate_action(&action, &sorted).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Poisoned tool {tool}:{func} must be denied: got {:?}",
-            verdict
+            "Poisoned tool {tool}:{func} must be denied: got {verdict:?}"
         );
     }
 }
@@ -469,8 +462,7 @@ fn test_owasp_mcp04_deny_wins_at_equal_priority() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "At equal priority, deny must win over allow (deny-override): got {:?}",
-        verdict
+        "At equal priority, deny must win over allow (deny-override): got {verdict:?}"
     );
 }
 
@@ -487,8 +479,7 @@ fn test_owasp_mcp04_cannot_escalate_with_lower_priority_allow() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Lower-priority allow must not override higher-priority deny: got {:?}",
-        verdict
+        "Lower-priority allow must not override higher-priority deny: got {verdict:?}"
     );
 }
 
@@ -506,8 +497,7 @@ fn test_owasp_mcp04_require_approval_for_sensitive_operations() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Sensitive operations must require approval: got {:?}",
-        verdict
+        "Sensitive operations must require approval: got {verdict:?}"
     );
 }
 
@@ -526,8 +516,7 @@ fn test_owasp_mcp04_forbidden_parameters_prevent_escalation() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Forbidden parameter 'admin' must cause denial: got {:?}",
-        verdict
+        "Forbidden parameter 'admin' must cause denial: got {verdict:?}"
     );
 }
 
@@ -562,8 +551,7 @@ fn test_owasp_mcp05_path_traversal_blocked_by_constraint() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "/etc/passwd must be blocked: got {:?}",
-        verdict
+        "/etc/passwd must be blocked: got {verdict:?}"
     );
 
     // Traversal attempt — normalize_path strips traversal before constraint check
@@ -571,8 +559,7 @@ fn test_owasp_mcp05_path_traversal_blocked_by_constraint() {
     let verdict2 = engine.evaluate_action(&action2, &policies).unwrap();
     assert!(
         matches!(verdict2, Verdict::Deny { .. }),
-        "Traversal to /etc must be blocked: got {:?}",
-        verdict2
+        "Traversal to /etc must be blocked: got {verdict2:?}"
     );
 }
 
@@ -607,8 +594,7 @@ fn test_owasp_mcp05_regex_blocks_shell_metacharacters() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "{desc} must be blocked: got {:?}",
-            verdict
+            "{desc} must be blocked: got {verdict:?}"
         );
     }
 }
@@ -641,8 +627,7 @@ fn test_owasp_mcp05_domain_constraint_blocks_exfiltration() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "Exfiltration to {url} must be blocked: got {:?}",
-            verdict
+            "Exfiltration to {url} must be blocked: got {verdict:?}"
         );
     }
 }
@@ -680,8 +665,7 @@ fn test_owasp_mcp05_deep_parameter_scanning() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Deep-nested /etc path must be caught by wildcard scan: got {:?}",
-        verdict
+        "Deep-nested /etc path must be caught by wildcard scan: got {verdict:?}"
     );
 }
 
@@ -1536,7 +1520,7 @@ fn test_owasp_mcp09_denied_actions_include_reason() {
                     "Deny reason must be preserved in audit log"
                 );
             }
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     });
 }
@@ -1833,8 +1817,7 @@ fn test_owasp_excessive_agency_broad_grant_denied() {
     let verdict = engine.evaluate_action(&read_action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Allow),
-        "file:read should be allowed: got {:?}",
-        verdict
+        "file:read should be allowed: got {verdict:?}"
     );
 
     // Write, delete, exec should all be denied (excessive agency blocked)
@@ -1843,9 +1826,7 @@ fn test_owasp_excessive_agency_broad_grant_denied() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Deny { .. }),
-            "file:{} should be denied (excessive agency): got {:?}",
-            func,
-            verdict
+            "file:{func} should be denied (excessive agency): got {verdict:?}"
         );
     }
 }
@@ -1868,8 +1849,7 @@ fn test_owasp_excessive_agency_unregistered_tool_denied() {
     let verdict = engine.evaluate_action(&action, &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Unregistered tool function file:chmod should be denied: got {:?}",
-        verdict
+        "Unregistered tool function file:chmod should be denied: got {verdict:?}"
     );
 }
 
@@ -1894,8 +1874,7 @@ fn test_owasp_excessive_agency_wildcard_grants_everything() {
         let verdict = engine.evaluate_action(&action, &policies).unwrap();
         assert!(
             matches!(verdict, Verdict::Allow),
-            "*:* allow grants {tool}:{func} — this demonstrates excessive agency risk: got {:?}",
-            verdict
+            "*:* allow grants {tool}:{func} — this demonstrates excessive agency risk: got {verdict:?}"
         );
     }
 
@@ -1913,8 +1892,7 @@ fn test_owasp_excessive_agency_wildcard_grants_everything() {
         .unwrap();
     assert!(
         matches!(verdict, Verdict::Deny { .. }),
-        "Compensating deny must block excessive agency: got {:?}",
-        verdict
+        "Compensating deny must block excessive agency: got {verdict:?}"
     );
 }
 

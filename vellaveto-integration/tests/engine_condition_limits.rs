@@ -73,8 +73,7 @@ fn condition_depth_11_is_rejected() {
     let msg = err.to_string();
     assert!(
         msg.contains("nesting depth"),
-        "Error should mention nesting depth: {}",
-        msg
+        "Error should mention nesting depth: {msg}"
     );
 }
 
@@ -122,8 +121,7 @@ fn condition_size_over_100kb_is_rejected() {
     let msg = err.to_string();
     assert!(
         msg.contains("too large"),
-        "Error should mention size: {}",
-        msg
+        "Error should mention size: {msg}"
     );
 }
 

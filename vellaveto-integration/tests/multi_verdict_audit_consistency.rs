@@ -90,7 +90,7 @@ fn all_three_verdict_types_are_logged_and_counted() {
                 // Handle future variants
                 _ => "Unknown",
             };
-            assert_eq!(tag, *expected_tag, "Wrong verdict for {:?}", action);
+            assert_eq!(tag, *expected_tag, "Wrong verdict for {action:?}");
 
             logger.log_entry(action, &verdict, json!({})).await.unwrap();
         }
@@ -124,7 +124,7 @@ fn bulk_allow_verdicts_counted_correctly() {
         }];
 
         for i in 0..50 {
-            let action = make_action("tool", &format!("func_{}", i), json!({}));
+            let action = make_action("tool", &format!("func_{i}"), json!({}));
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             assert!(matches!(verdict, Verdict::Allow));
             logger
@@ -152,7 +152,7 @@ fn bulk_deny_verdicts_from_empty_policies() {
         let policies: Vec<Policy> = vec![];
 
         for i in 0..20 {
-            let action = make_action("t", &format!("f_{}", i), json!({}));
+            let action = make_action("t", &format!("f_{i}"), json!({}));
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             assert!(matches!(verdict, Verdict::Deny { .. }));
             logger
@@ -258,11 +258,11 @@ fn verdict_reason_strings_survive_roundtrip() {
 
         match &entries[0].verdict {
             Verdict::Deny { reason } => assert_eq!(reason, deny_reason),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
         match &entries[1].verdict {
             Verdict::RequireApproval { reason } => assert_eq!(reason, approval_reason),
-            other => panic!("Expected RequireApproval, got {:?}", other),
+            other => panic!("Expected RequireApproval, got {other:?}"),
         }
     });
 }

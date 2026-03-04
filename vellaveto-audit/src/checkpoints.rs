@@ -68,7 +68,7 @@ impl AuditLogger {
         let merkle_root = if let Some(ref merkle) = self.merkle_tree {
             let tree = merkle
                 .lock()
-                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Merkle tree lock poisoned: {e}")))?;
             tree.root_hex()
         } else {
             None
@@ -269,8 +269,7 @@ impl AuditLogger {
                         checkpoints_checked: 0,
                         first_invalid_at: Some(0),
                         failure_reason: Some(format!(
-                            "Hash chain broken at entry {}: prev_hash mismatch (middle deletion detected)",
-                            i
+                            "Hash chain broken at entry {i}: prev_hash mismatch (middle deletion detected)"
                         )),
                     });
                 }
@@ -281,8 +280,7 @@ impl AuditLogger {
                         checkpoints_checked: 0,
                         first_invalid_at: Some(0),
                         failure_reason: Some(format!(
-                            "Hash chain broken at entry {}: entry_hash mismatch (tampering detected)",
-                            i
+                            "Hash chain broken at entry {i}: entry_hash mismatch (tampering detected)"
                         )),
                     });
                 }
@@ -333,16 +331,16 @@ impl AuditLogger {
 
             // 3. Decode verifying key
             let vk_bytes = hex::decode(&cp.verifying_key)
-                .map_err(|e| AuditError::Validation(format!("Invalid verifying key hex: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Invalid verifying key hex: {e}")))?;
             let vk_array: [u8; 32] = vk_bytes.try_into().map_err(|_| {
                 AuditError::Validation("Verifying key must be 32 bytes".to_string())
             })?;
             let verifying_key = VerifyingKey::from_bytes(&vk_array)
-                .map_err(|e| AuditError::Validation(format!("Invalid verifying key: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Invalid verifying key: {e}")))?;
 
             // 4. Decode signature
             let sig_bytes = hex::decode(&cp.signature)
-                .map_err(|e| AuditError::Validation(format!("Invalid signature hex: {}", e)))?;
+                .map_err(|e| AuditError::Validation(format!("Invalid signature hex: {e}")))?;
             let sig_array: [u8; 64] = sig_bytes
                 .try_into()
                 .map_err(|_| AuditError::Validation("Signature must be 64 bytes".to_string()))?;

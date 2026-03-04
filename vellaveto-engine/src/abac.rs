@@ -930,7 +930,7 @@ mod tests {
     fn make_permit_policy(id: &str, tool_pattern: &str) -> AbacPolicy {
         AbacPolicy {
             id: id.to_string(),
-            description: format!("Permit {}", id),
+            description: format!("Permit {id}"),
             effect: AbacEffect::Permit,
             priority: 0,
             principal: Default::default(),
@@ -945,7 +945,7 @@ mod tests {
     fn make_forbid_policy(id: &str, tool_pattern: &str) -> AbacPolicy {
         AbacPolicy {
             id: id.to_string(),
-            description: format!("Forbid {}", id),
+            description: format!("Forbid {id}"),
             effect: AbacEffect::Forbid,
             priority: 0,
             principal: Default::default(),
@@ -995,7 +995,7 @@ mod tests {
 
         match engine.evaluate(&action, &ctx) {
             AbacDecision::Allow { policy_id } => assert_eq!(policy_id, "p1"),
-            other => panic!("Expected Allow, got {:?}", other),
+            other => panic!("Expected Allow, got {other:?}"),
         }
     }
 
@@ -1011,7 +1011,7 @@ mod tests {
 
         match engine.evaluate(&action, &ctx) {
             AbacDecision::Deny { policy_id, .. } => assert_eq!(policy_id, "forbid-bash"),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     }
 
@@ -1510,7 +1510,7 @@ mod tests {
         // Forbid wins even with lower priority
         match engine.evaluate(&make_action("any", "any"), &ctx) {
             AbacDecision::Deny { policy_id, .. } => assert_eq!(policy_id, "low-forbid"),
-            other => panic!("Expected Deny, got {:?}", other),
+            other => panic!("Expected Deny, got {other:?}"),
         }
     }
 
@@ -1769,14 +1769,14 @@ mod tests {
         }];
         let mut mid_parents = Vec::new();
         for i in 0..16 {
-            let id = format!("mid{}", i);
+            let id = format!("mid{i}");
             entities.push(AbacEntity {
                 entity_type: "G".to_string(),
                 id: id.clone(),
                 attributes: HashMap::new(),
                 parents: vec!["G::top".to_string()],
             });
-            mid_parents.push(format!("G::{}", id));
+            mid_parents.push(format!("G::{id}"));
         }
         entities.push(AbacEntity {
             entity_type: "E".to_string(),
@@ -2133,7 +2133,7 @@ mod tests {
         let ctx = make_ctx(&eval_ctx, "Agent", "\u{0430}dmin-user");
         match engine.evaluate(&make_action("any", "any"), &ctx) {
             AbacDecision::Deny { policy_id, .. } => assert_eq!(policy_id, "p1"),
-            other => panic!("Expected Deny from homoglyph principal ID, got {:?}", other),
+            other => panic!("Expected Deny from homoglyph principal ID, got {other:?}"),
         }
     }
 

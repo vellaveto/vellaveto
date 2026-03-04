@@ -182,8 +182,7 @@ fn three_types_same_priority_deny_wins() {
     // Deny should win due to deny-overrides tiebreaker at equal priority
     assert!(
         matches!(result, Verdict::Deny { .. }),
-        "Expected Deny to win at equal priority due to deny-overrides, got {:?}",
-        result,
+        "Expected Deny to win at equal priority due to deny-overrides, got {result:?}",
     );
 }
 
@@ -223,11 +222,10 @@ fn conditional_forbidden_param_at_higher_priority_than_explicit_deny() {
             // Should be the conditional's deny, not the explicit deny
             assert!(
                 reason.contains("forbidden"),
-                "Expected conditional's forbidden-param denial, got: {}",
-                reason,
+                "Expected conditional's forbidden-param denial, got: {reason}",
             );
         }
-        other => panic!("Expected Deny, got {:?}", other),
+        other => panic!("Expected Deny, got {other:?}"),
     }
 }
 
@@ -264,7 +262,6 @@ fn conditional_no_forbidden_match_falls_through_to_allow() {
     // The Deny at priority 50 is never reached.
     assert!(
         matches!(result, Verdict::Allow),
-        "Expected Allow (conditional passthrough), got {:?}",
-        result,
+        "Expected Allow (conditional passthrough), got {result:?}",
     );
 }

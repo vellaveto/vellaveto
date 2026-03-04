@@ -693,7 +693,7 @@ impl ThreatIntelConfig {
             // Allow localhost for development (already checked above for scheme).
             if !crate::validation::is_http_localhost_url(endpoint) {
                 if let Err(e) = vellaveto_types::validate_url_no_ssrf(endpoint) {
-                    return Err(format!("threat_intel.endpoint {}", e));
+                    return Err(format!("threat_intel.endpoint {e}"));
                 }
             }
         }
@@ -833,8 +833,7 @@ impl JitAccessConfig {
         for (i, elev) in self.allowed_elevations.iter().enumerate() {
             if elev.is_empty() {
                 return Err(format!(
-                    "jit_access.allowed_elevations[{}] must not be empty",
-                    i
+                    "jit_access.allowed_elevations[{i}] must not be empty"
                 ));
             }
             if elev.len() > MAX_ELEVATION_STRING_LEN {
@@ -847,8 +846,7 @@ impl JitAccessConfig {
             }
             if vellaveto_types::has_dangerous_chars(elev) {
                 return Err(format!(
-                    "jit_access.allowed_elevations[{}] contains control or format characters",
-                    i
+                    "jit_access.allowed_elevations[{i}] contains control or format characters"
                 ));
             }
         }
@@ -895,7 +893,7 @@ mod tests {
         for ver in &["1.2", "1.3"] {
             let mut config = TlsConfig::default();
             config.min_version = ver.to_string();
-            assert!(config.validate().is_ok(), "should accept '{}'", ver);
+            assert!(config.validate().is_ok(), "should accept '{ver}'");
         }
     }
 
@@ -933,7 +931,7 @@ mod tests {
     fn test_tls_validate_too_many_cipher_suites_rejected() {
         let mut config = TlsConfig::default();
         config.cipher_suites = (0..=MAX_CIPHER_SUITES)
-            .map(|i| format!("TLS_SUITE_{}", i))
+            .map(|i| format!("TLS_SUITE_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("cipher_suites"));
@@ -994,7 +992,7 @@ mod tests {
     fn test_spiffe_validate_too_many_spiffe_ids_rejected() {
         let mut config = SpiffeConfig::default();
         config.allowed_spiffe_ids = (0..=MAX_SPIFFE_IDS)
-            .map(|i| format!("spiffe://example.org/agent/{}", i))
+            .map(|i| format!("spiffe://example.org/agent/{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allowed_spiffe_ids"));
@@ -1004,7 +1002,7 @@ mod tests {
     fn test_spiffe_validate_too_many_role_mappings_rejected() {
         let mut config = SpiffeConfig::default();
         config.id_to_role = (0..=MAX_SPIFFE_ROLE_MAPPINGS)
-            .map(|i| (format!("spiffe://a/{}", i), "viewer".to_string()))
+            .map(|i| (format!("spiffe://a/{i}"), "viewer".to_string()))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("id_to_role"));
@@ -1078,7 +1076,7 @@ mod tests {
     fn test_opa_validate_too_many_headers_rejected() {
         let mut config = OpaConfig::default();
         config.headers = (0..=MAX_OPA_HEADERS)
-            .map(|i| (format!("X-Header-{}", i), "value".to_string()))
+            .map(|i| (format!("X-Header-{i}"), "value".to_string()))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("headers count"));
@@ -1187,7 +1185,7 @@ mod tests {
     #[test]
     fn test_threat_intel_validate_too_many_ioc_types_rejected() {
         let mut config = ThreatIntelConfig::default();
-        config.ioc_types = (0..=MAX_IOC_TYPES).map(|i| format!("type_{}", i)).collect();
+        config.ioc_types = (0..=MAX_IOC_TYPES).map(|i| format!("type_{i}")).collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("ioc_types"));
     }
@@ -1230,7 +1228,7 @@ mod tests {
     fn test_jit_access_validate_too_many_elevations_rejected() {
         let mut config = JitAccessConfig::default();
         config.allowed_elevations = (0..=MAX_JIT_ELEVATIONS)
-            .map(|i| format!("elev_{}", i))
+            .map(|i| format!("elev_{i}"))
             .collect();
         let err = config.validate().unwrap_err();
         assert!(err.contains("allowed_elevations"));

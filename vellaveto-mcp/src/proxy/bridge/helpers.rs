@@ -99,7 +99,7 @@ impl ProxyBridge {
             "reason": reason,
         });
         let line = match serde_json::to_string(&entry) {
-            Ok(s) => format!("{}\n", s),
+            Ok(s) => format!("{s}\n"),
             Err(e) => {
                 tracing::warn!("Failed to serialize flagged tool entry: {}", e);
                 return;

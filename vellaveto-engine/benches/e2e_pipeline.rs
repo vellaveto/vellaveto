@@ -36,7 +36,7 @@ fn make_action(tool: &str, function: &str, params: serde_json::Value) -> Action 
 fn make_allow_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Allow {}", id),
+        name: format!("Allow {id}"),
         policy_type: PolicyType::Allow,
         priority,
         path_rules: None,
@@ -47,7 +47,7 @@ fn make_allow_policy(id: &str, priority: i32) -> Policy {
 fn make_deny_policy(id: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Deny {}", id),
+        name: format!("Deny {id}"),
         policy_type: PolicyType::Deny,
         priority,
         path_rules: None,
@@ -58,7 +58,7 @@ fn make_deny_policy(id: &str, priority: i32) -> Policy {
 fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Conditional {}", id),
+        name: format!("Conditional {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -78,7 +78,7 @@ fn make_conditional_glob_policy(id: &str, param: &str, pattern: &str, priority: 
 fn make_conditional_regex_policy(id: &str, param: &str, pattern: &str, priority: i32) -> Policy {
     Policy {
         id: id.to_string(),
-        name: format!("Regex {}", id),
+        name: format!("Regex {id}"),
         policy_type: PolicyType::Conditional {
             conditions: json!({
                 "parameter_constraints": [{
@@ -106,8 +106,8 @@ fn generate_e2e_policies(n: usize) -> Vec<Policy> {
             0 => {
                 // Allow with path rules
                 policies.push(Policy {
-                    id: format!("file_{}:*", i),
-                    name: format!("File allow {}", i),
+                    id: format!("file_{i}:*"),
+                    name: format!("File allow {i}"),
                     policy_type: PolicyType::Allow,
                     priority,
                     path_rules: Some(PathRules {
@@ -119,13 +119,13 @@ fn generate_e2e_policies(n: usize) -> Vec<Policy> {
             }
             1 => {
                 // Deny policy
-                policies.push(make_deny_policy(&format!("blocked_{}:*", i), priority));
+                policies.push(make_deny_policy(&format!("blocked_{i}:*"), priority));
             }
             2 => {
                 // Allow with network rules
                 policies.push(Policy {
-                    id: format!("http_{}:*", i),
-                    name: format!("HTTP allow {}", i),
+                    id: format!("http_{i}:*"),
+                    name: format!("HTTP allow {i}"),
                     policy_type: PolicyType::Allow,
                     priority,
                     path_rules: None,
@@ -142,26 +142,26 @@ fn generate_e2e_policies(n: usize) -> Vec<Policy> {
             3 => {
                 // Conditional glob
                 policies.push(make_conditional_glob_policy(
-                    &format!("glob_{}:*", i),
+                    &format!("glob_{i}:*"),
                     "path",
-                    &format!("/restricted/dir_{}/**", i),
+                    &format!("/restricted/dir_{i}/**"),
                     priority,
                 ));
             }
             4 => {
                 // Conditional regex
                 policies.push(make_conditional_regex_policy(
-                    &format!("regex_{}:*", i),
+                    &format!("regex_{i}:*"),
                     "command",
-                    &format!("^(rm|delete|drop).*item_{}", i),
+                    &format!("^(rm|delete|drop).*item_{i}"),
                     priority,
                 ));
             }
             _ => {
                 // Context-aware policy with forbidden_previous_action
                 policies.push(Policy {
-                    id: format!("ctx_{}:*", i),
-                    name: format!("Context policy {}", i),
+                    id: format!("ctx_{i}:*"),
+                    name: format!("Context policy {i}"),
                     policy_type: PolicyType::Conditional {
                         conditions: json!({
                             "context_conditions": [
@@ -221,7 +221,7 @@ fn bench_e2e_evaluate_with_context_full_session_state(c: &mut Criterion) {
     // Build a fully-populated EvaluationContext representing a realistic session
     let mut call_counts = HashMap::new();
     for i in 0..20 {
-        call_counts.insert(format!("tool_{}", i), (i + 1) as u64);
+        call_counts.insert(format!("tool_{i}"), (i + 1) as u64);
     }
 
     let mut claims = HashMap::new();
@@ -231,9 +231,9 @@ fn bench_e2e_evaluate_with_context_full_session_state(c: &mut Criterion) {
 
     let call_chain: Vec<CallChainEntry> = (0..3)
         .map(|i| CallChainEntry {
-            agent_id: format!("agent-{}", i),
-            tool: format!("tool_{}", i),
-            function: format!("function_{}", i),
+            agent_id: format!("agent-{i}"),
+            tool: format!("tool_{i}"),
+            function: format!("function_{i}"),
             timestamp: "2026-02-16T12:00:00Z".to_string(),
             hmac: None,
             verified: None,

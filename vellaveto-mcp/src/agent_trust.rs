@@ -987,7 +987,7 @@ mod tests {
 
         // Fill to capacity (MAX_REGISTERED_AGENTS = 10_000)
         for i in 0..MAX_REGISTERED_AGENTS {
-            graph.register_agent(&format!("agent_{}", i), PrivilegeLevel::Basic);
+            graph.register_agent(&format!("agent_{i}"), PrivilegeLevel::Basic);
         }
 
         let stats = graph.stats();
@@ -1014,7 +1014,7 @@ mod tests {
 
         // Fill to capacity
         for i in 0..MAX_REGISTERED_AGENTS {
-            graph.register_agent(&format!("agent_{}", i), PrivilegeLevel::Basic);
+            graph.register_agent(&format!("agent_{i}"), PrivilegeLevel::Basic);
         }
 
         // Re-registering an existing agent should succeed (updates last_activity)

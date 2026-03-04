@@ -1002,8 +1002,7 @@ impl Ai600ComplianceReport {
         let total_controls: usize = self.risk_areas.iter().map(|r| r.controls.len()).sum();
         if total_controls > MAX_AI600_CONTROLS {
             return Err(format!(
-                "total controls across risk areas is {}, max is {}",
-                total_controls, MAX_AI600_CONTROLS
+                "total controls across risk areas is {total_controls}, max is {MAX_AI600_CONTROLS}"
             ));
         }
         if self.cross_mappings.len() > MAX_CROSS_MAPPINGS {
@@ -1166,9 +1165,7 @@ mod tests {
             assert_eq!(
                 id.risk_area(),
                 Some(*risk_area),
-                "Failed to round-trip risk area {:?} through control ID {}",
-                risk_area,
-                id
+                "Failed to round-trip risk area {risk_area:?} through control ID {id}"
             );
         }
     }
@@ -1600,9 +1597,7 @@ mod tests {
                 mitigations
                     .iter()
                     .any(|m| m.control_id.0.contains(expected_code)),
-                "Detection {:?} should map to a {} control",
-                detection,
-                expected_code
+                "Detection {detection:?} should map to a {expected_code} control"
             );
         }
     }

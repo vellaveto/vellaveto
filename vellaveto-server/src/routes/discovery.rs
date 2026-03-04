@@ -135,7 +135,7 @@ pub async fn discovery_search(
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: format!("token_budget {} exceeds max {}", budget, MAX_TOKEN_BUDGET),
+                    error: format!("token_budget {budget} exceeds max {MAX_TOKEN_BUDGET}"),
                 }),
             ));
         }

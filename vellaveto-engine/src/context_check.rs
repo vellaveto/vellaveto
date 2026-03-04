@@ -320,8 +320,7 @@ impl PolicyEngine {
                                             sanitize_for_log(req_iss, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
-                                                "{} (issuer mismatch: expected '{}', got '{}')",
-                                                deny_reason, safe_expected, safe_got
+                                                "{deny_reason} (issuer mismatch: expected '{safe_expected}', got '{safe_got}')"
                                             ),
                                         });
                                     }
@@ -343,8 +342,7 @@ impl PolicyEngine {
                                             sanitize_for_log(req_sub, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
-                                                "{} (subject mismatch: expected '{}', got '{}')",
-                                                deny_reason, safe_expected, safe_got
+                                                "{deny_reason} (subject mismatch: expected '{safe_expected}', got '{safe_got}')"
                                             ),
                                         });
                                     }
@@ -372,8 +370,7 @@ impl PolicyEngine {
                                         sanitize_for_log(req_aud, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{} (audience mismatch: '{}' not in {:?})",
-                                            deny_reason, safe_expected, safe_audiences
+                                            "{deny_reason} (audience mismatch: '{safe_expected}' not in {safe_audiences:?})"
                                         ),
                                     });
                                 }
@@ -397,8 +394,7 @@ impl PolicyEngine {
                                             .unwrap_or_else(|| "<none>".to_string());
                                         return Some(Verdict::Deny {
                                             reason: format!(
-                                                "{} (claim '{}' mismatch: expected '{}', got '{}')",
-                                                deny_reason, claim_key, expected_value, safe_actual
+                                                "{deny_reason} (claim '{claim_key}' mismatch: expected '{expected_value}', got '{safe_actual}')"
                                             ),
                                         });
                                     }
@@ -411,8 +407,7 @@ impl PolicyEngine {
                                 // Fail-closed: attestation required but not provided
                                 return Some(Verdict::Deny {
                                     reason: format!(
-                                        "{} (X-Agent-Identity header required but not provided)",
-                                        deny_reason
+                                        "{deny_reason} (X-Agent-Identity header required but not provided)"
                                     ),
                                 });
                             }
@@ -499,8 +494,7 @@ impl PolicyEngine {
                                     let safe_res = sanitize_for_log(res, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{} (resource '{}' not in allowed list)",
-                                            deny_reason, safe_res
+                                            "{deny_reason} (resource '{safe_res}' not in allowed list)"
                                         ),
                                     });
                                 }
@@ -515,8 +509,7 @@ impl PolicyEngine {
                             if *require_resource || !allowed_resources.is_empty() {
                                 return Some(Verdict::Deny {
                                     reason: format!(
-                                        "{} (resource indicator required but not present)",
-                                        deny_reason
+                                        "{deny_reason} (resource indicator required but not present)"
                                     ),
                                 });
                             }
@@ -538,8 +531,7 @@ impl PolicyEngine {
                     {
                         return Some(Verdict::Deny {
                             reason: format!(
-                                "{} (no agent identity for capability check)",
-                                deny_reason
+                                "{deny_reason} (no agent identity for capability check)"
                             ),
                         });
                     }
@@ -586,8 +578,7 @@ impl PolicyEngine {
                         if declared_caps.iter().any(|c| c == blocked) {
                             return Some(Verdict::Deny {
                                 reason: format!(
-                                    "{} (blocked capability '{}' is declared)",
-                                    deny_reason, blocked
+                                    "{deny_reason} (blocked capability '{blocked}' is declared)"
                                 ),
                             });
                         }
@@ -598,8 +589,7 @@ impl PolicyEngine {
                         if !declared_caps.iter().any(|c| c == required) {
                             return Some(Verdict::Deny {
                                 reason: format!(
-                                    "{} (required capability '{}' not declared)",
-                                    deny_reason, required
+                                    "{deny_reason} (required capability '{required}' not declared)"
                                 ),
                             });
                         }
@@ -637,8 +627,7 @@ impl PolicyEngine {
                         // The proxy layer interprets this and issues an authentication challenge
                         return Some(Verdict::RequireApproval {
                             reason: format!(
-                                "{} (current level {}, required {})",
-                                deny_reason, current_level, required_level
+                                "{deny_reason} (current level {current_level}, required {required_level})"
                             ),
                         });
                     }
@@ -680,8 +669,7 @@ impl PolicyEngine {
                     if *require_principal && !has_principal {
                         return Some(Verdict::Deny {
                             reason: format!(
-                                "{} (principal required but not identified)",
-                                deny_reason
+                                "{deny_reason} (principal required but not identified)"
                             ),
                         });
                     }
@@ -692,8 +680,7 @@ impl PolicyEngine {
                     if delegation_depth > *max_delegation_depth as usize {
                         return Some(Verdict::Deny {
                             reason: format!(
-                                "{} (delegation depth {} exceeds max {})",
-                                deny_reason, delegation_depth, max_delegation_depth
+                                "{deny_reason} (delegation depth {delegation_depth} exceeds max {max_delegation_depth})"
                             ),
                         });
                     }
@@ -764,8 +751,7 @@ impl PolicyEngine {
                             // Fail-closed: no verification tier in context
                             return Some(Verdict::Deny {
                                 reason: format!(
-                                    "{} (no verification tier in context — fail-closed)",
-                                    deny_reason
+                                    "{deny_reason} (no verification tier in context — fail-closed)"
                                 ),
                             });
                         }
@@ -805,8 +791,7 @@ impl PolicyEngine {
                                             sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
                                         return Some(Verdict::Deny {
                                             reason: format!(
-                                                "{} (token holder '{}' does not match agent_id '{}')",
-                                                deny_reason, safe_holder, safe_agent
+                                                "{deny_reason} (token holder '{safe_holder}' does not match agent_id '{safe_agent}')"
                                             ),
                                         });
                                     }
@@ -814,8 +799,7 @@ impl PolicyEngine {
                                 None => {
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{} (no agent_id in context — cannot verify token holder binding)",
-                                            deny_reason
+                                            "{deny_reason} (no agent_id in context — cannot verify token holder binding)"
                                         ),
                                     });
                                 }
@@ -834,8 +818,7 @@ impl PolicyEngine {
                                         sanitize_for_log(&token.issuer, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{} (issuer '{}' not in allowed list)",
-                                            deny_reason, safe_issuer
+                                            "{deny_reason} (issuer '{safe_issuer}' not in allowed list)"
                                         ),
                                     });
                                 }
@@ -855,8 +838,7 @@ impl PolicyEngine {
                             // Fail-closed: no capability token in context
                             return Some(Verdict::Deny {
                                 reason: format!(
-                                    "{} (no capability token in context — fail-closed)",
-                                    deny_reason
+                                    "{deny_reason} (no capability token in context — fail-closed)"
                                 ),
                             });
                         }
@@ -877,8 +859,7 @@ impl PolicyEngine {
                             if !allowed_states.contains(&state_lower) {
                                 return Some(Verdict::Deny {
                                     reason: format!(
-                                        "{} (session state '{}' not in allowed states: {:?})",
-                                        deny_reason, state, allowed_states
+                                        "{deny_reason} (session state '{state}' not in allowed states: {allowed_states:?})"
                                     ),
                                 });
                             }
@@ -887,8 +868,7 @@ impl PolicyEngine {
                             // Fail-closed: no session state in context
                             return Some(Verdict::Deny {
                                 reason: format!(
-                                    "{} (no session state in context — fail-closed)",
-                                    deny_reason
+                                    "{deny_reason} (no session state in context — fail-closed)"
                                 ),
                             });
                         }
@@ -1794,8 +1774,7 @@ mod tests {
         let v = eval(&engine, "read_file", &ctx);
         assert!(
             matches!(v, Verdict::RequireApproval { .. }),
-            "Expected RequireApproval, got {:?}",
-            v
+            "Expected RequireApproval, got {v:?}"
         );
     }
 

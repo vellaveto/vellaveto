@@ -329,10 +329,7 @@ fn complex_layered_policy_scenario() {
             let verdict = engine.evaluate_action(&action, &policies).unwrap();
             assert!(
                 check(&verdict),
-                "{}:{} produced unexpected verdict: {:?}",
-                tool,
-                func,
-                verdict
+                "{tool}:{func} produced unexpected verdict: {verdict:?}"
             );
             logger
                 .log_entry(&action, &verdict, json!({"tool": tool, "func": func}))

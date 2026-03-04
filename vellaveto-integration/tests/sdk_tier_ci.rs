@@ -20,8 +20,7 @@ fn test_sdk_tier_minimum_standard() {
     let tier = vellaveto_http_proxy::proxy::discovery::VELLAVETO_SDK_TIER;
     assert!(
         tier >= SdkTier::Standard,
-        "Vellaveto must declare at least Standard SDK tier, got {:?}",
-        tier
+        "Vellaveto must declare at least Standard SDK tier, got {tier:?}"
     );
 }
 

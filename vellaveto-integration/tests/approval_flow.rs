@@ -56,8 +56,7 @@ fn engine_produces_require_approval_verdict() {
     let verdict = engine.evaluate_action(&bash_action(), &policies).unwrap();
     assert!(
         matches!(verdict, Verdict::RequireApproval { .. }),
-        "Bash actions should require approval, got: {:?}",
-        verdict
+        "Bash actions should require approval, got: {verdict:?}"
     );
 }
 
@@ -142,8 +141,7 @@ fn double_approve_fails() {
         let result = store.approve(&id, "admin2").await;
         assert!(
             result.is_err(),
-            "Double approve should fail, got: {:?}",
-            result
+            "Double approve should fail, got: {result:?}"
         );
     });
 }
@@ -214,7 +212,7 @@ fn approvals_persist_to_file() {
                 continue;
             }
             let parsed: serde_json::Value = serde_json::from_str(line)
-                .unwrap_or_else(|e| panic!("Invalid JSON in log: {}: {}", e, line));
+                .unwrap_or_else(|e| panic!("Invalid JSON in log: {e}: {line}"));
             // Should have an id field
             assert!(parsed.get("id").is_some(), "Entry should have id field");
         }
@@ -252,7 +250,7 @@ fn engine_verdict_drives_approval_creation() {
             assert_eq!(approval.action.tool, "bash");
             assert_eq!(approval.status, ApprovalStatus::Pending);
         } else {
-            panic!("Expected RequireApproval, got: {:?}", verdict);
+            panic!("Expected RequireApproval, got: {verdict:?}");
         }
     });
 }

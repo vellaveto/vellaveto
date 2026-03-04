@@ -153,7 +153,7 @@ impl OAuthConfig {
     pub fn effective_jwks_uri(&self) -> String {
         self.jwks_uri.clone().unwrap_or_else(|| {
             let base = self.issuer.trim_end_matches('/');
-            format!("{}/.well-known/jwks.json", base)
+            format!("{base}/.well-known/jwks.json")
         })
     }
 }
@@ -653,7 +653,7 @@ impl OAuthValidator {
             OAuthError::InvalidDpopProof("missing embedded JWK in DPoP header".to_string())
         })?;
         let decoding_key = DecodingKey::from_jwk(&jwk)
-            .map_err(|e| OAuthError::InvalidDpopProof(format!("invalid DPoP JWK: {}", e)))?;
+            .map_err(|e| OAuthError::InvalidDpopProof(format!("invalid DPoP JWK: {e}")))?;
 
         let mut validation = Validation::new(header.alg);
         validation.validate_exp = false;
@@ -887,7 +887,7 @@ impl OAuthValidator {
             .timeout(Duration::from_secs(10))
             .send()
             .await
-            .map_err(|e| OAuthError::JwksFetchFailed(format!("request failed: {}", e)))?;
+            .map_err(|e| OAuthError::JwksFetchFailed(format!("request failed: {e}")))?;
 
         if !response.status().is_success() {
             return Err(OAuthError::JwksFetchFailed(format!(
@@ -903,8 +903,7 @@ impl OAuthValidator {
         if let Some(len) = response.content_length() {
             if len as usize > MAX_JWKS_BODY_SIZE {
                 return Err(OAuthError::JwksFetchFailed(format!(
-                    "JWKS Content-Length {} exceeds {} byte limit",
-                    len, MAX_JWKS_BODY_SIZE
+                    "JWKS Content-Length {len} exceeds {MAX_JWKS_BODY_SIZE} byte limit"
                 )));
             }
         }
@@ -920,19 +919,18 @@ impl OAuthValidator {
         while let Some(chunk) = response
             .chunk()
             .await
-            .map_err(|e| OAuthError::JwksFetchFailed(format!("body read failed: {}", e)))?
+            .map_err(|e| OAuthError::JwksFetchFailed(format!("body read failed: {e}")))?
         {
             if body.len().saturating_add(chunk.len()) > MAX_JWKS_BODY_SIZE {
                 return Err(OAuthError::JwksFetchFailed(format!(
-                    "JWKS response exceeds {} byte limit",
-                    MAX_JWKS_BODY_SIZE
+                    "JWKS response exceeds {MAX_JWKS_BODY_SIZE} byte limit"
                 )));
             }
             body.extend_from_slice(&chunk);
         }
 
         let jwks: JwkSet = serde_json::from_slice(&body)
-            .map_err(|e| OAuthError::JwksFetchFailed(format!("invalid JWKS JSON: {}", e)))?;
+            .map_err(|e| OAuthError::JwksFetchFailed(format!("invalid JWKS JSON: {e}")))?;
 
         tracing::info!("Fetched {} keys from JWKS endpoint", jwks.keys.len());
 
@@ -1588,11 +1586,11 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let token = sign_test_jwt(&valid_claims(), kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let claims = validator
             .validate_token(&auth_header)
@@ -1611,7 +1609,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let now = chrono::Utc::now().timestamp() as u64;
@@ -1619,7 +1617,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         claims["exp"] = serde_json::json!(now - 600); // 10 minutes ago
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1640,14 +1638,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
         };
 
         // Only allow ES256 — not RS256
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.allowed_algorithms = vec![Algorithm::ES256];
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         // Token is signed with RS256, but we only allow ES256
         let token = sign_test_jwt(&valid_claims(), kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1667,14 +1665,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let mut claims = valid_claims();
         claims["iss"] = serde_json::json!("https://evil.example.com");
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1694,14 +1692,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let mut claims = valid_claims();
         claims["aud"] = serde_json::json!("wrong-audience");
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1725,14 +1723,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let mut claims = valid_claims();
         claims["scope"] = serde_json::json!("resources.read"); // missing tools.call
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1752,7 +1750,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.expected_resource = Some("https://mcp.example.com".to_string());
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
@@ -1762,7 +1760,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         claims["resource"] = serde_json::json!("https://evil.example.com");
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1782,14 +1780,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.expected_resource = Some("https://mcp.example.com".to_string());
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         // Token has no resource claim
         let token = sign_test_jwt(&valid_claims(), kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1809,7 +1807,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.expected_resource = Some("https://mcp.example.com".to_string());
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
@@ -1818,7 +1816,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         claims["resource"] = serde_json::json!("https://mcp.example.com");
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let result = validator.validate_token(&auth_header).await;
         assert!(
@@ -1834,12 +1832,12 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         // Sign with kid "wrong-key" but JWKS only has "server-key-1"
         let token = sign_test_jwt(&valid_claims(), "wrong-key");
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1873,7 +1871,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         // Sign a token with no kid header
@@ -1882,7 +1880,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let mut header = jsonwebtoken::Header::new(Algorithm::RS256);
         header.kid = None; // No kid
         let token = jsonwebtoken::encode(&header, &valid_claims(), &key).expect("JWT signing");
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1902,7 +1900,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let token = sign_test_jwt(&valid_claims(), kid);
@@ -1911,7 +1909,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         let last_char = tampered.pop().unwrap_or('A');
         tampered.push(if last_char == 'A' { 'B' } else { 'A' });
 
-        let auth_header = format!("Bearer {}", tampered);
+        let auth_header = format!("Bearer {tampered}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1931,7 +1929,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.require_audience = true;
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
@@ -1948,7 +1946,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         });
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -1968,13 +1966,13 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let token = sign_test_jwt(&valid_claims(), kid);
 
         // Test case-insensitive "bearer" prefix (RFC 7235 §2.1)
-        let auth_header = format!("BEARER {}", token);
+        let auth_header = format!("BEARER {token}");
         let result = validator.validate_token(&auth_header).await;
         assert!(
             result.is_ok(),
@@ -1990,7 +1988,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         let now = chrono::Utc::now().timestamp() as u64;
@@ -1998,7 +1996,7 @@ TfzccotDw2uXy3Xbwy/kdpfK
         claims["nbf"] = serde_json::json!(now + 600); // 10 minutes in the future
 
         let token = sign_test_jwt(&claims, kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)
@@ -2018,14 +2016,14 @@ TfzccotDw2uXy3Xbwy/kdpfK
             return;
         };
 
-        let mut config = test_oauth_config(format!("{}/.well-known/jwks.json", base_url));
+        let mut config = test_oauth_config(format!("{base_url}/.well-known/jwks.json"));
         config.dpop_mode = DpopMode::Required;
 
         let validator = OAuthValidator::new(config, reqwest::Client::new());
 
         // Token without cnf.jkt claim
         let token = sign_test_jwt(&valid_claims(), kid);
-        let auth_header = format!("Bearer {}", token);
+        let auth_header = format!("Bearer {token}");
 
         let err = validator
             .validate_token(&auth_header)

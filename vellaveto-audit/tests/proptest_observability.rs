@@ -12,7 +12,7 @@ use vellaveto_audit::observability::{
 };
 
 fn hex_string(len: usize) -> impl Strategy<Value = String> {
-    prop::string::string_regex(&format!("[0-9a-f]{{{}}}", len)).expect("valid regex")
+    prop::string::string_regex(&format!("[0-9a-f]{{{len}}}")).expect("valid regex")
 }
 
 fn low_ascii_string(max_len: usize) -> impl Strategy<Value = String> {
@@ -117,7 +117,7 @@ proptest! {
         parent_span_id in hex_string(16),
         trace_flags in any::<u8>(),
     ) {
-        let traceparent = format!("00-{}-{}-{:02x}", trace_id, parent_span_id, trace_flags);
+        let traceparent = format!("00-{trace_id}-{parent_span_id}-{trace_flags:02x}");
         let parsed = TraceContext::parse_traceparent(&traceparent);
         prop_assert!(parsed.is_some());
         let parsed = parsed.expect("valid traceparent");

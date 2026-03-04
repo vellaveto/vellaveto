@@ -153,8 +153,7 @@ impl MemoryEntry {
     ) -> Result<(), String> {
         if crate::core::has_dangerous_chars(value) {
             return Err(format!(
-                "{} {} contains control or format characters",
-                type_name, field_name
+                "{type_name} {field_name} contains control or format characters"
             ));
         }
         Ok(())

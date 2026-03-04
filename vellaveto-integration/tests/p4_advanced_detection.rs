@@ -45,8 +45,7 @@ mod behavioral {
         let alerts = tracker.check_session("agent-a", &tool_counts);
         assert!(
             alerts.is_empty(),
-            "First session should not generate alerts (cold start), got: {:?}",
-            alerts
+            "First session should not generate alerts (cold start), got: {alerts:?}"
         );
         tracker.record_session("agent-a", &tool_counts);
     }
@@ -89,8 +88,7 @@ mod behavioral {
             alerts
                 .iter()
                 .any(|a| a.tool == "read_file" && matches!(a.severity, AnomalySeverity::Critical)),
-            "100x deviation should be High severity, got: {:?}",
-            alerts
+            "100x deviation should be High severity, got: {alerts:?}"
         );
     }
 
@@ -387,11 +385,11 @@ mod data_flow {
         // Fill beyond capacity with different patterns
         for i in 0..10 {
             let findings = vec![make_finding(
-                &format!("pattern_{}", i),
+                &format!("pattern_{i}"),
                 "text",
-                Some(&format!("secret_{}", i)),
+                Some(&format!("secret_{i}")),
             )];
-            tracker.record_response_findings(&format!("tool_{}", i), &findings);
+            tracker.record_response_findings(&format!("tool_{i}"), &findings);
         }
 
         // Oldest patterns (0-4) should have been evicted

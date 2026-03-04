@@ -325,8 +325,7 @@ impl PolicyEngine {
                             return Err(EngineError::InvalidCondition {
                                 policy_id: policy.id.clone(),
                                 reason: format!(
-                                    "Parameter '{}' is not a string for not_glob operator",
-                                    param_name
+                                    "Parameter '{param_name}' is not a string for not_glob operator"
                                 ),
                             });
                         }
@@ -371,8 +370,7 @@ impl PolicyEngine {
                             return Err(EngineError::InvalidCondition {
                                 policy_id: policy.id.clone(),
                                 reason: format!(
-                                    "Parameter '{}' is not a string for regex operator",
-                                    param_name
+                                    "Parameter '{param_name}' is not a string for regex operator"
                                 ),
                             });
                         }
@@ -405,8 +403,7 @@ impl PolicyEngine {
                             return Err(EngineError::InvalidCondition {
                                 policy_id: policy.id.clone(),
                                 reason: format!(
-                                    "Parameter '{}' is not a string for domain_match operator",
-                                    param_name
+                                    "Parameter '{param_name}' is not a string for domain_match operator"
                                 ),
                             });
                         }
@@ -453,8 +450,7 @@ impl PolicyEngine {
                             return Err(EngineError::InvalidCondition {
                                 policy_id: policy.id.clone(),
                                 reason: format!(
-                                    "Parameter '{}' is not a string for domain_not_in operator",
-                                    param_name
+                                    "Parameter '{param_name}' is not a string for domain_not_in operator"
                                 ),
                             });
                         }

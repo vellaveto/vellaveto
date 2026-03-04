@@ -264,11 +264,10 @@ impl PolicyEngine {
             vellaveto_discovery::guard::TopologyVerdict::Unknown { suggestion, .. } => {
                 let reason = if let Some(closest) = suggestion {
                     format!(
-                        "Tool '{}' not found in topology graph (did you mean '{}'?)",
-                        tool_name, closest
+                        "Tool '{tool_name}' not found in topology graph (did you mean '{closest}'?)"
                     )
                 } else {
-                    format!("Tool '{}' not found in topology graph", tool_name)
+                    format!("Tool '{tool_name}' not found in topology graph")
                 };
                 Some(Verdict::Deny { reason })
             }
@@ -964,7 +963,7 @@ impl PolicyEngine {
         })?;
         let re = Regex::new(pattern).map_err(|e| EngineError::InvalidCondition {
             policy_id: policy_id.to_string(),
-            reason: format!("Invalid regex pattern '{}': {}", pattern, e),
+            reason: format!("Invalid regex pattern '{pattern}': {e}"),
         })?;
         Ok(re.is_match(input))
     }
@@ -1002,7 +1001,7 @@ impl PolicyEngine {
         let matcher = Glob::new(pattern)
             .map_err(|e| EngineError::InvalidCondition {
                 policy_id: policy_id.to_string(),
-                reason: format!("Invalid glob pattern '{}': {}", pattern, e),
+                reason: format!("Invalid glob pattern '{pattern}': {e}"),
             })?
             .compile_matcher();
         let is_match = matcher.is_match(input);
@@ -1222,9 +1221,9 @@ impl PolicyEngine {
                             break;
                         }
                         let child_path = if path.is_empty() {
-                            format!("[{}]", i)
+                            format!("[{i}]")
                         } else {
-                            format!("{}[{}]", path, i)
+                            format!("{path}[{i}]")
                         };
                         stack.push((child, child_path, depth + 1));
                     }
@@ -1247,8 +1246,7 @@ impl PolicyEngine {
             }),
             "allow" => Ok(Verdict::Allow),
             other => Err(EngineError::EvaluationError(format!(
-                "Unknown on_match action: '{}'",
-                other
+                "Unknown on_match action: '{other}'"
             ))),
         }
     }

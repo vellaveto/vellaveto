@@ -27,10 +27,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/OSTIF_AUDIT_SCOPE.md` — audit scope document for OSTIF/Alpha-Omega applications.
   `codecov.yml` — Codecov configuration with 80% patch coverage target and binary exclusions.
 
-- **Test coverage expansion** (3,764 lines across 16 files in 4 crates):
+- **Test coverage expansion — Phase 1** (3,764 lines across 16 files in 4 crates):
   Comprehensive tests for audit (archive, PQC, streaming, PostgreSQL query/sink, ZK proofs),
   cluster (Redis backend), HTTP proxy (gRPC convert/interceptors), MCP (A2A agent card/error,
   RAG defense embedding/error/grounding, semantic guardrails cache/intent).
+
+- **Test coverage expansion — Phase 2** (+948 inline tests across 39 files in 7 crates):
+  Tier 1 foundational coverage: vellaveto-types (+124: minja, threat, zk_audit, policy_lifecycle,
+  compliance), vellaveto-config (+228: threat_detection, memory_nhi, mcp_protocol,
+  semantic_guardrails, enterprise), vellaveto-audit (+88: redaction, events, etdi_audit,
+  verification, merkle), vellaveto-discovery (+85: schedule, inference, serialize, crawler, diff).
+  Tier 2 engine/proxy/server: vellaveto-engine (+206: compiled, constraint_eval, rule_check,
+  legacy, normalize, traced, policy_compile, context_check), vellaveto-http-proxy (+104: auth,
+  origin, call_chain, inspection, fallback), vellaveto-server (+123: routes/mod, dpop,
+  idempotency, tenant, threat_intel, tls). All #[cfg(test)] modules only — zero production
+  code modified. Workspace total: 9,998 tests, 0 failures.
 
 - **Enhanced policy presets for non-expert users:**
   Every preset is now a complete, well-documented security posture with plain-language threat

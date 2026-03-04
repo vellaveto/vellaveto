@@ -83,7 +83,7 @@ impl BulkOperations {
         match format {
             ExportFormat::Json => {
                 let content = serde_json::to_string_pretty(policies)
-                    .map_err(|e| format!("JSON serialization failed: {}", e))?;
+                    .map_err(|e| format!("JSON serialization failed: {e}"))?;
                 Ok(ExportResult {
                     content,
                     format: ExportFormat::Json,
@@ -162,7 +162,7 @@ impl BulkOperations {
                     index: 0,
                     policy_id: String::new(),
                     severity: ImportSeverity::Error,
-                    message: format!("JSON parse error: {}", e),
+                    message: format!("JSON parse error: {e}"),
                 });
                 return ImportResult {
                     policies: Vec::new(),
@@ -506,8 +506,8 @@ mod tests {
         let mut policies = Vec::new();
         for i in 0..=MAX_IMPORT_POLICIES {
             policies.push(make_policy(
-                &format!("p{}", i),
-                &format!("Policy {}", i),
+                &format!("p{i}"),
+                &format!("Policy {i}"),
                 0,
                 PolicyType::Allow,
             ));

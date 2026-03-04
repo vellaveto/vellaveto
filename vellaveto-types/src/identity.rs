@@ -128,8 +128,7 @@ impl AgentIdentity {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "AgentIdentity audience[{}] contains control or format characters",
-                    i
+                    "AgentIdentity audience[{i}] contains control or format characters"
                 ));
             }
         }
@@ -189,10 +188,7 @@ impl AgentIdentity {
             }
             // Measure the serialized value length to cover all JSON value types.
             let serialized_value = serde_json::to_string(value).map_err(|e| {
-                format!(
-                    "AgentIdentity claim value for key '{}' failed to serialize: {e}",
-                    key
-                )
+                format!("AgentIdentity claim value for key '{key}' failed to serialize: {e}")
             })?;
             if serialized_value.len() > Self::MAX_CLAIM_VALUE_LEN {
                 return Err(format!(
@@ -463,8 +459,7 @@ impl EvaluationContext {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "EvaluationContext previous_actions[{}] contains control or format characters",
-                    i,
+                    "EvaluationContext previous_actions[{i}] contains control or format characters",
                 ));
             }
         }
@@ -521,8 +516,7 @@ impl EvaluationContext {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "EvaluationContext call_chain[{}].timestamp contains control or format characters",
-                    i,
+                    "EvaluationContext call_chain[{i}].timestamp contains control or format characters",
                 ));
             }
             // SECURITY: Validate HMAC field length if present.
@@ -586,8 +580,7 @@ impl EvaluationContext {
             .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
         {
             return Err(format!(
-                "EvaluationContext call_chain[{}].{} contains control or format characters",
-                index, field_name,
+                "EvaluationContext call_chain[{index}].{field_name} contains control or format characters",
             ));
         }
         Ok(())
@@ -966,8 +959,7 @@ impl StatelessContextBlob {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "StatelessContextBlob recent_actions[{}] contains control or format characters",
-                    i
+                    "StatelessContextBlob recent_actions[{i}] contains control or format characters"
                 ));
             }
         }

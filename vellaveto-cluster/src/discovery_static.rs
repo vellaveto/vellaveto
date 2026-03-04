@@ -47,7 +47,7 @@ impl StaticServiceDiscovery {
         // long labels are accepted and propagated unvalidated.
         for (i, ep) in endpoints.iter().enumerate() {
             ep.validate()
-                .map_err(|e| ClusterError::Validation(format!("endpoint[{}]: {}", i, e)))?;
+                .map_err(|e| ClusterError::Validation(format!("endpoint[{i}]: {e}")))?;
         }
         Ok(Self { endpoints })
     }
@@ -117,8 +117,8 @@ mod tests {
     async fn test_static_discovery_exceeds_max_endpoints() {
         let endpoints: Vec<ServiceEndpoint> = (0..257)
             .map(|i| ServiceEndpoint {
-                id: format!("backend-{}", i),
-                url: format!("http://backend-{}:3000", i),
+                id: format!("backend-{i}"),
+                url: format!("http://backend-{i}:3000"),
                 labels: HashMap::new(),
                 healthy: true,
             })
@@ -126,8 +126,7 @@ mod tests {
         let err = StaticServiceDiscovery::new(endpoints).unwrap_err();
         assert!(
             err.to_string().contains("exceeds maximum"),
-            "Expected exceeds maximum error, got: {}",
-            err
+            "Expected exceeds maximum error, got: {err}"
         );
     }
 
@@ -135,8 +134,8 @@ mod tests {
     async fn test_static_discovery_at_max_endpoints() {
         let endpoints: Vec<ServiceEndpoint> = (0..256)
             .map(|i| ServiceEndpoint {
-                id: format!("backend-{}", i),
-                url: format!("http://backend-{}:3000", i),
+                id: format!("backend-{i}"),
+                url: format!("http://backend-{i}:3000"),
                 labels: HashMap::new(),
                 healthy: true,
             })
@@ -173,8 +172,7 @@ mod tests {
         let err = StaticServiceDiscovery::new(endpoints).unwrap_err();
         assert!(
             err.to_string().contains("control"),
-            "Expected control char error, got: {}",
-            err
+            "Expected control char error, got: {err}"
         );
     }
 }

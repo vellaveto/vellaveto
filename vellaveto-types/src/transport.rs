@@ -92,8 +92,7 @@ impl TransportEndpoint {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "TransportEndpoint protocol_versions[{}] contains control or format characters",
-                    i,
+                    "TransportEndpoint protocol_versions[{i}] contains control or format characters",
                 ));
             }
         }
@@ -217,7 +216,7 @@ impl FallbackNegotiationHistory {
         for (i, attempt) in self.attempts.iter().enumerate() {
             attempt
                 .validate()
-                .map_err(|e| format!("attempts[{}]: {}", i, e))?;
+                .map_err(|e| format!("attempts[{i}]: {e}"))?;
         }
         Ok(())
     }
@@ -275,8 +274,7 @@ impl SdkCapabilities {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "capabilities[{}] contains control or format characters",
-                    i,
+                    "capabilities[{i}] contains control or format characters",
                 ));
             }
         }
@@ -301,8 +299,7 @@ impl SdkCapabilities {
                 .any(|c| c.is_control() || crate::core::is_unicode_format_char(c))
             {
                 return Err(format!(
-                    "supported_versions[{}] contains control or format characters",
-                    i,
+                    "supported_versions[{i}] contains control or format characters",
                 ));
             }
         }

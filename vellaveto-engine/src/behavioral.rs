@@ -842,8 +842,7 @@ mod tests {
             c.alpha = bad;
             assert!(
                 matches!(c.validate(), Err(BehavioralError::InvalidAlpha(_))),
-                "alpha={} should fail",
-                bad
+                "alpha={bad} should fail"
             );
         }
     }
@@ -856,8 +855,7 @@ mod tests {
             c.threshold = bad;
             assert!(
                 matches!(c.validate(), Err(BehavioralError::InvalidThreshold(_))),
-                "threshold={} should fail",
-                bad
+                "threshold={bad} should fail"
             );
         }
     }
@@ -1127,8 +1125,7 @@ mod tests {
         // Decay: ema = (1 - 0.5) * 100 = 50
         assert!(
             (ema - 50.0).abs() < 0.01,
-            "EMA should decay to 50.0, got {}",
-            ema
+            "EMA should decay to 50.0, got {ema}"
         );
     }
 
@@ -1530,10 +1527,10 @@ mod tests {
         // Create 50 agents, each with 20 tools
         for agent_id in 0..50 {
             let tools: HashMap<String, u64> = (0..20)
-                .map(|tool_id| (format!("tool_{}", tool_id), (agent_id + tool_id + 1) as u64))
+                .map(|tool_id| (format!("tool_{tool_id}"), (agent_id + tool_id + 1) as u64))
                 .collect();
             for _ in 0..3 {
-                tracker.record_session(&format!("agent-{}", agent_id), &tools);
+                tracker.record_session(&format!("agent-{agent_id}"), &tools);
             }
         }
 
@@ -1631,7 +1628,7 @@ mod tests {
             deviation_ratio: 100.0,
             severity: AnomalySeverity::Critical,
         };
-        let display = format!("{}", alert);
+        let display = format!("{alert}");
         assert!(display.contains("Critical"));
         assert!(display.contains("agent-1"));
         assert!(display.contains("read_file"));
@@ -1641,15 +1638,15 @@ mod tests {
     #[test]
     fn test_behavioral_error_display() {
         let e = BehavioralError::InvalidAlpha(0.0);
-        assert!(format!("{}", e).contains("alpha"));
+        assert!(format!("{e}").contains("alpha"));
         let e = BehavioralError::InvalidThreshold(-1.0);
-        assert!(format!("{}", e).contains("threshold"));
+        assert!(format!("{e}").contains("threshold"));
         let e = BehavioralError::InvalidMaxTools;
-        assert!(format!("{}", e).contains("max_tools"));
+        assert!(format!("{e}").contains("max_tools"));
         let e = BehavioralError::InvalidMaxAgents;
-        assert!(format!("{}", e).contains("max_agents"));
+        assert!(format!("{e}").contains("max_agents"));
         let e = BehavioralError::InvalidSnapshot("test".to_string());
-        assert!(format!("{}", e).contains("test"));
+        assert!(format!("{e}").contains("test"));
     }
 
     // ── Saturating arithmetic ─────────────────────
@@ -2065,7 +2062,7 @@ mod tests {
         let tracker = BehavioralTracker::new(BehavioralConfig::default()).unwrap();
         let mut counts: HashMap<String, u64> = HashMap::new();
         for i in 0..10_001 {
-            counts.insert(format!("tool_{}", i), 1);
+            counts.insert(format!("tool_{i}"), 1);
         }
         let alerts = tracker.check_session("agent-1", &counts);
         assert!(

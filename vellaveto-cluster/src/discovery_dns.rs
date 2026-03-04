@@ -139,14 +139,12 @@ impl DnsServiceDiscovery {
         const MAX_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(86_400);
         if refresh_interval < MIN_REFRESH_INTERVAL {
             return Err(format!(
-                "refresh_interval {:?} is below minimum {:?}",
-                refresh_interval, MIN_REFRESH_INTERVAL,
+                "refresh_interval {refresh_interval:?} is below minimum {MIN_REFRESH_INTERVAL:?}",
             ));
         }
         if refresh_interval > MAX_REFRESH_INTERVAL {
             return Err(format!(
-                "refresh_interval {:?} exceeds maximum {:?}",
-                refresh_interval, MAX_REFRESH_INTERVAL,
+                "refresh_interval {refresh_interval:?} exceeds maximum {MAX_REFRESH_INTERVAL:?}",
             ));
         }
         Ok(Self {
@@ -195,7 +193,7 @@ impl DnsServiceDiscovery {
                 // link-local, cloud metadata, and IPv4-mapped private ranges.
                 ServiceEndpoint {
                     id: id.clone(),
-                    url: format!("http://{}", addr),
+                    url: format!("http://{addr}"),
                     labels: HashMap::new(),
                     healthy: true,
                 }
@@ -543,7 +541,7 @@ mod tests {
         let result =
             DnsServiceDiscovery::new("localhost:80".to_string(), std::time::Duration::ZERO);
         let err = result.err().expect("should fail");
-        assert!(err.contains("below minimum"), "got: {}", err);
+        assert!(err.contains("below minimum"), "got: {err}");
     }
 
     #[test]
@@ -553,7 +551,7 @@ mod tests {
             std::time::Duration::from_millis(500),
         );
         let err = result.err().expect("should fail");
-        assert!(err.contains("below minimum"), "got: {}", err);
+        assert!(err.contains("below minimum"), "got: {err}");
     }
 
     #[test]
@@ -563,7 +561,7 @@ mod tests {
             std::time::Duration::from_secs(100_000),
         );
         let err = result.err().expect("should fail");
-        assert!(err.contains("exceeds maximum"), "got: {}", err);
+        assert!(err.contains("exceeds maximum"), "got: {err}");
     }
 
     #[test]

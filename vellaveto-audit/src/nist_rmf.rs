@@ -1149,8 +1149,7 @@ mod tests {
             let mappings = registry.mappings_for_capability(cap);
             assert!(
                 !mappings.is_empty(),
-                "Capability {:?} should have mappings",
-                cap
+                "Capability {cap:?} should have mappings"
             );
         }
     }
