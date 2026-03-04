@@ -130,7 +130,7 @@ impl PolicyEngine {
             let param_name = constraint.param();
             let on_missing = constraint.on_missing();
             if param_name == "*" {
-                let all_values = Self::collect_all_string_values(&action.parameters);
+                let (all_values, _truncated) = Self::collect_all_string_values(&action.parameters);
                 if !all_values.is_empty() || on_missing != "skip" {
                     any_evaluated = true;
                 }
@@ -195,7 +195,7 @@ impl PolicyEngine {
 
         // Wildcard param "*": scan all string values
         if param_name == "*" {
-            let all_values = Self::collect_all_string_values(&action.parameters);
+            let (all_values, truncated) = Self::collect_all_string_values(&action.parameters);
             if all_values.is_empty() {
                 if on_missing == "skip" {
                     return Ok(None);
@@ -215,6 +215,22 @@ impl PolicyEngine {
                 )? {
                     return Ok(Some(verdict));
                 }
+            }
+            // SECURITY (R234-ENG-4): Fail-closed when scan was truncated and
+            // no constraint matched. Unscanned values may contain forbidden patterns.
+            if truncated {
+                tracing::warn!(
+                    "SECURITY: wildcard constraint scan truncated at {} values for policy '{}' — denying (fail-closed)",
+                    Self::MAX_SCAN_VALUES,
+                    policy.name,
+                );
+                return Ok(Some(Verdict::Deny {
+                    reason: format!(
+                        "Parameter scan truncated at {} values — deny (fail-closed) in policy '{}'",
+                        Self::MAX_SCAN_VALUES,
+                        policy.name,
+                    ),
+                }));
             }
             return Ok(None);
         }

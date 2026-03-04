@@ -411,7 +411,7 @@ impl PolicyEngine {
 
         // Wildcard param: scan all string values
         if param_name == "*" {
-            let all_values = Self::collect_all_string_values(&action.parameters);
+            let (all_values, truncated) = Self::collect_all_string_values(&action.parameters);
             let mut results = Vec::with_capacity(all_values.len());
             if all_values.is_empty() {
                 if on_missing == "skip" {
@@ -453,6 +453,24 @@ impl PolicyEngine {
                     )?;
                     return Ok((Some(verdict), results));
                 }
+            }
+            // SECURITY (R234-ENG-4): Fail-closed on truncated scan.
+            if truncated {
+                results.push(ConstraintResult {
+                    constraint_type: "scan_truncated_fail_closed".to_string(),
+                    param: "*".to_string(),
+                    expected: "complete scan".to_string(),
+                    actual: format!("truncated at {} values", Self::MAX_SCAN_VALUES),
+                    passed: false,
+                });
+                let verdict = Verdict::Deny {
+                    reason: format!(
+                        "Parameter scan truncated at {} values — deny (fail-closed) in policy '{}'",
+                        Self::MAX_SCAN_VALUES,
+                        policy.name,
+                    ),
+                };
+                return Ok((Some(verdict), results));
             }
             return Ok((None, results));
         }

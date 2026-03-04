@@ -1809,3 +1809,144 @@ fn test_crypto_wrong_key_fails_gracefully() {
         "wrong passphrase should fail on decryption"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// R234 Adversarial Audit Tests
+// ═══════════════════════════════════════════════════════════════════
+
+// R234-SHIELD-3: Reject empty passphrase
+#[test]
+fn test_r234_shield3_empty_passphrase_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.enc");
+    let result = crate::crypto::EncryptedAuditStore::new(path, "");
+    assert!(result.is_err(), "empty passphrase should be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("empty or whitespace"),
+        "error should mention empty: {err}"
+    );
+}
+
+#[test]
+fn test_r234_shield3_whitespace_only_passphrase_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("vault.enc");
+    let result = crate::crypto::EncryptedAuditStore::new(path, "   \t\n  ");
+    assert!(result.is_err(), "whitespace-only passphrase should be rejected");
+}
+
+// R234-SHIELD-4: Session ID validation
+#[test]
+fn test_r234_shield4_session_isolator_rejects_control_chars() {
+    let isolator = crate::session_isolator::SessionIsolator::new();
+    let result = isolator.sanitize_in_session("ses\x00sion", "hello");
+    assert!(result.is_err(), "control chars in session_id should be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("control or format"),
+        "error should mention control chars: {err}"
+    );
+}
+
+#[test]
+fn test_r234_shield4_session_isolator_rejects_empty_id() {
+    let isolator = crate::session_isolator::SessionIsolator::new();
+    let result = isolator.sanitize_in_session("", "hello");
+    assert!(result.is_err(), "empty session_id should be rejected");
+}
+
+#[test]
+fn test_r234_shield4_context_isolator_rejects_control_chars() {
+    let isolator = crate::context_isolation::ContextIsolator::new();
+    let result = isolator.record("ses\x01sion", "user", "hello");
+    assert!(result.is_err(), "control chars in session_id should be rejected");
+}
+
+#[test]
+fn test_r234_shield4_context_isolator_rejects_bidi_override() {
+    let isolator = crate::context_isolation::ContextIsolator::new();
+    // U+202E is Right-to-Left Override (Unicode format char)
+    let result = isolator.record("ses\u{202E}sion", "user", "hello");
+    assert!(result.is_err(), "bidi override in session_id should be rejected");
+}
+
+#[test]
+fn test_r234_shield4_context_get_recent_rejects_dangerous_id() {
+    let isolator = crate::context_isolation::ContextIsolator::new();
+    let result = isolator.get_recent_context("bad\x07id", 10);
+    assert!(result.is_err(), "control chars should be rejected in get_recent_context");
+}
+
+// R234-SHIELD-1: Credential status persistence
+#[test]
+fn test_r234_shield1_consume_persists_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("creds.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let vault = crate::credential_vault::CredentialVault::new(store, 10, 5).unwrap();
+
+    // Add a credential
+    let cred = crate::credential_vault::CredentialVault::generate_local_credential(1);
+    vault.add_credential(cred).unwrap();
+
+    // Consume it
+    let (_cred, idx) = vault.consume_credential().unwrap();
+    assert_eq!(idx, 0);
+
+    // Reload vault from disk — credential should be Active, not Available
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let vault2 = crate::credential_vault::CredentialVault::new(store2, 10, 5).unwrap();
+    let status = vault2.status();
+    assert_eq!(status.available, 0, "no credentials should be available after consume + reload");
+    assert_eq!(status.active, 1, "consumed credential should be active after reload");
+}
+
+#[test]
+fn test_r234_shield1_mark_consumed_persists_status() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("creds.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+    let vault = crate::credential_vault::CredentialVault::new(store, 10, 5).unwrap();
+
+    let cred = crate::credential_vault::CredentialVault::generate_local_credential(1);
+    vault.add_credential(cred).unwrap();
+    let (_cred, idx) = vault.consume_credential().unwrap();
+    vault.mark_consumed(idx).unwrap();
+
+    // Reload vault from disk — credential should be Consumed
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let vault2 = crate::credential_vault::CredentialVault::new(store2, 10, 5).unwrap();
+    let status = vault2.status();
+    assert_eq!(status.available, 0);
+    assert_eq!(status.active, 0);
+    assert_eq!(status.consumed, 1, "credential should be consumed after reload");
+}
+
+// R234-SHIELD-2: StoredVaultEntry deny_unknown_fields
+#[test]
+fn test_r234_shield2_stored_vault_entry_rejects_unknown_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("creds.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+
+    // Manually write a stored entry with an extra field
+    let bad_entry = serde_json::json!({
+        "credential": {
+            "credential": [1, 2, 3],
+            "signature": [4, 5, 6],
+            "provider_key_id": "test",
+            "issued_epoch": 1,
+            "credential_type": "Subscriber"
+        },
+        "status": "Available",
+        "injected_field": "malicious"
+    });
+    let serialized = serde_json::to_vec(&bad_entry).unwrap();
+    store.write_encrypted_entry(&serialized).unwrap();
+
+    // Loading the vault should fail on the unknown field
+    let store2 = crate::crypto::EncryptedAuditStore::new(path, "test-pass").unwrap();
+    let result = crate::credential_vault::CredentialVault::new(store2, 10, 5);
+    assert!(result.is_err(), "unknown fields in StoredVaultEntry should be rejected");
+}

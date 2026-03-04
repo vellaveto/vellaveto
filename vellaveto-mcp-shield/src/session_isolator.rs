@@ -51,8 +51,27 @@ impl SessionIsolator {
         }
     }
 
+    /// Validate session_id for dangerous characters.
+    fn validate_session_id(session_id: &str) -> Result<(), ShieldError> {
+        // SECURITY (R234-SHIELD-4): Reject session IDs with control chars, bidi
+        // overrides, zero-width chars, etc. These can cause log injection, HashMap
+        // key confusion, or display-layer attacks.
+        if session_id.is_empty() {
+            return Err(ShieldError::SessionIsolation(
+                "session_id must not be empty".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(session_id) {
+            return Err(ShieldError::SessionIsolation(
+                "session_id contains control or format characters (rejected)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Get or create a session, returning Ok if the session exists or was created.
     fn ensure_session(&self, session_id: &str) -> Result<(), ShieldError> {
+        Self::validate_session_id(session_id)?;
         let mut sessions = self
             .sessions
             .lock()
@@ -111,6 +130,7 @@ impl SessionIsolator {
         session_id: &str,
         input: &str,
     ) -> Result<String, ShieldError> {
+        Self::validate_session_id(session_id)?;
         let sessions = self
             .sessions
             .lock()

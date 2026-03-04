@@ -44,6 +44,15 @@ impl EncryptedAuditStore {
     /// If the file exists, reads the salt from it. Otherwise generates a new salt.
     /// Derives the encryption key from the passphrase via Argon2id.
     pub fn new(path: PathBuf, passphrase: &str) -> Result<Self, ShieldError> {
+        // SECURITY (R234-SHIELD-3): Reject empty/whitespace-only passphrases.
+        // An empty passphrase produces a deterministic key (only salt-dependent),
+        // which provides zero user-derived entropy.
+        if passphrase.trim().is_empty() {
+            return Err(ShieldError::KeyDerivation(
+                "passphrase must not be empty or whitespace-only".to_string(),
+            ));
+        }
+
         let salt = if path.exists() {
             Self::read_salt(&path)?
         } else {
@@ -171,6 +180,41 @@ impl EncryptedAuditStore {
             offset += len;
         }
         Ok(entries)
+    }
+
+    /// Rewrite the store file with a new set of entries, replacing all existing data.
+    ///
+    /// SECURITY (R234-SHIELD-1): Used to persist credential status changes so
+    /// that consumed credentials cannot be reused after a crash.
+    /// Writes to a temp file and atomically renames to prevent data loss.
+    pub fn rewrite_all_entries(&self, entries: &[Vec<u8>]) -> Result<(), ShieldError> {
+        let temp_path = self.path.with_extension("tmp");
+
+        // Write header: version + salt
+        let mut header = vec![FORMAT_VERSION];
+        header.extend_from_slice(&self.salt);
+        std::fs::write(&temp_path, &header).map_err(ShieldError::Io)?;
+
+        // Append each entry
+        {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&temp_path)
+                .map_err(ShieldError::Io)?;
+            for entry in entries {
+                let encrypted = self.encrypt(entry)?;
+                let len = u32::try_from(encrypted.len()).map_err(|_| {
+                    ShieldError::Encryption("encrypted entry too large for u32 length".to_string())
+                })?;
+                file.write_all(&len.to_le_bytes()).map_err(ShieldError::Io)?;
+                file.write_all(&encrypted).map_err(ShieldError::Io)?;
+            }
+        }
+
+        // Atomic rename
+        std::fs::rename(&temp_path, &self.path).map_err(ShieldError::Io)?;
+        Ok(())
     }
 
     /// Get the store file path.

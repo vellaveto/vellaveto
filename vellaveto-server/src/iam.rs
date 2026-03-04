@@ -317,13 +317,18 @@ impl SamlState {
                 ));
             }
         }
-        if let Some(not_on_or_after) = conditions.attribute("NotOnOrAfter") {
-            let timestamp = parse_saml_timestamp(not_on_or_after)?;
-            if now >= timestamp {
-                return Err(IamError::Saml(
-                    "SAML Conditions NotOnOrAfter has passed".to_string(),
-                ));
-            }
+        // SECURITY (R234-SRV-2): Fail-closed — require NotOnOrAfter on Conditions.
+        // An attacker could strip NotOnOrAfter to create a perpetually valid assertion.
+        let not_on_or_after = conditions.attribute("NotOnOrAfter").ok_or_else(|| {
+            IamError::Saml(
+                "SAML Conditions NotOnOrAfter missing (fail-closed)".to_string(),
+            )
+        })?;
+        let timestamp = parse_saml_timestamp(not_on_or_after)?;
+        if now >= timestamp {
+            return Err(IamError::Saml(
+                "SAML Conditions NotOnOrAfter has passed".to_string(),
+            ));
         }
         Ok(())
     }
@@ -379,23 +384,31 @@ impl SamlState {
                     "SAML SubjectConfirmationData missing for bearer assertion".to_string(),
                 )
             })?;
-        // Validate Recipient matches our ACS URL.
-        if let Some(recipient) = data.attribute("Recipient") {
-            if recipient != self.acs_url {
-                return Err(IamError::Saml(
-                    "SAML SubjectConfirmationData Recipient mismatch".to_string(),
-                ));
-            }
+        // SECURITY (R234-SRV-1): Fail-closed — require Recipient attribute.
+        // An attacker could strip Recipient to bypass cross-SP assertion reuse detection.
+        let recipient = data.attribute("Recipient").ok_or_else(|| {
+            IamError::Saml(
+                "SAML SubjectConfirmationData Recipient missing (fail-closed)".to_string(),
+            )
+        })?;
+        if recipient != self.acs_url {
+            return Err(IamError::Saml(
+                "SAML SubjectConfirmationData Recipient mismatch".to_string(),
+            ));
         }
-        // Validate NotOnOrAfter hasn't passed.
-        if let Some(not_on_or_after) = data.attribute("NotOnOrAfter") {
-            let timestamp = parse_saml_timestamp(not_on_or_after)?;
-            let now = Utc::now();
-            if now >= timestamp {
-                return Err(IamError::Saml(
-                    "SAML SubjectConfirmationData NotOnOrAfter has passed".to_string(),
-                ));
-            }
+        // SECURITY (R234-SRV-2): Fail-closed — require NotOnOrAfter attribute.
+        // An attacker could strip NotOnOrAfter to create a perpetually valid assertion.
+        let not_on_or_after = data.attribute("NotOnOrAfter").ok_or_else(|| {
+            IamError::Saml(
+                "SAML SubjectConfirmationData NotOnOrAfter missing (fail-closed)".to_string(),
+            )
+        })?;
+        let timestamp = parse_saml_timestamp(not_on_or_after)?;
+        let now = Utc::now();
+        if now >= timestamp {
+            return Err(IamError::Saml(
+                "SAML SubjectConfirmationData NotOnOrAfter has passed".to_string(),
+            ));
         }
         Ok(())
     }
@@ -2704,6 +2717,85 @@ mod tests {
         assert!(
             format!("{}", result.unwrap_err()).contains("missing"),
             "Error must mention missing Conditions"
+        );
+    }
+
+    /// R234-SRV-2: Missing NotOnOrAfter on Conditions must be rejected (fail-closed).
+    #[test]
+    fn ensure_conditions_rejects_missing_not_on_or_after() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        // Conditions element without NotOnOrAfter attribute
+        let xml = format!(
+            r#"<Assertion xmlns="{}"><Conditions NotBefore="2020-01-01T00:00:00Z"><AudienceRestriction><Audience>{}</Audience></AudienceRestriction></Conditions><Subject/></Assertion>"#,
+            SAML_ASSERTION_NS, TEST_SP_ENTITY_ID
+        );
+        let assertion_doc = Document::parse(&xml).unwrap();
+        let assertion = assertion_doc.root_element();
+        let result = saml_state.ensure_conditions(assertion);
+        assert!(
+            result.is_err(),
+            "Missing NotOnOrAfter on Conditions must be rejected"
+        );
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("NotOnOrAfter") && err.contains("missing"),
+            "Error should mention missing NotOnOrAfter: {err}"
+        );
+    }
+
+    /// R234-SRV-1: Missing Recipient on SubjectConfirmationData must be rejected.
+    #[test]
+    fn ensure_subject_confirmation_rejects_missing_recipient() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        let not_on_or_after = (Utc::now() + Duration::minutes(5)).to_rfc3339();
+        // SubjectConfirmationData without Recipient attribute
+        let xml = format!(
+            r#"<Assertion xmlns="{}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData NotOnOrAfter="{}"/></SubjectConfirmation></Subject></Assertion>"#,
+            SAML_ASSERTION_NS, not_on_or_after
+        );
+        let assertion_doc = Document::parse(&xml).unwrap();
+        let assertion = assertion_doc.root_element();
+        let result = saml_state.ensure_subject_confirmation(assertion);
+        assert!(
+            result.is_err(),
+            "Missing Recipient must be rejected (fail-closed)"
+        );
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("Recipient") && err.contains("missing"),
+            "Error should mention missing Recipient: {err}"
+        );
+    }
+
+    /// R234-SRV-2: Missing NotOnOrAfter on SubjectConfirmationData must be rejected.
+    #[test]
+    fn ensure_subject_confirmation_rejects_missing_not_on_or_after() {
+        let config = test_saml_config();
+        let metadata_xml = test_metadata_xml();
+        let document = Document::parse(&metadata_xml).unwrap();
+        let saml_state = SamlState::from_document(document, &config).unwrap();
+        // SubjectConfirmationData without NotOnOrAfter attribute
+        let xml = format!(
+            r#"<Assertion xmlns="{}"><Subject><NameID>user@test.com</NameID><SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"><SubjectConfirmationData Recipient="{}"/></SubjectConfirmation></Subject></Assertion>"#,
+            SAML_ASSERTION_NS, TEST_SP_ACS
+        );
+        let assertion_doc = Document::parse(&xml).unwrap();
+        let assertion = assertion_doc.root_element();
+        let result = saml_state.ensure_subject_confirmation(assertion);
+        assert!(
+            result.is_err(),
+            "Missing NotOnOrAfter on SubjectConfirmationData must be rejected"
+        );
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("NotOnOrAfter") && err.contains("missing"),
+            "Error should mention missing NotOnOrAfter: {err}"
         );
     }
 

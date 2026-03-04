@@ -2169,9 +2169,10 @@ fn test_collect_all_string_values_basic() {
         "f": ["x", "y", 3]
     });
 
-    let values = PolicyEngine::collect_all_string_values(&params);
+    let (values, truncated) = PolicyEngine::collect_all_string_values(&params);
     let string_values: Vec<&str> = values.iter().map(|(_, v)| *v).collect();
 
+    assert!(!truncated, "Should not be truncated for small input");
     assert!(string_values.contains(&"hello"), "Should contain 'hello'");
     assert!(string_values.contains(&"world"), "Should contain 'world'");
     assert!(string_values.contains(&"x"), "Should contain 'x'");
@@ -2182,7 +2183,8 @@ fn test_collect_all_string_values_basic() {
 #[test]
 fn test_collect_all_string_values_empty_object() {
     let params = json!({});
-    let values = PolicyEngine::collect_all_string_values(&params);
+    let (values, truncated) = PolicyEngine::collect_all_string_values(&params);
+    assert!(!truncated);
     assert!(values.is_empty(), "Empty object should yield no values");
 }
 
@@ -2193,7 +2195,7 @@ fn test_collect_all_string_values_depth_limit() {
     for _ in 0..40 {
         val = json!({"nested": val});
     }
-    let values = PolicyEngine::collect_all_string_values(&val);
+    let (values, _truncated) = PolicyEngine::collect_all_string_values(&val);
     // The string is at depth 40, but our limit is 32 — it should NOT be found
     assert!(
         values.is_empty(),
@@ -5880,7 +5882,7 @@ fn test_json_depth_and_scan_depth_use_same_constant() {
     for _ in 0..(PolicyEngine::MAX_JSON_DEPTH + 1) {
         val = json!({"nested": val});
     }
-    let values = PolicyEngine::collect_all_string_values(&val);
+    let (values, _truncated) = PolicyEngine::collect_all_string_values(&val);
     assert!(
         values.is_empty(),
         "Values beyond MAX_JSON_DEPTH should not be collected"
@@ -5891,7 +5893,7 @@ fn test_json_depth_and_scan_depth_use_same_constant() {
     for _ in 0..(PolicyEngine::MAX_JSON_DEPTH - 1) {
         val2 = json!({"nested": val2});
     }
-    let values2 = PolicyEngine::collect_all_string_values(&val2);
+    let (values2, _truncated2) = PolicyEngine::collect_all_string_values(&val2);
     assert!(
         !values2.is_empty(),
         "Values at depth MAX_JSON_DEPTH - 1 should be collected"
@@ -11723,7 +11725,7 @@ fn test_r46_006_collect_all_string_values_deeply_nested() {
     for _ in 0..30 {
         val = json!({"nest": val});
     }
-    let results = PolicyEngine::collect_all_string_values(&val);
+    let (results, _truncated) = PolicyEngine::collect_all_string_values(&val);
     // Should find the deeply nested string (depth 30 < MAX_JSON_DEPTH=32)
     assert!(
         !results.is_empty(),
@@ -11742,7 +11744,7 @@ fn test_r46_006_collect_all_string_values_beyond_depth_limit() {
     for _ in 0..40 {
         val = json!({"nest": val});
     }
-    let results = PolicyEngine::collect_all_string_values(&val);
+    let (results, _truncated) = PolicyEngine::collect_all_string_values(&val);
     // The string at depth 40 should NOT be found (exceeds MAX_JSON_DEPTH=32)
     let found = results.iter().any(|(_, v)| *v == "unreachable");
     assert!(!found, "String beyond depth limit should not be collected");
@@ -11761,7 +11763,7 @@ fn test_r46_006_collect_all_string_values_mixed_nesting() {
         },
         "array": ["found4", {"inner": "found5"}]
     });
-    let results = PolicyEngine::collect_all_string_values(&val);
+    let (results, _truncated) = PolicyEngine::collect_all_string_values(&val);
     let values: Vec<&str> = results.iter().map(|(_, v)| *v).collect();
     assert!(values.contains(&"found1"), "shallow string missing");
     assert!(values.contains(&"found2"), "level2 string missing");

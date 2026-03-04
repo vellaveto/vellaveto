@@ -73,6 +73,23 @@ pub struct ContextIsolator {
 }
 
 impl ContextIsolator {
+    /// Validate session_id for dangerous characters.
+    fn validate_session_id(session_id: &str) -> Result<(), ShieldError> {
+        // SECURITY (R234-SHIELD-4): Reject session IDs with control chars, bidi
+        // overrides, zero-width chars, etc.
+        if session_id.is_empty() {
+            return Err(ShieldError::SessionIsolation(
+                "session_id must not be empty".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(session_id) {
+            return Err(ShieldError::SessionIsolation(
+                "session_id contains control or format characters (rejected)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Create a new context isolator with default bounds.
     pub fn new() -> Self {
         Self {
@@ -95,6 +112,7 @@ impl ContextIsolator {
     ///
     /// Text should already be PII-sanitized before calling this.
     pub fn record(&self, session_id: &str, role: &str, text: &str) -> Result<(), ShieldError> {
+        Self::validate_session_id(session_id)?;
         if text.len() > MAX_CONTEXT_ENTRY_LEN {
             return Err(ShieldError::Config(format!(
                 "context entry too large ({} bytes, max {})",
@@ -164,6 +182,7 @@ impl ContextIsolator {
         session_id: &str,
         max_entries: usize,
     ) -> Result<Vec<(String, String)>, ShieldError> {
+        Self::validate_session_id(session_id)?;
         let sessions = self
             .sessions
             .lock()

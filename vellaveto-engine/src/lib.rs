@@ -1166,18 +1166,24 @@ impl PolicyEngine {
     /// Recursively collect all string values from a JSON structure.
     ///
     /// Returns a list of `(path, value)` pairs where `path` is a dot-separated
-    /// description of where the value was found (e.g., `"options.target"`).
+    /// description of where the value was found (e.g., `"options.target"`), and
+    /// a boolean indicating whether results were truncated at [`MAX_SCAN_VALUES`].
     /// Uses an iterative approach to avoid stack overflow on deep JSON.
     ///
     /// Bounded by [`MAX_SCAN_VALUES`] total values and [`MAX_JSON_DEPTH`] nesting depth.
-    fn collect_all_string_values(params: &serde_json::Value) -> Vec<(String, &str)> {
+    ///
+    /// SECURITY (R234-ENG-4): Returns truncation flag so callers can fail-closed
+    /// when the parameter space exceeds scan capacity.
+    fn collect_all_string_values(params: &serde_json::Value) -> (Vec<(String, &str)>, bool) {
         // Pre-allocate for typical parameter sizes; bounded by MAX_SCAN_VALUES
         let mut results = Vec::with_capacity(16);
+        let mut truncated = false;
         // Stack: (value, current_path, depth)
         let mut stack: Vec<(&serde_json::Value, String, usize)> = vec![(params, String::new(), 0)];
 
         while let Some((val, path, depth)) = stack.pop() {
             if results.len() >= Self::MAX_SCAN_VALUES {
+                truncated = true;
                 break;
             }
             match val {
@@ -1227,7 +1233,7 @@ impl PolicyEngine {
             }
         }
 
-        results
+        (results, truncated)
     }
 
     /// Convert an `on_match` action string into a Verdict.

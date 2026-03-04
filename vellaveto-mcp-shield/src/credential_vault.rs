@@ -128,7 +128,8 @@ impl CredentialVault {
     /// Consume the next available credential for a new session.
     ///
     /// Returns the credential and its vault index. The credential is
-    /// marked as Active. Returns an error if no credentials are available
+    /// marked as Active and the status change is persisted to disk.
+    /// Returns an error if no credentials are available
     /// (fail-closed: no credential = no session).
     pub fn consume_credential(&self) -> Result<(BlindCredential, usize), ShieldError> {
         let mut entries = self
@@ -144,6 +145,11 @@ impl CredentialVault {
             })?;
 
         entries[idx].status = CredentialStatus::Active;
+
+        // SECURITY (R234-SHIELD-1): Persist status change to disk so that
+        // a crash cannot revert a consumed credential to Available.
+        self.persist_entries(&entries)?;
+
         Ok((entries[idx].credential.clone(), idx))
     }
 
@@ -163,7 +169,33 @@ impl CredentialVault {
         }
 
         entries[index].status = CredentialStatus::Consumed;
+
+        // SECURITY (R234-SHIELD-1): Persist consumed status to prevent reuse after crash.
+        self.persist_entries(&entries)?;
+
         Ok(())
+    }
+
+    /// Persist all vault entries to the encrypted store (atomic rewrite).
+    fn persist_entries(&self, entries: &[VaultEntry]) -> Result<(), ShieldError> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("store lock poisoned: {e}")))?;
+
+        let serialized: Vec<Vec<u8>> = entries
+            .iter()
+            .map(|e| {
+                let stored = StoredVaultEntry {
+                    credential: e.credential.clone(),
+                    status: e.status.clone(),
+                };
+                serde_json::to_vec(&stored)
+                    .map_err(|err| ShieldError::Encryption(format!("vault entry serialize: {err}")))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        store.rewrite_all_entries(&serialized)
     }
 
     /// Expire credentials from epochs older than the given epoch.
@@ -334,7 +366,10 @@ impl std::fmt::Debug for CredentialVault {
 }
 
 /// Serializable vault entry for encrypted storage.
+// SECURITY (R234-SHIELD-2): Reject unknown fields to prevent attacker-injected
+// fields from surviving deserialization when loading from encrypted store.
 #[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StoredVaultEntry {
     credential: BlindCredential,
     status: CredentialStatus,

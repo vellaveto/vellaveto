@@ -179,7 +179,13 @@ impl ThreatIntelClient {
             return Err(ThreatIntelError::NotConfigured);
         }
 
-        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
+        // SECURITY (R234-SRV-3): Disable automatic redirect following to prevent
+        // SSRF via redirect to internal/metadata endpoints (e.g., 169.254.169.254).
+        // Callers should treat non-2xx status (including 3xx) as an error.
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
 
         // Constants are guaranteed non-zero; keep this panic-free for strict runtimes.
         let cache_size = NonZeroUsize::new(100).unwrap_or(NonZeroUsize::MIN);

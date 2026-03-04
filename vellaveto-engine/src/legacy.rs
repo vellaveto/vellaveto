@@ -645,7 +645,7 @@ impl PolicyEngine {
 
             // Wildcard param "*": recursively scan ALL string values in parameters
             if param_name == "*" {
-                let all_values = Self::collect_all_string_values(&action.parameters);
+                let (all_values, truncated) = Self::collect_all_string_values(&action.parameters);
                 if all_values.is_empty() {
                     if on_missing == "skip" {
                         continue;
@@ -666,6 +666,16 @@ impl PolicyEngine {
                     )? {
                         return Ok(Some(verdict));
                     }
+                }
+                // SECURITY (R234-ENG-4): Fail-closed on truncated scan.
+                if truncated {
+                    return Ok(Some(Verdict::Deny {
+                        reason: format!(
+                            "Parameter scan truncated at {} values — deny (fail-closed) in policy '{}'",
+                            Self::MAX_SCAN_VALUES,
+                            policy.name,
+                        ),
+                    }));
                 }
                 continue;
             }
