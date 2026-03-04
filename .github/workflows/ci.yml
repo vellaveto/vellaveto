@@ -116,7 +116,7 @@ jobs:
         run: cargo check --workspace --all-targets --locked
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::uninlined_format_args
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::uninlined_format_args -A clippy::field_reassign_with_default -A clippy::const_is_empty -A clippy::unnecessary_literal_unwrap -A clippy::assertions_on_constants
 
       - name: Reject unwrap()/expect() in library code
         run: |

@@ -3040,7 +3040,9 @@ impl ProxyBridge {
                     if !cross_findings.is_empty() {
                         tracing::warn!(
                             "SECURITY: Cross-call DLP alert for extension '{}:{}': {} findings",
-                            safe_extension_id, safe_ext_method, cross_findings.len()
+                            safe_extension_id,
+                            safe_ext_method,
+                            cross_findings.len()
                         );
                         dlp_findings.extend(cross_findings);
                     }
@@ -3058,7 +3060,8 @@ impl ProxyBridge {
                             pattern_name: "sharded_exfiltration".to_string(),
                             location: format!(
                                 "ext:{}:{} ({} bytes across {} fragments)",
-                                safe_extension_id, safe_ext_method,
+                                safe_extension_id,
+                                safe_ext_method,
                                 cumulative_bytes,
                                 tracker.fragment_count()
                             ),
