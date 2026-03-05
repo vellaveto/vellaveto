@@ -80,8 +80,11 @@ pub struct TopologyConfig {
     pub max_consecutive_failures: u32,
 
     /// Behavior when topology is unavailable (crawl failures exceed threshold).
-    /// - "bypass": Skip topology check, let policy engine decide (default).
-    /// - "deny": Deny all tool calls until topology is restored.
+    /// - "deny": Deny all tool calls until topology is restored (default, fail-closed).
+    /// - "bypass": Skip topology check, let policy engine decide.
+    ///
+    /// SECURITY (R237-CFG-5): Default changed from "bypass" to "deny" to enforce
+    /// fail-closed behavior. Operators who want fail-open must explicitly opt in.
     #[serde(default = "default_fallback_mode")]
     pub fallback_mode: String,
 }
@@ -107,7 +110,7 @@ fn default_max_consecutive_failures() -> u32 {
 }
 
 fn default_fallback_mode() -> String {
-    "bypass".to_string()
+    "deny".to_string()
 }
 
 impl Default for TopologyConfig {
@@ -187,5 +190,21 @@ impl TopologyConfig {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── R237-CFG-5: Default fallback_mode is fail-closed ("deny") ──
+
+    #[test]
+    fn test_topology_default_fallback_mode_deny() {
+        let config = TopologyConfig::default();
+        assert_eq!(
+            config.fallback_mode, "deny",
+            "TopologyConfig default fallback_mode must be 'deny' (fail-closed)"
+        );
     }
 }

@@ -138,6 +138,16 @@ impl CrossCallDlpTracker {
             }
         }
 
+        // SECURITY (R237-MCP-4): Before updating the buffer, check if this is a new field
+        // that would exceed capacity. If so, add a synthetic finding so the caller can
+        // deny the request rather than silently losing cross-call DLP coverage.
+        if !self.buffers.contains_key(field_path) && self.buffers.len() >= self.max_fields {
+            findings.push(DlpFinding {
+                pattern_name: "cross_call_dlp_capacity_exhausted".to_string(),
+                location: format!("{field_path}(capacity-exceeded)"),
+            });
+        }
+
         // Update the overlap buffer with the tail of current_value
         self.update_buffer(field_path, current_value);
 
@@ -401,5 +411,47 @@ mod tests {
                 "Buffer must contain valid UTF-8"
             );
         }
+    }
+
+    #[test]
+    fn test_r237_mcp4_capacity_exhaustion_produces_finding() {
+        // SECURITY (R237-MCP-4): When field capacity is reached, new fields
+        // must produce a synthetic DlpFinding to force a deny.
+        let max_fields = 3;
+        let mut tracker = CrossCallDlpTracker::with_config(32, max_fields);
+
+        // Fill to capacity
+        for i in 0..max_fields {
+            let findings = tracker.scan_with_overlap(&format!("field-{i}"), "benign data");
+            assert!(findings.is_empty());
+        }
+
+        // Next new field should produce a capacity-exhausted finding
+        let findings = tracker.scan_with_overlap("overflow-field", "more data");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "cross_call_dlp_capacity_exhausted"),
+            "Expected capacity exhaustion finding, got: {findings:?}"
+        );
+    }
+
+    #[test]
+    fn test_r237_mcp4_existing_field_at_capacity_no_finding() {
+        // An existing tracked field should NOT produce a capacity finding.
+        let max_fields = 2;
+        let mut tracker = CrossCallDlpTracker::with_config(32, max_fields);
+
+        tracker.scan_with_overlap("field-a", "data1");
+        tracker.scan_with_overlap("field-b", "data2");
+
+        // Re-scanning an existing field should not trigger capacity alert
+        let findings = tracker.scan_with_overlap("field-a", "data3");
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.pattern_name == "cross_call_dlp_capacity_exhausted"),
+            "Existing field should not trigger capacity exhaustion"
+        );
     }
 }

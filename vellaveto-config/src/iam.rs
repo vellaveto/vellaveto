@@ -354,11 +354,21 @@ impl SamlConfig {
             .as_ref()
             .ok_or_else(|| "iam.saml.acs_url is required when saml.enabled is true".to_string())?;
         ensure_safe_str("iam.saml.acs_url", acs, MAX_SAML_URL_LEN)?;
+        // SECURITY (R237-CFG-3): Enforce HTTPS on ACS URL — SAML assertions
+        // contain sensitive identity data and must not transit in cleartext.
+        if !acs.starts_with("https://") {
+            return Err("iam.saml.acs_url must use https:// scheme".to_string());
+        }
 
         let metadata = self.idp_metadata_url.as_ref().ok_or_else(|| {
             "iam.saml.idp_metadata_url is required when saml.enabled is true".to_string()
         })?;
         ensure_safe_str("iam.saml.idp_metadata_url", metadata, MAX_SAML_URL_LEN)?;
+        // SECURITY (R237-CFG-3): Enforce HTTPS on IdP metadata URL to prevent
+        // SSRF via http:// or file:// schemes and cleartext metadata fetch.
+        if !metadata.starts_with("https://") {
+            return Err("iam.saml.idp_metadata_url must use https:// scheme".to_string());
+        }
 
         if let Some(role_attr) = &self.role_attribute {
             ensure_safe_str("iam.saml.role_attribute", role_attr, MAX_SAML_FIELD_LEN)?;
@@ -794,6 +804,47 @@ mod tests {
         assert!(
             result.is_ok(),
             "http:// issuer should be allowed with allow_insecure_issuer=true: {result:?}"
+        );
+    }
+
+    // ── R237-CFG-3: SAML HTTPS scheme enforcement ──
+
+    #[test]
+    fn test_saml_acs_url_http_rejected() {
+        let config = SamlConfig {
+            enabled: true,
+            entity_id: Some("https://sp.example.com".to_string()),
+            acs_url: Some("http://evil.com/acs".to_string()),
+            idp_metadata_url: Some("https://idp.example.com/meta".to_string()),
+            role_attribute: Some("Role".to_string()),
+        };
+        let result = config.validate();
+        assert!(result.is_err(), "http:// acs_url should be rejected");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("must use https://"),
+            "Error should mention 'must use https://', got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_saml_idp_metadata_url_http_rejected() {
+        let config = SamlConfig {
+            enabled: true,
+            entity_id: Some("https://sp.example.com".to_string()),
+            acs_url: Some("https://sp.example.com/acs".to_string()),
+            idp_metadata_url: Some("http://evil.com/meta".to_string()),
+            role_attribute: Some("Role".to_string()),
+        };
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "http:// idp_metadata_url should be rejected"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("must use https://"),
+            "Error should mention 'must use https://', got: {err}"
         );
     }
 }

@@ -295,6 +295,7 @@ pub async fn delete_tenant(
 }
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants, clippy::const_is_empty)]
 mod tests {
     use super::*;
 

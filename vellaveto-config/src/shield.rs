@@ -317,6 +317,18 @@ impl ShieldConfig {
                     MAX_SHIELD_PATTERN_LEN
                 ));
             }
+            // SECURITY (R237-CFG-2): Validate pattern field for dangerous chars
+            // and regex compilation, consistent with PolicyConfig::validate().
+            if has_dangerous_chars(&pat.pattern) {
+                return Err(format!(
+                    "custom_pii_patterns[{i}].pattern contains dangerous characters"
+                ));
+            }
+            if let Err(e) = regex::Regex::new(&pat.pattern) {
+                return Err(format!(
+                    "custom_pii_patterns[{i}].pattern is not valid regex: {e}"
+                ));
+            }
         }
 
         Ok(())
@@ -434,5 +446,49 @@ pattern = "EMP-\\d{6}"
         assert_eq!(config.shield.max_sessions, 500);
         assert_eq!(config.shield.custom_pii_patterns.len(), 1);
         assert!(config.shield.validate().is_ok());
+    }
+
+    // ── R237-CFG-2: custom_pii_patterns pattern field validation ──
+
+    #[test]
+    fn test_shield_custom_pii_invalid_regex() {
+        let config = ShieldConfig {
+            custom_pii_patterns: vec![ShieldCustomPiiPattern {
+                name: "bad_pattern".to_string(),
+                pattern: "(?P<bad".to_string(),
+            }],
+            ..ShieldConfig::default()
+        };
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "Invalid regex pattern should fail validation"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("not valid regex"),
+            "Error should mention 'not valid regex', got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_shield_custom_pii_dangerous_chars_in_pattern() {
+        let config = ShieldConfig {
+            custom_pii_patterns: vec![ShieldCustomPiiPattern {
+                name: "zwsp_pattern".to_string(),
+                pattern: "foo\u{200B}bar".to_string(),
+            }],
+            ..ShieldConfig::default()
+        };
+        let result = config.validate();
+        assert!(
+            result.is_err(),
+            "Pattern with dangerous chars should fail validation"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("dangerous characters"),
+            "Error should mention 'dangerous characters', got: {err}"
+        );
     }
 }

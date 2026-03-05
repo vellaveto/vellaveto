@@ -346,6 +346,7 @@ pub async fn create_checkpoint(
 }
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants, clippy::unnecessary_literal_unwrap)]
 mod tests {
     use super::*;
 

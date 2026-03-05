@@ -1327,6 +1327,16 @@ impl ProxyBridge {
                                 "Shield sanitize FAILED (fail-closed): {} — blocking request",
                                 e
                             );
+                            // SECURITY (R237-SHIELD-1): Audit shield denials in tamper-evident log.
+                            // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "shield_pii_sanitization_failed",
+                                json!({}),
+                            );
+                            if let Err(e) = self.audit.log_entry(&deny_action, &Verdict::Deny { reason: "Shield PII sanitization failed".to_string() }, json!({"source": "proxy", "event": "shield_pii_sanitization_blocked"})).await {
+                                tracing::warn!("Failed to audit shield PII sanitization denial: {}", e);
+                            }
                             let error_response = make_denial_response(
                                 &id,
                                 "Shield PII sanitization failed — request blocked to prevent data leakage",
@@ -1350,6 +1360,16 @@ impl ProxyBridge {
                         Ok(normalized) => normalized,
                         Err(e) => {
                             tracing::error!("Shield stylometric normalize FAILED (fail-closed): {} — blocking request", e);
+                            // SECURITY (R237-SHIELD-1): Audit shield denials.
+                            // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "shield_stylometric_failed",
+                                json!({}),
+                            );
+                            if let Err(e) = self.audit.log_entry(&deny_action, &Verdict::Deny { reason: "Shield stylometric normalization failed".to_string() }, json!({"source": "proxy", "event": "shield_stylometric_blocked"})).await {
+                                tracing::warn!("Failed to audit shield stylometric denial: {}", e);
+                            }
                             let error_response = make_denial_response(
                                 &id,
                                 "Shield stylometric normalization failed — request blocked to prevent fingerprinting",
@@ -1382,6 +1402,16 @@ impl ProxyBridge {
                                     "Shield credential consumption FAILED (fail-closed): {} — blocking request",
                                     e
                                 );
+                                // SECURITY (R237-SHIELD-1): Audit shield denials.
+                                // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                                let deny_action = vellaveto_types::Action::new(
+                                    "vellaveto",
+                                    "shield_credential_failed",
+                                    json!({}),
+                                );
+                                if let Err(e) = self.audit.log_entry(&deny_action, &Verdict::Deny { reason: "Shield credential consumption failed".to_string() }, json!({"source": "proxy", "event": "shield_credential_blocked"})).await {
+                                    tracing::warn!("Failed to audit shield credential denial: {}", e);
+                                }
                                 let error_response = make_denial_response(
                                     &id,
                                     "Shield session unlinkability failed — request blocked to prevent identity leakage",
@@ -1825,6 +1855,16 @@ impl ProxyBridge {
                                 "Shield sanitize FAILED for resources/read (fail-closed): {}",
                                 e
                             );
+                            // SECURITY (R237-SHIELD-1): Audit shield denials.
+                            // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "shield_pii_sanitization_failed",
+                                json!({"handler": "resources/read"}),
+                            );
+                            if let Err(e) = self.audit.log_entry(&deny_action, &Verdict::Deny { reason: "Shield PII sanitization failed (resources/read)".to_string() }, json!({"source": "proxy", "event": "shield_pii_sanitization_blocked"})).await {
+                                tracing::warn!("Failed to audit shield PII sanitization denial (resources/read): {}", e);
+                            }
                             let error_response = make_denial_response(
                                 &id,
                                 "Shield PII sanitization failed — request blocked",
@@ -1892,6 +1932,39 @@ impl ProxyBridge {
         state: &mut RelayState,
         agent_writer: &mut tokio::io::Stdout,
     ) -> Result<(), ProxyError> {
+        // SECURITY (R237-MCP-2): Circuit breaker check for sampling requests.
+        if let Some(ref cb) = self.circuit_breaker {
+            if let Err(reason) = cb.can_proceed("sampling/createMessage") {
+                tracing::warn!("SECURITY: Circuit breaker blocking sampling: {}", reason);
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "sampling_circuit_breaker_blocked",
+                    json!({"reason": &reason}),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: reason.clone(),
+                        },
+                        json!({
+                            "source": "proxy",
+                            "event": "circuit_breaker_blocked_sampling",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit sampling circuit breaker block: {}", e);
+                }
+                let response = make_denial_response(&id, "Request blocked by circuit breaker");
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let verdict = crate::elicitation::inspect_sampling(
             &params,
@@ -2096,37 +2169,46 @@ impl ProxyBridge {
                             tool_name,
                             injection_matches
                         );
-                        if self.injection_blocking {
-                            let deny_action = vellaveto_types::Action::new(
-                                "vellaveto",
-                                "sampling_injection_blocked",
-                                json!({
-                                    "tool": &tool_name,
-                                    "patterns": injection_matches,
-                                }),
-                            );
-                            if let Err(e) = self
-                                .audit
-                                .log_entry(
-                                    &deny_action,
-                                    &Verdict::Deny {
-                                        reason: format!(
-                                            "Sampling blocked: injection in system prompt/messages ({injection_matches:?})"
-                                        ),
-                                    },
-                                    json!({
-                                        "source": "proxy",
-                                        "event": "sampling_injection_blocked",
-                                        "tool": &tool_name,
-                                    }),
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    "Failed to audit sampling injection: {}",
-                                    e
-                                );
+                        // SECURITY (R237-PARITY-1): Always audit injection detections,
+                        // not just when blocking. Log-only mode must still produce a
+                        // tamper-evident record for compliance and forensics.
+                        let verdict = if self.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Sampling blocked: injection in system prompt/messages ({injection_matches:?})"
+                                ),
                             }
+                        } else {
+                            Verdict::Allow
+                        };
+                        let audit_action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "sampling_injection_detected",
+                            json!({
+                                "tool": &tool_name,
+                                "patterns": &injection_matches,
+                            }),
+                        );
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &audit_action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": if self.injection_blocking { "sampling_injection_blocked" } else { "sampling_injection_detected" },
+                                    "tool": &tool_name,
+                                    "blocked": self.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit sampling injection: {}",
+                                e
+                            );
+                        }
+                        if self.injection_blocking {
                             let response = make_denial_response(
                                 &id,
                                 "Request blocked: security policy violation",
@@ -2200,6 +2282,39 @@ impl ProxyBridge {
         state: &mut RelayState,
         agent_writer: &mut tokio::io::Stdout,
     ) -> Result<(), ProxyError> {
+        // SECURITY (R237-MCP-2): Circuit breaker check for elicitation requests.
+        if let Some(ref cb) = self.circuit_breaker {
+            if let Err(reason) = cb.can_proceed("elicitation/create") {
+                tracing::warn!("SECURITY: Circuit breaker blocking elicitation: {}", reason);
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "elicitation_circuit_breaker_blocked",
+                    json!({"reason": &reason}),
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: reason.clone(),
+                        },
+                        json!({
+                            "source": "proxy",
+                            "event": "circuit_breaker_blocked_elicitation",
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit elicitation circuit breaker block: {}", e);
+                }
+                let response = make_denial_response(&id, "Request blocked by circuit breaker");
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        }
+
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let verdict = crate::elicitation::inspect_elicitation(
             &params,
@@ -2283,37 +2398,45 @@ impl ProxyBridge {
                             tool_name,
                             injection_matches
                         );
-                        if self.injection_blocking {
-                            let deny_action = vellaveto_types::Action::new(
-                                "vellaveto",
-                                "elicitation_injection_blocked",
-                                json!({
-                                    "tool": &tool_name,
-                                    "patterns": injection_matches,
-                                }),
-                            );
-                            if let Err(e) = self
-                                .audit
-                                .log_entry(
-                                    &deny_action,
-                                    &Verdict::Deny {
-                                        reason: format!(
-                                            "Elicitation blocked: injection detected ({injection_matches:?})"
-                                        ),
-                                    },
-                                    json!({
-                                        "source": "proxy",
-                                        "event": "elicitation_injection_blocked",
-                                        "tool": &tool_name,
-                                    }),
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    "Failed to audit elicitation injection: {}",
-                                    e
-                                );
+                        // SECURITY (R237-PARITY-1): Always audit injection detections,
+                        // not just when blocking. Matches handle_tool_call pattern.
+                        let verdict = if self.injection_blocking {
+                            Verdict::Deny {
+                                reason: format!(
+                                    "Elicitation blocked: injection detected ({injection_matches:?})"
+                                ),
                             }
+                        } else {
+                            Verdict::Allow
+                        };
+                        let audit_action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "elicitation_injection_detected",
+                            json!({
+                                "tool": &tool_name,
+                                "patterns": &injection_matches,
+                            }),
+                        );
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &audit_action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": if self.injection_blocking { "elicitation_injection_blocked" } else { "elicitation_injection_detected" },
+                                    "tool": &tool_name,
+                                    "blocked": self.injection_blocking,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!(
+                                "Failed to audit elicitation injection: {}",
+                                e
+                            );
+                        }
+                        if self.injection_blocking {
                             let response = make_denial_response(
                                 &id,
                                 "Request blocked: security policy violation",
@@ -2388,10 +2511,11 @@ impl ProxyBridge {
                         .map(|f| format!("{} at {}", f.pattern_name, f.location))
                         .collect();
                     tracing::warn!("SECURITY: DLP alert in elicitation request: {:?}", patterns);
+                    // SECURITY (R237-MCP-5): Include tool name in elicitation DLP audit for forensics.
                     let dlp_action = vellaveto_types::Action::new(
                         "vellaveto",
                         "elicitation_dlp_blocked",
-                        json!({"findings": patterns}),
+                        json!({"findings": patterns, "tool": &tool_name}),
                     );
                     if let Err(e) = self
                         .audit
@@ -3920,12 +4044,14 @@ impl ProxyBridge {
                             state.pending_requests.remove(&id_key);
                             state.tools_list_request_ids.remove(&id_key);
                             state.initialize_request_ids.remove(&id_key);
+                            // SECURITY (R237-PARITY-8): Use consistent error code
+                            // and generic message. -32005 leaks detection type.
                             let response = json!({
                                 "jsonrpc": "2.0",
                                 "id": id,
                                 "error": {
-                                    "code": -32005,
-                                    "message": "Request blocked: injection detected",
+                                    "code": -32001,
+                                    "message": "Request blocked: security policy violation",
                                 }
                             });
                             write_message(agent_writer, &response)
@@ -3994,11 +4120,13 @@ impl ProxyBridge {
                     state.pending_requests.remove(&id_key);
                     state.tools_list_request_ids.remove(&id_key);
                     state.initialize_request_ids.remove(&id_key);
+                    // SECURITY (R237-PARITY-8): Consistent error code -32001
+                    // across all passthrough blocks (DLP, injection, memory poisoning).
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
-                            "code": -32005,
+                            "code": -32001,
                             "message": "Request blocked: security policy violation",
                         }
                     });
@@ -4032,6 +4160,29 @@ impl ProxyBridge {
                         "Shield sanitize FAILED for passthrough (fail-closed): {}",
                         e
                     );
+                    // SECURITY (R237-SHIELD-1): Audit shield denials.
+                    // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                    let deny_action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "shield_pii_sanitization_failed",
+                        json!({"handler": "passthrough"}),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &deny_action,
+                            &Verdict::Deny {
+                                reason: "Shield PII sanitization failed (passthrough)".to_string(),
+                            },
+                            json!({"source": "proxy", "event": "shield_pii_sanitization_blocked"}),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            "Failed to audit shield PII sanitization denial (passthrough): {}",
+                            e
+                        );
+                    }
                     if let Some(id) = msg.get("id") {
                         if !id.is_null() {
                             let id_key = id.to_string();
@@ -4301,6 +4452,16 @@ impl ProxyBridge {
                                  returning error to prevent placeholder leakage",
                                 e
                             );
+                            // SECURITY (R237-SHIELD-1): Audit shield denials.
+                            // SECURITY (R237-DIFF-1): Log audit failures instead of silently swallowing.
+                            let deny_action = vellaveto_types::Action::new(
+                                "vellaveto",
+                                "shield_desanitize_failed",
+                                json!({}),
+                            );
+                            if let Err(e) = self.audit.log_entry(&deny_action, &Verdict::Deny { reason: "Shield desanitization failed".to_string() }, json!({"source": "proxy", "event": "shield_desanitize_blocked"})).await {
+                                tracing::warn!("Failed to audit shield desanitization denial: {}", e);
+                            }
                             let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
                             let error_response = serde_json::json!({
                                 "jsonrpc": "2.0",

@@ -210,7 +210,8 @@ pub fn extract_call_chain_from_headers(
         return Vec::new();
     }
 
-    let max_age_secs = limits.call_chain_max_age_secs as i64;
+    // SECURITY (R237-PROXY-1): Safe cast to prevent i64 wrapping on extreme config values.
+    let max_age_secs = i64::try_from(limits.call_chain_max_age_secs).unwrap_or(i64::MAX);
 
     let mut entries = match headers.get(X_UPSTREAM_AGENTS) {
         Some(raw_header) => {
@@ -491,6 +492,7 @@ pub fn check_privilege_escalation(
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     use serde_json::json;

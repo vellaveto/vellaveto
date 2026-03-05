@@ -117,8 +117,35 @@ pub struct TlsConfig {
 /// Maximum number of cipher suites.
 const MAX_CIPHER_SUITES: usize = 64;
 
+/// Maximum length for TLS file paths (consistent with persistence_path).
+const MAX_TLS_PATH_LENGTH: usize = 4096;
+
 fn default_min_tls_version() -> String {
     "1.2".to_string()
+}
+
+/// SECURITY (R237-CFG-1): Validate a TLS path field for length, control chars,
+/// and path traversal (ParentDir components). Consistent with persistence_path
+/// validation in config_validate.rs.
+fn validate_tls_path(field_name: &str, path: &str) -> Result<(), String> {
+    if path.len() > MAX_TLS_PATH_LENGTH {
+        return Err(format!(
+            "tls.{field_name} length {} exceeds maximum {MAX_TLS_PATH_LENGTH}",
+            path.len()
+        ));
+    }
+    if vellaveto_types::has_dangerous_chars(path) {
+        return Err(format!(
+            "tls.{field_name} contains control or format characters"
+        ));
+    }
+    // Reject path traversal via ".." components
+    for component in std::path::Path::new(path).components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(format!("tls.{field_name} contains path traversal (\"..\")"));
+        }
+    }
+    Ok(())
 }
 
 impl TlsConfig {
@@ -152,27 +179,27 @@ impl TlsConfig {
                 return Err("tls.cipher_suites contains control or format characters".to_string());
             }
         }
-        // SECURITY (FIND-R216-010): Validate TLS path fields for control/format characters.
-        // Zero-width chars in paths could cause filesystem confusion or bypass path matching.
+        // SECURITY (R237-CFG-1): Validate TLS path fields for length, control
+        // chars, and path traversal, consistent with persistence_path validation.
         if let Some(ref p) = self.cert_path {
-            if vellaveto_types::has_dangerous_chars(p) {
-                return Err("tls.cert_path contains control or format characters".to_string());
-            }
+            validate_tls_path("cert_path", p)?;
         }
         if let Some(ref p) = self.key_path {
-            if vellaveto_types::has_dangerous_chars(p) {
-                return Err("tls.key_path contains control or format characters".to_string());
-            }
+            validate_tls_path("key_path", p)?;
         }
         if let Some(ref p) = self.client_ca_path {
-            if vellaveto_types::has_dangerous_chars(p) {
-                return Err("tls.client_ca_path contains control or format characters".to_string());
-            }
+            validate_tls_path("client_ca_path", p)?;
         }
         if let Some(ref p) = self.crl_path {
-            if vellaveto_types::has_dangerous_chars(p) {
-                return Err("tls.crl_path contains control or format characters".to_string());
-            }
+            validate_tls_path("crl_path", p)?;
+        }
+        // SECURITY (R237-TLS-2): Reject contradictory config where client certs
+        // are required but not verified — this is a misconfiguration trap.
+        if self.require_client_cert && !self.verify_client_cert {
+            return Err(
+                "tls.verify_client_cert must be true when tls.require_client_cert is true"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -306,6 +333,36 @@ impl SpiffeConfig {
                 "spiffe.svid_cache_ttl_secs {} exceeds maximum {} (24 hours)",
                 self.svid_cache_ttl_secs, MAX_CACHE_TTL_SECS
             ));
+        }
+        // SECURITY (R237-CFG-4): Validate workload_socket for length, dangerous
+        // chars, and unix:// scheme.
+        if let Some(ref socket) = self.workload_socket {
+            if socket.len() > MAX_TLS_PATH_LENGTH {
+                return Err(format!(
+                    "spiffe.workload_socket length {} exceeds maximum {MAX_TLS_PATH_LENGTH}",
+                    socket.len()
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(socket) {
+                return Err(
+                    "spiffe.workload_socket contains control or format characters".to_string(),
+                );
+            }
+            // Reject path traversal via ".." components (strip unix:// prefix first)
+            let path_part = socket.strip_prefix("unix://").unwrap_or(socket);
+            for component in std::path::Path::new(path_part).components() {
+                if matches!(component, std::path::Component::ParentDir) {
+                    return Err(
+                        "spiffe.workload_socket contains path traversal (\"..\")".to_string()
+                    );
+                }
+            }
+            if self.enabled && !socket.starts_with("unix://") {
+                return Err(
+                    "spiffe.workload_socket must use unix:// scheme for SPIRE agent sockets"
+                        .to_string(),
+                );
+            }
         }
         // SECURITY (BUG-R110-003): Fail-closed when enabled without trust_domain
         if self.enabled && self.trust_domain.is_none() {
@@ -867,6 +924,7 @@ fn default_jit_max_sessions() -> u32 {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 
@@ -967,6 +1025,115 @@ mod tests {
         config.crl_path = Some("/path\x02crl".to_string());
         let err = config.validate().unwrap_err();
         assert!(err.contains("crl_path contains control"));
+    }
+
+    // ── R237-CFG-1: TLS path traversal and length validation ──
+
+    #[test]
+    fn test_r237_cfg1_tls_cert_path_traversal_rejected() {
+        let mut config = TlsConfig::default();
+        config.cert_path = Some("/etc/vellaveto/../../../etc/ssl/private/key.pem".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("path traversal"),
+            "expected path traversal error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r237_cfg1_tls_key_path_traversal_rejected() {
+        let mut config = TlsConfig::default();
+        config.key_path = Some("/etc/vellaveto/../../secrets/key.pem".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("path traversal"),
+            "expected path traversal error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r237_cfg1_tls_client_ca_path_traversal_rejected() {
+        let mut config = TlsConfig::default();
+        config.client_ca_path = Some("../../../root/ca.pem".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("path traversal"),
+            "expected path traversal error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r237_cfg1_tls_crl_path_traversal_rejected() {
+        let mut config = TlsConfig::default();
+        config.crl_path = Some("/etc/../../../tmp/evil.crl".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("path traversal"),
+            "expected path traversal error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r237_cfg1_tls_cert_path_length_rejected() {
+        let mut config = TlsConfig::default();
+        config.cert_path = Some("x".repeat(MAX_TLS_PATH_LENGTH + 1));
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("exceeds maximum"),
+            "expected length error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r237_cfg1_tls_absolute_path_without_traversal_ok() {
+        let config = TlsConfig {
+            cert_path: Some("/etc/vellaveto/server.crt".to_string()),
+            key_path: Some("/etc/vellaveto/server.key".to_string()),
+            ..TlsConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // ── R237-TLS-2: require_client_cert=true with verify_client_cert=false ──
+
+    /// R237-TLS-2: Reject contradictory config where client certs are required
+    /// but not verified — this is a misconfiguration trap that silently accepts
+    /// any client certificate including expired/revoked/self-signed ones.
+    #[test]
+    fn test_r237_tls2_require_client_cert_without_verify_rejected() {
+        let config = TlsConfig {
+            require_client_cert: true,
+            verify_client_cert: false,
+            ..TlsConfig::default()
+        };
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("verify_client_cert must be true"),
+            "Expected verify_client_cert error, got: {err}"
+        );
+    }
+
+    /// R237-TLS-2: require_client_cert=true with verify_client_cert=true is valid.
+    #[test]
+    fn test_r237_tls2_require_and_verify_client_cert_ok() {
+        let config = TlsConfig {
+            require_client_cert: true,
+            verify_client_cert: true,
+            ..TlsConfig::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    /// R237-TLS-2: require_client_cert=false with verify_client_cert=false is valid
+    /// (no mTLS — client certs are neither required nor verified).
+    #[test]
+    fn test_r237_tls2_no_require_no_verify_ok() {
+        let config = TlsConfig {
+            require_client_cert: false,
+            verify_client_cert: false,
+            ..TlsConfig::default()
+        };
+        assert!(config.validate().is_ok());
     }
 
     // ═══════════════════════════════════════════════════
@@ -1273,5 +1440,31 @@ mod tests {
         config.notification_webhook = Some("https://hook\x00.example.com".to_string());
         let err = config.validate().unwrap_err();
         assert!(err.contains("control or format characters"));
+    }
+
+    // ── R237-CFG-4: SpiffeConfig workload_socket validation ──
+
+    #[test]
+    fn test_spiffe_socket_path_traversal_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.workload_socket = Some("unix:///var/run/../../../etc/shadow".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("path traversal"),
+            "workload_socket with '..' should be rejected for path traversal, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_spiffe_socket_non_unix_scheme_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.enabled = true;
+        config.trust_domain = Some("example.org".to_string());
+        config.workload_socket = Some("tcp://host:8080".to_string());
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("must use unix://") || err.contains("unix:// scheme"),
+            "Non-unix:// scheme should be rejected, got: {err}"
+        );
     }
 }

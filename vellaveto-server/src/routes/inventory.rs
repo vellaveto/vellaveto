@@ -621,6 +621,7 @@ pub async fn inventory_graph(
 }
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
 

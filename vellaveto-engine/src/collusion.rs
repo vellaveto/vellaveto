@@ -237,10 +237,14 @@ impl std::error::Error for CollusionError {}
 impl CollusionConfig {
     /// Validate configuration values.
     pub fn validate(&self) -> Result<(), CollusionError> {
-        if self.coordination_window_secs == 0 {
-            return Err(CollusionError::InvalidConfig(
-                "coordination_window_secs must be > 0".to_string(),
-            ));
+        // SECURITY (R237-ENG-7): Upper bounds on time windows prevent config abuse.
+        const MAX_COORDINATION_WINDOW_SECS: u64 = 86_400; // 24 hours
+        if self.coordination_window_secs == 0
+            || self.coordination_window_secs > MAX_COORDINATION_WINDOW_SECS
+        {
+            return Err(CollusionError::InvalidConfig(format!(
+                "coordination_window_secs must be in [1, {MAX_COORDINATION_WINDOW_SECS}]"
+            )));
         }
         // SECURITY (Trap 4): Validate f64 fields for NaN/Infinity.
         // SECURITY (R229-ENG-5): Upper bound at 8.0 (max Shannon entropy for bytes).
@@ -274,10 +278,11 @@ impl CollusionConfig {
                 "recon_denial_threshold must be > 0".to_string(),
             ));
         }
-        if self.recon_window_secs == 0 {
-            return Err(CollusionError::InvalidConfig(
-                "recon_window_secs must be > 0".to_string(),
-            ));
+        const MAX_RECON_WINDOW_SECS: u64 = 3_600; // 1 hour
+        if self.recon_window_secs == 0 || self.recon_window_secs > MAX_RECON_WINDOW_SECS {
+            return Err(CollusionError::InvalidConfig(format!(
+                "recon_window_secs must be in [1, {MAX_RECON_WINDOW_SECS}]"
+            )));
         }
         // R226: Drift detection validation.
         if !self.drift_threshold.is_finite()
@@ -289,10 +294,11 @@ impl CollusionConfig {
                 self.drift_threshold
             )));
         }
-        if self.drift_window_secs == 0 {
-            return Err(CollusionError::InvalidConfig(
-                "drift_window_secs must be > 0".to_string(),
-            ));
+        const MAX_DRIFT_WINDOW_SECS: u64 = 604_800; // 7 days
+        if self.drift_window_secs == 0 || self.drift_window_secs > MAX_DRIFT_WINDOW_SECS {
+            return Err(CollusionError::InvalidConfig(format!(
+                "drift_window_secs must be in [1, {MAX_DRIFT_WINDOW_SECS}]"
+            )));
         }
         if self.drift_min_actions == 0 {
             return Err(CollusionError::InvalidConfig(
@@ -2208,6 +2214,36 @@ mod tests {
         let mut cfg = default_config();
         cfg.drift_min_actions = 0;
         assert!(cfg.validate().is_err());
+    }
+
+    // ── R237 — Upper bounds on time windows ────────────────────────────
+
+    #[test]
+    fn test_r237_eng7_coordination_window_upper_bound() {
+        let mut cfg = default_config();
+        cfg.coordination_window_secs = 86_401; // > 24 hours
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_r237_eng7_recon_window_upper_bound() {
+        let mut cfg = default_config();
+        cfg.recon_window_secs = 3_601; // > 1 hour
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_r237_eng7_drift_window_upper_bound() {
+        let mut cfg = default_config();
+        cfg.drift_window_secs = 604_801; // > 7 days
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_r237_eng7_coordination_window_at_max_ok() {
+        let mut cfg = default_config();
+        cfg.coordination_window_secs = 86_400; // exactly 24 hours
+        assert!(cfg.validate().is_ok());
     }
 
     // ── R229 regression tests ───────────────────────────────────────────

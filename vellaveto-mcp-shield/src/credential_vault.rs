@@ -215,21 +215,30 @@ impl CredentialVault {
             .lock()
             .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
 
-        let mut expired_count = 0usize;
-        for entry in entries.iter_mut() {
+        // SECURITY (R237-SHIELD-3): Save original statuses before mutation
+        // so we can rollback if persist fails, matching consume_credential pattern.
+        let mut expired_indices = Vec::new();
+        for (idx, entry) in entries.iter_mut().enumerate() {
             if entry.status == CredentialStatus::Available
                 && entry.credential.issued_epoch < current_epoch
             {
                 entry.status = CredentialStatus::Expired;
-                expired_count = expired_count.saturating_add(1);
+                expired_indices.push(idx);
             }
         }
+        let expired_count = expired_indices.len();
 
         // SECURITY (R235-SHIELD-2): Persist expired status changes to disk.
         // Without persistence, a crash reverts expired credentials to Available,
         // allowing credential reuse across sessions.
         if expired_count > 0 {
-            self.persist_entries(&entries)?;
+            if let Err(e) = self.persist_entries(&entries) {
+                // SECURITY (R237-SHIELD-3): Rollback in-memory state on persist failure.
+                for &idx in &expired_indices {
+                    entries[idx].status = CredentialStatus::Available;
+                }
+                return Err(e);
+            }
         }
 
         // SECURITY (R233-SHIELD-5): Fail-closed on epoch lock poisoning.

@@ -275,6 +275,14 @@ impl ContextIsolator {
             .get("method")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown");
+        // SECURITY (R237-SHLD-3): Sanitize method name from MCP server to prevent
+        // control characters, ANSI escapes, or Unicode format chars from being
+        // injected into context entries that may influence future sessions.
+        let safe_method: String = method
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(*c, '/' | '_' | '-' | '.'))
+            .take(128)
+            .collect();
         let params = msg
             .get("params")
             .and_then(|p| serde_json::to_string(p).ok())
@@ -282,7 +290,7 @@ impl ContextIsolator {
 
         // Truncate params to avoid huge context entries
         let truncated: String = params.chars().take(4096).collect();
-        let text = format!("[{method}] {truncated}");
+        let text = format!("[{safe_method}] {truncated}");
 
         self.record(session_id, "user", &text)
     }

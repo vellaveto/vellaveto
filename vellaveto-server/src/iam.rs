@@ -542,6 +542,12 @@ pub struct IamState {
     cimd_cache: DashMap<String, CachedClientMetadata>,
     /// SECURITY (R230-SRV-2): SAML assertion ID replay cache (assertion_id -> seen_at).
     saml_assertion_ids: DashMap<String, std::time::Instant>,
+    /// SECURITY (R237-SRV-4): Per-client M2M token request rate limiter.
+    /// Maps client_id -> (request_count, window_start). Resets every 60 seconds.
+    m2m_rate_limits: DashMap<String, (u32, std::time::Instant)>,
+    /// SECURITY (R237-SRV-5): SAML AuthnRequest ID cache for InResponseTo validation.
+    /// Maps request_id -> issued_at. Prevents unsolicited SAML response injection.
+    saml_authn_request_ids: DashMap<String, std::time::Instant>,
 }
 
 impl IamState {
@@ -622,6 +628,8 @@ impl IamState {
             m2m_signing_secret,
             cimd_cache: DashMap::new(),
             saml_assertion_ids: DashMap::new(),
+            m2m_rate_limits: DashMap::new(),
+            saml_authn_request_ids: DashMap::new(),
         })
     }
 
@@ -651,6 +659,8 @@ impl IamState {
             m2m_signing_secret: secret,
             cimd_cache: DashMap::new(),
             saml_assertion_ids: DashMap::new(),
+            m2m_rate_limits: DashMap::new(),
+            saml_authn_request_ids: DashMap::new(),
         }
     }
 
@@ -683,17 +693,20 @@ impl IamState {
     /// Maximum number of active sessions.
     const MAX_SESSIONS: usize = 500_000;
 
-    /// Insert a login flow state. Returns the inserted state_id.
-    fn store_flow(&self, state_id: String, flow: FlowState) {
+    /// Insert a login flow state. Returns error if capacity is exhausted.
+    /// SECURITY (R237-SRV-2): Return Result so caller can detect capacity exhaustion
+    /// instead of silently redirecting to IdP with no stored state.
+    fn store_flow(&self, state_id: String, flow: FlowState) -> Result<(), IamError> {
         // SECURITY (R229-SRV-6): Bound flow state count to prevent memory exhaustion.
         if self.flow_states.len() >= Self::MAX_FLOW_STATES {
             tracing::warn!(
                 max = Self::MAX_FLOW_STATES,
                 "Login flow state capacity reached, rejecting new flow"
             );
-            return;
+            return Err(IamError::CapacityExhausted("login flow state".to_string()));
         }
         self.flow_states.insert(state_id, flow);
+        Ok(())
     }
 
     /// Consume a login flow if present and not expired.
@@ -1011,6 +1024,54 @@ impl IamState {
     ) -> Result<M2mTokenResponse, IamError> {
         if !self.config.m2m.enabled {
             return Err(IamError::M2mDisabled);
+        }
+
+        // SECURITY (R237-SRV-4): Per-client rate limiting for M2M token requests.
+        // Prevents credential-stuffing and brute-force attacks against client secrets.
+        // Allows 10 requests per 60-second window per client_id.
+        {
+            const M2M_RATE_LIMIT_WINDOW_SECS: u64 = 60;
+            const M2M_RATE_LIMIT_MAX_REQUESTS: u32 = 10;
+            const MAX_M2M_RATE_LIMIT_ENTRIES: usize = 50_000;
+
+            let now = std::time::Instant::now();
+
+            // Evict expired entries periodically to prevent unbounded growth.
+            if self.m2m_rate_limits.len() > MAX_M2M_RATE_LIMIT_ENTRIES / 2 {
+                self.m2m_rate_limits.retain(|_, (_, window_start)| {
+                    now.duration_since(*window_start).as_secs() < M2M_RATE_LIMIT_WINDOW_SECS
+                });
+            }
+            // Fail-closed on capacity exhaustion.
+            if self.m2m_rate_limits.len() >= MAX_M2M_RATE_LIMIT_ENTRIES {
+                tracing::warn!(
+                    max = MAX_M2M_RATE_LIMIT_ENTRIES,
+                    "M2M rate limit cache at capacity, denying request"
+                );
+                return Err(IamError::M2mRateLimited);
+            }
+
+            let mut entry = self
+                .m2m_rate_limits
+                .entry(client_id.to_string())
+                .or_insert_with(|| (0, now));
+
+            let (count, window_start) = entry.value_mut();
+            if now.duration_since(*window_start).as_secs() >= M2M_RATE_LIMIT_WINDOW_SECS {
+                // Window expired — reset.
+                *count = 1;
+                *window_start = now;
+            } else {
+                *count = count.saturating_add(1);
+                if *count > M2M_RATE_LIMIT_MAX_REQUESTS {
+                    tracing::warn!(
+                        client_id = %client_id,
+                        count = %count,
+                        "M2M per-client rate limit exceeded"
+                    );
+                    return Err(IamError::M2mRateLimited);
+                }
+            }
         }
 
         // SECURITY: Validate input lengths before any processing.
@@ -1344,7 +1405,15 @@ pub async fn login(
         )
     })?;
     let (state_id, flow, auth_url) = iam.begin_login_flow(params.next.clone());
-    iam.store_flow(state_id.clone(), flow);
+    // SECURITY (R237-SRV-2): Propagate capacity error instead of silently redirecting.
+    iam.store_flow(state_id.clone(), flow).map_err(|_| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse {
+                error: "Login service temporarily unavailable".to_string(),
+            }),
+        )
+    })?;
     Ok(Redirect::temporary(auth_url.as_str()))
 }
 
@@ -1399,11 +1468,14 @@ pub async fn callback(
             }),
         )
     })?;
+    // SECURITY (R237-SRV-1): Genericize error messages to prevent leaking IdP URLs,
+    // JWT validation details, and internal capacity state to clients.
     let tokens = iam.exchange_code(code, &flow).await.map_err(|e| {
+        tracing::warn!("OIDC token exchange failed: {}", e);
         (
             StatusCode::BAD_GATEWAY,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Authentication failed".to_string(),
             }),
         )
     })?;
@@ -1411,19 +1483,22 @@ pub async fn callback(
         .verify_id_token(&tokens.id_token, &flow.nonce)
         .await
         .map_err(|e| {
+            tracing::warn!("OIDC id_token verification failed: {}", e);
             (
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: "Authentication failed".to_string(),
                 }),
             )
         })?;
     let scopes = parse_scope_list(tokens.scope.as_deref());
+    // SECURITY (R237-SRV-3): Genericize session creation error.
     let session = iam.create_session(claims, scopes).map_err(|e| {
+        tracing::warn!("Session creation failed: {}", e);
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Authentication failed".to_string(),
             }),
         )
     })?;
@@ -1560,6 +1635,49 @@ pub async fn saml_acs(
             }),
         )
     })?;
+
+    // SECURITY (R237-SRV-5): InResponseTo replay protection.
+    // If the SAML Response has an InResponseTo attribute, it must match a
+    // previously issued AuthnRequest ID stored in saml_authn_request_ids.
+    // If no InResponseTo is present (IdP-initiated SSO), we accept the
+    // response (it's validated by other checks: destination, audience,
+    // conditions, assertion ID). But if InResponseTo IS present, it must
+    // match a stored request ID — otherwise it's an unsolicited response
+    // injection or replay attack.
+    {
+        const SAML_PROTOCOL_NS_IRT: &str = "urn:oasis:names:tc:SAML:2.0:protocol";
+        const SAML_AUTHN_REQUEST_TTL_SECS: u64 = 600; // 10 minutes
+
+        if let Some(response_node) = document
+            .descendants()
+            .find(|node| node.has_tag_name((SAML_PROTOCOL_NS_IRT, "Response")))
+        {
+            if let Some(in_response_to) = response_node.attribute("InResponseTo") {
+                if !in_response_to.is_empty() {
+                    // InResponseTo is present — must match a stored AuthnRequest ID.
+                    let consumed = iam
+                        .saml_authn_request_ids
+                        .remove(in_response_to)
+                        .map(|(_, issued_at)| {
+                            issued_at.elapsed().as_secs() < SAML_AUTHN_REQUEST_TTL_SECS
+                        })
+                        .unwrap_or(false);
+
+                    if !consumed {
+                        tracing::warn!(
+                            "SAML InResponseTo does not match any pending AuthnRequest ID"
+                        );
+                        return Err((
+                            StatusCode::UNAUTHORIZED,
+                            Json(ErrorResponse {
+                                error: "SAML authentication failed".to_string(),
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
+    }
 
     // SECURITY (R230-SRV-2): SAML assertion ID replay prevention.
     // Extract the Assertion ID and reject if it has been seen before.
@@ -1834,6 +1952,11 @@ pub enum IamError {
     CimdValidation(String),
     #[error("Session error: {0}")]
     Session(String),
+    #[error("Capacity exhausted: {0}")]
+    CapacityExhausted(String),
+    /// SECURITY (R237-SRV-4): Per-client M2M token request rate limit exceeded.
+    #[error("M2M rate limit exceeded for client")]
+    M2mRateLimited,
 }
 
 #[derive(Deserialize)]
@@ -2308,6 +2431,12 @@ pub async fn m2m_token(
                 StatusCode::UNAUTHORIZED,
                 Json(ErrorResponse {
                     error: "Invalid client credentials".to_string(),
+                }),
+            ),
+            IamError::M2mRateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: "Rate limit exceeded".to_string(),
                 }),
             ),
             IamError::M2mScopeNotPermitted(_scope) => (
@@ -2994,6 +3123,139 @@ mod tests {
         assert!(matches!(result, Err(IamError::M2mInvalidCredentials)));
     }
 
+    /// R237-SRV-4: Per-client M2M token request rate limiting.
+    #[test]
+    fn test_r237_m2m_per_client_rate_limit() {
+        let config = m2m_config_with_client(
+            "test-client",
+            "test-secret-123",
+            "operator",
+            vec!["evaluate".to_string()],
+        );
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+
+        // First 10 requests should succeed.
+        for i in 0..10 {
+            let result = iam.exchange_client_credentials(
+                "test-client",
+                "test-secret-123",
+                &["evaluate".to_string()],
+            );
+            assert!(result.is_ok(), "Request {i} should succeed");
+        }
+
+        // 11th request should be rate limited.
+        let result = iam.exchange_client_credentials(
+            "test-client",
+            "test-secret-123",
+            &["evaluate".to_string()],
+        );
+        assert!(
+            matches!(result, Err(IamError::M2mRateLimited)),
+            "11th request should be rate limited"
+        );
+    }
+
+    /// R237-SRV-4: Rate limit is per-client — different clients have independent limits.
+    #[test]
+    fn test_r237_m2m_rate_limit_per_client_isolation() {
+        let mut config = m2m_config_with_client(
+            "client-a",
+            "secret-a-123456",
+            "operator",
+            vec!["evaluate".to_string()],
+        );
+        config.m2m.clients.push(vellaveto_config::iam::M2mClient {
+            client_id: "client-b".to_string(),
+            client_secret_hash: make_argon2_hash("secret-b-123456"),
+            role: "viewer".to_string(),
+            allowed_scopes: vec!["evaluate".to_string()],
+        });
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+
+        // Exhaust client-a's rate limit.
+        for _ in 0..10 {
+            let _ = iam.exchange_client_credentials(
+                "client-a",
+                "secret-a-123456",
+                &["evaluate".to_string()],
+            );
+        }
+        assert!(
+            matches!(
+                iam.exchange_client_credentials(
+                    "client-a",
+                    "secret-a-123456",
+                    &["evaluate".to_string()]
+                ),
+                Err(IamError::M2mRateLimited)
+            ),
+            "client-a should be rate limited"
+        );
+
+        // client-b should still be allowed.
+        let result = iam.exchange_client_credentials(
+            "client-b",
+            "secret-b-123456",
+            &["evaluate".to_string()],
+        );
+        assert!(
+            result.is_ok(),
+            "client-b should not be affected by client-a's rate limit"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // R237-SRV-5: SAML InResponseTo Tests
+    // ═══════════════════════════════════════════════════════════════
+
+    /// R237-SRV-5: InResponseTo validation — stored request ID is consumed.
+    #[test]
+    fn test_r237_saml_in_response_to_stored_id_consumed() {
+        let config = IamConfig::default();
+        let iam = IamState::new_for_test(config);
+
+        // Store a fake AuthnRequest ID.
+        let request_id = "_authn_req_12345";
+        iam.saml_authn_request_ids
+            .insert(request_id.to_string(), std::time::Instant::now());
+        assert_eq!(iam.saml_authn_request_ids.len(), 1);
+
+        // Simulate consuming the ID (what saml_acs would do).
+        let consumed = iam
+            .saml_authn_request_ids
+            .remove(request_id)
+            .map(|(_, issued_at)| issued_at.elapsed().as_secs() < 600)
+            .unwrap_or(false);
+        assert!(consumed, "Stored InResponseTo ID should be consumed");
+        assert_eq!(iam.saml_authn_request_ids.len(), 0);
+
+        // Replaying the same ID should fail.
+        let replayed = iam
+            .saml_authn_request_ids
+            .remove(request_id)
+            .map(|(_, issued_at)| issued_at.elapsed().as_secs() < 600)
+            .unwrap_or(false);
+        assert!(!replayed, "Replayed InResponseTo ID should not be consumed");
+    }
+
+    /// R237-SRV-5: InResponseTo with unknown ID is rejected.
+    #[test]
+    fn test_r237_saml_in_response_to_unknown_id_rejected() {
+        let config = IamConfig::default();
+        let iam = IamState::new_for_test(config);
+
+        // No stored request IDs. An InResponseTo with an unknown ID should fail.
+        let consumed = iam
+            .saml_authn_request_ids
+            .remove("_unknown_request_id")
+            .map(|(_, issued_at)| issued_at.elapsed().as_secs() < 600)
+            .unwrap_or(false);
+        assert!(!consumed, "Unknown InResponseTo ID must be rejected");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // Step-Up Tests
     // ═══════════════════════════════════════════════════════════════
@@ -3281,6 +3543,37 @@ mod tests {
         assert_eq!(token_data.claims.scope, "evaluate");
         assert_eq!(token_data.claims.iss, "vellaveto");
         assert!(!token_data.claims.jti.is_empty());
+    }
+
+    #[test]
+    fn test_r237_srv2_store_flow_returns_error_on_capacity() {
+        // SECURITY (R237-SRV-2): store_flow must return Err when capacity exhausted,
+        // not silently succeed, so the login handler can return 503 instead of
+        // redirecting to IdP with no stored state.
+        let config = IamConfig::default();
+        let iam = IamState::new_for_test(config);
+
+        // Fill up to MAX_FLOW_STATES
+        for i in 0..IamState::MAX_FLOW_STATES {
+            let flow = FlowState::new(
+                format!("next-{i}"),
+                format!("verifier-{i}"),
+                format!("nonce-{i}"),
+            );
+            assert!(iam.store_flow(format!("state-{i}"), flow).is_ok());
+        }
+
+        // Next one should fail
+        let flow = FlowState::new(
+            "next-overflow".to_string(),
+            "verifier-overflow".to_string(),
+            "nonce-overflow".to_string(),
+        );
+        let result = iam.store_flow("state-overflow".to_string(), flow);
+        assert!(
+            result.is_err(),
+            "store_flow must return Err when capacity is exhausted"
+        );
     }
 }
 

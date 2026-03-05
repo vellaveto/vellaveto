@@ -746,18 +746,49 @@ fn evaluate_conditions(conditions: &[CompiledCondition], ctx: &AbacEvalContext<'
 fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContext<'_>) -> bool {
     let field_value = resolve_field(&condition.field, ctx);
     match condition.op {
-        AbacOp::Eq => field_value == condition.value,
-        AbacOp::Ne => field_value != condition.value,
+        // SECURITY (R237-ENG-3/5): Normalize string operands through normalize_full()
+        // for consistency with principal/action matching. Prevents Unicode homoglyph
+        // and case-variant bypasses in ABAC conditions.
+        AbacOp::Eq => match (field_value.as_str(), condition.value.as_str()) {
+            (Some(a), Some(b)) => {
+                crate::normalize::normalize_full(a) == crate::normalize::normalize_full(b)
+            }
+            _ => field_value == condition.value,
+        },
+        AbacOp::Ne => match (field_value.as_str(), condition.value.as_str()) {
+            (Some(a), Some(b)) => {
+                crate::normalize::normalize_full(a) != crate::normalize::normalize_full(b)
+            }
+            _ => field_value != condition.value,
+        },
         AbacOp::In => {
             if let Some(arr) = condition.value.as_array() {
-                arr.contains(&field_value)
+                if let Some(fv_str) = field_value.as_str() {
+                    let norm_fv = crate::normalize::normalize_full(fv_str);
+                    arr.iter().any(|v| {
+                        v.as_str()
+                            .map(|s| crate::normalize::normalize_full(s) == norm_fv)
+                            .unwrap_or_else(|| v == &field_value)
+                    })
+                } else {
+                    arr.contains(&field_value)
+                }
             } else {
                 false
             }
         }
         AbacOp::NotIn => {
             if let Some(arr) = condition.value.as_array() {
-                !arr.contains(&field_value)
+                if let Some(fv_str) = field_value.as_str() {
+                    let norm_fv = crate::normalize::normalize_full(fv_str);
+                    !arr.iter().any(|v| {
+                        v.as_str()
+                            .map(|s| crate::normalize::normalize_full(s) == norm_fv)
+                            .unwrap_or_else(|| v == &field_value)
+                    })
+                } else {
+                    !arr.contains(&field_value)
+                }
             } else {
                 // SECURITY (FIND-R46-009): Fail-closed when NotIn policy value is
                 // not an array. A non-array value indicates a misconfigured policy.
@@ -770,14 +801,18 @@ fn evaluate_single_condition(condition: &CompiledCondition, ctx: &AbacEvalContex
         AbacOp::Contains => {
             if let (Some(haystack), Some(needle)) = (field_value.as_str(), condition.value.as_str())
             {
-                haystack.contains(needle)
+                let norm_h = crate::normalize::normalize_full(haystack);
+                let norm_n = crate::normalize::normalize_full(needle);
+                norm_h.contains(&norm_n)
             } else {
                 false
             }
         }
         AbacOp::StartsWith => {
             if let (Some(s), Some(prefix)) = (field_value.as_str(), condition.value.as_str()) {
-                s.starts_with(prefix)
+                let norm_s = crate::normalize::normalize_full(s);
+                let norm_p = crate::normalize::normalize_full(prefix);
+                norm_s.starts_with(&norm_p)
             } else {
                 false
             }
@@ -2304,6 +2339,219 @@ mod tests {
                 AbacDecision::Allow { .. }
             ),
             "Homoglyph principal_type should match after normalization"
+        );
+    }
+
+    // ── R237-ENG-3/5: ABAC conditions normalize_full() for string ops ──
+
+    /// R237-ENG-3: Eq condition normalizes both sides through normalize_full(),
+    /// so Cyrillic 'а' (U+0430) in the claim value matches Latin 'a' in the
+    /// condition value.
+    #[test]
+    fn test_r237_eng3_abac_eq_cyrillic_homoglyph_matches() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "tenant eq check".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.tenant_id".to_string(),
+                op: AbacOp::Eq,
+                // Policy condition expects Latin "acme"
+                value: serde_json::json!("acme"),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Claim uses Cyrillic 'а' (U+0430) in place of Latin 'a'
+        let eval_ctx = EvaluationContext {
+            tenant_id: Some("\u{0430}cme".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Cyrillic homoglyph 'а' should match Latin 'a' after normalize_full()"
+        );
+    }
+
+    /// R237-ENG-3: Ne condition also normalizes, so homoglyphs are treated as equal
+    /// and Ne returns false (NoMatch — the values are equal after normalization).
+    #[test]
+    fn test_r237_eng3_abac_ne_cyrillic_homoglyph_treated_equal() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "deny if not acme".to_string(),
+            effect: AbacEffect::Forbid,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.tenant_id".to_string(),
+                op: AbacOp::Ne,
+                value: serde_json::json!("acme"),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Cyrillic 'а' should normalize to Latin 'a', making values equal,
+        // so Ne is false and the Forbid policy does not match.
+        let eval_ctx = EvaluationContext {
+            tenant_id: Some("\u{0430}cme".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert_eq!(
+            engine.evaluate(&make_action("any", "any"), &ctx),
+            AbacDecision::NoMatch,
+            "Homoglyph-equal values should not satisfy Ne condition"
+        );
+    }
+
+    /// R237-ENG-5: In condition normalizes both the field value and each list element.
+    #[test]
+    fn test_r237_eng5_abac_in_case_insensitive_match() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "tenant in list".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.tenant_id".to_string(),
+                op: AbacOp::In,
+                value: serde_json::json!(["Acme", "Globex"]),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Claim uses all-lowercase "acme" — normalize_full lowercases both sides
+        let eval_ctx = EvaluationContext {
+            tenant_id: Some("acme".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Case-different 'acme' should match 'Acme' in list after normalize_full()"
+        );
+    }
+
+    /// R237-ENG-5: NotIn condition normalizes — homoglyph value IS in the list
+    /// after normalization, so NotIn is false (NoMatch for the Forbid policy).
+    #[test]
+    fn test_r237_eng5_abac_notin_homoglyph_is_found() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "forbid if not in blocked list".to_string(),
+            effect: AbacEffect::Forbid,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.tenant_id".to_string(),
+                op: AbacOp::NotIn,
+                value: serde_json::json!(["acme", "globex"]),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Cyrillic 'а' normalizes to Latin 'a', so "аcme" IS in the list
+        // → NotIn is false → Forbid does not match
+        let eval_ctx = EvaluationContext {
+            tenant_id: Some("\u{0430}cme".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert_eq!(
+            engine.evaluate(&make_action("any", "any"), &ctx),
+            AbacDecision::NoMatch,
+            "Homoglyph value should be found in list after normalization (NotIn false)"
+        );
+    }
+
+    /// R237-ENG-5: Contains condition normalizes — Cyrillic substring matches.
+    /// Uses Cyrillic 'а' (U+0430→'a'), 'с' (U+0441→'c'), 'е' (U+0435→'e')
+    /// so the haystack "my-\u{0430}\u{0441}m\u{0435}-agent" normalizes to "my-acme-agent".
+    #[test]
+    fn test_r237_eng5_abac_contains_homoglyph_matches() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "agent contains acme".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.agent_id".to_string(),
+                op: AbacOp::Contains,
+                // Policy expects Latin "acme"
+                value: serde_json::json!("acme"),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Claim uses Cyrillic homoglyphs: а(U+0430→a), с(U+0441→c), е(U+0435→e)
+        let eval_ctx = EvaluationContext {
+            agent_id: Some("my-\u{0430}\u{0441}m\u{0435}-agent".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Cyrillic homoglyphs in Contains haystack should match after normalize_full()"
+        );
+    }
+
+    /// R237-ENG-5: StartsWith condition normalizes — case difference matches.
+    #[test]
+    fn test_r237_eng5_abac_startswith_case_normalized() {
+        let policy = AbacPolicy {
+            id: "p1".to_string(),
+            description: "agent starts with prod-".to_string(),
+            effect: AbacEffect::Permit,
+            priority: 0,
+            principal: Default::default(),
+            action: Default::default(),
+            resource: Default::default(),
+            conditions: vec![AbacCondition {
+                field: "context.agent_id".to_string(),
+                op: AbacOp::StartsWith,
+                // Policy expects lowercase "prod-"
+                value: serde_json::json!("prod-"),
+            }],
+        };
+        let engine = make_engine(vec![policy]);
+
+        // Claim uses mixed case "PROD-agent-1"
+        let eval_ctx = EvaluationContext {
+            agent_id: Some("PROD-agent-1".to_string()),
+            ..Default::default()
+        };
+        let ctx = make_ctx(&eval_ctx, "Agent", "test");
+        assert!(
+            matches!(
+                engine.evaluate(&make_action("any", "any"), &ctx),
+                AbacDecision::Allow { .. }
+            ),
+            "Case-different 'PROD-' should match 'prod-' after normalize_full()"
         );
     }
 }

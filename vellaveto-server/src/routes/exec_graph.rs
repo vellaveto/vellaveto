@@ -319,6 +319,7 @@ pub async fn get_graph_stats(
 }
 
 #[cfg(test)]
+#[allow(clippy::assertions_on_constants)]
 mod tests {
     use super::*;
 

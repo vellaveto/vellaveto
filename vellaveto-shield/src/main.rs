@@ -37,7 +37,8 @@ struct Cli {
     config: String,
 
     /// Encryption passphrase for local audit store.
-    /// If not provided, will prompt interactively.
+    /// If not provided, checks VELLAVETO_SHIELD_PASSPHRASE env var, then prompts interactively.
+    /// Prefer env var to avoid /proc/pid/cmdline exposure.
     #[arg(long)]
     passphrase: Option<String>,
 
@@ -81,8 +82,11 @@ async fn main() -> Result<()> {
         tracing::warn!("Shield is not enabled in config — running as standard proxy");
     }
 
-    // Get or prompt for passphrase
+    // SECURITY (R237-SHLD-1): Prefer env var over CLI arg to avoid /proc/pid/cmdline exposure.
+    // Priority: --passphrase CLI > VELLAVETO_SHIELD_PASSPHRASE env > interactive prompt.
     let passphrase = if let Some(p) = cli.passphrase {
+        p
+    } else if let Ok(p) = std::env::var("VELLAVETO_SHIELD_PASSPHRASE") {
         p
     } else if policy_config.shield.enabled {
         rpassword::prompt_password("Shield audit passphrase: ")

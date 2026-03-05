@@ -2110,3 +2110,75 @@ fn test_r236_shield5_active_session_count_consistent() {
     assert_eq!(unlinker.active_session_count(), 0);
     assert!(!unlinker.is_session_active("s1"));
 }
+
+#[test]
+fn test_r237_shield3_expire_epochs_count_correct() {
+    // R237-SHIELD-3: expire_old_epochs returns the correct count and
+    // expired credentials are no longer available.
+    let (vault, _dir) = make_test_vault(10, 3);
+    // Add credentials in epoch 1
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+    // Add credentials in epoch 2
+    vault.add_credential(make_test_credential(2)).unwrap();
+
+    assert_eq!(vault.available_count(), 3);
+
+    // Expire epoch 1 (current_epoch=2 means epoch<2 are expired)
+    let expired = vault.expire_old_epochs(2).unwrap();
+    assert_eq!(expired, 2);
+    assert_eq!(vault.available_count(), 1);
+
+    // The remaining credential (epoch 2) should still be consumable
+    let (cred, _idx) = vault.consume_credential().unwrap();
+    assert_eq!(cred.issued_epoch, 2);
+}
+
+#[test]
+fn test_r237_shield3_expire_epochs_no_double_expire() {
+    // Calling expire_old_epochs twice with same epoch should be idempotent.
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    let expired1 = vault.expire_old_epochs(2).unwrap();
+    assert_eq!(expired1, 1);
+
+    // Second call: credential is already Expired, count should be 0.
+    let expired2 = vault.expire_old_epochs(2).unwrap();
+    assert_eq!(expired2, 0);
+}
+
+#[test]
+fn test_r237_shld3_context_isolator_sanitizes_method_name() {
+    // SECURITY (R237-SHLD-3): Method names from MCP server should be sanitized
+    // to prevent control characters and Unicode format chars from being stored.
+    let ctx = crate::context_isolation::ContextIsolator::new();
+    let msg_with_control = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call\x1b[31m\x00injected",
+        "params": {"name": "test"}
+    });
+    ctx.record_json_request("s1", &msg_with_control).unwrap();
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(recent.len(), 1);
+    // Control chars should be stripped
+    assert!(!recent[0].1.contains('\x1b'));
+    assert!(!recent[0].1.contains('\x00'));
+    assert!(recent[0].1.contains("tools/call"));
+}
+
+#[test]
+fn test_r237_shld3_context_isolator_method_allows_safe_chars() {
+    // Normal method names with / _ - . should pass through
+    let ctx = crate::context_isolation::ContextIsolator::new();
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call-with_dots.v2",
+        "params": {}
+    });
+    ctx.record_json_request("s1", &msg).unwrap();
+    let recent = ctx.get_recent_context("s1", 10).unwrap();
+    assert!(recent[0].1.contains("tools/call-with_dots.v2"));
+}

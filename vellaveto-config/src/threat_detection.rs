@@ -1188,6 +1188,7 @@ pub const MAX_DATA_FLOW_FINDINGS: usize = 50_000;
 pub const MAX_DATA_FLOW_FINGERPRINTS: usize = 10_000;
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

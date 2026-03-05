@@ -58,6 +58,8 @@ pub struct SpiffeIdentity {
 
 impl SpiffeIdentity {
     /// Parse a SPIFFE ID from a URI string.
+    /// SECURITY (R237-TLS-1): Validates trust domain is non-empty and contains
+    /// only lowercase alphanumeric, dots, and hyphens per SPIFFE spec.
     pub fn parse(uri: &str) -> Option<Self> {
         if !uri.starts_with("spiffe://") {
             return None;
@@ -72,6 +74,25 @@ impl SpiffeIdentity {
         } else {
             (without_scheme.to_string(), String::new())
         };
+
+        // SECURITY (R237-TLS-1): Reject empty or malformed trust domains.
+        if trust_domain.is_empty() {
+            return None;
+        }
+        if !trust_domain
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+        {
+            return None;
+        }
+        // Must not start or end with dot or hyphen
+        if trust_domain.starts_with('.')
+            || trust_domain.starts_with('-')
+            || trust_domain.ends_with('.')
+            || trust_domain.ends_with('-')
+        {
+            return None;
+        }
 
         Some(SpiffeIdentity {
             spiffe_id: uri.to_string(),
@@ -617,6 +638,44 @@ mod tests {
         let id = SpiffeIdentity::parse("spiffe://example.org/").unwrap();
         assert_eq!(id.trust_domain, "example.org");
         assert_eq!(id.workload_path, "/");
+    }
+
+    // SECURITY (R237-TLS-1): Trust domain validation tests
+    #[test]
+    fn test_r237_tls1_spiffe_empty_trust_domain_rejected() {
+        assert!(SpiffeIdentity::parse("spiffe://").is_none());
+        assert!(SpiffeIdentity::parse("spiffe:///admin").is_none());
+    }
+
+    #[test]
+    fn test_r237_tls1_spiffe_uppercase_trust_domain_rejected() {
+        assert!(SpiffeIdentity::parse("spiffe://EXAMPLE.ORG/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://Example.Org/workload").is_none());
+    }
+
+    #[test]
+    fn test_r237_tls1_spiffe_special_chars_in_trust_domain_rejected() {
+        assert!(SpiffeIdentity::parse("spiffe://exam ple.org/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://exam\tple.org/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://exam_ple.org/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://exam@ple.org/workload").is_none());
+    }
+
+    #[test]
+    fn test_r237_tls1_spiffe_leading_trailing_dot_hyphen_rejected() {
+        assert!(SpiffeIdentity::parse("spiffe://.example.org/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://example.org./workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://-example.org/workload").is_none());
+        assert!(SpiffeIdentity::parse("spiffe://example.org-/workload").is_none());
+    }
+
+    #[test]
+    fn test_r237_tls1_spiffe_valid_trust_domains() {
+        // These should all pass
+        assert!(SpiffeIdentity::parse("spiffe://example.org/workload").is_some());
+        assert!(SpiffeIdentity::parse("spiffe://prod-1.example.org/ns/default").is_some());
+        assert!(SpiffeIdentity::parse("spiffe://a/b").is_some());
+        assert!(SpiffeIdentity::parse("spiffe://123.456/x").is_some());
     }
 
     // ── extract_spiffe_ids (merged from vellaveto-server) ────────────

@@ -310,18 +310,43 @@ impl SemanticGuardrailsService {
             Ok(Ok(eval)) => eval,
             Ok(Err(e)) => return Err(e),
             Err(_) => {
-                // Timeout
+                // Timeout — SECURITY (R237-MCP-6): All timeout paths must produce
+                // a structured audit log so operators can detect degraded LLM
+                // backends, misconfigured latency budgets, or denial-of-service
+                // conditions targeting the semantic guardrail evaluation path.
+                let elapsed_ms = start.elapsed().as_millis() as u64;
                 match self.config.fallback {
                     FallbackBehavior::Deny => {
-                        return Ok(LlmEvaluation::deny("evaluation timed out"))
+                        tracing::warn!(
+                            tool = %input.tool,
+                            function = %input.function,
+                            timeout_ms = self.config.max_latency_ms,
+                            elapsed_ms = elapsed_ms,
+                            fallback = "deny",
+                            "semantic guardrail evaluation timed out — denied"
+                        );
+                        return Ok(LlmEvaluation::deny("evaluation timed out"));
                     }
                     FallbackBehavior::Allow => {
                         tracing::warn!(
-                            "semantic guardrail falling back to Allow — check configuration"
+                            tool = %input.tool,
+                            function = %input.function,
+                            timeout_ms = self.config.max_latency_ms,
+                            elapsed_ms = elapsed_ms,
+                            fallback = "allow",
+                            "semantic guardrail evaluation timed out — allowed (REVIEW CONFIGURATION)"
                         );
                         return Ok(LlmEvaluation::allow());
                     }
                     FallbackBehavior::PatternMatch => {
+                        tracing::warn!(
+                            tool = %input.tool,
+                            function = %input.function,
+                            timeout_ms = self.config.max_latency_ms,
+                            elapsed_ms = elapsed_ms,
+                            fallback = "pattern_match",
+                            "semantic guardrail evaluation timed out — falling back to pattern matching"
+                        );
                         // Return evaluation indicating fallback needed
                         return Ok(LlmEvaluation {
                             allow: false,
@@ -646,5 +671,45 @@ mod tests {
     #[test]
     fn test_service_config_validate_default_ok() {
         assert!(ServiceConfig::default().validate().is_ok());
+    }
+
+    // ── R237-MCP-6: Timeout audit logging ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_r237_mcp6_timeout_deny_fallback_returns_deny() {
+        // Set up a service with a very short timeout and a slow evaluator
+        let evaluator = Arc::new(MockEvaluator::new());
+        evaluator.set_latency_ms(200); // 200ms latency
+        let config = ServiceConfig {
+            max_latency_ms: 1, // 1ms timeout — will always time out
+            fallback: FallbackBehavior::Deny,
+            ..Default::default()
+        };
+        let service = SemanticGuardrailsService::new(evaluator, config);
+
+        let input = LlmEvalInput::new("test", "func");
+        let result = service.evaluate(&input).await.unwrap();
+
+        // Should deny on timeout with Deny fallback
+        assert!(!result.allow, "Timeout with Deny fallback should deny");
+    }
+
+    #[tokio::test]
+    async fn test_r237_mcp6_timeout_allow_fallback_returns_allow() {
+        // Set up a service with a very short timeout and Allow fallback
+        let evaluator = Arc::new(MockEvaluator::new());
+        evaluator.set_latency_ms(200);
+        let config = ServiceConfig {
+            max_latency_ms: 1,
+            fallback: FallbackBehavior::Allow,
+            ..Default::default()
+        };
+        let service = SemanticGuardrailsService::new(evaluator, config);
+
+        let input = LlmEvalInput::new("test", "func");
+        let result = service.evaluate(&input).await.unwrap();
+
+        // Should allow on timeout with Allow fallback
+        assert!(result.allow, "Timeout with Allow fallback should allow");
     }
 }

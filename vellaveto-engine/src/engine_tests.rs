@@ -14095,3 +14095,102 @@ fn test_r230_deny_reason_does_not_leak_cidr() {
         _ => panic!("Expected Deny, got {v:?}"),
     }
 }
+
+// ═══════════════════════════════════════════════════════
+// R237-ENG-2: Regex constraint normalizes paths before matching
+// ═══════════════════════════════════════════════════════
+
+/// R237-ENG-2: Percent-encoded traversal in parameter must be caught by regex
+/// constraint after path normalization. `/safe/%2e%2e/etc/passwd` decodes to
+/// `/safe/../etc/passwd` which normalizes to `/etc/passwd`.
+#[test]
+fn test_r237_eng2_regex_constraint_normalizes_percent_encoded_traversal() {
+    let engine = PolicyEngine::new(false);
+    // The action parameter contains a percent-encoded path traversal
+    let action = action_with("fs", "read", json!({"path": "/safe/%2e%2e/etc/passwd"}));
+    let policies = constraint_policy(json!([{
+        "param": "path",
+        "op": "regex",
+        "pattern": "/etc/passwd",
+        "on_match": "deny"
+    }]));
+    let verdict = engine.evaluate_action(&action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Percent-encoded traversal /safe/%2e%2e/etc/passwd should be denied \
+         after normalization to /etc/passwd, got: {verdict:?}"
+    );
+}
+
+/// R237-ENG-2: Double-encoded traversal must also be caught by regex constraint.
+#[test]
+fn test_r237_eng2_regex_constraint_normalizes_double_encoded_traversal() {
+    let engine = PolicyEngine::new(false);
+    // %252e%252e → %2e%2e → .. after double decode
+    let action = action_with("fs", "read", json!({"path": "/app/%252e%252e/etc/shadow"}));
+    let policies = constraint_policy(json!([{
+        "param": "path",
+        "op": "regex",
+        "pattern": "/etc/shadow",
+        "on_match": "deny"
+    }]));
+    let verdict = engine.evaluate_action(&action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Double-encoded traversal should be denied after normalization, got: {verdict:?}"
+    );
+}
+
+/// R237-ENG-2: Clean path that does NOT match regex should still allow.
+#[test]
+fn test_r237_eng2_regex_constraint_clean_path_allows() {
+    let engine = PolicyEngine::new(false);
+    let action = action_with(
+        "fs",
+        "read",
+        json!({"path": "/home/user/documents/report.txt"}),
+    );
+    let policies = constraint_policy(json!([{
+        "param": "path",
+        "op": "regex",
+        "pattern": "/etc/passwd",
+        "on_match": "deny"
+    }]));
+    let verdict = engine.evaluate_action(&action, &policies).unwrap();
+    assert!(
+        matches!(verdict, Verdict::Allow),
+        "Clean path should allow, got: {verdict:?}"
+    );
+}
+
+/// R237-ENG-2: Traced evaluation path also normalizes regex input.
+#[test]
+fn test_r237_eng2_regex_traced_normalizes_percent_encoded_traversal() {
+    let action = action_with("fs", "read", json!({"path": "/safe/%2e%2e/etc/passwd"}));
+    let policy = make_conditional_policy(
+        "fs:*",
+        "Block etc passwd",
+        json!({
+            "parameter_constraints": [{
+                "param": "path",
+                "op": "regex",
+                "pattern": "/etc/passwd",
+                "on_match": "deny"
+            }]
+        }),
+    );
+    let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+
+    let verdict = engine.evaluate_action(&action, &[]).unwrap();
+    let (traced_verdict, _trace) = engine.evaluate_action_traced(&action).unwrap();
+
+    // Both hot path and traced path must produce Deny
+    assert!(
+        matches!(verdict, Verdict::Deny { .. }),
+        "Hot path should deny traversal, got: {verdict:?}"
+    );
+    assert!(
+        matches!(traced_verdict, Verdict::Deny { .. }),
+        "Traced path should deny traversal, got: {traced_verdict:?}"
+    );
+}

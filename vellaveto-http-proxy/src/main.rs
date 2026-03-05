@@ -63,6 +63,10 @@ enum OAuthSecurityProfileArg {
     Hardened,
 }
 
+/// SECURITY (R237-TLS-1): TLS handshake timeout — 10 seconds to prevent
+/// Slowloris-style attacks that hold connections in mid-handshake indefinitely.
+const TLS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// SECURITY (R236-TLS-2): TLS listener wrapper implementing axum's Listener
 /// trait. Accepts TCP connections, performs TLS handshake, and returns the
 /// encrypted stream.
@@ -85,10 +89,15 @@ impl axum::serve::Listener for TlsListener {
                     continue;
                 }
             };
-            match self.acceptor.accept(stream).await {
-                Ok(tls_stream) => return (tls_stream, addr),
-                Err(e) => {
+            // SECURITY (R237-TLS-1): Timeout the TLS handshake to prevent
+            // Slowloris DoS attacks that hold connections in mid-handshake.
+            match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, self.acceptor.accept(stream)).await {
+                Ok(Ok(tls_stream)) => return (tls_stream, addr),
+                Ok(Err(e)) => {
                     tracing::warn!(peer = %addr, "TLS handshake failed: {e}");
+                }
+                Err(_) => {
+                    tracing::warn!(peer = %addr, "TLS handshake timed out after {}s", TLS_HANDSHAKE_TIMEOUT.as_secs());
                 }
             }
         }

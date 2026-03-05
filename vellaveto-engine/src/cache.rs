@@ -167,12 +167,24 @@ impl DecisionCache {
     ///
     /// Returns `None` (cache miss) if:
     /// - The context is session-dependent (non-cacheable)
+    /// - A risk score is present (dynamic continuous authorization)
     /// - No entry exists for this action
     /// - The entry's TTL has expired
     /// - The entry's policy generation is stale
     /// - The internal lock is poisoned (fail-closed)
-    pub fn get(&self, action: &Action, context: Option<&EvaluationContext>) -> Option<Verdict> {
-        if !Self::is_cacheable_context(context) {
+    ///
+    /// # Arguments
+    ///
+    /// * `has_risk_score` — Set to `true` when the request context carries a
+    ///   risk score from continuous authorization. This forces a cache miss
+    ///   because the ABAC verdict depends on the current risk score.
+    pub fn get_with_risk(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+        has_risk_score: bool,
+    ) -> Option<Verdict> {
+        if !Self::is_cacheable_context(context, has_risk_score) {
             self.misses.fetch_add(1, Ordering::Relaxed);
             return None;
         }
@@ -207,16 +219,34 @@ impl DecisionCache {
         }
     }
 
+    /// Look up a cached verdict (backward-compatible, assumes no risk score).
+    ///
+    /// Equivalent to `get_with_risk(action, context, false)`.
+    pub fn get(&self, action: &Action, context: Option<&EvaluationContext>) -> Option<Verdict> {
+        self.get_with_risk(action, context, false)
+    }
+
     /// Insert a verdict into the cache for the given action.
     ///
-    /// If the context is session-dependent, this is a no-op (the result
-    /// should not be cached). If the cache is at capacity, the
-    /// least-recently-used entry is evicted.
+    /// If the context is session-dependent or a risk score is present,
+    /// this is a no-op (the result should not be cached). If the cache
+    /// is at capacity, the least-recently-used entry is evicted.
     ///
     /// No-op if the internal lock is poisoned (fail-closed: we do not
     /// serve stale data from a potentially corrupted map).
-    pub fn insert(&self, action: &Action, context: Option<&EvaluationContext>, verdict: &Verdict) {
-        if !Self::is_cacheable_context(context) {
+    ///
+    /// # Arguments
+    ///
+    /// * `has_risk_score` — Set to `true` when the request context carries a
+    ///   risk score from continuous authorization.
+    pub fn insert_with_risk(
+        &self,
+        action: &Action,
+        context: Option<&EvaluationContext>,
+        verdict: &Verdict,
+        has_risk_score: bool,
+    ) {
+        if !Self::is_cacheable_context(context, has_risk_score) {
             return;
         }
 
@@ -253,6 +283,13 @@ impl DecisionCache {
             },
         );
         self.insertions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Insert a verdict (backward-compatible, assumes no risk score).
+    ///
+    /// Equivalent to `insert_with_risk(action, context, verdict, false)`.
+    pub fn insert(&self, action: &Action, context: Option<&EvaluationContext>, verdict: &Verdict) {
+        self.insert_with_risk(action, context, verdict, false);
     }
 
     /// Invalidate all cached entries by bumping the policy generation counter.
@@ -294,7 +331,22 @@ impl DecisionCache {
     /// Context-dependent results (those relying on mutable session state)
     /// must NOT be cached because the verdict may change between calls
     /// even for the same action.
-    fn is_cacheable_context(context: Option<&EvaluationContext>) -> bool {
+    ///
+    /// # Arguments
+    ///
+    /// * `context` — Optional evaluation context (session-level fields).
+    /// * `has_risk_score` — Whether the request context carries a risk score
+    ///   from continuous authorization. When `true`, the verdict depends on
+    ///   the current risk score and must not be served from cache.
+    fn is_cacheable_context(context: Option<&EvaluationContext>, has_risk_score: bool) -> bool {
+        // SECURITY (R237-ENG-6): risk_score from continuous authorization can change
+        // ABAC verdicts between calls. A cached Allow for risk_score=0.1 must not be
+        // served when the next request has risk_score=0.9. Since risk_score is dynamic
+        // and lives outside EvaluationContext (on AbacEvalContext/StatelessContextBlob),
+        // we accept it as a separate flag.
+        if has_risk_score {
+            return false;
+        }
         match context {
             None => true,
             Some(ctx) => {
@@ -979,5 +1031,43 @@ mod tests {
             result.is_none(),
             "Different resolved IP must produce a cache miss (DNS rebinding defense)"
         );
+    }
+
+    /// R237-ENG-6: Contexts with a risk_score must not be cached.
+    /// risk_score from continuous authorization can change ABAC verdicts
+    /// between calls, so a cached Allow for risk_score=0.1 must not be
+    /// served when the next request has risk_score=0.9.
+    #[test]
+    fn test_r237_risk_score_prevents_caching() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+        let action = make_action("tool", "func");
+
+        // Insert with has_risk_score=true should be a no-op
+        cache.insert_with_risk(&action, None, &Verdict::Allow, true);
+        assert_eq!(cache.len(), 0, "Insert with risk_score should be a no-op");
+        assert_eq!(cache.stats().insertions, 0);
+
+        // Get with has_risk_score=true should be a miss even if entry exists
+        cache.insert(&action, None, &Verdict::Allow);
+        assert_eq!(cache.len(), 1);
+        assert!(
+            cache.get_with_risk(&action, None, true).is_none(),
+            "Get with risk_score should bypass cache"
+        );
+        assert!(
+            cache.get_with_risk(&action, None, false).is_some(),
+            "Get without risk_score should hit cache"
+        );
+    }
+
+    /// R237-ENG-6: Backward-compatible get/insert still work without risk_score.
+    #[test]
+    fn test_r237_backward_compat_no_risk_score() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+        let action = make_action("tool", "func");
+
+        cache.insert(&action, None, &Verdict::Allow);
+        assert_eq!(cache.len(), 1);
+        assert!(cache.get(&action, None).is_some());
     }
 }

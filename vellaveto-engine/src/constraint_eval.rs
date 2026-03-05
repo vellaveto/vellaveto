@@ -388,7 +388,19 @@ impl PolicyEngine {
                         )?));
                     }
                 };
-                if regex.is_match(raw) {
+                // SECURITY (R237-ENG-2): Normalize path input before regex matching,
+                // consistent with Glob/NotGlob. Prevents percent-encoded traversal
+                // (e.g., /safe/%2e%2e/etc/passwd) from bypassing regex path patterns.
+                let normalized =
+                    match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            return Ok(Some(Verdict::Deny {
+                                reason: format!("Path normalization failed: {e}"),
+                            }))
+                        }
+                    };
+                if regex.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         // SECURITY (R235-ENG-2): Genericize deny reason.

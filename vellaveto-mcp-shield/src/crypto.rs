@@ -158,6 +158,11 @@ impl EncryptedAuditStore {
             .map_err(ShieldError::Io)?;
         file.write_all(&len).map_err(ShieldError::Io)?;
         file.write_all(&encrypted).map_err(ShieldError::Io)?;
+        // SECURITY (R237-SHIELD-6): Flush and fsync to ensure durability.
+        // Without fsync, a power loss or crash can silently lose audit entries
+        // even though the function returned Ok(()).
+        file.flush().map_err(ShieldError::Io)?;
+        file.sync_data().map_err(ShieldError::Io)?;
         Ok(())
     }
 
@@ -208,32 +213,48 @@ impl EncryptedAuditStore {
     pub fn rewrite_all_entries(&self, entries: &[Vec<u8>]) -> Result<(), ShieldError> {
         let temp_path = self.path.with_extension("tmp");
 
-        // Write header: version + salt
-        let mut header = vec![FORMAT_VERSION];
-        header.extend_from_slice(&self.salt);
-        std::fs::write(&temp_path, &header).map_err(ShieldError::Io)?;
+        // SECURITY (R237-SHLD-2): Cleanup guard removes temp file on error to prevent
+        // partial encrypted data from persisting on disk after failed rewrites.
+        let cleanup_result = (|| -> Result<(), ShieldError> {
+            // Write header: version + salt
+            let mut header = vec![FORMAT_VERSION];
+            header.extend_from_slice(&self.salt);
+            std::fs::write(&temp_path, &header).map_err(ShieldError::Io)?;
 
-        // Append each entry
-        {
-            use std::io::Write;
-            let mut file = std::fs::OpenOptions::new()
-                .append(true)
-                .open(&temp_path)
-                .map_err(ShieldError::Io)?;
-            for entry in entries {
-                let encrypted = self.encrypt(entry)?;
-                let len = u32::try_from(encrypted.len()).map_err(|_| {
-                    ShieldError::Encryption("encrypted entry too large for u32 length".to_string())
-                })?;
-                file.write_all(&len.to_le_bytes())
+            // Append each entry
+            {
+                use std::io::Write;
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&temp_path)
                     .map_err(ShieldError::Io)?;
-                file.write_all(&encrypted).map_err(ShieldError::Io)?;
+                for entry in entries {
+                    let encrypted = self.encrypt(entry)?;
+                    let len = u32::try_from(encrypted.len()).map_err(|_| {
+                        ShieldError::Encryption(
+                            "encrypted entry too large for u32 length".to_string(),
+                        )
+                    })?;
+                    file.write_all(&len.to_le_bytes())
+                        .map_err(ShieldError::Io)?;
+                    file.write_all(&encrypted).map_err(ShieldError::Io)?;
+                }
+                // SECURITY (R237-SHIELD-6): Fsync temp file before atomic rename
+                // to ensure data is durable before the old file is replaced.
+                file.flush().map_err(ShieldError::Io)?;
+                file.sync_data().map_err(ShieldError::Io)?;
             }
-        }
 
-        // Atomic rename
-        std::fs::rename(&temp_path, &self.path).map_err(ShieldError::Io)?;
-        Ok(())
+            // Atomic rename
+            std::fs::rename(&temp_path, &self.path).map_err(ShieldError::Io)?;
+            Ok(())
+        })();
+
+        if cleanup_result.is_err() {
+            // Remove orphaned temp file on error
+            let _ = std::fs::remove_file(&temp_path);
+        }
+        cleanup_result
     }
 
     /// Get the store file path.

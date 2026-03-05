@@ -549,10 +549,11 @@ impl PluginManager {
         }
 
         // Validate all configs first (atomic: fail before replacing anything)
+        // SECURITY (R237-ENG-1): Use case-insensitive duplicate check, matching load_plugin().
         let mut names = std::collections::HashSet::new();
         for (config, _) in &configs_and_instances {
             config.validate()?;
-            if !names.insert(&config.name) {
+            if !names.insert(config.name.to_ascii_lowercase()) {
                 return Err(PluginError::DuplicatePlugin(config.name.clone()));
             }
         }
@@ -1106,6 +1107,30 @@ mod tests {
 
         let err = mgr.reload_plugins(new_plugins).unwrap_err();
         assert!(matches!(err, PluginError::DuplicatePlugin(_)));
+    }
+
+    #[test]
+    fn test_r237_eng1_reload_plugins_case_variant_duplicate_rejected() {
+        // SECURITY (R237-ENG-1): reload_plugins must use case-insensitive duplicate
+        // check, matching load_plugin's eq_ignore_ascii_case behavior.
+        let mut mgr = PluginManager::new(enabled_manager_config()).unwrap();
+
+        let new_plugins: Vec<(PluginConfig, Box<dyn PolicyPlugin>)> = vec![
+            (
+                valid_plugin_config("MyPlugin"),
+                Box::new(StubPlugin::allowing("MyPlugin")),
+            ),
+            (
+                valid_plugin_config("myplugin"),
+                Box::new(StubPlugin::allowing("myplugin")),
+            ),
+        ];
+
+        let err = mgr.reload_plugins(new_plugins).unwrap_err();
+        assert!(
+            matches!(err, PluginError::DuplicatePlugin(_)),
+            "Case-variant duplicate plugin names must be rejected: {err:?}"
+        );
     }
 
     #[test]

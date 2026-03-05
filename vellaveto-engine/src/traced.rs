@@ -567,7 +567,11 @@ impl PolicyEngine {
             }
             CompiledConstraint::Regex { regex, .. } => {
                 if let Some(s) = value.as_str() {
-                    regex.is_match(s)
+                    // SECURITY (R237-ENG-2): Normalize path input before regex matching.
+                    let normalized =
+                        Self::normalize_path_bounded(s, self.max_path_decode_iterations)
+                            .unwrap_or_else(|_| s.to_string());
+                    regex.is_match(&normalized)
                 } else {
                     true
                 }
