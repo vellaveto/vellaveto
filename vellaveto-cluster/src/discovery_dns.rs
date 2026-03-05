@@ -36,6 +36,9 @@ pub struct DnsServiceDiscovery {
     dns_name: String,
     /// Interval between periodic re-resolution attempts in the watch loop.
     refresh_interval: std::time::Duration,
+    /// SECURITY (R241-CLUST-1): Use HTTPS scheme for discovered endpoints.
+    /// When true, generates `https://` URLs instead of `http://`.
+    use_tls: bool,
 }
 
 /// SECURITY (FIND-R44-013): Post-resolution IP validation to prevent DNS rebinding.
@@ -150,7 +153,17 @@ impl DnsServiceDiscovery {
         Ok(Self {
             dns_name,
             refresh_interval,
+            use_tls: false,
         })
+    }
+
+    /// Enable HTTPS for discovered endpoints.
+    ///
+    /// When set, resolved addresses use `https://` instead of `http://`.
+    /// Should be enabled when cluster TLS is configured.
+    pub fn with_tls(mut self, use_tls: bool) -> Self {
+        self.use_tls = use_tls;
+        self
     }
 
     /// Perform a single DNS lookup and return sorted endpoints.
@@ -191,9 +204,11 @@ impl DnsServiceDiscovery {
                 // SECURITY (FIND-R44-046): Resolved addresses have been validated
                 // through is_safe_addr() above, rejecting loopback, unspecified,
                 // link-local, cloud metadata, and IPv4-mapped private ranges.
+                // SECURITY (R241-CLUST-1): Use TLS scheme when configured.
+                let scheme = if self.use_tls { "https" } else { "http" };
                 ServiceEndpoint {
                     id: id.clone(),
-                    url: format!("http://{addr}"),
+                    url: format!("{scheme}://{addr}"),
                     labels: HashMap::new(),
                     healthy: true,
                 }

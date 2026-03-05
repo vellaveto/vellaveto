@@ -78,10 +78,22 @@ impl CircuitBreakerManager {
     /// * `success_threshold` - Number of consecutive successes to close
     /// * `open_duration_secs` - Seconds before transitioning to half-open
     pub fn new(failure_threshold: u32, success_threshold: u32, open_duration_secs: u64) -> Self {
+        // SECURITY (R241-ENG-2): Zero thresholds produce degenerate behavior —
+        // failure_threshold=0 opens the circuit on every call, success_threshold=0
+        // never closes it. Clamp both to minimum 1 for correctness.
+        let ft = failure_threshold.max(1);
+        let st = success_threshold.max(1);
+        if ft != failure_threshold || st != success_threshold {
+            tracing::warn!(
+                failure_threshold = failure_threshold,
+                success_threshold = success_threshold,
+                "CircuitBreakerManager: clamped zero thresholds to 1"
+            );
+        }
         Self {
             circuits: RwLock::new(HashMap::new()),
-            failure_threshold,
-            success_threshold,
+            failure_threshold: ft,
+            success_threshold: st,
             open_duration_secs,
             half_open_max_requests: 1,
         }
@@ -94,12 +106,24 @@ impl CircuitBreakerManager {
         open_duration_secs: u64,
         half_open_max_requests: u32,
     ) -> Self {
+        // SECURITY (R241-ENG-2): Zero thresholds produce degenerate behavior.
+        let ft = failure_threshold.max(1);
+        let st = success_threshold.max(1);
+        let ho = half_open_max_requests.max(1);
+        if ft != failure_threshold || st != success_threshold || ho != half_open_max_requests {
+            tracing::warn!(
+                failure_threshold = failure_threshold,
+                success_threshold = success_threshold,
+                half_open_max_requests = half_open_max_requests,
+                "CircuitBreakerManager: clamped zero thresholds to 1"
+            );
+        }
         Self {
             circuits: RwLock::new(HashMap::new()),
-            failure_threshold,
-            success_threshold,
+            failure_threshold: ft,
+            success_threshold: st,
             open_duration_secs,
-            half_open_max_requests,
+            half_open_max_requests: ho,
         }
     }
 

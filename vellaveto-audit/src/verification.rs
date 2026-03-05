@@ -63,15 +63,22 @@ impl AuditLogger {
             Ok(_) => {} // Size OK, proceed
         }
 
-        let content = match tokio::fs::read_to_string(&self.log_path).await {
-            Ok(c) => c,
+        // SECURITY (R241-AUD-1): Use BufReader line-by-line to avoid double-memory
+        // (full file string + parsed entries simultaneously in memory).
+        let file = match tokio::fs::File::open(&self.log_path).await {
+            Ok(f) => f,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(AuditError::Io(e)),
         };
+        let reader = tokio::io::BufReader::new(file);
+        use tokio::io::AsyncBufReadExt;
+        let mut lines = reader.lines();
 
         let mut entries = Vec::new();
         let mut skipped = 0usize;
-        for (line_num, line) in content.lines().enumerate() {
+        let mut line_num = 0usize;
+        while let Some(line) = lines.next_line().await.map_err(AuditError::Io)? {
+            line_num = line_num.saturating_add(1);
             if line.trim().is_empty() {
                 continue;
             }
@@ -79,7 +86,7 @@ impl AuditLogger {
             if line.len() > Self::MAX_AUDIT_LINE_SIZE {
                 skipped = skipped.saturating_add(1);
                 tracing::warn!(
-                    line_num = line_num + 1,
+                    line_num = line_num,
                     line_len = line.len(),
                     max_len = Self::MAX_AUDIT_LINE_SIZE,
                     "Skipping oversized audit line in {:?}",
@@ -87,13 +94,13 @@ impl AuditLogger {
                 );
                 continue;
             }
-            match serde_json::from_str::<AuditEntry>(line) {
+            match serde_json::from_str::<AuditEntry>(&line) {
                 Ok(entry) => entries.push(entry),
                 Err(e) => {
                     skipped = skipped.saturating_add(1);
                     tracing::warn!(
                         "Skipping corrupt audit line {} in {:?}: {}",
-                        line_num + 1,
+                        line_num,
                         self.log_path,
                         e
                     );

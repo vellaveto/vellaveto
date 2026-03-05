@@ -697,6 +697,31 @@ impl IamState {
         &self.config.session.cookie_name
     }
 
+    /// Store a SAML AuthnRequest ID for later InResponseTo validation.
+    ///
+    /// SECURITY (R241-SRV-1): This must be called when generating SP-initiated
+    /// SAML AuthnRequest redirects so that the `saml_acs` handler can validate
+    /// the InResponseTo attribute against stored request IDs.
+    ///
+    /// Without this, the InResponseTo check in `saml_acs` is dead code.
+    /// Maximum 100,000 entries with 10-minute TTL (cleaned up in saml_acs).
+    pub fn store_saml_authn_request_id(&self, request_id: String) -> Result<(), IamError> {
+        const MAX_SAML_AUTHN_REQUEST_IDS: usize = 100_000;
+        if self.saml_authn_request_ids.len() >= MAX_SAML_AUTHN_REQUEST_IDS {
+            return Err(IamError::CapacityExhausted(
+                "SAML AuthnRequest ID cache".to_string(),
+            ));
+        }
+        if has_dangerous_chars(&request_id) {
+            return Err(IamError::Saml(
+                "SAML AuthnRequest ID contains dangerous characters".to_string(),
+            ));
+        }
+        self.saml_authn_request_ids
+            .insert(request_id, std::time::Instant::now());
+        Ok(())
+    }
+
     /// Begin a login flow and return (state_id, flow_state, authorization URL).
     fn begin_login_flow(&self, next: Option<String>) -> (String, FlowState, String) {
         self.cleanup_flows();
@@ -1301,6 +1326,29 @@ impl IamState {
             return Err(IamError::CimdValidation("too many grant_types".to_string()));
         }
 
+        // SECURITY (R241-SRV-2): Validate CIMD string fields for length and dangerous chars.
+        if let Some(ref name) = raw.client_name {
+            if name.len() > 256 || has_dangerous_chars(name) {
+                return Err(IamError::CimdValidation(
+                    "client_name invalid (too long or contains control characters)".to_string(),
+                ));
+            }
+        }
+        for gt in &raw.grant_types {
+            if gt.len() > 128 || has_dangerous_chars(gt) {
+                return Err(IamError::CimdValidation(
+                    "grant_type invalid (too long or contains control characters)".to_string(),
+                ));
+            }
+        }
+        if let Some(ref method) = raw.token_endpoint_auth_method {
+            if method.len() > 128 || has_dangerous_chars(method) {
+                return Err(IamError::CimdValidation(
+                    "token_endpoint_auth_method invalid".to_string(),
+                ));
+            }
+        }
+
         // Validate redirect URIs are syntactically valid and use HTTPS only.
         for uri in &raw.redirect_uris {
             validate_cimd_redirect_uri(uri)?;
@@ -1358,6 +1406,18 @@ fn build_cookie_value(
     secure: bool,
     http_only: bool,
 ) -> Result<HeaderValue, IamError> {
+    // SECURITY (R241-SRV-5): Validate cookie name per RFC 6265 token syntax.
+    // Prevents injection of `;`, `=`, or other separators into Set-Cookie header.
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err(IamError::CookieEncode(
+            "cookie name must be 1-128 alphanumeric/dash/underscore chars".to_string(),
+        ));
+    }
     let mut parts = vec![format!("{}={}", name, value)];
     if let Some(max_age) = max_age_secs {
         parts.push(format!("Max-Age={max_age}"));
@@ -1586,8 +1646,11 @@ pub async fn session_info(
         )
     })?;
     let expires_in = session.expires_in_secs();
+    // SECURITY (R241-SRV-3): Do not return the session ID in the JSON response.
+    // The session cookie is HttpOnly — returning the ID in the body undermines
+    // that protection by making it accessible to JavaScript.
     Ok(Json(SessionInfoResponse {
-        session_id: session.id,
+        session_id: "[redacted]".to_string(),
         subject: session.subject,
         role: session.role.to_string(),
         expires_in_secs: expires_in,

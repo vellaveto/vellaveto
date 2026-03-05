@@ -180,17 +180,49 @@ impl TopologyGraph {
         }
         for node in &snapshot.nodes {
             let strings_to_check: Vec<(&str, &str)> = match node {
-                TopologyNode::Server { name, .. } => vec![("server.name", name.as_str())],
+                // SECURITY (R241-DISC-3): Also validate server version field.
+                TopologyNode::Server { name, version, .. } => {
+                    let mut v = vec![("server.name", name.as_str())];
+                    if let Some(ver) = version {
+                        v.push(("server.version", ver.as_str()));
+                    }
+                    v
+                }
                 TopologyNode::Tool {
                     server,
                     name,
                     description,
+                    output_hints,
+                    inferred_deps,
                     ..
-                } => vec![
-                    ("tool.server", server.as_str()),
-                    ("tool.name", name.as_str()),
-                    ("tool.description", description.as_str()),
-                ],
+                } => {
+                    let mut v = vec![
+                        ("tool.server", server.as_str()),
+                        ("tool.name", name.as_str()),
+                        ("tool.description", description.as_str()),
+                    ];
+                    // SECURITY (R241-DISC-4): Validate output_hints and inferred_deps.
+                    const MAX_HINTS_PER_TOOL: usize = 100;
+                    if output_hints.len() > MAX_HINTS_PER_TOOL {
+                        return Err(crate::error::DiscoveryError::ValidationError(format!(
+                            "tool.output_hints count {} exceeds max {MAX_HINTS_PER_TOOL}",
+                            output_hints.len()
+                        )));
+                    }
+                    if inferred_deps.len() > MAX_HINTS_PER_TOOL {
+                        return Err(crate::error::DiscoveryError::ValidationError(format!(
+                            "tool.inferred_deps count {} exceeds max {MAX_HINTS_PER_TOOL}",
+                            inferred_deps.len()
+                        )));
+                    }
+                    for hint in output_hints {
+                        v.push(("tool.output_hint", hint.as_str()));
+                    }
+                    for dep in inferred_deps {
+                        v.push(("tool.inferred_dep", dep.as_str()));
+                    }
+                    v
+                }
                 TopologyNode::Resource {
                     server,
                     uri_template,
@@ -309,6 +341,17 @@ impl TopologyGraph {
             })?;
         graph.set_crawled_at(crawled_at);
         graph.recompute_fingerprint();
+
+        // SECURITY (R241-DISC-1): Verify snapshot fingerprint if provided.
+        // A non-empty fingerprint that doesn't match the recomputed value indicates
+        // the snapshot was tampered with after export.
+        if !snapshot.fingerprint.is_empty() && snapshot.fingerprint != graph.fingerprint_hex() {
+            return Err(DiscoveryError::ValidationError(format!(
+                "Snapshot fingerprint mismatch: claimed '{}', computed '{}'",
+                snapshot.fingerprint,
+                graph.fingerprint_hex()
+            )));
+        }
 
         Ok(graph)
     }

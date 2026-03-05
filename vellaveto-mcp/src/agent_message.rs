@@ -171,6 +171,16 @@ impl SignedAgentMessage {
             .unwrap_or_default()
             .as_secs();
 
+        // SECURITY (R241-MCP-1): Reject far-future timestamps that would bypass the
+        // age check via saturating_sub returning 0. Allow modest clock skew (same window
+        // as max_age_secs) but reject timestamps beyond that.
+        if self.timestamp > now.saturating_add(max_age_secs) {
+            return Err(MessageError::MessageExpired {
+                age_secs: 0,
+                max_secs: max_age_secs,
+            });
+        }
+
         let age = now.saturating_sub(self.timestamp);
         if age > max_age_secs {
             return Err(MessageError::MessageExpired {

@@ -296,14 +296,14 @@ impl AuditQueryResult {
     /// SECURITY (FIND-R224-005): Prevents oversized result sets from untrusted
     /// deserialized payloads and ensures total >= entries.len() invariant.
     pub fn validate(&self) -> Result<(), String> {
-        if self.entries.len() as u64 > MAX_QUERY_LIMIT {
+        if u64::try_from(self.entries.len()).unwrap_or(u64::MAX) > MAX_QUERY_LIMIT {
             return Err(format!(
                 "AuditQueryResult entries count {} exceeds MAX_QUERY_LIMIT {}",
                 self.entries.len(),
                 MAX_QUERY_LIMIT
             ));
         }
-        if (self.entries.len() as u64) > self.total {
+        if (u64::try_from(self.entries.len()).unwrap_or(u64::MAX)) > self.total {
             return Err(format!(
                 "AuditQueryResult entries count ({}) exceeds total ({})",
                 self.entries.len(),

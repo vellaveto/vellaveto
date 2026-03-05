@@ -479,7 +479,8 @@ impl DriftProfile {
         let mut total = 0u64;
         let mut denied = 0u64;
         for &(ts, was_denied) in &self.actions {
-            if ts >= window_start && ts <= window_end {
+            // SECURITY (R241-ENG-3): Half-open interval to prevent boundary double-counting.
+            if ts >= window_start && ts < window_end {
                 total = total.saturating_add(1);
                 if was_denied {
                     denied = denied.saturating_add(1);

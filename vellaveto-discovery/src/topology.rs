@@ -49,6 +49,11 @@ pub const MAX_OUTPUT_HINTS: usize = 100;
 /// Maximum number of inferred dependencies per tool.
 pub const MAX_INFERRED_DEPS: usize = 100;
 
+/// Maximum serialized size of a tool's input_schema (64 KB).
+/// SECURITY (R241-DISC-2): Unbounded JSON schemas can cause memory exhaustion
+/// during topology construction and fingerprinting.
+pub const MAX_INPUT_SCHEMA_SIZE: usize = 65_536;
+
 /// Maximum length of a resource MIME type.
 pub const MAX_MIME_TYPE_LEN: usize = 256;
 
@@ -354,6 +359,18 @@ impl TopologyGraph {
                         "Tool '{}' description on server '{}' contains control or format characters",
                         tool_decl.name, server_decl.name
                     )));
+                }
+                // SECURITY (R241-DISC-2): Bound input_schema serialized size to prevent
+                // memory exhaustion from oversized JSON schemas.
+                if let Ok(schema_json) = serde_json::to_string(&tool_decl.input_schema) {
+                    if schema_json.len() > MAX_INPUT_SCHEMA_SIZE {
+                        return Err(DiscoveryError::ValidationError(format!(
+                            "Tool '{}' input_schema size {} exceeds max {}",
+                            tool_decl.name,
+                            schema_json.len(),
+                            MAX_INPUT_SCHEMA_SIZE
+                        )));
+                    }
                 }
 
                 let qualified = format!("{}::{}", server_decl.name, tool_decl.name);

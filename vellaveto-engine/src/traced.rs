@@ -56,7 +56,7 @@ impl PolicyEngine {
                 policies_matched: 0,
                 matches: vec![],
                 verdict: deny.clone(),
-                duration_us: start.elapsed().as_micros() as u64,
+                duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
             };
             return Ok((deny, trace));
         }
@@ -71,7 +71,7 @@ impl PolicyEngine {
                 policies_matched: 0,
                 matches: Vec::new(),
                 verdict: verdict.clone(),
-                duration_us: start.elapsed().as_micros() as u64,
+                duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
             };
             return Ok((verdict, trace));
         }
@@ -142,7 +142,7 @@ impl PolicyEngine {
             policies_matched,
             matches: policy_matches,
             verdict: verdict.clone(),
-            duration_us: start.elapsed().as_micros() as u64,
+            duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
         };
 
         Ok((verdict, trace))
@@ -178,7 +178,7 @@ impl PolicyEngine {
                 policies_matched: 0,
                 matches: vec![],
                 verdict: deny.clone(),
-                duration_us: start.elapsed().as_micros() as u64,
+                duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
             };
             return Ok((deny, trace));
         }
@@ -193,7 +193,7 @@ impl PolicyEngine {
                 policies_matched: 0,
                 matches: Vec::new(),
                 verdict: verdict.clone(),
-                duration_us: start.elapsed().as_micros() as u64,
+                duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
             };
             return Ok((verdict, trace));
         }
@@ -257,7 +257,7 @@ impl PolicyEngine {
             policies_matched,
             matches: policy_matches,
             verdict: verdict.clone(),
-            duration_us: start.elapsed().as_micros() as u64,
+            duration_us: u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX),
         };
 
         Ok((verdict, trace))

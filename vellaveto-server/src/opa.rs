@@ -362,8 +362,18 @@ impl OpaClient {
                         )));
                     }
 
-                    // Success - parse response
-                    let opa_response: OpaResponse = response.json().await?;
+                    // SECURITY (R241-SRV-4): Bound OPA response body before deserialization
+                    // to prevent OOM from a malicious OPA sidecar filling the LRU cache.
+                    let body = response.bytes().await?;
+                    if body.len() > MAX_OPA_CONTEXT_SIZE {
+                        return Err(OpaError::InvalidResponse(format!(
+                            "OPA response too large ({} bytes, max {})",
+                            body.len(),
+                            MAX_OPA_CONTEXT_SIZE
+                        )));
+                    }
+                    let opa_response: OpaResponse = serde_json::from_slice(&body)
+                        .map_err(|e| OpaError::InvalidResponse(e.to_string()))?;
                     return self.parse_decision(opa_response.result);
                 }
                 Err(e) => {

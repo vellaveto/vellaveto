@@ -457,7 +457,16 @@ impl ApprovalStore {
 
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let ttl = Duration::from_std(self.default_ttl).unwrap_or_else(|_| Duration::seconds(900));
+        // SECURITY (R241-APPR-1): Log TTL conversion failure instead of silent fallback.
+        let ttl = Duration::from_std(self.default_ttl).unwrap_or_else(|e| {
+            tracing::warn!(
+                error = %e,
+                default_ttl = ?self.default_ttl,
+                fallback_secs = 900,
+                "chrono::Duration conversion failed — using fallback TTL"
+            );
+            Duration::seconds(900)
+        });
 
         let approval = PendingApproval {
             id: id.clone(),

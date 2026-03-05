@@ -56,6 +56,41 @@ pub struct SpiffeIdentity {
     pub workload_path: String,
 }
 
+/// Percent-decode a SPIFFE workload path for security checks.
+/// Returns `Some(decoded)` if decoding changed the string, `None` otherwise.
+fn percent_decode_workload_path(path: &str) -> Option<String> {
+    if !path.contains('%') {
+        return None;
+    }
+    let mut decoded = String::with_capacity(path.len());
+    let bytes = path.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (
+                hex_digit(bytes[i + 1]),
+                hex_digit(bytes[i + 2]),
+            ) {
+                decoded.push((hi << 4 | lo) as char);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i] as char);
+        i += 1;
+    }
+    if decoded == path { None } else { Some(decoded) }
+}
+
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 impl SpiffeIdentity {
     /// Parse a SPIFFE ID from a URI string.
     /// SECURITY (R237-TLS-1): Validates trust domain is non-empty and contains
@@ -97,10 +132,14 @@ impl SpiffeIdentity {
         // SECURITY (R239-TLS-1): Validate workload path for traversal, control chars,
         // null bytes, and Unicode format characters. Fail-closed on invalid paths.
         if !workload_path.is_empty() {
+            // SECURITY (R241-TLS-1): Percent-decode before traversal check to prevent
+            // bypass via %2e%2e (%2e = '.', %2f = '/') in certificate SANs.
+            let decoded_path = percent_decode_workload_path(&workload_path);
+            let check_path = decoded_path.as_deref().unwrap_or(&workload_path);
             // Reject path traversal sequences
-            if workload_path.contains("/../")
-                || workload_path.ends_with("/..")
-                || workload_path == "/.."
+            if check_path.contains("/../")
+                || check_path.ends_with("/..")
+                || check_path == "/.."
             {
                 return None;
             }

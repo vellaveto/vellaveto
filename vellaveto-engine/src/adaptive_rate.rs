@@ -132,7 +132,17 @@ pub struct AdaptiveRateLimiter {
 
 impl AdaptiveRateLimiter {
     /// Create a new limiter with the given configuration.
+    ///
+    /// SECURITY (R241-ENG-1): Validates config on construction — parity with
+    /// BehavioralTracker, CollusionDetector, and CascadingBreaker constructors.
     pub fn new(config: AdaptiveRateConfig) -> Self {
+        if let Err(e) = config.validate() {
+            tracing::warn!(error = %e, "AdaptiveRateConfig validation failed — using defaults");
+            return Self {
+                config: AdaptiveRateConfig::default(),
+                states: HashMap::new(),
+            };
+        }
         Self {
             config,
             states: HashMap::new(),
@@ -504,20 +514,18 @@ mod tests {
 
     #[test]
     fn test_adaptive_rate_clamp_nan_multiplier() {
-        let mut limiter = AdaptiveRateLimiter::new(AdaptiveRateConfig {
+        // SECURITY (R241-ENG-1): NaN burst_multiplier fails validation,
+        // constructor falls back to defaults (base_rate=100, burst=2.0).
+        let limiter = AdaptiveRateLimiter::new(AdaptiveRateConfig {
             base_rate_per_minute: 10,
             burst_multiplier: f64::NAN,
             anomaly_reduction_factor: 0.5,
             recovery_period: Duration::from_secs(60),
             window_size: Duration::from_secs(60),
         });
-        // Should not panic — NaN burst_multiplier is clamped to 0.0
-        for _ in 0..10 {
-            let _ = limiter.check("agent");
-        }
-        // With burst_multiplier clamped to 0.0, burst_ceiling = max(0, 10) = 10
-        // 11th request should be denied (count 11 > burst_ceiling 10)
-        assert_eq!(limiter.check("agent"), RateDecision::Deny);
+        // Should not panic — invalid config falls back to defaults
+        assert_eq!(limiter.config.base_rate_per_minute, 100);
+        assert!((limiter.config.burst_multiplier - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]

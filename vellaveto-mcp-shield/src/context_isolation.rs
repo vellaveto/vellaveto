@@ -140,6 +140,14 @@ impl ContextIsolator {
                 MAX_CONTEXT_ENTRY_LEN
             )));
         }
+        // SECURITY (R241-SHLD-1): Filter null bytes from context text.
+        // Null bytes can truncate strings in downstream consumers (C FFI,
+        // some databases, log parsers) causing context corruption.
+        if text.contains('\0') {
+            return Err(ShieldError::Config(
+                "context entry text contains null bytes".to_string(),
+            ));
+        }
 
         let mut sessions = self
             .sessions

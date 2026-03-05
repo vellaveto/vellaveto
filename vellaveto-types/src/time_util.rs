@@ -33,6 +33,19 @@ pub fn parse_iso8601_secs(ts: &str) -> Result<u64, String> {
         ));
     }
 
+    // SECURITY (R241-TYP-1): Validate separator characters to prevent parser
+    // disagreement with lexicographic comparisons (e.g., CapabilityToken::validate_structure).
+    let bytes = ts.as_bytes();
+    if bytes.len() >= 19 {
+        if bytes[4] != b'-' || bytes[7] != b'-' || bytes[13] != b':' || bytes[16] != b':' {
+            return Err("Invalid ISO 8601 separator characters".to_string());
+        }
+        // Allow both 'T' and 't' at position 10
+        if bytes[10] != b'T' && bytes[10] != b't' {
+            return Err("Invalid ISO 8601 separator at position 10 (expected 'T')".to_string());
+        }
+    }
+
     let year: u64 = ts
         .get(0..4)
         .and_then(|s| s.parse().ok())
