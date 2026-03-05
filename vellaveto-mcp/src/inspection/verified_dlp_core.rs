@@ -427,21 +427,21 @@ mod tests {
     #[test]
     fn test_d6_exhaustive_small_secrets() {
         let overlap_size = 32;
-        let max_secret = 2 * overlap_size;
+        let max_pattern = 2 * overlap_size;
         let prev_len = 100;
         let curr_len = 100;
 
-        for secret_len in 2..=max_secret {
-            for split_point in 1..secret_len {
+        for pattern_len in 2..=max_pattern {
+            for split_point in 1..pattern_len {
                 assert!(
                     overlap_covers_secret(
                         prev_len,
                         curr_len,
                         overlap_size,
-                        secret_len,
+                        pattern_len,
                         split_point
                     ),
-                    "Failed for secret_len={secret_len}, split_point={split_point}"
+                    "Failed for pattern_len={pattern_len}, split_point={split_point}"
                 );
             }
         }

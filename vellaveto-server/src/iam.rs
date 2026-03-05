@@ -558,7 +558,11 @@ impl std::fmt::Debug for IamState {
             .field("discovery", &self.discovery)
             .field(
                 "m2m_signing_secret",
-                &self.m2m_signing_secret.as_ref().map(|_| "[REDACTED]"),
+                if self.m2m_signing_secret.is_some() {
+                    &"[REDACTED]" as &dyn std::fmt::Debug
+                } else {
+                    &"None" as &dyn std::fmt::Debug
+                },
             )
             .field("flow_states_count", &self.flow_states.len())
             .field("sessions_count", &self.sessions.len())

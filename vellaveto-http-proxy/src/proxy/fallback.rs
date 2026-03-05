@@ -76,6 +76,27 @@ pub async fn forward_with_fallback(
         return Err(FallbackError::NoFallback);
     }
 
+    // SECURITY (R239-PROXY-1): Enforce HTTPS for upstream URLs in production.
+    // Only allow plaintext HTTP for localhost/127.0.0.1 (local development).
+    if let Some(scheme_end) = upstream_url.find("://") {
+        let scheme = &upstream_url[..scheme_end].to_lowercase();
+        if scheme == "http" {
+            let after_scheme = &upstream_url[scheme_end + 3..];
+            let host = after_scheme.split('/').next().unwrap_or("");
+            let host_no_port = host.split(':').next().unwrap_or("");
+            let is_local = host_no_port == "localhost"
+                || host_no_port == "127.0.0.1"
+                || host_no_port == "[::1]";
+            if !is_local {
+                tracing::warn!("Rejecting non-HTTPS upstream URL (only localhost HTTP is allowed)");
+                return Err(FallbackError::AllFailed {
+                    attempts: 0,
+                    last_error: "HTTPS required for non-local upstream".to_string(),
+                });
+            }
+        }
+    }
+
     // SECURITY (IMP-R118-009): Cap retries to prevent resource exhaustion.
     const MAX_FALLBACK_RETRIES: u32 = 10;
     let effective_retries = max_retries.min(MAX_FALLBACK_RETRIES);
@@ -295,10 +316,11 @@ mod tests {
     async fn test_forward_with_fallback_retries_capped_at_max() {
         let client = reqwest::Client::new();
         let headers = reqwest::header::HeaderMap::new();
-        // Use a URL that will always fail (invalid address)
+        // SECURITY (R239-PROXY-1): Use localhost HTTP (allowed by HTTPS enforcement)
+        // with an unreachable port to test retry capping.
         let result = forward_with_fallback(
             &client,
-            "http://192.0.2.1:1", // RFC 5737 TEST-NET, guaranteed unreachable
+            "http://127.0.0.1:1", // Unreachable port on localhost
             bytes::Bytes::from("{}"),
             &headers,
             100, // Request 100 retries
@@ -313,6 +335,85 @@ mod tests {
             );
         } else {
             panic!("Expected AllFailed error");
+        }
+    }
+
+    // =========================================================================
+    // HTTPS enforcement tests (R239-PROXY-1)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_forward_rejects_non_local_http() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        let result = forward_with_fallback(
+            &client,
+            "http://example.com/api",
+            bytes::Bytes::new(),
+            &headers,
+            0,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
+        match result {
+            Err(FallbackError::AllFailed { last_error, .. }) => {
+                assert!(
+                    last_error.contains("HTTPS required"),
+                    "Expected HTTPS enforcement error, got: {last_error}"
+                );
+            }
+            other => panic!("Expected AllFailed with HTTPS error, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_forward_allows_localhost_http() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        // localhost HTTP should be allowed (will fail on connection, not scheme check)
+        let result = forward_with_fallback(
+            &client,
+            "http://localhost:1",
+            bytes::Bytes::new(),
+            &headers,
+            0,
+            std::time::Duration::from_millis(50),
+        )
+        .await;
+        // Should fail with connection error, NOT "HTTPS required"
+        match result {
+            Err(FallbackError::AllFailed { last_error, .. }) => {
+                assert!(
+                    !last_error.contains("HTTPS required"),
+                    "localhost HTTP should be allowed, got: {last_error}"
+                );
+            }
+            _ => {} // Connection might succeed on some systems — fine either way
+        }
+    }
+
+    #[tokio::test]
+    async fn test_forward_allows_https() {
+        let client = reqwest::Client::new();
+        let headers = reqwest::header::HeaderMap::new();
+        // HTTPS should always be allowed (will fail on DNS/connection, not scheme check)
+        let result = forward_with_fallback(
+            &client,
+            "https://192.0.2.1:1",
+            bytes::Bytes::new(),
+            &headers,
+            0,
+            std::time::Duration::from_millis(50),
+        )
+        .await;
+        match result {
+            Err(FallbackError::AllFailed { last_error, .. }) => {
+                assert!(
+                    !last_error.contains("HTTPS required"),
+                    "HTTPS URLs should be allowed, got: {last_error}"
+                );
+            }
+            _ => {}
         }
     }
 }
