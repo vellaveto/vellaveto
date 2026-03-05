@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-05
-> **Status:** Phases 0–14 complete (Verus V1-V12/D1-D6 + Kani K1-K58)
+> **Status:** Phases 0–14 complete (Verus V1-V12/D1-D6 + Kani K1-K68)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the full roadmap
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -594,8 +594,8 @@ PR-level gating on security-critical paths will be added for:
 | Lean 4 theorems | 30 |
 | Coq theorems | 43 |
 | Verus proofs (ALL inputs, deductive) | 29 |
-| Kani proof harnesses (bounded) | 60 |
-| **Total verification instances** | **212** |
+| Kani proof harnesses (bounded) | 68 |
+| **Total verification instances** | **220** |
 | Rust unit/integration tests | 10,200+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |
@@ -606,7 +606,7 @@ PR-level gating on security-critical paths will be added for:
 ## 8. Roadmap
 
 Phases 0–14 are complete. The TCB includes Verus deductive proofs on actual
-Rust code, 60 Kani bounded model checking harnesses, and comprehensive coverage
+Rust code, 68 Kani bounded model checking harnesses, and comprehensive coverage
 of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |
@@ -625,12 +625,13 @@ of all security-critical pure functions.
 | **Phase 12** (Task lifecycle) | **Complete** | Task state machine on actual Rust | K56-K58: terminal immutability, capacity, cancel authorization |
 | **Phase 13** (Verus path normalization) | **Complete** | Byte-level path normalization for ALL inputs | V9-V10: idempotency, no-traversal |
 | **Phase 14** (Verus rule override) | **Complete** | Path/network block → Deny in final verdict | V11-V12: rule override correctness |
+| **Gap closure** (IDNA/Unicode/Lock) | **Complete** | IDNA wrapper, homoglyph normalization, RwLock poisoning | K61-K68: domain fail-closed, confusable collapse, lock safety |
 | **Phase 4** (arXiv paper) | Planned | Public documentation of methodology | No new properties |
 
 All security-critical pure functions are now formally verified. The refinement
 gap between TLA+ model and Rust code is narrowed: Verus proves V1-V12 on actual
-Rust for ALL inputs, Kani bridges the wrapper code with 58 bounded harnesses,
-and 74 parity tests ensure extracted code matches production.
+Rust for ALL inputs, Kani bridges the wrapper code with 68 bounded harnesses,
+and 109 parity tests ensure extracted code matches production.
 
 ---
 

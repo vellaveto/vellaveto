@@ -10,6 +10,8 @@ on:
       - "vellaveto-mcp/src/capability_token.rs"
       - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-engine/src/collusion.rs"
+      - "vellaveto-engine/src/domain.rs"
+      - "vellaveto-types/src/unicode.rs"
       - "vellaveto-tls/src/**"
   pull_request:
     paths:
@@ -19,6 +21,8 @@ on:
       - "vellaveto-mcp/src/capability_token.rs"
       - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-engine/src/collusion.rs"
+      - "vellaveto-engine/src/domain.rs"
+      - "vellaveto-types/src/unicode.rs"
       - "vellaveto-tls/src/**"
   # Weekly full verification even without changes
   schedule:
@@ -131,7 +135,7 @@ jobs:
           fi
 
   kani:
-    name: "Kani (60 harnesses — K1-K60)"
+    name: "Kani (68 harnesses — K1-K68)"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -148,7 +152,7 @@ jobs:
       - name: Verify extracted code correspondence (unit tests)
         working-directory: formal/kani
         run: |
-          echo "=== Running Kani production parity unit tests (83 tests) ==="
+          echo "=== Running Kani production parity unit tests (109 tests) ==="
           echo "These tests verify extracted algorithms match production behavior."
           cargo test --lib
 
@@ -166,6 +170,12 @@ jobs:
           grep -q 'pub fn grant_covers_action' formal/kani/src/capability.rs
           grep -q 'fn normalize_path_for_grant' vellaveto-mcp/src/capability_token.rs
           grep -q 'pub fn normalize_path_for_grant' formal/kani/src/capability.rs
+          # IDNA domain normalization
+          grep -q 'fn normalize_domain_for_match' vellaveto-engine/src/domain.rs
+          grep -q 'pub fn normalize_domain_for_match' formal/kani/src/domain.rs
+          # Unicode homoglyph normalization
+          grep -q 'pub fn normalize_homoglyphs' vellaveto-types/src/unicode.rs
+          grep -q 'pub fn normalize_homoglyphs' formal/kani/src/unicode.rs
           echo "All extraction signatures verified."
 
       - name: Run Kani proofs

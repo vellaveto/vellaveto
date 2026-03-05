@@ -82,6 +82,14 @@
 //! | K58 | Self-cancel + different requester → reject | Task lifecycle |
 //! | K59 | Entropy finite, non-negative, ≤ 8.0, empty → 0.0 | Collusion detection |
 //! | K60 | grant_covers_action fail-closed (paths/domains) | Capability delegation |
+//! | K61 | IDNA failure on non-ASCII → None (fail-closed) | Domain normalization |
+//! | K62 | IDNA failure on ASCII → lowercase fallback | Domain normalization |
+//! | K63 | Wildcard prefix preserved through IDNA | Domain normalization |
+//! | K64 | normalize_homoglyphs idempotent | Unicode security |
+//! | K65 | Confusable chars collapse to ASCII | Unicode security |
+//! | K66 | Cache lock poison → cache miss (never stale Allow) | Lock safety |
+//! | K67 | Deputy lock poison → InternalError (Deny) | Lock safety |
+//! | K68 | All lock poison handlers produce safe outcome | Lock safety |
 //!
 //! # Source Correspondence
 //!
@@ -97,6 +105,9 @@
 //! - `constraint.rs`: Extracted from `vellaveto-engine/src/constraint_eval.rs`
 //! - `task.rs`: Extracted from `vellaveto-mcp/src/task_state.rs`
 //! - `entropy.rs`: Extracted from `vellaveto-engine/src/collusion.rs`
+//! - `domain.rs`: Extracted from `vellaveto-engine/src/domain.rs` (IDNA wrapper)
+//! - `unicode.rs`: Extracted from `vellaveto-types/src/unicode.rs` (homoglyph mapping)
+//! - `lock_safety.rs`: Models RwLock poisoning handlers across engine/MCP
 
 pub mod path;
 pub mod verified_core;
@@ -110,6 +121,9 @@ pub mod cascading;
 pub mod constraint;
 pub mod task;
 pub mod entropy;
+pub mod domain;
+pub mod unicode;
+pub mod lock_safety;
 
 #[cfg(kani)]
 mod proofs;

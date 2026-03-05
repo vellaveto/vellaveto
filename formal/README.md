@@ -24,7 +24,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9–V10 | Path normalization idempotency + no-traversal (ALL inputs, actual Rust) |
-| `kani/src/proofs.rs` | Kani | K1–K60 | Bounded model checking of actual Rust (60 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K68 | Bounded model checking of actual Rust (68 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -33,13 +33,13 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**212 verification instances** across 7 tools:
+**220 verification instances** across 7 tools:
 - **Verus:** 27 proofs on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
 - **TLA+:** 34 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 60 proof harnesses on actual Rust code (bounded) — K1-K60
+- **Kani:** 68 proof harnesses on actual Rust code (bounded) — K1-K68
 
 ## Coverage Matrix
 
@@ -81,6 +81,10 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | **Determinism** | — | — | det | det | — | K8 |
 | **Counter monotonicity** | — | — | — | — | — | K4 |
 | **Domain norm idempotent** (simplified) | — | — | — | — | — | K9 |
+| **IDNA fail-closed** | — | — | — | — | — | K61, K62, K63 |
+| **Homoglyph idempotent** | — | — | — | — | — | K64 |
+| **Confusable → ASCII** | — | — | — | — | — | K65 |
+| **Lock poison safe** | — | — | — | — | — | K66, K67, K68 |
 
 ## Directory Structure
 
@@ -137,8 +141,8 @@ formal/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K60 property catalog)
-      proofs.rs                      ← Proof harnesses (58 properties)
+      lib.rs                         ← Crate root (K1-K68 property catalog)
+      proofs.rs                      ← Proof harnesses (68 properties)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
@@ -151,6 +155,9 @@ formal/
       constraint.rs                  ← Constraint evaluation (Phase 11)
       task.rs                        ← Task lifecycle (Phase 12)
       entropy.rs                     ← Shannon entropy (collusion detection)
+      domain.rs                      ← IDNA domain normalization wrapper
+      unicode.rs                     ← Homoglyph normalization (from vellaveto-types)
+      lock_safety.rs                 ← RwLock poisoning fail-closed predicates
 ```
 
 ## Tooling Setup
@@ -304,7 +311,7 @@ Expected output:
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 3 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K60)
+### Kani Proof Harnesses (K1–K68)
 
 ```bash
 cd formal/kani
@@ -321,10 +328,12 @@ cargo kani --harness proof_grant_is_subset_reflexive           # K36
 cargo kani --harness proof_path_rules_blocked_before_allowed   # K42
 cargo kani --harness proof_apply_policy_equivalence            # K48
 cargo kani --harness proof_terminal_state_immutable            # K56
-# ... (58 total)
+cargo kani --harness proof_idna_failure_non_ascii_fail_closed  # K61
+cargo kani --harness proof_normalize_homoglyphs_idempotent     # K64
+cargo kani --harness proof_all_lock_poison_handlers_safe       # K68
 ```
 
-Expected output: all 60 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 68 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -407,7 +416,7 @@ Source: `formal/verus/verified_core.rs` (12 verified, 0 errors)
 
 Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K60, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K68, bounded model checking on actual Rust)
 
 | ID | Property | Bridge |
 |----|----------|--------|
@@ -471,6 +480,14 @@ Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 | K58 | **Self-cancel authorization** | Task |
 | K59 | **Entropy finite, non-negative, ≤ 8.0** | Collusion |
 | K60 | **Grant coverage fail-closed** | Capability |
+| K61 | **IDNA failure non-ASCII → None** | Domain |
+| K62 | **IDNA failure ASCII → lowercase fallback** | Domain |
+| K63 | **Wildcard prefix preserved** | Domain |
+| K64 | **Homoglyph normalization idempotent** | Unicode |
+| K65 | **Confusables collapse to ASCII** | Unicode |
+| K66 | **Cache lock poison → miss** | Lock safety |
+| K67 | **Deputy lock poison → error** | Lock safety |
+| K68 | **All lock handlers fail-closed** | Lock safety |
 
 ### Harness Assurance Levels
 
@@ -479,9 +496,9 @@ each by input space coverage:
 
 | Level | Harnesses | Description |
 |-------|-----------|-------------|
-| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58 | All fields symbolic within CBMC bounds. Explores full input space. |
+| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58, K66, K67, K68 | All fields symbolic within CBMC bounds. Explores full input space. |
 | **Partial symbolic** | K15, K21 | Some fields symbolic, others fixed. Explores a subspace. |
-| **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51 | Specific scenario test. Confirms property for specific cases. |
+| **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51, K59, K60, K61, K62, K63, K64, K65 | Specific scenario test. Confirms property for specific cases. |
 
 Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
 stub, not the full production `evaluate_action()`. The production fail-closed

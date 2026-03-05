@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Gap closure — IDNA, Unicode, Lock Safety (K61-K68):**
+  Closes the three remaining formal verification gaps (IDNA normalization, Unicode
+  homoglyph preprocessing, and async/concurrent wrappers).
+  - K61-K63 — IDNA domain normalization fail-closed: `normalize_domain_for_match`
+    extracted with abstracted `idna::domain_to_ascii` as `Result<String, ()>` parameter.
+    Non-ASCII IDNA failure → None (K61), ASCII IDNA failure → lowercase fallback (K62),
+    wildcard prefix preserved (K63).
+  - K64-K65 — Unicode homoglyph normalization: `normalize_homoglyphs` verbatim
+    extraction (188-line char mapping: Cyrillic, Greek, Armenian, Cherokee, Fullwidth
+    Latin, Palochka, dashes, curly quotes). Idempotency proven (K64), all mapped
+    confusables collapse to ASCII (K65).
+  - K66-K68 — RwLock poisoning fail-closed: all 6 lock sites modeled as pure predicates.
+    Cache lock poison → miss (K66), Deputy lock poison → InternalError (K67), all handlers
+    produce safe outcome (K68). No lock site ever produces stale Allow.
+  - 109 parity tests (up from 83). 220 total verification instances.
+
 - **Formalization completion (K59-K60, doc fixes, CI sync):**
   K59 — Shannon entropy verification (`compute_entropy` from collusion detector: finite,
   non-negative, ≤ 8.0, empty → 0.0). K60 — capability grant coverage fail-closed

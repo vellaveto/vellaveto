@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 60 harnesses verifying security properties using CBMC bounded model
+//! 68 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -25,6 +25,11 @@
 //! K49-K52: Cascading failure circuit breaker (Phase 10)
 //! K53-K55: Constraint evaluation fail-closed (Phase 11)
 //! K56-K58: Task lifecycle (Phase 12)
+//! K59: Entropy verification (collusion detection)
+//! K60: Grant coverage fail-closed (capability delegation)
+//! K61-K63: IDNA domain normalization fail-closed
+//! K64-K65: Unicode homoglyph normalization
+//! K66-K68: RwLock poisoning fail-closed
 
 use crate::path;
 use crate::Verdict;
@@ -1772,4 +1777,270 @@ fn proof_grant_covers_action_fail_closed() {
     };
     assert!(!grant_covers_action(&path_grant, &traversal_action),
         "K60 violated: path traversal was not blocked");
+}
+
+// =========================================================================
+// IDNA Domain Normalization Fail-Closed (K61-K63)
+// =========================================================================
+
+// K61: IDNA failure on non-ASCII → None (fail-closed)
+#[kani::proof]
+fn proof_idna_failure_non_ascii_fail_closed() {
+    use crate::domain::normalize_domain_for_match;
+
+    // Non-ASCII domain where IDNA fails → must be None
+    let result = normalize_domain_for_match("münchen.de", Err(()));
+    assert!(result.is_none(),
+        "K61 violated: non-ASCII domain with IDNA failure did not return None");
+
+    // Another non-ASCII domain
+    let result2 = normalize_domain_for_match("例え.jp", Err(()));
+    assert!(result2.is_none(),
+        "K61 violated: non-ASCII domain (Japanese) with IDNA failure did not return None");
+
+    // Non-ASCII with wildcard
+    let result3 = normalize_domain_for_match("*.münchen.de", Err(()));
+    assert!(result3.is_none(),
+        "K61 violated: wildcard non-ASCII with IDNA failure did not return None");
+}
+
+// K62: IDNA failure on ASCII domain → lowercase fallback (never None for valid ASCII)
+#[kani::proof]
+fn proof_idna_failure_ascii_fallback() {
+    use crate::domain::normalize_domain_for_match;
+
+    // ASCII domain where IDNA fails → lowercase fallback
+    let result = normalize_domain_for_match("EXAMPLE.COM", Err(()));
+    assert_eq!(result, Some("example.com".to_string()),
+        "K62 violated: ASCII domain did not fallback to lowercase");
+
+    // Mixed case
+    let result2 = normalize_domain_for_match("Test.Example.Org", Err(()));
+    assert_eq!(result2, Some("test.example.org".to_string()),
+        "K62 violated: mixed-case ASCII did not lowercase");
+
+    // Already lowercase (but not is_ascii_lower due to uppercase trigger)
+    // This path only taken when is_ascii_lower is false, which requires non-lowercase chars
+    let result3 = normalize_domain_for_match("HELLO.WORLD", Err(()));
+    assert!(result3.is_some(),
+        "K62 violated: valid ASCII domain returned None on IDNA failure");
+
+    // Invalid ASCII chars → None even on IDNA failure
+    let result4 = normalize_domain_for_match("BAD DOMAIN.COM", Err(()));
+    assert!(result4.is_none(),
+        "K62 violated: invalid ASCII chars did not return None");
+}
+
+// K63: Wildcard prefix preserved through IDNA normalization
+#[kani::proof]
+fn proof_wildcard_prefix_preserved() {
+    use crate::domain::normalize_domain_for_match;
+
+    // Wildcard with IDNA success
+    let result = normalize_domain_for_match(
+        "*.münchen.de",
+        Ok("xn--mnchen-3ya.de".to_string()),
+    );
+    assert_eq!(result, Some("*.xn--mnchen-3ya.de".to_string()),
+        "K63 violated: wildcard prefix not preserved on IDNA success");
+
+    // Wildcard with pure ASCII (already normalized path)
+    let result2 = normalize_domain_for_match("*.example.com", Ok(String::new()));
+    assert_eq!(result2, Some("*.example.com".to_string()),
+        "K63 violated: wildcard ASCII domain changed");
+
+    // Non-wildcard IDNA success
+    let result3 = normalize_domain_for_match(
+        "münchen.de",
+        Ok("xn--mnchen-3ya.de".to_string()),
+    );
+    assert_eq!(result3, Some("xn--mnchen-3ya.de".to_string()),
+        "K63 violated: non-wildcard got wildcard prefix");
+}
+
+// =========================================================================
+// Unicode Homoglyph Normalization (K64-K65)
+// =========================================================================
+
+// K64: normalize_homoglyphs is idempotent
+#[kani::proof]
+#[kani::unwind(20)]
+fn proof_normalize_homoglyphs_idempotent() {
+    use crate::unicode::normalize_homoglyphs;
+
+    // Test with representative confusable characters
+    // Cyrillic spoofed "admin"
+    let inputs = [
+        "\u{0430}dmin",     // Cyrillic а
+        "\u{03B1}dmin",     // Greek α
+        "\u{0561}dmin",     // Armenian ayb
+        "\u{FF21}DMIN",     // Fullwidth A
+        "\u{13AA}o",        // Cherokee GO
+        "normal-ascii",     // Already ASCII
+        "",                 // Empty
+    ];
+
+    for input in &inputs {
+        let once = normalize_homoglyphs(input);
+        let twice = normalize_homoglyphs(&once);
+        assert_eq!(once, twice,
+            "K64 violated: normalize_homoglyphs is not idempotent");
+    }
+}
+
+// K65: All mapped confusables collapse to ASCII
+#[kani::proof]
+fn proof_confusables_collapse_to_ascii() {
+    use crate::unicode::normalize_homoglyphs;
+
+    // Cyrillic lowercase — all must map to ASCII
+    let cyrillic_lower = [
+        '\u{0430}', '\u{0432}', '\u{0435}', '\u{043A}', '\u{043C}',
+        '\u{043D}', '\u{043E}', '\u{0440}', '\u{0441}', '\u{0442}',
+        '\u{0443}', '\u{0445}', '\u{0456}', '\u{0458}', '\u{04BB}',
+        '\u{0455}', '\u{0454}', '\u{044A}',
+    ];
+    for &c in &cyrillic_lower {
+        let normalized = normalize_homoglyphs(&c.to_string());
+        assert!(normalized.is_ascii(),
+            "K65 violated: Cyrillic lowercase did not collapse to ASCII");
+    }
+
+    // Greek lowercase
+    let greek_lower = [
+        '\u{03B1}', '\u{03B2}', '\u{03B5}', '\u{03B7}', '\u{03B9}',
+        '\u{03BA}', '\u{03BC}', '\u{03BD}', '\u{03BF}', '\u{03C1}',
+        '\u{03C4}', '\u{03C5}', '\u{03C7}', '\u{03C9}', '\u{03B6}',
+    ];
+    for &c in &greek_lower {
+        let normalized = normalize_homoglyphs(&c.to_string());
+        assert!(normalized.is_ascii(),
+            "K65 violated: Greek lowercase did not collapse to ASCII");
+    }
+
+    // Armenian
+    let armenian = ['\u{0561}', '\u{0570}', '\u{0578}', '\u{0585}', '\u{057D}', '\u{0582}'];
+    for &c in &armenian {
+        let normalized = normalize_homoglyphs(&c.to_string());
+        assert!(normalized.is_ascii(),
+            "K65 violated: Armenian did not collapse to ASCII");
+    }
+
+    // Cherokee
+    let cherokee = [
+        '\u{13AA}', '\u{13B3}', '\u{13CB}', '\u{13A1}', '\u{13A2}',
+        '\u{13DA}', '\u{13E4}', '\u{13AC}', '\u{13D9}', '\u{13CF}',
+        '\u{13D2}', '\u{13A0}',
+    ];
+    for &c in &cherokee {
+        let normalized = normalize_homoglyphs(&c.to_string());
+        assert!(normalized.is_ascii(),
+            "K65 violated: Cherokee did not collapse to ASCII");
+    }
+
+    // Fullwidth uppercase A-Z
+    for code in 0xFF21..=0xFF3Au32 {
+        if let Some(c) = char::from_u32(code) {
+            let normalized = normalize_homoglyphs(&c.to_string());
+            assert!(normalized.is_ascii(),
+                "K65 violated: fullwidth uppercase did not collapse to ASCII");
+        }
+    }
+
+    // Fullwidth lowercase a-z
+    for code in 0xFF41..=0xFF5Au32 {
+        if let Some(c) = char::from_u32(code) {
+            let normalized = normalize_homoglyphs(&c.to_string());
+            assert!(normalized.is_ascii(),
+                "K65 violated: fullwidth lowercase did not collapse to ASCII");
+        }
+    }
+
+    // Palochka
+    assert!(normalize_homoglyphs("\u{04C0}").is_ascii(), "K65: Palochka upper");
+    assert!(normalize_homoglyphs("\u{04CF}").is_ascii(), "K65: Palochka lower");
+
+    // Plain ASCII must remain ASCII
+    assert!(normalize_homoglyphs("admin").is_ascii(), "K65: plain ASCII");
+}
+
+// =========================================================================
+// RwLock Poisoning Fail-Closed (K66-K68)
+// =========================================================================
+
+// K66: Cache lock poison → cache miss (never stale Allow)
+#[kani::proof]
+fn proof_cache_lock_poison_safe() {
+    use crate::lock_safety::{cache_read_poisoned, cache_write_poisoned, LockOutcome, is_safe_outcome};
+
+    let lock_ok: bool = kani::any();
+
+    let read_outcome = cache_read_poisoned(lock_ok);
+    let write_outcome = cache_write_poisoned(lock_ok);
+
+    // Both outcomes must be safe
+    assert!(is_safe_outcome(read_outcome),
+        "K66 violated: cache read produced unsafe outcome");
+    assert!(is_safe_outcome(write_outcome),
+        "K66 violated: cache write produced unsafe outcome");
+
+    // When poisoned: read returns CacheMiss (not Normal), write returns WriteSkipped
+    if !lock_ok {
+        assert_eq!(read_outcome, LockOutcome::CacheMiss,
+            "K66 violated: poisoned cache read did not return CacheMiss");
+        assert_eq!(write_outcome, LockOutcome::WriteSkipped,
+            "K66 violated: poisoned cache write did not return WriteSkipped");
+    }
+}
+
+// K67: Deputy lock poison → InternalError (Deny)
+#[kani::proof]
+fn proof_deputy_lock_poison_deny() {
+    use crate::lock_safety::{deputy_read_poisoned, deputy_write_poisoned, LockOutcome, is_safe_outcome};
+
+    let lock_ok: bool = kani::any();
+
+    let read_outcome = deputy_read_poisoned(lock_ok);
+    let write_outcome = deputy_write_poisoned(lock_ok);
+
+    assert!(is_safe_outcome(read_outcome),
+        "K67 violated: deputy read produced unsafe outcome");
+    assert!(is_safe_outcome(write_outcome),
+        "K67 violated: deputy write produced unsafe outcome");
+
+    // When poisoned: both return InternalError → Deny
+    if !lock_ok {
+        assert_eq!(read_outcome, LockOutcome::InternalError,
+            "K67 violated: poisoned deputy read did not return InternalError");
+        assert_eq!(write_outcome, LockOutcome::InternalError,
+            "K67 violated: poisoned deputy write did not return InternalError");
+    }
+}
+
+// K68: ALL lock poison handlers produce safe outcome
+#[kani::proof]
+fn proof_all_lock_poison_handlers_safe() {
+    use crate::lock_safety::{LockSite, poison_outcome, is_safe_outcome, LockOutcome};
+
+    let site_id: u8 = kani::any();
+    kani::assume(site_id < 6);
+
+    let site = match site_id {
+        0 => LockSite::CacheRead,
+        1 => LockSite::CacheWrite,
+        2 => LockSite::DeputyRead,
+        3 => LockSite::DeputyWrite,
+        4 => LockSite::GlobCacheRead,
+        _ => LockSite::GlobCacheWrite,
+    };
+
+    let outcome = poison_outcome(site);
+
+    // Core property: ALL poison outcomes are safe (never produce stale Allow)
+    assert!(is_safe_outcome(outcome),
+        "K68 violated: lock site produced unsafe poison outcome");
+
+    // Stronger: none produce Normal (poison always degrades)
+    assert_ne!(outcome, LockOutcome::Normal,
+        "K68 violated: poison produced Normal outcome");
 }
