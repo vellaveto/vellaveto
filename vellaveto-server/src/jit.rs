@@ -64,7 +64,9 @@ pub enum JitError {
 }
 
 /// A JIT access session granting temporary elevated permissions.
+// SECURITY (R239-SRV-8): Reject unknown fields to prevent parameter smuggling.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JitSession {
     /// Unique session identifier.
     pub id: String,
@@ -108,7 +110,9 @@ impl JitSession {
 }
 
 /// Request for JIT access.
+// SECURITY (R239-SRV-8): Reject unknown fields to prevent parameter smuggling.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JitRequest {
     /// Principal requesting access.
     pub principal: String,

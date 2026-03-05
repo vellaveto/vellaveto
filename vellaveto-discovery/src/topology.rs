@@ -798,8 +798,12 @@ impl TopologyGraph {
                         hasher.update(b"T");
                         hasher.update(description.as_bytes());
                         // Canonical JSON for schema
-                        if let Ok(json) = serde_json::to_string(input_schema) {
-                            hasher.update(json.as_bytes());
+                        // SECURITY (R239-DISC-3): On serialization failure, hash a
+                        // deterministic sentinel so the fingerprint still reflects
+                        // the schema exists (not silently skipped).
+                        match serde_json::to_string(input_schema) {
+                            Ok(json) => hasher.update(json.as_bytes()),
+                            Err(_) => hasher.update(b"__UNSERIALIZABLE_SCHEMA__"),
                         }
                     }
                     TopologyNode::Resource {

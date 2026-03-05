@@ -1803,7 +1803,12 @@ pub async fn scim_status(
         "last_sync": status.last_sync.map(|ts| ts.to_rfc3339()),
         "last_sync_duration_ms": status.last_sync_duration_ms,
         "last_user_count": status.last_user_count,
-        "last_error": status.last_error.clone(),
+        // SECURITY (R239-SRV-4): Do not expose raw last_error to clients — categorize it.
+        // The raw error is logged server-side for diagnostics.
+        "last_error": status.last_error.as_ref().map(|e| {
+            tracing::warn!("SCIM sync error (redacted from API response): {}", e);
+            "sync_error"
+        }),
     })))
 }
 
@@ -1834,12 +1839,24 @@ pub async fn saml_metadata(
     ))
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct FlowState {
     next: String,
     code_verifier: String,
     nonce: String,
     expires_at: Instant,
+}
+
+// SECURITY (R239-XCUT-3): Custom Debug redacts PKCE secrets (code_verifier, nonce).
+impl std::fmt::Debug for FlowState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlowState")
+            .field("next", &self.next)
+            .field("code_verifier", &"[REDACTED]")
+            .field("nonce", &"[REDACTED]")
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
 }
 
 impl FlowState {

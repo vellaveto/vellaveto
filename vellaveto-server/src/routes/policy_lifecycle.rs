@@ -156,15 +156,37 @@ fn get_store(
 }
 
 /// Convert LifecycleError to HTTP response.
+///
+/// SECURITY (R239-SRV-10): Genericize error messages — do not expose internal
+/// details (policy IDs, state names, validation specifics) to API clients.
 fn lifecycle_error_response(e: LifecycleError) -> (StatusCode, Json<serde_json::Value>) {
     let (status, msg) = match &e {
         LifecycleError::PolicyNotFound(_) | LifecycleError::VersionNotFound(_, _) => {
-            (StatusCode::NOT_FOUND, e.to_string())
+            tracing::warn!("Policy lifecycle not-found: {}", e);
+            (StatusCode::NOT_FOUND, "Resource not found".to_string())
         }
-        LifecycleError::InvalidTransition(_) => (StatusCode::CONFLICT, e.to_string()),
-        LifecycleError::ApprovalRequired(_) => (StatusCode::PRECONDITION_FAILED, e.to_string()),
-        LifecycleError::CapacityExceeded(_) => (StatusCode::TOO_MANY_REQUESTS, e.to_string()),
-        LifecycleError::Validation(_) => (StatusCode::BAD_REQUEST, e.to_string()),
+        LifecycleError::InvalidTransition(_) => {
+            tracing::warn!("Policy lifecycle invalid transition: {}", e);
+            (StatusCode::CONFLICT, "Invalid state transition".to_string())
+        }
+        LifecycleError::ApprovalRequired(_) => {
+            tracing::warn!("Policy lifecycle approval required: {}", e);
+            (
+                StatusCode::PRECONDITION_FAILED,
+                "Approval required".to_string(),
+            )
+        }
+        LifecycleError::CapacityExceeded(_) => {
+            tracing::warn!("Policy lifecycle capacity exceeded: {}", e);
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Capacity exceeded".to_string(),
+            )
+        }
+        LifecycleError::Validation(_) => {
+            tracing::warn!("Policy lifecycle validation error: {}", e);
+            (StatusCode::BAD_REQUEST, "Validation error".to_string())
+        }
         LifecycleError::Internal(_) => {
             tracing::error!("Policy lifecycle internal error: {}", e);
             (
@@ -867,10 +889,8 @@ mod tests {
         let (status, body) =
             lifecycle_error_response(LifecycleError::PolicyNotFound("test-pol".to_string()));
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(body.0["error"]
-            .as_str()
-            .unwrap()
-            .contains("Policy not found"));
+        // SECURITY (R239-SRV-10): Genericized — no policy ID leaked.
+        assert_eq!(body.0["error"].as_str().unwrap(), "Resource not found");
     }
 
     #[test]
@@ -878,10 +898,8 @@ mod tests {
         let (status, body) =
             lifecycle_error_response(LifecycleError::VersionNotFound("test-pol".to_string(), 42));
         assert_eq!(status, StatusCode::NOT_FOUND);
-        assert!(body.0["error"]
-            .as_str()
-            .unwrap()
-            .contains("Version not found"));
+        // SECURITY (R239-SRV-10): Genericized — no policy ID/version leaked.
+        assert_eq!(body.0["error"].as_str().unwrap(), "Resource not found");
     }
 
     #[test]

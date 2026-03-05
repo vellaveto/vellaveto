@@ -163,7 +163,9 @@ fn schema_contains_field_type(schema: &Value, field_type: &str) -> bool {
 /// from a JSON Schema. A malicious server can embed injection or credential-harvesting
 /// prompts in default values that auto-fill user-facing forms.
 fn collect_schema_defaults(schema: &Value, texts: &mut Vec<String>, depth: usize) {
-    if depth > MAX_SCHEMA_SCAN_DEPTH {
+    // SECURITY (R239-MCP-8): Use >= for consistency with schema_contains_field_type_inner.
+    // `>` allowed one extra level of recursion beyond the intended maximum depth.
+    if depth >= MAX_SCHEMA_SCAN_DEPTH {
         return;
     }
     if let Some(default) = schema.get("default").and_then(|d| d.as_str()) {

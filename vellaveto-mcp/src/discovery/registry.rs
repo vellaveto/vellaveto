@@ -245,7 +245,7 @@ pub struct RegistryVerificationResult {
 }
 
 /// Configuration for the MCP registry client.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RegistryConfig {
     /// Base URL of the MCP registry.
     pub registry_url: String,
@@ -257,6 +257,19 @@ pub struct RegistryConfig {
     pub only_verified: bool,
     /// API key for registry access (if required).
     api_key: Option<String>,
+}
+
+// SECURITY (R239-XCUT-4): Custom Debug redacts api_key to prevent secret leakage in logs.
+impl std::fmt::Debug for RegistryConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegistryConfig")
+            .field("registry_url", &self.registry_url)
+            .field("cache_ttl_secs", &self.cache_ttl_secs)
+            .field("require_https", &self.require_https)
+            .field("only_verified", &self.only_verified)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 impl fmt::Display for RegistryConfig {

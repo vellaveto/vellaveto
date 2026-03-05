@@ -73,10 +73,10 @@ fn no_matching_policy_deny_reason_is_exact() {
 // DENY POLICY: REASON INCLUDES POLICY NAME
 // ════════════════════════════════
 
-/// Deny verdict reason format is "Denied by policy '{name}'".
-/// Source: vellaveto-engine/src/lib.rs apply_policy method
+/// SECURITY (R239-XCUT-5): Deny verdict reason is genericized — no policy name leak.
+/// Source: vellaveto-engine/src/legacy.rs apply_policy method
 #[test]
-fn deny_policy_reason_includes_policy_name() {
+fn deny_policy_reason_is_genericized() {
     let engine = PolicyEngine::new(false);
     let action = make_action("bash", "exec", json!({}));
     let policies = vec![Policy {
@@ -90,7 +90,7 @@ fn deny_policy_reason_includes_policy_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            assert_eq!(reason, "Denied by policy 'Block Everything'");
+            assert_eq!(reason, "Request denied by policy");
         }
         other => panic!("Expected Deny, got {other:?}"),
     }
@@ -100,10 +100,10 @@ fn deny_policy_reason_includes_policy_name() {
 // REQUIRE APPROVAL: REASON FORMAT
 // ═══════════════════════════════
 
-/// RequireApproval reason format is "Approval required by policy '{name}'".
-/// Source: vellaveto-engine/src/lib.rs evaluate_conditions method
+/// SECURITY (R239-XCUT-5): RequireApproval reason is genericized — no policy name leak.
+/// Source: vellaveto-engine/src/legacy.rs evaluate_conditions method
 #[test]
-fn require_approval_reason_includes_policy_name() {
+fn require_approval_reason_is_genericized() {
     let engine = PolicyEngine::new(false);
     let action = make_action("shell", "run", json!({}));
     let policies = vec![Policy {
@@ -119,7 +119,7 @@ fn require_approval_reason_includes_policy_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::RequireApproval { reason } => {
-            assert_eq!(reason, "Approval required by policy 'Needs Human Review'");
+            assert_eq!(reason, "Approval required by policy");
         }
         other => panic!("Expected RequireApproval, got {other:?}"),
     }

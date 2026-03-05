@@ -1991,7 +1991,9 @@ impl ProxyBridge {
                     self.sampling_config.max_per_tool,
                     self.sampling_config.per_tool_window_secs,
                 ) {
-                    let response = make_denial_response(&id, &reason);
+                    // SECURITY (R239-MCP-6): Do not forward raw deny reason to client.
+                    // The reason is already logged in the audit entry below.
+                    let response = make_denial_response(&id, "Request blocked by security policy");
                     let action = vellaveto_types::Action::new(
                         "vellaveto",
                         "sampling_blocked",
@@ -2256,7 +2258,9 @@ impl ProxyBridge {
                     .map_err(ProxyError::Framing)?;
             }
             crate::elicitation::SamplingVerdict::Deny { reason } => {
-                let response = make_denial_response(&id, &reason);
+                // SECURITY (R239-MCP-6): Do not forward raw deny reason to client.
+                // The reason is already logged in the audit entry and tracing below.
+                let response = make_denial_response(&id, "Request blocked by security policy");
                 let action = vellaveto_types::Action::new(
                     "vellaveto",
                     "sampling_blocked",
@@ -2594,7 +2598,9 @@ impl ProxyBridge {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 tracing::warn!("Blocked elicitation/create: {}", reason);
-                let response = make_denial_response(&id, &reason);
+                // SECURITY (R239-MCP-7): Do not forward raw deny reason to client.
+                // The reason is already logged in the audit entry and tracing above.
+                let response = make_denial_response(&id, "Request blocked by security policy");
                 write_message(agent_writer, &response)
                     .await
                     .map_err(ProxyError::Framing)?;

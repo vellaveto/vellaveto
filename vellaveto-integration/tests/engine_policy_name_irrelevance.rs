@@ -71,10 +71,10 @@ fn very_long_name_policy_still_matches() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::Deny { reason } => {
-            // The reason includes the name
-            assert!(
-                reason.contains(&long_name),
-                "Deny reason should contain the policy name"
+            // SECURITY (R239-XCUT-5): Genericized — policy name no longer in reason.
+            assert_eq!(
+                reason, "Request denied by policy",
+                "Deny reason should be genericized"
             );
         }
         other => panic!("Expected Deny, got {other:?}"),
@@ -139,9 +139,10 @@ fn conditional_require_approval_reason_includes_name() {
     let result = engine.evaluate_action(&action, &policies).unwrap();
     match result {
         Verdict::RequireApproval { reason } => {
-            assert!(
-                reason.contains("My Custom Policy Name"),
-                "RequireApproval reason should contain policy name, got: {reason}"
+            // SECURITY (R239-XCUT-5): Genericized — policy name no longer in reason.
+            assert_eq!(
+                reason, "Approval required by policy",
+                "RequireApproval reason should be genericized"
             );
         }
         other => panic!("Expected RequireApproval, got {other:?}"),

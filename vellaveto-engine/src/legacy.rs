@@ -118,16 +118,23 @@ impl PolicyEngine {
 
         match &policy.policy_type {
             PolicyType::Allow => Ok(Some(Verdict::Allow)),
-            PolicyType::Deny => Ok(Some(Verdict::Deny {
-                reason: format!("Denied by policy '{}'", policy.name),
-            })),
+            PolicyType::Deny => {
+                // SECURITY (R239-XCUT-5): Genericize deny reason — policy name only in debug log.
+                tracing::debug!(policy = %policy.name, "Request denied by policy");
+                Ok(Some(Verdict::Deny {
+                    reason: "Request denied by policy".to_string(),
+                }))
+            }
             PolicyType::Conditional { conditions } => {
                 self.evaluate_conditions(action, policy, conditions)
             }
             // Handle future variants - fail closed (deny)
-            _ => Ok(Some(Verdict::Deny {
-                reason: format!("Unknown policy type for '{}'", policy.name),
-            })),
+            _ => {
+                tracing::debug!(policy = %policy.name, "Request denied (unknown policy type)");
+                Ok(Some(Verdict::Deny {
+                    reason: "Request denied (unknown policy type)".to_string(),
+                }))
+            }
         }
     }
 
@@ -272,11 +279,10 @@ impl PolicyEngine {
             // SECURITY (R30-ENG-2): Fail-closed for non-ASCII domains that fail
             // IDNA normalization.
             if normalize_domain_for_match(&domain).is_none() {
+                // SECURITY (R239-XCUT-5): Genericize — domain/policy name in debug only.
+                tracing::debug!(domain = %domain, policy = %policy.name, "IDNA normalization failed — blocked");
                 return Some(Verdict::Deny {
-                    reason: format!(
-                        "Domain '{}' cannot be normalized (IDNA failure) — blocked by policy '{}'",
-                        domain, policy.name
-                    ),
+                    reason: "Domain blocked by policy".to_string(),
                 });
             }
 
@@ -284,8 +290,9 @@ impl PolicyEngine {
             for pattern in &rules.blocked_domains {
                 if match_domain_pattern(&domain, pattern) {
                     tracing::debug!(domain = %domain, pattern = %pattern, policy = %policy.name, "Domain blocked (legacy)");
+                    // SECURITY (R239-XCUT-5): Genericize — domain/policy name in debug only.
                     return Some(Verdict::Deny {
-                        reason: format!("Domain '{}' blocked by policy '{}'", domain, policy.name),
+                        reason: "Domain blocked by policy".to_string(),
                     });
                 }
             }
@@ -297,11 +304,10 @@ impl PolicyEngine {
                     .iter()
                     .any(|p| match_domain_pattern(&domain, p))
             {
+                // SECURITY (R239-XCUT-5): Genericize — domain/policy name in debug only.
+                tracing::debug!(domain = %domain, policy = %policy.name, "Domain not in allowed list");
                 return Some(Verdict::Deny {
-                    reason: format!(
-                        "Domain '{}' not in allowed domains for policy '{}'",
-                        domain, policy.name
-                    ),
+                    reason: "Domain blocked by policy".to_string(),
                 });
             }
         }
@@ -486,8 +492,10 @@ impl PolicyEngine {
         // requiring approval rather than silently bypassing it.
         if let Some(require_approval) = conditions.get("require_approval") {
             if require_approval.as_bool().unwrap_or(true) {
+                // SECURITY (R239-XCUT-5): Genericize — policy name in debug only.
+                tracing::debug!(policy = %policy.name, "Approval required by policy");
                 return Ok(Some(Verdict::RequireApproval {
-                    reason: format!("Approval required by policy '{}'", policy.name),
+                    reason: "Approval required by policy".to_string(),
                 }));
             }
         }
@@ -1347,7 +1355,7 @@ mod tests {
         assert!(result.is_some());
         match result.unwrap() {
             Verdict::Deny { reason } => {
-                assert!(reason.contains("Denied by policy"));
+                assert!(reason.contains("Request denied by policy"));
             }
             _ => panic!("Expected Deny"),
         }

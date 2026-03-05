@@ -179,7 +179,7 @@ pub enum DpopError {
 // SECURITY (R229-SRV-4): deny_unknown_fields per project hardening policy.
 // RFC 7515 allows additional JOSE header fields (kid, x5c, etc.) but we restrict
 // to the minimum required set for DPoP. Clients must use exactly typ, alg, jwk.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DpopHeader {
     /// Token type — MUST be "dpop+jwt".
@@ -190,10 +190,21 @@ pub struct DpopHeader {
     pub jwk: serde_json::Value,
 }
 
+// SECURITY (R239-SRV-15): Custom Debug redacts JWK key material.
+impl std::fmt::Debug for DpopHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DpopHeader")
+            .field("typ", &self.typ)
+            .field("alg", &self.alg)
+            .field("jwk", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// DPoP proof claims (JWT payload).
 ///
 /// Per RFC 9449 Section 4.2.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DpopClaims {
     /// Unique identifier for the proof (MUST be unique per proof).
@@ -210,6 +221,21 @@ pub struct DpopClaims {
     /// Server-provided nonce.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
+}
+
+// SECURITY (R239-SRV-15): Custom Debug redacts ath and nonce to prevent
+// cryptographic material leakage in logs.
+impl std::fmt::Debug for DpopClaims {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DpopClaims")
+            .field("jti", &self.jti)
+            .field("htm", &self.htm)
+            .field("htu", &self.htu)
+            .field("iat", &self.iat)
+            .field("ath", &self.ath.as_ref().map(|_| "[REDACTED]"))
+            .field("nonce", &self.nonce.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
 }
 
 impl DpopClaims {

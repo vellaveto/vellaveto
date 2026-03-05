@@ -315,7 +315,14 @@ impl ContextIsolator {
 
         // Truncate params to avoid huge context entries
         let truncated: String = params.chars().take(4096).collect();
-        let text = format!("[{safe_method}] {truncated}");
+        // SECURITY (R239-SHLD-4): Filter out control chars and Unicode format chars
+        // from params to prevent injection into context entries that may influence
+        // future sessions.
+        let safe_truncated: String = truncated
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::core::is_unicode_format_char(*c))
+            .collect();
+        let text = format!("[{safe_method}] {safe_truncated}");
 
         self.record(session_id, "user", &text)
     }

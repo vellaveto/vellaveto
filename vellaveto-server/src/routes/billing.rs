@@ -65,7 +65,9 @@ pub struct WebhookResponse {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Paddle webhook event payload (simplified — only fields we need).
+// SECURITY (R239-SRV-14): Reject unknown fields — webhook format is well-defined.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PaddleWebhookPayload {
     /// Event type (e.g., "subscription.created", "subscription.updated").
     #[serde(default)]
@@ -252,7 +254,9 @@ fn verify_paddle_signature(signature_header: &str, body: &[u8], secret: &str) ->
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// Stripe webhook event payload (simplified — only fields we need).
+// SECURITY (R239-SRV-14): Reject unknown fields — webhook format is well-defined.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StripeWebhookPayload {
     /// Event type (e.g., "invoice.paid", "customer.subscription.updated").
     #[serde(default, rename = "type")]
@@ -652,7 +656,9 @@ pub async fn get_quota_status(
 }
 
 /// Query parameters for usage history endpoint.
+// SECURITY (R239-SRV-6): Reject unknown fields to prevent parameter smuggling.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UsageHistoryQuery {
     /// Number of periods to return (max 120, default 12).
     #[serde(default = "default_history_periods")]

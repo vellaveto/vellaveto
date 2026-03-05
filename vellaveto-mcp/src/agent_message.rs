@@ -46,10 +46,13 @@ pub enum MessageError {
     /// SECURITY (FIND-027): Random nonce generation failed (no entropy).
     #[error("Random nonce generation failed")]
     RandomGeneratorFailed,
+    /// SECURITY (R239-MCP-9): Invalid sender or recipient ID.
+    #[error("Invalid sender/recipient: {0}")]
+    InvalidSender(String),
 }
 
 /// Signed inter-agent message envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SignedAgentMessage {
     /// Agent ID of the sender
     pub sender: String,
@@ -64,6 +67,21 @@ pub struct SignedAgentMessage {
     pub nonce: [u8; 32],
     /// Unix timestamp (seconds)
     pub timestamp: u64,
+}
+
+// SECURITY (R239-XCUT-6): Custom Debug redacts signature and nonce to prevent
+// cryptographic material leakage in logs.
+impl std::fmt::Debug for SignedAgentMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedAgentMessage")
+            .field("sender", &self.sender)
+            .field("recipient", &self.recipient)
+            .field("payload_len", &self.payload.len())
+            .field("signature", &"[REDACTED]")
+            .field("nonce", &"[REDACTED]")
+            .field("timestamp", &self.timestamp)
+            .finish()
+    }
 }
 
 /// Custom serde for signature bytes
@@ -101,6 +119,18 @@ impl SignedAgentMessage {
         recipient: &str,
         payload: &[u8],
     ) -> Result<Self, MessageError> {
+        // SECURITY (R239-MCP-9): Validate sender_id and recipient for dangerous chars.
+        if vellaveto_types::has_dangerous_chars(sender_id) {
+            return Err(MessageError::InvalidSender(
+                "sender_id contains dangerous characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(recipient) {
+            return Err(MessageError::InvalidSender(
+                "recipient contains dangerous characters".to_string(),
+            ));
+        }
+
         let mut nonce = [0u8; 32];
         getrandom::getrandom(&mut nonce).map_err(|_| MessageError::RandomGeneratorFailed)?;
 

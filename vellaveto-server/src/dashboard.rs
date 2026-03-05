@@ -297,10 +297,11 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
             }
         }
         Err(e) => {
+            // SECURITY (R239-SRV-7): Do not render raw error into HTML — log server-side.
+            tracing::warn!("Dashboard: failed to load audit entries: {}", e);
             let _ = write!(
                 html,
-                r#"<p class="muted">Failed to load audit entries: {}</p>"#,
-                html_escape(&e.to_string())
+                r#"<p class="muted">Failed to load audit entries. Check server logs for details.</p>"#
             );
         }
     }

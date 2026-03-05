@@ -180,13 +180,18 @@ fn compile_from_toml_bounded(
             max_len
         ));
     }
-    let config = PolicyConfig::from_toml(toml_str).map_err(|e| format!("TOML parse error: {e}"))?;
+    // SECURITY (R239-SRV-11): Genericize parse/validation errors.
+    let config = PolicyConfig::from_toml(toml_str).map_err(|e| {
+        tracing::warn!("Simulator: TOML parse error: {e}");
+        "TOML parse error".to_string()
+    })?;
     // SECURITY (FIND-R104-001): Validate config before converting to policies.
     // Without this, unbounded collections, invalid float ranges, SSRF webhooks,
     // and other semantically invalid configs bypass PolicyConfig::validate().
-    config
-        .validate()
-        .map_err(|e| format!("Config validation error: {e}"))?;
+    config.validate().map_err(|e| {
+        tracing::warn!("Simulator: config validation error: {e}");
+        "Config validation error".to_string()
+    })?;
     let mut policies = config.to_policies();
     // SECURITY (FIND-R46-001): Cap policy count.
     if policies.len() > MAX_POLICY_COUNT {
@@ -465,7 +470,11 @@ pub async fn simulate_validate(
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(ErrorResponse {
-                        error: format!("Config parse error (tried TOML and JSON): {toml_err}"),
+                        // SECURITY (R239-SRV-11): Do not expose raw parse error to client.
+                        error: {
+                            tracing::warn!("Simulator: config parse error: {toml_err}");
+                            "Config parse error".to_string()
+                        },
                     }),
                 ));
             }
@@ -479,7 +488,11 @@ pub async fn simulate_validate(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Config validation error: {e}"),
+                // SECURITY (R239-SRV-11): Genericize validation error.
+                error: {
+                    tracing::warn!("Simulator: config validation error: {e}");
+                    "Config validation error".to_string()
+                },
             }),
         ));
     }
@@ -535,7 +548,11 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'before' config parse error: {e}"),
+                // SECURITY (R239-SRV-11): Do not expose raw parse error to client.
+                error: {
+                    tracing::warn!("Simulator: 'before' config parse error: {e}");
+                    "Config parse error in 'before'".to_string()
+                },
             }),
         )
     })?;
@@ -544,7 +561,11 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'after' config parse error: {e}"),
+                // SECURITY (R239-SRV-11): Do not expose raw parse error to client.
+                error: {
+                    tracing::warn!("Simulator: 'after' config parse error: {e}");
+                    "Config parse error in 'after'".to_string()
+                },
             }),
         )
     })?;
@@ -554,7 +575,11 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'before' config validation error: {e}"),
+                // SECURITY (R239-SRV-11): Genericize validation error.
+                error: {
+                    tracing::warn!("Simulator: 'before' config validation error: {e}");
+                    "Config validation error in 'before'".to_string()
+                },
             }),
         )
     })?;
@@ -562,7 +587,11 @@ pub async fn simulate_diff(
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("'after' config validation error: {e}"),
+                // SECURITY (R239-SRV-11): Genericize validation error.
+                error: {
+                    tracing::warn!("Simulator: 'after' config validation error: {e}");
+                    "Config validation error in 'after'".to_string()
+                },
             }),
         )
     })?;

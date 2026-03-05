@@ -67,7 +67,11 @@ fn specific_deny_overrides_wildcard_allow_at_higher_priority() {
 
     match engine.evaluate_action(&action, &policies).unwrap() {
         Verdict::Deny { reason } => {
-            assert!(reason.contains("deny-file:delete"), "reason: {reason}");
+            // SECURITY (R239-XCUT-5): Genericized — policy name no longer in reason.
+            assert!(
+                reason.contains("Request denied by policy"),
+                "reason: {reason}"
+            );
         }
         other => panic!("Expected Deny, got {other:?}"),
     }

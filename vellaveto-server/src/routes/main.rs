@@ -2032,10 +2032,12 @@ async fn evaluate(
         let tier = &state.billing_config.licensing_validation.tier;
         let tier_limit = tracker.limit_for_tier(tier);
         if let Err(reason) = tracker.check_evaluation_quota(&tenant_ctx.tenant_id, tier_limit) {
+            // SECURITY (R239-SRV-13): Genericize — do not expose capacity details.
+            tracing::warn!(tenant = %tenant_ctx.tenant_id, "Evaluation quota exceeded: {reason}");
             return Err((
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(ErrorResponse {
-                    error: format!("Evaluation quota exceeded: {reason}"),
+                    error: "Evaluation quota exceeded".to_string(),
                 }),
             ));
         }

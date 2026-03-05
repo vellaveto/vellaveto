@@ -902,8 +902,11 @@ pub fn export_to_cedar(policies: &[Policy]) -> Result<String, CedarExportError> 
             }
         }
 
+        // SECURITY (R239-CFG-3): Sanitize policy name for comment embedding —
+        // newlines in the name could inject arbitrary Cedar code after the comment.
+        let sanitized_name = policy.name.replace(['\n', '\r'], " ");
         // Write the policy statement with a comment header
-        output.push_str(&format!("// {}\n", policy.name));
+        output.push_str(&format!("// {sanitized_name}\n"));
         output.push_str(effect);
         output.push_str("(principal, action, resource)");
 

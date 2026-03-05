@@ -48,10 +48,11 @@ fn mcp_style_add_policy_then_evaluate() {
     // Verify verdict serializes to expected JSON shape
     let verdict_json = serde_json::to_value(&verdict).unwrap();
     assert!(verdict_json.get("Deny").is_some());
+    // SECURITY (R239-XCUT-5): Genericized — policy name no longer in reason.
     assert!(verdict_json["Deny"]["reason"]
         .as_str()
         .unwrap()
-        .contains("Block bash"));
+        .contains("Request denied by policy"));
 }
 
 #[test]

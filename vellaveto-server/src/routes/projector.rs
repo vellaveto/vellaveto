@@ -271,11 +271,13 @@ pub async fn projector_transform(
     // input_schema/output_schema serialized sizes against MAX_PROJECTOR_VALUE_SIZE.
     // The manual checks above cover name/description/depth, but the Value size
     // limits are only enforced by CanonicalToolSchema::validate().
+    // SECURITY (R239-SRV-12): Genericize schema validation error.
     body.schema.validate().map_err(|e| {
+        tracing::warn!("Projector: schema validation failed: {e}");
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("schema validation failed: {e}"),
+                error: "Schema validation failed".to_string(),
             }),
         )
     })?;

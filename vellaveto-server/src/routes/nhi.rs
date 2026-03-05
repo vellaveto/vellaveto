@@ -832,10 +832,12 @@ pub async fn generate_dpop_nonce(
         ));
     };
 
+    // SECURITY (R239-SRV-5): Genericize error — do not expose capacity details to clients.
     let nonce = manager.generate_dpop_nonce().await.map_err(|e| {
+        tracing::warn!("DPoP nonce generation failed: {}", e);
         (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": format!("DPoP nonce tracker at capacity: {}", e)})),
+            Json(json!({"error": "DPoP nonce generation temporarily unavailable"})),
         )
     })?;
     Ok(Json(json!({"nonce": nonce})))

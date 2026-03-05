@@ -29,7 +29,7 @@ const MAX_KEY_HEX_LENGTH: usize = 128;
 const CANARY_VERSION: u8 = 1;
 
 /// A cryptographically signed warrant canary.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WarrantCanary {
     /// Format version for forward compatibility.
@@ -44,6 +44,21 @@ pub struct WarrantCanary {
     pub signature: String,
     /// Ed25519 verifying key (hex-encoded).
     pub verifying_key: String,
+}
+
+// SECURITY (R239-CAN-4): Custom Debug redacts signature to prevent
+// cryptographic material leakage in logs.
+impl std::fmt::Debug for WarrantCanary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WarrantCanary")
+            .field("version", &self.version)
+            .field("signed_date", &self.signed_date)
+            .field("expires_date", &self.expires_date)
+            .field("statement", &self.statement)
+            .field("signature", &"[REDACTED]")
+            .field("verifying_key", &self.verifying_key)
+            .finish()
+    }
 }
 
 /// Result of canary verification.
@@ -211,6 +226,30 @@ pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, Strin
     }
     if has_dangerous_chars(&canary.statement) {
         return Err("statement contains dangerous characters".to_string());
+    }
+
+    // SECURITY (R239-CAN-2): Validate signed_date and expires_date for dangerous chars
+    // and correct date format. Previously only statement was validated here.
+    if has_dangerous_chars(&canary.signed_date) {
+        return Err("signed_date contains dangerous characters".to_string());
+    }
+    if has_dangerous_chars(&canary.expires_date) {
+        return Err("expires_date contains dangerous characters".to_string());
+    }
+    // Validate signed_date is a valid YYYY-MM-DD date
+    if NaiveDate::parse_from_str(&canary.signed_date, "%Y-%m-%d").is_err() {
+        return Err(format!(
+            "signed_date '{}' is not a valid YYYY-MM-DD date",
+            canary.signed_date
+        ));
+    }
+    // SECURITY (R239-CAN-3): Also validate expires_date format early (previously only
+    // validated late at line 271 — fail-fast is more defensive).
+    if NaiveDate::parse_from_str(&canary.expires_date, "%Y-%m-%d").is_err() {
+        return Err(format!(
+            "expires_date '{}' is not a valid YYYY-MM-DD date",
+            canary.expires_date
+        ));
     }
 
     // Parse verifying key

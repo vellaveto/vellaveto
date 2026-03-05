@@ -72,7 +72,8 @@ fn smoke_wildcard_deny_denies() {
         .evaluate_action(&action("x", "y"), &policies)
         .unwrap();
     match result {
-        Verdict::Deny { reason } => assert!(reason.contains("deny-all")),
+        // SECURITY (R239-XCUT-5): Genericized deny reason — no policy name leak.
+        Verdict::Deny { reason } => assert!(reason.contains("Request denied by policy")),
         other => panic!("Expected Deny, got {other:?}"),
     }
 }

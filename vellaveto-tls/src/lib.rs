@@ -94,6 +94,49 @@ impl SpiffeIdentity {
             return None;
         }
 
+        // SECURITY (R239-TLS-1): Validate workload path for traversal, control chars,
+        // null bytes, and Unicode format characters. Fail-closed on invalid paths.
+        if !workload_path.is_empty() {
+            // Reject path traversal sequences
+            if workload_path.contains("/../")
+                || workload_path.ends_with("/..")
+                || workload_path == "/.."
+            {
+                return None;
+            }
+            // Reject control characters, null bytes, and Unicode format chars
+            for c in workload_path.chars() {
+                if c == '\0' || c.is_control() {
+                    return None;
+                }
+                // Inline check for Unicode format characters (Cf category)
+                // Aligned with vellaveto_types::is_unicode_format_char() but standalone
+                if matches!(c,
+                    '\u{00AD}'              |
+                    '\u{0600}'..='\u{0605}' |
+                    '\u{061C}'              |
+                    '\u{06DD}'              |
+                    '\u{070F}'              |
+                    '\u{0890}'..='\u{0891}' |
+                    '\u{08E2}'              |
+                    '\u{200B}'..='\u{200F}' |
+                    '\u{202A}'..='\u{202E}' |
+                    '\u{2060}'..='\u{2069}' |
+                    '\u{FEFF}'              |
+                    '\u{FFF9}'..='\u{FFFB}' |
+                    '\u{110BD}'             |
+                    '\u{110CD}'             |
+                    '\u{17B4}'..='\u{17B5}' |
+                    '\u{180B}'..='\u{180F}' |
+                    '\u{1D173}'..='\u{1D17A}' |
+                    '\u{FE00}'..='\u{FE0F}'   |
+                    '\u{E0001}'..='\u{E007F}'
+                ) {
+                    return None;
+                }
+            }
+        }
+
         Some(SpiffeIdentity {
             spiffe_id: uri.to_string(),
             trust_domain,

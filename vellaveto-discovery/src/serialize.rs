@@ -108,6 +108,114 @@ impl TopologyGraph {
             )));
         }
 
+        // SECURITY (R239-DISC-1): Validate DataFlow edge confidence for NaN/Infinity/range.
+        // SECURITY (R239-DISC-2): Validate edge string fields for dangerous chars and length.
+        const MAX_EDGE_STRING_LEN: usize = 1024;
+        for edge in &snapshot.edges {
+            match &edge.edge {
+                TopologyEdge::DataFlow {
+                    confidence,
+                    from_field,
+                    to_param,
+                    reason,
+                    ..
+                } => {
+                    if !confidence.is_finite() || *confidence < 0.0 || *confidence > 1.0 {
+                        return Err(crate::error::DiscoveryError::ValidationError(format!(
+                            "DataFlow edge confidence {confidence} is not in [0.0, 1.0]"
+                        )));
+                    }
+                    for (label, value) in [
+                        ("from_field", from_field.as_str()),
+                        ("to_param", to_param.as_str()),
+                        ("reason", reason.as_str()),
+                    ] {
+                        if value.len() > MAX_EDGE_STRING_LEN {
+                            let len = value.len();
+                            return Err(crate::error::DiscoveryError::ValidationError(format!(
+                                "DataFlow edge {label} length {len} exceeds max {MAX_EDGE_STRING_LEN}"
+                            )));
+                        }
+                        if vellaveto_types::has_dangerous_chars(value) {
+                            return Err(crate::error::DiscoveryError::ValidationError(format!(
+                                "DataFlow edge {label} contains dangerous characters"
+                            )));
+                        }
+                    }
+                }
+                TopologyEdge::Consumes { param } => {
+                    if param.len() > MAX_EDGE_STRING_LEN {
+                        return Err(crate::error::DiscoveryError::ValidationError(format!(
+                            "Consumes edge param length {} exceeds max {MAX_EDGE_STRING_LEN}",
+                            param.len()
+                        )));
+                    }
+                    if vellaveto_types::has_dangerous_chars(param) {
+                        return Err(crate::error::DiscoveryError::ValidationError(
+                            "Consumes edge param contains dangerous characters".to_string(),
+                        ));
+                    }
+                }
+                TopologyEdge::Owns => {}
+            }
+        }
+
+        // SECURITY (R239-DISC-4): Bound node count and validate node string fields
+        // for dangerous characters and length. Unbounded node count allows OOM from
+        // crafted JSON with millions of nodes.
+        const MAX_SNAPSHOT_NODES: usize = 100_000;
+        const MAX_NODE_STRING_LEN: usize = 1024;
+        if snapshot.nodes.len() > MAX_SNAPSHOT_NODES {
+            let count = snapshot.nodes.len();
+            return Err(crate::error::DiscoveryError::ValidationError(format!(
+                "Snapshot node count {count} exceeds maximum {MAX_SNAPSHOT_NODES}"
+            )));
+        }
+        for node in &snapshot.nodes {
+            let strings_to_check: Vec<(&str, &str)> = match node {
+                TopologyNode::Server { name, .. } => vec![("server.name", name.as_str())],
+                TopologyNode::Tool {
+                    server,
+                    name,
+                    description,
+                    ..
+                } => vec![
+                    ("tool.server", server.as_str()),
+                    ("tool.name", name.as_str()),
+                    ("tool.description", description.as_str()),
+                ],
+                TopologyNode::Resource {
+                    server,
+                    uri_template,
+                    name,
+                    mime_type,
+                } => {
+                    let mut v = vec![
+                        ("resource.server", server.as_str()),
+                        ("resource.uri_template", uri_template.as_str()),
+                        ("resource.name", name.as_str()),
+                    ];
+                    if let Some(mt) = mime_type {
+                        v.push(("resource.mime_type", mt.as_str()));
+                    }
+                    v
+                }
+            };
+            for (label, value) in strings_to_check {
+                if value.len() > MAX_NODE_STRING_LEN {
+                    let len = value.len();
+                    return Err(crate::error::DiscoveryError::ValidationError(format!(
+                        "Node {label} length {len} exceeds max {MAX_NODE_STRING_LEN}"
+                    )));
+                }
+                if vellaveto_types::has_dangerous_chars(value) {
+                    return Err(crate::error::DiscoveryError::ValidationError(format!(
+                        "Node {label} contains dangerous characters"
+                    )));
+                }
+            }
+        }
+
         // Build static server declarations from nodes
         let mut servers: HashMap<String, StaticServerDecl> = HashMap::new();
 

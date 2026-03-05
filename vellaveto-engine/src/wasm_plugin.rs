@@ -151,12 +151,30 @@ impl PluginAction {
     pub fn from_action(action: &Action) -> Self {
         // SECURITY (R238-ENG-7): Normalize tool and function names so Wasm plugins
         // doing string comparison cannot be bypassed via homoglyphs or case tricks.
+        //
+        // SECURITY (R239-ENG-3): Also normalize target_paths (percent-decode + traversal
+        // protection) and target_domains (NFKC + lowercase + homoglyph mapping) so plugins
+        // cannot be bypassed via encoding tricks or homoglyphs in paths/domains.
         Self {
             tool: crate::normalize::normalize_full(&action.tool),
             function: crate::normalize::normalize_full(&action.function),
             parameters: action.parameters.clone(),
-            target_paths: action.target_paths.clone(),
-            target_domains: action.target_domains.clone(),
+            target_paths: action
+                .target_paths
+                .iter()
+                .map(|p| {
+                    crate::PolicyEngine::normalize_path(p).unwrap_or_else(|_| {
+                        // Fail-closed: if normalization fails, use normalized-full as fallback
+                        // (still strips homoglyphs/case tricks even if path-specific decoding fails).
+                        crate::normalize::normalize_full(p)
+                    })
+                })
+                .collect(),
+            target_domains: action
+                .target_domains
+                .iter()
+                .map(|d| crate::normalize::normalize_full(d))
+                .collect(),
         }
     }
 }

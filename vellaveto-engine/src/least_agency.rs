@@ -121,12 +121,35 @@ impl LeastAgencyTracker {
     /// (FIND-R44-021). This prevents collisions where `agent_id` contains `::`
     /// (e.g., `"a::b" + "c"` vs `"a" + "b::c"` would both produce `"a::b::c"`
     /// with the naive separator approach).
+    ///
+    /// SECURITY (R239-ENG-2): Normalizes agent_id and session_id through
+    /// normalize_full() so homoglyph/case variants map to the same session.
     fn session_key(agent_id: &str, session_id: &str) -> String {
-        format!("{}:{agent_id}::{session_id}", agent_id.len())
+        let norm_agent = crate::normalize::normalize_full(agent_id);
+        let norm_session = crate::normalize::normalize_full(session_id);
+        format!("{}:{norm_agent}::{norm_session}", norm_agent.len())
+    }
+
+    /// Validate agent_id and session_id against dangerous characters.
+    /// Returns `true` if input is valid, `false` if rejected.
+    fn validate_ids(agent_id: &str, session_id: &str) -> bool {
+        if vellaveto_types::has_dangerous_chars(agent_id) {
+            tracing::warn!("LeastAgencyTracker: rejecting agent_id with dangerous chars");
+            return false;
+        }
+        if vellaveto_types::has_dangerous_chars(session_id) {
+            tracing::warn!("LeastAgencyTracker: rejecting session_id with dangerous chars");
+            return false;
+        }
+        true
     }
 
     /// Register granted policy IDs for an agent session.
     pub fn register_grants(&self, agent_id: &str, session_id: &str, policy_ids: &[String]) {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return;
+        }
         let key = Self::session_key(agent_id, session_id);
         // SECURITY (FIND-P3-012, FIND-R58-ENG-005): Log poisoned lock recovery.
         // Unlike DeputyValidator (which fails closed on poison because it makes
@@ -190,6 +213,10 @@ impl LeastAgencyTracker {
         tool: &str,
         function: &str,
     ) {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return;
+        }
         let key = Self::session_key(agent_id, session_id);
         // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — skip usage recording.
         let mut trackers = match self.trackers.write() {
@@ -247,6 +274,10 @@ impl LeastAgencyTracker {
 
     /// Return policy IDs that have been granted but never used.
     pub fn check_unused(&self, agent_id: &str, session_id: &str) -> Vec<String> {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return Vec::new();
+        }
         let key = Self::session_key(agent_id, session_id);
         // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return empty (no unused detected).
         let trackers = match self.trackers.read() {
@@ -270,6 +301,10 @@ impl LeastAgencyTracker {
 
     /// Generate a full least-agency compliance report.
     pub fn generate_report(&self, agent_id: &str, session_id: &str) -> Option<LeastAgencyReport> {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return None;
+        }
         let key = Self::session_key(agent_id, session_id);
         // SECURITY (FIND-P3-012): Fail-closed on poisoned lock — return None (no report).
         let trackers = match self.trackers.read() {
@@ -330,6 +365,10 @@ impl LeastAgencyTracker {
     /// In `Monitor` mode, returns candidates without revoking (read-only).
     /// In `Enforce` mode, atomically removes stale permissions.
     pub fn revoke_stale_permissions(&self, agent_id: &str, session_id: &str) -> Vec<String> {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return Vec::new();
+        }
         let key = Self::session_key(agent_id, session_id);
         let now = Instant::now();
         let threshold = std::time::Duration::from_secs(self.auto_revoke_after_secs);
@@ -422,6 +461,10 @@ impl LeastAgencyTracker {
     /// Returns `None` if the session is not tracked or usage is above the threshold
     /// (i.e., scope is appropriately sized).
     pub fn recommend_narrowing(&self, agent_id: &str, session_id: &str) -> Option<Vec<String>> {
+        // SECURITY (R239-ENG-2): Reject dangerous characters before processing.
+        if !Self::validate_ids(agent_id, session_id) {
+            return None;
+        }
         let report = self.generate_report(agent_id, session_id)?;
         if report.usage_ratio < self.narrow_threshold {
             Some(report.unused_permissions)

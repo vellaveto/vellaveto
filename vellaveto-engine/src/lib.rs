@@ -803,9 +803,13 @@ impl PolicyEngine {
             }
             PolicyType::Conditional { .. } => self.evaluate_compiled_conditions(action, cp),
             // Handle future variants - fail closed (deny)
-            _ => Ok(Some(Verdict::Deny {
-                reason: format!("Unknown policy type for '{}'", cp.policy.name),
-            })),
+            _ => {
+                // SECURITY (R239-XCUT-5): Genericize — policy name in debug only.
+                tracing::debug!(policy = %cp.policy.name, "Request denied (unknown policy type)");
+                Ok(Some(Verdict::Deny {
+                    reason: "Request denied (unknown policy type)".to_string(),
+                }))
+            }
         }
     }
 

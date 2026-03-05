@@ -76,7 +76,9 @@ struct CachedDecision {
 }
 
 /// OPA policy decision result.
+// SECURITY (R239-SRV-9): Reject unknown fields — OPA decision shape is well-defined.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OpaDecision {
     /// Whether the action is allowed.
     pub allow: bool,

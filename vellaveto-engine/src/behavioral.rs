@@ -323,6 +323,10 @@ impl BehavioralTracker {
             return alerts;
         }
 
+        // SECURITY (R239-ENG-1): Normalize agent_id through NFKC + lowercase + homoglyph
+        // mapping so that homoglyph variants map to the same baseline.
+        let agent_id = crate::normalize::normalize_full(agent_id);
+
         // SECURITY (FIND-R139-001): Cap call_counts iteration.
         if call_counts.len() > Self::MAX_CALL_COUNT_ENTRIES {
             tracing::warn!(
@@ -333,7 +337,7 @@ impl BehavioralTracker {
             return alerts;
         }
 
-        let agent = match self.agents.get(agent_id) {
+        let agent = match self.agents.get(&agent_id) {
             Some(a) => a,
             None => return alerts, // No history for this agent
         };
@@ -386,11 +390,11 @@ impl BehavioralTracker {
                         current_count: count,
                         baseline_ema: self
                             .agents
-                            .get(agent_id)
+                            .get(&agent_id)
                             .and_then(|a| a.tools.get(tool))
                             .map_or(0.0, |b| b.ema),
                         deviation_ratio,
-                        agent_id: agent_id.to_string(),
+                        agent_id: agent_id.clone(),
                     };
 
                     metrics::counter!(
@@ -446,7 +450,7 @@ impl BehavioralTracker {
                 };
 
                 let alert = AnomalyAlert {
-                    agent_id: agent_id.to_string(),
+                    agent_id: agent_id.clone(),
                     tool: tool.clone(),
                     current_count: count,
                     baseline_ema: baseline.ema,
@@ -517,6 +521,10 @@ impl BehavioralTracker {
             return;
         }
 
+        // SECURITY (R239-ENG-1): Normalize agent_id through NFKC + lowercase + homoglyph
+        // mapping so that homoglyph variants map to the same baseline.
+        let agent_id = crate::normalize::normalize_full(agent_id);
+
         // SECURITY (FIND-R139-001): Cap call_counts iteration.
         if call_counts.len() > Self::MAX_CALL_COUNT_ENTRIES {
             tracing::warn!(
@@ -530,7 +538,9 @@ impl BehavioralTracker {
         self.update_counter = self.update_counter.saturating_add(1);
 
         // Enforce agent limit via eviction before inserting a new agent
-        if !self.agents.contains_key(agent_id) && self.agents.len() >= self.config.max_agents {
+        if !self.agents.contains_key(agent_id.as_str())
+            && self.agents.len() >= self.config.max_agents
+        {
             self.evict_agent();
         }
 
