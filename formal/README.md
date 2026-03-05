@@ -716,8 +716,8 @@ verification layer.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **28 verified functions (V1-V12, D1-D6)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **68 proof harnesses (K1-K68)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **29 verified functions (V1-V12, D1-D6)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
@@ -728,4 +728,4 @@ The three-layer verification architecture:
 - **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,200+ tests)
 - **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
 - **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
-- **Tests:** Concrete execution verification (9,018+ tests + 24 fuzz targets)
+- **Tests:** Concrete execution verification (10,350+ tests + 24 fuzz targets)
