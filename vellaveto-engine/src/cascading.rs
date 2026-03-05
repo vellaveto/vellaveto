@@ -192,15 +192,22 @@ impl CascadingConfig {
                 self.error_rate_threshold
             )));
         }
-        if self.window_secs == 0 {
-            return Err(CascadingError::InvalidConfig(
-                "window_secs must be > 0".to_string(),
-            ));
+        // SECURITY (R240-ENG-2): Upper-bound time windows to prevent unbounded memory
+        // growth in sliding window trackers and permanent denial-of-service from
+        // unreachable break durations. Consistent with CollusionConfig bounds.
+        const MAX_WINDOW_SECS: u64 = 86_400; // 24 hours
+        const MAX_BREAK_DURATION_SECS: u64 = 86_400; // 24 hours
+        if self.window_secs == 0 || self.window_secs > MAX_WINDOW_SECS {
+            return Err(CascadingError::InvalidConfig(format!(
+                "window_secs must be in [1, {MAX_WINDOW_SECS}], got {}",
+                self.window_secs
+            )));
         }
-        if self.break_duration_secs == 0 {
-            return Err(CascadingError::InvalidConfig(
-                "break_duration_secs must be > 0".to_string(),
-            ));
+        if self.break_duration_secs == 0 || self.break_duration_secs > MAX_BREAK_DURATION_SECS {
+            return Err(CascadingError::InvalidConfig(format!(
+                "break_duration_secs must be in [1, {MAX_BREAK_DURATION_SECS}], got {}",
+                self.break_duration_secs
+            )));
         }
         // SECURITY (R229-ENG-9): Bound min_window_events to prevent disabling
         // circuit breakers by setting an unreachably high minimum.

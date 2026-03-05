@@ -151,10 +151,14 @@ impl BehavioralConfig {
         if self.threshold <= 0.0 || self.threshold.is_nan() || self.threshold.is_infinite() {
             return Err(BehavioralError::InvalidThreshold(self.threshold));
         }
-        if self.max_tools_per_agent == 0 {
+        // SECURITY (R240-ENG-3): Upper-bound max_tools_per_agent and max_agents to
+        // prevent unbounded HashMap growth from attacker-controlled configuration.
+        const MAX_BEHAVIORAL_AGENTS: usize = 1_000_000;
+        const MAX_TOOLS_PER_AGENT_LIMIT: usize = 100_000;
+        if self.max_tools_per_agent == 0 || self.max_tools_per_agent > MAX_TOOLS_PER_AGENT_LIMIT {
             return Err(BehavioralError::InvalidMaxTools);
         }
-        if self.max_agents == 0 {
+        if self.max_agents == 0 || self.max_agents > MAX_BEHAVIORAL_AGENTS {
             return Err(BehavioralError::InvalidMaxAgents);
         }
         // SECURITY (FIND-R113-P3): Validate max_initial_ema is positive and finite.

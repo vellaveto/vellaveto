@@ -1975,6 +1975,79 @@ impl ProxyBridge {
             }
         }
 
+        // SECURITY (R240-MCP-1): Shadow agent detection — parity with handle_tool_call.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in sampling - claimed '{}'",
+                            claimed_id
+                        );
+                        let action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "sampling_shadow_agent_detected",
+                            json!({"claimed_id": &claimed_id}),
+                        );
+                        let _ = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &Verdict::Deny {
+                                    reason: "Shadow agent detected".to_string(),
+                                },
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected_sampling",
+                                    "severity": format!("{:?}", alert.severity),
+                                }),
+                            )
+                            .await;
+                        let response =
+                            make_denial_response(&id, "Request blocked: security policy violation");
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // SECURITY (R240-MCP-1): Deputy validation — parity with handle_tool_call.
+        if let Some(ref deputy) = self.deputy {
+            let session_id = "stdio-session";
+            if let Some(claimed_id) = Self::extract_agent_id(msg) {
+                if let Err(err) =
+                    deputy.validate_action(session_id, "sampling/createMessage", &claimed_id)
+                {
+                    tracing::warn!("SECURITY: Deputy validation failed for sampling: {}", err);
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "sampling_deputy_validation_failed",
+                        json!({"principal": &claimed_id}),
+                    );
+                    let _ = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: err.to_string(),
+                            },
+                            json!({"source": "proxy", "event": "deputy_validation_failed_sampling"}),
+                        )
+                        .await;
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            }
+        }
+
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let verdict = crate::elicitation::inspect_sampling(
             &params,
@@ -2326,6 +2399,82 @@ impl ProxyBridge {
                     .await
                     .map_err(ProxyError::Framing)?;
                 return Ok(());
+            }
+        }
+
+        // SECURITY (R240-MCP-1): Shadow agent detection — parity with handle_tool_call.
+        if let Some(ref detector) = self.shadow_agent {
+            let fingerprint = Self::extract_fingerprint_from_meta(msg);
+            if fingerprint.is_populated() {
+                if let Some(claimed_id) = Self::extract_agent_id(msg) {
+                    if let Err(alert) = detector.detect_shadow(&claimed_id, &fingerprint) {
+                        tracing::warn!(
+                            "SECURITY: Shadow agent detected in elicitation - claimed '{}'",
+                            claimed_id
+                        );
+                        let action = vellaveto_types::Action::new(
+                            "vellaveto",
+                            "elicitation_shadow_agent_detected",
+                            json!({"claimed_id": &claimed_id}),
+                        );
+                        let _ = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &Verdict::Deny {
+                                    reason: "Shadow agent detected".to_string(),
+                                },
+                                json!({
+                                    "source": "proxy",
+                                    "event": "shadow_agent_detected_elicitation",
+                                    "severity": format!("{:?}", alert.severity),
+                                }),
+                            )
+                            .await;
+                        let response =
+                            make_denial_response(&id, "Request blocked: security policy violation");
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // SECURITY (R240-MCP-1): Deputy validation — parity with handle_tool_call.
+        if let Some(ref deputy) = self.deputy {
+            let session_id = "stdio-session";
+            if let Some(claimed_id) = Self::extract_agent_id(msg) {
+                if let Err(err) =
+                    deputy.validate_action(session_id, "elicitation/create", &claimed_id)
+                {
+                    tracing::warn!(
+                        "SECURITY: Deputy validation failed for elicitation: {}",
+                        err
+                    );
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "elicitation_deputy_validation_failed",
+                        json!({"principal": &claimed_id}),
+                    );
+                    let _ = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: err.to_string(),
+                            },
+                            json!({"source": "proxy", "event": "deputy_validation_failed_elicitation"}),
+                        )
+                        .await;
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
             }
         }
 

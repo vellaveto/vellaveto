@@ -572,9 +572,19 @@ fn matches_principal(
         let norm_required = crate::normalize::normalize_full(required_type);
         let norm_ctx_type = crate::normalize::normalize_full(ctx.principal_type);
         if norm_required != norm_ctx_type {
-            // Check group membership: maybe this principal is a member of the required type
-            let entity_key = format!("{}::{}", ctx.principal_type, ctx.principal_id);
-            let group_key = format!("{}::{}", required_type, ctx.principal_id);
+            // SECURITY (R240-ENG-4): Normalize entity/group keys to match compile-time
+            // normalization. Raw (un-normalized) keys would create a lookup mismatch with
+            // the entity store, which stores keys under normalized forms.
+            let entity_key = format!(
+                "{}::{}",
+                crate::normalize::normalize_full(ctx.principal_type),
+                crate::normalize::normalize_full(ctx.principal_id)
+            );
+            let group_key = format!(
+                "{}::{}",
+                crate::normalize::normalize_full(required_type),
+                crate::normalize::normalize_full(ctx.principal_id)
+            );
             if entity_key != group_key && !entity_store.is_member_of(&entity_key, &group_key) {
                 return false;
             }

@@ -952,6 +952,11 @@ fn extract_tool_from_id(id: &str) -> String {
 }
 
 /// Escape special characters for inclusion in a Cedar string literal.
+///
+/// SECURITY (R240-CFG-1): Escapes `\r`, all control characters, and Unicode
+/// format characters (bidi overrides, zero-width) in addition to the basic
+/// set. Prevents Cedar code injection via carriage return and display attacks
+/// via bidi overrides in exported policies.
 fn escape_cedar_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -960,6 +965,15 @@ fn escape_cedar_string(s: &str) -> String {
             '"' => out.push_str("\\\""),
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => {
+                // Escape other control chars as Unicode escapes
+                out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+            }
+            c if vellaveto_types::core::is_unicode_format_char(c) => {
+                // Strip Unicode format characters (bidi overrides, zero-width, etc.)
+                out.push_str(&format!("\\u{{{:04x}}}", c as u32));
+            }
             _ => out.push(ch),
         }
     }

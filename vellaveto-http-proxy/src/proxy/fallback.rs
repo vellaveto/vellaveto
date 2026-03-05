@@ -76,25 +76,14 @@ pub async fn forward_with_fallback(
         return Err(FallbackError::NoFallback);
     }
 
-    // SECURITY (R239-PROXY-1): Enforce HTTPS for upstream URLs in production.
-    // Only allow plaintext HTTP for localhost/127.0.0.1 (local development).
-    if let Some(scheme_end) = upstream_url.find("://") {
-        let scheme = &upstream_url[..scheme_end].to_lowercase();
-        if scheme == "http" {
-            let after_scheme = &upstream_url[scheme_end + 3..];
-            let host = after_scheme.split('/').next().unwrap_or("");
-            let host_no_port = host.split(':').next().unwrap_or("");
-            let is_local = host_no_port == "localhost"
-                || host_no_port == "127.0.0.1"
-                || host_no_port == "[::1]";
-            if !is_local {
-                tracing::warn!("Rejecting non-HTTPS upstream URL (only localhost HTTP is allowed)");
-                return Err(FallbackError::AllFailed {
-                    attempts: 0,
-                    last_error: "HTTPS required for non-local upstream".to_string(),
-                });
-            }
-        }
+    // SECURITY (R239-PROXY-1, R240-IMP-008): Enforce HTTPS for upstream URLs.
+    // Uses shared validation that also handles bracketed IPv6 like [::1]:8080.
+    if let Err(reason) = super::validate_upstream_url_scheme(upstream_url) {
+        tracing::warn!("Rejecting non-HTTPS upstream URL (only localhost HTTP is allowed)");
+        return Err(FallbackError::AllFailed {
+            attempts: 0,
+            last_error: reason,
+        });
     }
 
     // SECURITY (IMP-R118-009): Cap retries to prevent resource exhaustion.

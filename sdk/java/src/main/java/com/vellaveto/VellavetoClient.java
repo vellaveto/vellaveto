@@ -78,7 +78,12 @@ public class VellavetoClient implements AutoCloseable {
                 ? builder.httpClient
                 : HttpClient.newBuilder()
                     .connectTimeout(this.timeout)
-                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    // SECURITY (R240-JAVA-1): NEVER follow redirects automatically.
+                    // HttpClient.Redirect.NORMAL carries the Authorization header
+                    // across domains, leaking the API key to attacker-controlled
+                    // redirect targets. Parity with Python (no follow), TypeScript
+                    // (redirect: "manual"), and Go (strip Authorization on cross-domain).
+                    .followRedirects(HttpClient.Redirect.NEVER)
                     .build();
     }
 

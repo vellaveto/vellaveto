@@ -338,6 +338,22 @@ pub(super) async fn forward_to_upstream_url(
     trace_ctx: Option<(&str, Option<&str>)>,
     last_event_id: Option<&str>,
 ) -> Response {
+    // SECURITY (R240-PROXY-2): Enforce HTTPS for non-local upstream URLs.
+    // This is the primary forwarding path — the R239 fix only covered the
+    // legacy fallback path. Without this, authenticated MCP requests (including
+    // Authorization headers) are sent over plaintext HTTP to arbitrary hosts.
+    if let Err(reason) = super::validate_upstream_url_scheme(upstream_url) {
+        tracing::warn!(
+            "Rejecting non-HTTPS upstream URL in forward_to_upstream_url: {}",
+            reason
+        );
+        return (
+            axum::http::StatusCode::BAD_GATEWAY,
+            "upstream scheme not allowed",
+        )
+            .into_response();
+    }
+
     let mut request_builder = state
         .http_client
         .post(upstream_url)

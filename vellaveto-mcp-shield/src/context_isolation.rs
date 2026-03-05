@@ -285,7 +285,21 @@ impl ContextIsolator {
             return Ok(());
         }
 
-        self.record(session_id, "assistant", &text)
+        // SECURITY (R240-SHLD-1): Sanitize response text for control characters and
+        // Unicode format characters before storing in context. Without this, a malicious
+        // MCP server can embed bidi overrides, zero-width joiners, or ANSI escapes in
+        // tool call results, creating a stored cross-session injection vector.
+        // Parity with record_json_request() which sanitizes params at line 321-323.
+        let safe_text: String = text
+            .chars()
+            .filter(|c| !c.is_control() && !vellaveto_types::core::is_unicode_format_char(*c))
+            .collect();
+
+        if safe_text.is_empty() {
+            return Ok(());
+        }
+
+        self.record(session_id, "assistant", &safe_text)
     }
 
     /// Record context from a JSON-RPC request message (user side).

@@ -539,10 +539,25 @@ impl AuditLogger {
         }
 
         for window in entries.windows(2) {
-            let prev_ts = chrono::DateTime::parse_from_rfc3339(&window[0].timestamp).ok();
-            let curr_ts = chrono::DateTime::parse_from_rfc3339(&window[1].timestamp).ok();
+            let prev_ts = chrono::DateTime::parse_from_rfc3339(&window[0].timestamp);
+            let curr_ts = chrono::DateTime::parse_from_rfc3339(&window[1].timestamp);
 
-            if let (Some(prev), Some(curr)) = (prev_ts, curr_ts) {
+            // SECURITY (R240-GAP-002 / FIND-GAP-002): Fail-closed on malformed timestamps.
+            // Previously used .ok() which silently skipped entries with unparseable
+            // timestamps, making gap detection blind to the surrounding time period.
+            // Now treat unparseable timestamps as a detected gap — an attacker who
+            // injects an invalid timestamp should not suppress gap detection.
+            if prev_ts.is_err() || curr_ts.is_err() {
+                let prev_str = window[0].timestamp.clone();
+                let curr_str = window[1].timestamp.clone();
+                tracing::warn!(
+                    "Audit heartbeat: unparseable timestamp detected (prev='{}', curr='{}') — treating as gap",
+                    prev_str, curr_str
+                );
+                return Ok(Some((prev_str, curr_str, max_gap_secs.saturating_add(1))));
+            }
+
+            if let (Ok(prev), Ok(curr)) = (prev_ts, curr_ts) {
                 let gap = (curr - prev).num_seconds().unsigned_abs();
                 if gap > max_gap_secs {
                     return Ok(Some((

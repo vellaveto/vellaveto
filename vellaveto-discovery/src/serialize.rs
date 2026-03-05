@@ -18,6 +18,7 @@ use std::time::SystemTime;
 use crate::topology::{
     StaticResourceDecl, StaticServerDecl, StaticToolDecl, TopologyEdge, TopologyGraph, TopologyNode,
 };
+use crate::DiscoveryError;
 
 /// Serializable representation of the full topology.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,9 +289,18 @@ impl TopologyGraph {
             }
         }
 
-        // Restore timestamp
-        let crawled_at =
-            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(snapshot.crawled_at_epoch_secs);
+        // SECURITY (R240-DISC-3): Use checked_add to prevent panic on crafted
+        // crawled_at_epoch_secs (e.g., u64::MAX). The `+` operator on SystemTime
+        // calls expect() which panics on overflow.
+        let crawled_at = SystemTime::UNIX_EPOCH
+            .checked_add(std::time::Duration::from_secs(
+                snapshot.crawled_at_epoch_secs,
+            ))
+            .ok_or_else(|| {
+                DiscoveryError::ValidationError(
+                    "crawled_at_epoch_secs overflows SystemTime".to_string(),
+                )
+            })?;
         graph.set_crawled_at(crawled_at);
         graph.recompute_fingerprint();
 

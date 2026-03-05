@@ -54,6 +54,10 @@ pub enum JitError {
     #[error("Invalid TTL: {0} seconds exceeds maximum {1}")]
     InvalidTtl(u64, u64),
 
+    /// SECURITY (R240-SRV-2): Self-approval is not allowed.
+    #[error("Self-approval denied for session: {0}")]
+    SelfApprovalDenied(String),
+
     /// SECURITY (FIND-R51-015): Global session capacity exceeded.
     #[error("JIT session capacity exceeded")]
     CapacityExceeded,
@@ -283,6 +287,12 @@ impl JitAccessManager {
 
         if !session.is_valid() {
             return Err(JitError::SessionExpired(session_id.to_string()));
+        }
+
+        // SECURITY (R240-SRV-2): Prevent self-approval — separation of duties.
+        // The principal who requested JIT access must not approve their own request.
+        if session.principal.eq_ignore_ascii_case(approver) {
+            return Err(JitError::SelfApprovalDenied(session_id.to_string()));
         }
 
         session.approved = true;

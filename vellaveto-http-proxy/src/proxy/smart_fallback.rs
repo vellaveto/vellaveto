@@ -322,6 +322,10 @@ impl<'a> SmartFallbackChain<'a> {
         headers: &reqwest::header::HeaderMap,
         timeout: Duration,
     ) -> Result<(bytes::Bytes, u16), String> {
+        // SECURITY (R240-PROXY-1): Enforce HTTPS for non-local upstream URLs.
+        // Parity with fallback.rs — the R239 fix only covered the legacy path.
+        super::validate_upstream_url_scheme(url)?;
+
         let mut request = self.client.post(url).timeout(timeout);
 
         // SECURITY (FIND-R41-001): Only forward allowlisted headers to
@@ -386,6 +390,9 @@ impl<'a> SmartFallbackChain<'a> {
         body: bytes::Bytes,
         timeout: Duration,
     ) -> Result<(bytes::Bytes, u16), String> {
+        // SECURITY (R240-PROXY-1): Enforce HTTPS/WSS for non-local upstream URLs.
+        super::validate_upstream_url_scheme(url)?;
+
         use tokio_tungstenite::tungstenite::Message;
 
         let result = tokio::time::timeout(timeout, async {

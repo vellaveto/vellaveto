@@ -340,6 +340,42 @@ pub(crate) const FORWARDED_HEADERS: &[&str] = &[
 /// Shared by `fallback.rs` and `smart_fallback.rs`.
 pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
 
+/// SECURITY (R240-PROXY-1/2): Validate that an upstream URL uses HTTPS for non-local hosts.
+/// Only allows plaintext HTTP for localhost/127.0.0.1/[::1] (local development).
+/// Returns `Ok(())` if the URL is safe to use, `Err(reason)` if it should be rejected.
+pub(crate) fn validate_upstream_url_scheme(url: &str) -> Result<(), String> {
+    if let Some(scheme_end) = url.find("://") {
+        let scheme = &url[..scheme_end].to_lowercase();
+        if scheme == "http" || scheme == "ws" {
+            let after_scheme = &url[scheme_end + 3..];
+            let host_port = after_scheme.split('/').next().unwrap_or("");
+            // SECURITY (R240-IMP-008): Handle bracketed IPv6 addresses like [::1]:8080.
+            // split(':') on "[::1]:8080" gives "[" which is wrong.
+            let host_no_port = if host_port.starts_with('[') {
+                // IPv6 bracketed: extract up to and including ']'
+                host_port
+                    .split(']')
+                    .next()
+                    .map(|s| {
+                        let mut full = s.to_string();
+                        full.push(']');
+                        full
+                    })
+                    .unwrap_or_default()
+            } else {
+                host_port.split(':').next().unwrap_or("").to_string()
+            };
+            let is_local = host_no_port == "localhost"
+                || host_no_port == "127.0.0.1"
+                || host_no_port == "[::1]";
+            if !is_local {
+                return Err("HTTPS required for non-local upstream".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// OWASP ASI07: Header for cryptographically attested agent identity.
 /// Contains a signed JWT with claims identifying the agent (issuer, subject, custom claims).
 /// Provides stronger identity guarantees than the simple agent_id string derived from OAuth.

@@ -173,7 +173,12 @@ impl TaskStateManager {
                 if created.with_timezone(&chrono::Utc) > max_future {
                     return Err("Task created_at is too far in the future".to_string());
                 }
-                let expires = created + chrono::Duration::seconds(self.max_duration_secs as i64);
+                // SECURITY (R240-MCP-2): Cap max_duration_secs before i64 cast to prevent
+                // overflow. Values above i64::MAX would wrap to negative, setting expires_at
+                // in the past. Cap at 1 year (31,536,000 seconds).
+                const MAX_TASK_DURATION_SECS: u64 = 365 * 24 * 3600;
+                let capped_secs = self.max_duration_secs.min(MAX_TASK_DURATION_SECS);
+                let expires = created + chrono::Duration::seconds(capped_secs as i64);
                 task.expires_at = Some(expires.to_rfc3339());
             }
         }

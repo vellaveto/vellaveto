@@ -48,11 +48,15 @@ impl SessionIsolator {
     }
 
     /// Create a new session isolator with custom bounds.
+    ///
+    /// Values are clamped to safety constants to prevent unbounded memory growth.
     pub fn with_limits(max_sessions: usize, max_history: usize) -> Self {
+        // SECURITY (R240-SHLD-4): Clamp to MAX constants — parity with
+        // ContextIsolator::with_limits() which clamps to MAX_CONTEXT_ENTRIES.
         Self {
             sessions: Mutex::new(HashMap::new()),
-            max_sessions,
-            max_history,
+            max_sessions: max_sessions.min(MAX_SESSIONS),
+            max_history: max_history.min(MAX_HISTORY_PER_SESSION),
         }
     }
 
