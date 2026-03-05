@@ -253,6 +253,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **R235-TYP-5:** New `Cc6Evidence::validate()` wired into `AccessReviewReport`.
     - **R235-TYP-6:** `ZkBatchProof` `as usize` → `usize::try_from`.
 
+- **Adversarial Audit Round 237 (31 findings, 22 fixed in 3 sprints):**
+  Full-codebase 6-agent adversarial security audit. 31 findings (7 HIGH, 16 MEDIUM, 8 LOW),
+  22 fixed across 3 sprints. 10,350 tests, 0 failures.
+  - **Sprint 1 — HIGHs + critical MEDIUM (7 fixes):**
+    - **R237-ENG-1:** Wasm `reload_plugins` case-insensitive duplicate check (MyPlugin vs myplugin).
+    - **R237-MCP-1:** HTML named entity decode gap (`&lt;` `&gt;` `&amp;` `&quot;` `&apos;` `&nbsp;`).
+    - **R237-SRV-1/3:** OIDC callback and session creation error genericization (info leak).
+    - **R237-SRV-2:** `store_flow` capacity fail-closed with `CapacityExhausted` error variant.
+    - **R237-SHLD-1:** Shield passphrase via `VELLAVETO_SHIELD_PASSPHRASE` env var (avoid cmdline exposure).
+    - **R237-DIFF-1:** Audit log errors surfaced via `tracing::warn` at 6 relay sites (was `let _ =`).
+  - **Sprint 2 — MEDIUMs (7 fixes + 1 LOW):**
+    - **R237-MCP-2:** Circuit breaker checks on `handle_sampling_request` and `handle_elicitation_request`.
+    - **R237-MCP-4:** Cross-call DLP capacity exhaustion produces synthetic `DlpFinding`.
+    - **R237-MCP-5:** Elicitation DLP audit action includes tool name for traceability.
+    - **R237-TLS-1:** SPIFFE `trust_domain` format validation (lowercase alphanumeric + `.` + `-`).
+    - **R237-SHLD-3:** Context isolation method name sanitization (alphanumeric + `/._-`, max 128).
+    - **R237-ENG-7:** Collusion window upper bounds (coordination 24h, recon 1h, drift 7d).
+    - **R237-PROXY-1:** `call_chain_max_age_secs` u64→i64 safe cast via `try_from`.
+  - **Sprint 3 — HIGH + MEDIUMs (10 fixes):**
+    - **R237-ENG-2 (HIGH):** Regex constraint path normalization — percent-decode before regex match, parity with Glob/NotGlob (constraint_eval.rs + traced.rs).
+    - **R237-ENG-3/5:** ABAC conditions use `normalize_full()` for all string comparison operators (Eq, Ne, In, NotIn, Contains, StartsWith) — prevents Unicode homoglyph/case bypass.
+    - **R237-ENG-6:** Cache bypassed when `risk_score` is present (ABAC verdict dependency).
+    - **R237-SHLD-2:** Temp file cleanup guard on `rewrite_all_entries` error path.
+    - **R237-TLS-2:** `verify_client_cert` must be true when `require_client_cert` is true.
+    - **R237-SRV-4:** M2M per-client rate limiting (10 requests/60s window, DashMap, 50K capacity).
+    - **R237-SRV-5:** SAML `InResponseTo` replay protection (consumed via `remove()`, 600s TTL).
+    - **R237-MCP-3:** Punycode decode pass in injection scanner (RFC 3492 bootstring, `xn--` labels).
+    - **R237-MCP-6:** Semantic guardrails timeout audit logging on all 3 fallback paths.
+    - **R237-CFG-1:** TLS cert/key path traversal + length validation.
+
+- **Adversarial Audit Round 236 (20 findings fixed):**
+  See commit `ad4e4ee` for details.
+
 - **Coq formal verification CI gate (17th CI job):**
   Builds and verifies all Coq proofs on every push. Rejects incomplete proofs containing
   `Admitted` or `admit` markers. 10-minute timeout, independent of Rust pipeline.
