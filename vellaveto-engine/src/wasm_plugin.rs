@@ -285,11 +285,15 @@ impl PluginConfig {
                 "plugin path contains control or format characters".to_string(),
             ));
         }
-        // Path traversal check
-        if self.path.contains("..") {
-            return Err(PluginError::ConfigValidation(
-                "plugin path must not contain '..' (path traversal)".to_string(),
-            ));
+        // SECURITY (R240-ENG-8): Path traversal check via Path::components()
+        // instead of string contains("..") — the string check misses encoded
+        // variants and is less precise than component-based inspection.
+        for component in std::path::Path::new(&self.path).components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(PluginError::ConfigValidation(
+                    "plugin path must not contain '..' (path traversal)".to_string(),
+                ));
+            }
         }
 
         // Memory limit bounds

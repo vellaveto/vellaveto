@@ -44,6 +44,16 @@ impl EncryptedAuditStore {
     /// If the file exists, reads the salt from it. Otherwise generates a new salt.
     /// Derives the encryption key from the passphrase via Argon2id.
     pub fn new(path: PathBuf, passphrase: &str) -> Result<Self, ShieldError> {
+        // SECURITY (R240-SHLD-2): Reject path traversal in store path.
+        // A malicious path could write encrypted audit data to sensitive locations.
+        for component in path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(ShieldError::SessionIsolation(
+                    "store path must not contain '..' path traversal components".to_string(),
+                ));
+            }
+        }
+
         // SECURITY (R234-SHIELD-3): Reject empty/whitespace-only passphrases.
         // An empty passphrase produces a deterministic key (only salt-dependent),
         // which provides zero user-derived entropy.

@@ -24,8 +24,9 @@
 //!   This ensures a poisoned cache never serves stale Allow verdicts.
 //! - **Bounded memory.** The cache enforces [`MAX_CACHE_ENTRIES`] and
 //!   evicts the least-recently-used entry when at capacity.
-//! - **Counters use `saturating_add`.** Hit/miss/eviction counters cannot
-//!   wrap to zero.
+//! - **Counters use `fetch_add`.** Hit/miss/eviction counters use `u64`
+//!   atomics, which cannot practically overflow (584-year wraparound at
+//!   1 GHz increment rate). The LRU access counter uses `SeqCst` ordering.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
@@ -101,7 +102,7 @@ pub struct DecisionCache {
     max_entries: usize,
     ttl: Duration,
     policy_generation: AtomicU64,
-    // Stats counters — all use saturating_add to prevent wrap-around.
+    // Stats counters — u64 atomics, practically unbounded.
     hits: AtomicU64,
     misses: AtomicU64,
     evictions: AtomicU64,

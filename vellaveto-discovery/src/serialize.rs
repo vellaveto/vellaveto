@@ -165,7 +165,9 @@ impl TopologyGraph {
         // for dangerous characters and length. Unbounded node count allows OOM from
         // crafted JSON with millions of nodes.
         const MAX_SNAPSHOT_NODES: usize = 100_000;
-        const MAX_NODE_STRING_LEN: usize = 1024;
+        // SECURITY (R240-DISC-1): Aligned with topology.rs MAX_TOOL_DESCRIPTION_LEN (4096).
+        // Previously 1024, which rejected valid descriptions that the topology itself accepts.
+        const MAX_NODE_STRING_LEN: usize = 4096;
         if snapshot.nodes.len() > MAX_SNAPSHOT_NODES {
             let count = snapshot.nodes.len();
             return Err(crate::error::DiscoveryError::ValidationError(format!(

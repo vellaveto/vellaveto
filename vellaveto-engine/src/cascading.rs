@@ -746,7 +746,12 @@ impl CascadingBreaker {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .unwrap_or_else(|e| {
+                // SECURITY (R240-ENG-5): Log clock anomaly instead of silent fallback.
+                // A pre-epoch clock could silently bypass time-window checks.
+                tracing::warn!(error = %e, "SystemTime before UNIX_EPOCH — using 0");
+                0
+            })
     }
 }
 
