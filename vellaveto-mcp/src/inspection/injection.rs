@@ -561,6 +561,35 @@ impl InjectionScanner {
             }
         }
 
+        // SECURITY (R239-MCP-1): URL percent-decode pass (InjectionScanner)
+        // Injection payloads encoded as %69%67%6E%6F%72%65 ("ignore") bypass
+        // Aho-Corasick matching. Also try double-decode for %2569gnore -> %69gnore -> ignore.
+        if let Some(pct_decoded) = try_percent_decode_injection(&lower) {
+            let pct_lower = pct_decoded.to_lowercase();
+            for m in self.automaton.find_iter(&pct_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    return all_matches;
+                }
+                let pattern = self.patterns[m.pattern().as_usize()].as_str();
+                if !all_matches.contains(&pattern) {
+                    all_matches.push(pattern);
+                }
+            }
+            // Double-decode pass: %2569gnore -> %69gnore -> ignore
+            if let Some(double_decoded) = try_percent_decode_injection(&pct_lower) {
+                let double_lower = double_decoded.to_lowercase();
+                for m in self.automaton.find_iter(&double_lower) {
+                    if all_matches.len() >= MAX_SCAN_MATCHES {
+                        return all_matches;
+                    }
+                    let pattern = self.patterns[m.pattern().as_usize()].as_str();
+                    if !all_matches.contains(&pattern) {
+                        all_matches.push(pattern);
+                    }
+                }
+            }
+        }
+
         // R232/TI-2026-033: TokenBreak defense (InjectionScanner)
         {
             let words: Vec<&str> = lower.split_whitespace().collect();
@@ -1650,6 +1679,28 @@ fn decode_rot13(text: &str) -> Option<String> {
     }
 }
 
+/// Attempt URL percent-decoding for injection scanning.
+///
+/// Returns `Some(decoded)` if decoding changed the input, `None` if unchanged
+/// or if the result is not valid UTF-8. Uses `percent_encoding::percent_decode_str`
+/// which is already a dependency of vellaveto-mcp via the `url` crate.
+///
+/// SECURITY (R239-MCP-1): Injection payloads encoded as `%69%67%6E%6F%72%65`
+/// ("ignore") bypass Aho-Corasick matching. The DLP scanner had percent-decode
+/// layers but the injection scanner previously had none.
+fn try_percent_decode_injection(s: &str) -> Option<String> {
+    if !s.contains('%') {
+        return None;
+    }
+    let decoded = percent_encoding::percent_decode_str(s)
+        .decode_utf8()
+        .ok()?;
+    if decoded == s {
+        return None;
+    }
+    Some(decoded.into_owned())
+}
+
 /// Inspect response text for prompt injection using default patterns.
 ///
 /// Pre-processes text with Unicode sanitization to prevent evasion.
@@ -1884,6 +1935,36 @@ pub fn inspect_for_injection(text: &str) -> Vec<&'static str> {
             let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
             if !all_matches.contains(&pattern) {
                 all_matches.push(pattern);
+            }
+        }
+    }
+
+    // SECURITY (R239-MCP-1): URL percent-decode pass — injection payloads encoded as
+    // %69%67%6E%6F%72%65 ("ignore") bypass Aho-Corasick matching. The DLP scanner has
+    // percent-decode layers but the injection scanner previously had none.
+    // Also try double-decode for %2569gnore -> %69gnore -> ignore.
+    if let Some(pct_decoded) = try_percent_decode_injection(&lower) {
+        let pct_lower = pct_decoded.to_lowercase();
+        for m in automaton.find_iter(&pct_lower) {
+            if all_matches.len() >= MAX_SCAN_MATCHES {
+                return all_matches;
+            }
+            let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+            if !all_matches.contains(&pattern) {
+                all_matches.push(pattern);
+            }
+        }
+        // Double-decode pass: %2569gnore -> %69gnore -> ignore
+        if let Some(double_decoded) = try_percent_decode_injection(&pct_lower) {
+            let double_lower = double_decoded.to_lowercase();
+            for m in automaton.find_iter(&double_lower) {
+                if all_matches.len() >= MAX_SCAN_MATCHES {
+                    return all_matches;
+                }
+                let pattern = DEFAULT_INJECTION_PATTERNS[m.pattern().as_usize()];
+                if !all_matches.contains(&pattern) {
+                    all_matches.push(pattern);
+                }
             }
         }
     }
@@ -4128,8 +4209,7 @@ mod tests {
         // This is by design: we limit to 2 iterations to prevent DoS.
         let decoded_once = decode_html_entities("&amp;amp;lt;test&amp;amp;gt;");
         assert_eq!(decoded_once, Some("&amp;lt;test&amp;gt;".to_string()));
-        let decoded_twice =
-            decode_html_entities(&decoded_once.unwrap());
+        let decoded_twice = decode_html_entities(&decoded_once.unwrap());
         assert_eq!(decoded_twice, Some("&lt;test&gt;".to_string()));
         // Third pass would produce <test>, but we stop at 2.
     }

@@ -525,7 +525,6 @@ impl SamlState {
 }
 
 /// Shared IAM state (OIDC + SAML + session management + M2M + CIMD) for Phase 46+.
-#[derive(Debug)]
 pub struct IamState {
     config: IamConfig,
     discovery: OidcDiscovery,
@@ -548,6 +547,24 @@ pub struct IamState {
     /// SECURITY (R237-SRV-5): SAML AuthnRequest ID cache for InResponseTo validation.
     /// Maps request_id -> issued_at. Prevents unsolicited SAML response injection.
     saml_authn_request_ids: DashMap<String, std::time::Instant>,
+}
+
+/// SECURITY (R239-XCUT-2): Custom Debug redacts m2m_signing_secret and flow_states
+/// (which contain PKCE secrets) to prevent secret leakage via debug output.
+impl std::fmt::Debug for IamState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IamState")
+            .field("config", &self.config)
+            .field("discovery", &self.discovery)
+            .field("m2m_signing_secret", &self.m2m_signing_secret.as_ref().map(|_| "[REDACTED]"))
+            .field("flow_states_count", &self.flow_states.len())
+            .field("sessions_count", &self.sessions.len())
+            .field("saml_assertion_ids_count", &self.saml_assertion_ids.len())
+            .field("m2m_rate_limits_count", &self.m2m_rate_limits.len())
+            .field("saml_authn_request_ids_count", &self.saml_authn_request_ids.len())
+            .field("cimd_cache_count", &self.cimd_cache.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl IamState {
@@ -1508,13 +1525,15 @@ pub async fn callback(
             }),
         )
     })?;
+    // SECURITY (R239-SRV-2): Genericize session cookie error — do not leak internals.
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
+            tracing::warn!("OIDC cookie generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: "Authentication failed".to_string(),
                 }),
             )
         })?;
@@ -1576,11 +1595,13 @@ pub async fn logout(
     if let Some(session_id) = extract_session_cookie(&headers, iam.session_cookie_name()) {
         iam.remove_session(&session_id);
     }
+    // SECURITY (R239-SRV-3): Genericize logout cookie error — do not leak internals.
     let cookie = iam.expire_cookie_header().map_err(|e| {
+        tracing::warn!("Logout cookie generation failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Logout failed".to_string(),
             }),
         )
     })?;
@@ -1731,21 +1752,24 @@ pub async fn saml_acs(
         }
     }
 
+    // SECURITY (R239-SRV-1): Genericize SAML session/cookie errors — do not leak internals.
     let session = iam.create_session(claims, vec![]).map_err(|e| {
+        tracing::warn!("SAML session creation failed: {}", e);
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
-                error: e.to_string(),
+                error: "Authentication failed".to_string(),
             }),
         )
     })?;
     let cookie = iam
         .session_cookie_header(&session.id, Some(iam.config.session.max_age_secs))
         .map_err(|e| {
+            tracing::warn!("SAML cookie generation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: e.to_string(),
+                    error: "Authentication failed".to_string(),
                 }),
             )
         })?;
@@ -2244,7 +2268,7 @@ struct M2mJwtClaims {
 }
 
 /// M2M token endpoint response.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct M2mTokenResponse {
     /// The JWT access token.
     pub access_token: String,
@@ -2256,7 +2280,19 @@ pub struct M2mTokenResponse {
     pub scope: String,
 }
 
-/// SECURITY: Custom Debug for M2mTokenResponse redacts the access token.
+/// SECURITY (R239-XCUT-1): Custom Debug redacts access_token to prevent secret leakage.
+impl std::fmt::Debug for M2mTokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("M2mTokenResponse")
+            .field("access_token", &"[REDACTED]")
+            .field("token_type", &self.token_type)
+            .field("expires_in", &self.expires_in)
+            .field("scope", &self.scope)
+            .finish()
+    }
+}
+
+/// SECURITY: Custom Display for M2mTokenResponse redacts the access token.
 impl std::fmt::Display for M2mTokenResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(

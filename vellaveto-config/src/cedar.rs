@@ -405,23 +405,34 @@ fn parse_head(text: &str, line: usize) -> Result<&str, CedarImportError> {
     let mut in_string = false;
     let mut close_pos = None;
 
-    for (i, ch) in text.char_indices() {
-        if ch == '"' {
-            in_string = !in_string;
-            continue;
-        }
+    // R239-CFG-1: Use byte-based iteration to handle backslash-escaped quotes
+    // inside string literals, matching the pattern in split_conditions().
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
         if in_string {
-            continue;
-        }
-        if ch == '(' {
+            if bytes[i] == b'\\' {
+                // Skip the escaped character
+                i = i.saturating_add(2);
+                continue;
+            }
+            if bytes[i] == b'"' {
+                in_string = false;
+            }
+        } else if bytes[i] == b'"' {
+            in_string = true;
+        } else if bytes[i] == b'(' {
             depth = depth.saturating_add(1);
-        } else if ch == ')' {
+        } else if bytes[i] == b')' {
             depth = depth.saturating_sub(1);
             if depth == 0 {
                 close_pos = Some(i);
                 break;
             }
         }
+        i = i.saturating_add(1);
     }
 
     let close_pos = close_pos.ok_or_else(|| CedarImportError::Parse {
@@ -485,23 +496,34 @@ fn parse_when_clause(text: &str, line: usize) -> Result<Vec<Condition>, CedarImp
     let mut in_string = false;
     let mut close_pos = None;
 
-    for (i, ch) in text.char_indices() {
-        if ch == '"' {
-            in_string = !in_string;
-            continue;
-        }
+    // R239-CFG-2: Use byte-based iteration to handle backslash-escaped quotes
+    // inside string literals, matching the pattern in split_conditions().
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
         if in_string {
-            continue;
-        }
-        if ch == '{' {
+            if bytes[i] == b'\\' {
+                // Skip the escaped character
+                i = i.saturating_add(2);
+                continue;
+            }
+            if bytes[i] == b'"' {
+                in_string = false;
+            }
+        } else if bytes[i] == b'"' {
+            in_string = true;
+        } else if bytes[i] == b'{' {
             depth = depth.saturating_add(1);
-        } else if ch == '}' {
+        } else if bytes[i] == b'}' {
             depth = depth.saturating_sub(1);
             if depth == 0 {
                 close_pos = Some(i);
                 break;
             }
         }
+        i = i.saturating_add(1);
     }
 
     let close_pos = close_pos.ok_or_else(|| CedarImportError::Parse {

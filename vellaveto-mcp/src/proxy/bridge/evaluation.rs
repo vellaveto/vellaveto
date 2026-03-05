@@ -93,7 +93,9 @@ impl ProxyBridge {
                 if let Some(ref t) = trace {
                     log_trace("deny", t);
                 }
-                let response = make_denial_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize deny reason in response to avoid
+                // leaking policy details. Raw reason preserved in Verdict for audit.
+                let response = make_denial_response(id, "Request blocked: security policy violation");
                 (
                     ProxyDecision::Block(response, Verdict::Deny { reason }),
                     trace,
@@ -103,7 +105,8 @@ impl ProxyBridge {
                 if let Some(ref t) = trace {
                     log_trace("approval", t);
                 }
-                let response = make_approval_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize approval reason in response.
+                let response = make_approval_response(id, "Request blocked: security policy violation");
                 (
                     ProxyDecision::Block(response, Verdict::RequireApproval { reason }),
                     trace,
@@ -114,7 +117,7 @@ impl ProxyBridge {
                 let reason = "Unknown verdict type - failing closed".to_string();
                 (
                     ProxyDecision::Block(
-                        make_denial_response(id, &reason),
+                        make_denial_response(id, "Request blocked: security policy violation"),
                         Verdict::Deny { reason },
                     ),
                     trace,
@@ -125,7 +128,7 @@ impl ProxyBridge {
                 let reason = "Policy evaluation failed".to_string();
                 (
                     ProxyDecision::Block(
-                        make_denial_response(id, &reason),
+                        make_denial_response(id, "Request blocked: security policy violation"),
                         Verdict::Deny { reason },
                     ),
                     None,
@@ -185,7 +188,9 @@ impl ProxyBridge {
                 if let Some(ref t) = trace {
                     log_trace("deny", t);
                 }
-                let response = make_denial_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize deny reason in response to avoid
+                // leaking policy details. Raw reason preserved in Verdict for audit.
+                let response = make_denial_response(id, "Request blocked: security policy violation");
                 (
                     ProxyDecision::Block(response, Verdict::Deny { reason }),
                     trace,
@@ -195,7 +200,8 @@ impl ProxyBridge {
                 if let Some(ref t) = trace {
                     log_trace("approval", t);
                 }
-                let response = make_approval_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize approval reason in response.
+                let response = make_approval_response(id, "Request blocked: security policy violation");
                 (
                     ProxyDecision::Block(response, Verdict::RequireApproval { reason }),
                     trace,
@@ -206,7 +212,7 @@ impl ProxyBridge {
                 let reason = "Unknown verdict type - failing closed".to_string();
                 (
                     ProxyDecision::Block(
-                        make_denial_response(id, &reason),
+                        make_denial_response(id, "Request blocked: security policy violation"),
                         Verdict::Deny { reason },
                     ),
                     trace,
@@ -217,7 +223,7 @@ impl ProxyBridge {
                 let reason = "Policy evaluation failed".to_string();
                 (
                     ProxyDecision::Block(
-                        make_denial_response(id, &reason),
+                        make_denial_response(id, "Request blocked: security policy violation"),
                         Verdict::Deny { reason },
                     ),
                     None,
@@ -244,22 +250,24 @@ impl ProxyBridge {
                 ProxyDecision::Forward
             }
             Ok((Verdict::Deny { reason }, _)) => {
-                let response = make_denial_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize deny reason in response.
+                let response = make_denial_response(id, "Request blocked: security policy violation");
                 ProxyDecision::Block(response, Verdict::Deny { reason })
             }
             Ok((Verdict::RequireApproval { reason }, _)) => {
-                let response = make_approval_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize approval reason in response.
+                let response = make_approval_response(id, "Request blocked: security policy violation");
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             // Handle future Verdict variants - fail closed (deny)
             Ok((_, _)) => {
                 let reason = "Unknown verdict type - failing closed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                ProxyDecision::Block(make_denial_response(id, "Request blocked: security policy violation"), Verdict::Deny { reason })
             }
             Err(e) => {
                 tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
                 let reason = "Policy evaluation failed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                ProxyDecision::Block(make_denial_response(id, "Request blocked: security policy violation"), Verdict::Deny { reason })
             }
         }
     }
@@ -281,22 +289,24 @@ impl ProxyBridge {
                 ProxyDecision::Forward
             }
             Ok((Verdict::Deny { reason }, _)) => {
-                let response = make_denial_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize deny reason in response.
+                let response = make_denial_response(id, "Request blocked: security policy violation");
                 ProxyDecision::Block(response, Verdict::Deny { reason })
             }
             Ok((Verdict::RequireApproval { reason }, _)) => {
-                let response = make_approval_response(id, &reason);
+                // SECURITY (R239-MCP-3): Genericize approval reason in response.
+                let response = make_approval_response(id, "Request blocked: security policy violation");
                 ProxyDecision::Block(response, Verdict::RequireApproval { reason })
             }
             // Handle future Verdict variants - fail closed (deny)
             Ok((_, _)) => {
                 let reason = "Unknown verdict type - failing closed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                ProxyDecision::Block(make_denial_response(id, "Request blocked: security policy violation"), Verdict::Deny { reason })
             }
             Err(e) => {
                 tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
                 let reason = "Policy evaluation failed".to_string();
-                ProxyDecision::Block(make_denial_response(id, &reason), Verdict::Deny { reason })
+                ProxyDecision::Block(make_denial_response(id, "Request blocked: security policy violation"), Verdict::Deny { reason })
             }
         }
     }

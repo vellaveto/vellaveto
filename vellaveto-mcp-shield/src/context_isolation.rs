@@ -339,7 +339,8 @@ fn extract_text_from_result(result: &serde_json::Value) -> String {
         for item in content {
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 // R238-SHLD-2: Cap at MAX_CONTEXT_ENTRY_LEN to prevent unbounded allocation
-                if combined.len().saturating_add(text.len()).saturating_add(1) > MAX_CONTEXT_ENTRY_LEN
+                if combined.len().saturating_add(text.len()).saturating_add(1)
+                    > MAX_CONTEXT_ENTRY_LEN
                 {
                     break;
                 }
@@ -357,8 +358,13 @@ fn extract_text_from_result(result: &serde_json::Value) -> String {
     // Try result.text
     if let Some(text) = result.get("text").and_then(|t| t.as_str()) {
         // R238-SHLD-2: Bound single text field
+        // R239-SHLD-1: Use char-boundary-aware truncation to avoid UTF-8 panic
         if text.len() > MAX_CONTEXT_ENTRY_LEN {
-            return text[..MAX_CONTEXT_ENTRY_LEN].to_string();
+            let mut end = MAX_CONTEXT_ENTRY_LEN;
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            return text[..end].to_string();
         }
         return text.to_string();
     }
@@ -366,8 +372,13 @@ fn extract_text_from_result(result: &serde_json::Value) -> String {
     // Try result as string directly
     if let Some(s) = result.as_str() {
         // R238-SHLD-2: Bound string result
+        // R239-SHLD-1: Use char-boundary-aware truncation to avoid UTF-8 panic
         if s.len() > MAX_CONTEXT_ENTRY_LEN {
-            return s[..MAX_CONTEXT_ENTRY_LEN].to_string();
+            let mut end = MAX_CONTEXT_ENTRY_LEN;
+            while end > 0 && !s.is_char_boundary(end) {
+                end -= 1;
+            }
+            return s[..end].to_string();
         }
         return s.to_string();
     }

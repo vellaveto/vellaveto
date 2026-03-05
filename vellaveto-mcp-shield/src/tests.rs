@@ -2219,10 +2219,7 @@ fn test_r238_shld1_context_isolator_end_session_cleans_up() {
 
     // Getting context should fail since session was cleaned up
     let result = ctx.get_recent_context("s1", 10);
-    assert!(
-        result.is_err(),
-        "session should be gone after end_session"
-    );
+    assert!(result.is_err(), "session should be gone after end_session");
 }
 
 // R238-SHLD-2: extract_text_from_result bounded output
@@ -2270,25 +2267,43 @@ fn test_r238_shld4_session_id_too_long_rejected() {
     let isolator = crate::session_isolator::SessionIsolator::new();
     let long_id = "a".repeat(257);
     let result = isolator.sanitize_in_session(&long_id, "hello");
-    assert!(result.is_err(), "session_isolator should reject long session_id");
+    assert!(
+        result.is_err(),
+        "session_isolator should reject long session_id"
+    );
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+    assert!(
+        msg.contains("too long"),
+        "error should mention 'too long': {msg}"
+    );
 
     // ContextIsolator
     let ctx = crate::context_isolation::ContextIsolator::new();
     let result = ctx.record(&long_id, "user", "hello");
-    assert!(result.is_err(), "context_isolator should reject long session_id");
+    assert!(
+        result.is_err(),
+        "context_isolator should reject long session_id"
+    );
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+    assert!(
+        msg.contains("too long"),
+        "error should mention 'too long': {msg}"
+    );
 
     // SessionUnlinker
     let (vault, _dir) = make_test_vault(10, 3);
     vault.add_credential(make_test_credential(1)).unwrap();
     let unlinker = SessionUnlinker::new(vault);
     let result = unlinker.start_session(&long_id);
-    assert!(result.is_err(), "session_unlinker should reject long session_id");
+    assert!(
+        result.is_err(),
+        "session_unlinker should reject long session_id"
+    );
     let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+    assert!(
+        msg.contains("too long"),
+        "error should mention 'too long': {msg}"
+    );
 
     // Verify that 256 bytes (the exact limit) is still accepted
     let ok_id = "b".repeat(256);
@@ -2372,10 +2387,7 @@ fn test_r238_shld6_mark_consumed_requires_active_status() {
 
     // Mark it consumed again — should fail (Consumed -> Consumed)
     let result = vault.mark_consumed(idx);
-    assert!(
-        result.is_err(),
-        "should not allow double-consume"
-    );
+    assert!(result.is_err(), "should not allow double-consume");
     let msg = result.unwrap_err().to_string();
     assert!(
         msg.contains("Active"),
@@ -2384,7 +2396,7 @@ fn test_r238_shld6_mark_consumed_requires_active_status() {
 
     // Expire a credential and try to mark it consumed — should fail
     vault.expire_old_epochs(2).unwrap(); // expires remaining epoch-1 credentials
-    // Find an expired credential index
+                                         // Find an expired credential index
     let status = vault.status();
     // There should be expired credentials now
     assert!(status.available == 0 || status.consumed > 0);

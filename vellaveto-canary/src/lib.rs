@@ -57,18 +57,43 @@ pub struct CanaryVerification {
     pub days_remaining: i64,
 }
 
+/// Returns true if the character is a Unicode format character (category Cf)
+/// that could cause identity confusion or log injection.
+///
+/// SECURITY (R239-CAN-1): Aligned with canonical `vellaveto_types::is_unicode_format_char()`
+/// to cover all known dangerous Unicode format character ranges. The canary crate is
+/// Apache-2.0 standalone, so we copy rather than depend on vellaveto-types.
+fn is_unicode_format_char(c: char) -> bool {
+    matches!(c,
+        '\u{00AD}'              |  // soft hyphen
+        '\u{0600}'..='\u{0605}' |  // Arabic number/sign marks (Cf)
+        '\u{061C}'              |  // Arabic Letter Mark (invisible bidi)
+        '\u{06DD}'              |  // Arabic End of Ayah (Cf)
+        '\u{070F}'              |  // Syriac Abbreviation Mark (Cf)
+        '\u{0890}'..='\u{0891}' |  // Arabic Pound/Piastre Mark (Cf, Unicode 15.0+)
+        '\u{08E2}'              |  // Arabic Disputed End of Ayah (Cf)
+        '\u{200B}'..='\u{200F}' |  // zero-width space, ZWNJ, ZWJ, LRM, RLM
+        '\u{202A}'..='\u{202E}' |  // bidi overrides (LRE, RLE, PDF, LRO, RLO)
+        '\u{2060}'..='\u{2069}' |  // word joiner, invisible separators, bidi isolates
+        '\u{FEFF}'              |  // BOM / zero-width no-break space
+        '\u{FFF9}'..='\u{FFFB}' |  // interlinear annotation anchors
+        '\u{110BD}'             |  // Kaithi Number Sign (Cf)
+        '\u{110CD}'             |  // Kaithi Number Sign Above (Cf)
+        '\u{17B4}'..='\u{17B5}' |  // Khmer invisible Cf chars
+        '\u{180B}'..='\u{180F}' |  // Mongolian Free Variation Selectors (Cf)
+        '\u{1D173}'..='\u{1D17A}' | // Musical Symbol format chars (Cf)
+        '\u{FE00}'..='\u{FE0F}'   | // Variation Selectors (VS1-VS16, Mn/Cf)
+        '\u{E0001}'..='\u{E007F}'  // TAG characters
+    )
+}
+
 /// Check a string for dangerous characters (control chars, Unicode format chars).
+///
+/// SECURITY (R239-CAN-1): Uses `is_unicode_format_char()` aligned with the canonical
+/// implementation in `vellaveto-types` to ensure full coverage of dangerous Unicode ranges.
 fn has_dangerous_chars(s: &str) -> bool {
-    s.chars().any(|c| {
-        c.is_control()
-            || matches!(c,
-                '\u{200B}'..='\u{200F}' // zero-width, bidi
-                | '\u{202A}'..='\u{202E}' // bidi overrides
-                | '\u{2060}'..='\u{2064}' // invisible operators
-                | '\u{FEFF}' // BOM
-                | '\u{FE00}'..='\u{FE0F}' // variation selectors
-            )
-    })
+    s.chars()
+        .any(|c| c.is_control() || is_unicode_format_char(c))
 }
 
 /// Build the canonical payload for signing/verification.
