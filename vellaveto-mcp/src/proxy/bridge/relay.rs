@@ -4842,12 +4842,15 @@ impl ProxyBridge {
             }
 
             if should_block {
+                // SECURITY (R240-MCP-5): Genericize response block error code/message.
+                // Previously used -32005 with specific detection type, allowing a malicious
+                // MCP server to probe which mechanism fired and tune evasion payloads.
                 let blocked_response = json!({
                     "jsonrpc": "2.0",
                     "id": msg.get("id").cloned().unwrap_or(Value::Null),
                     "error": {
-                        "code": -32005,
-                        "message": "Response blocked: prompt injection detected"
+                        "code": -32001,
+                        "message": "Response blocked: security policy violation"
                     }
                 });
                 write_message(agent_writer, &blocked_response)
@@ -4907,8 +4910,8 @@ impl ProxyBridge {
                                     "jsonrpc": "2.0",
                                     "id": msg.get("id").cloned().unwrap_or(Value::Null),
                                     "error": {
-                                        "code": -32005,
-                                        "message": "Response blocked: no output schema registered for structuredContent validation"
+                                        "code": -32001,
+                                        "message": "Response blocked: security policy violation"
                                     }
                                 });
                                 write_message(agent_writer, &blocked_response)
@@ -4958,8 +4961,8 @@ impl ProxyBridge {
                                     "jsonrpc": "2.0",
                                     "id": msg.get("id").cloned().unwrap_or(Value::Null),
                                     "error": {
-                                        "code": -32005,
-                                        "message": "Response blocked: structuredContent schema validation failed"
+                                        "code": -32001,
+                                        "message": "Response blocked: security policy violation"
                                     }
                                 });
                                 write_message(agent_writer, &blocked_response)
@@ -5010,8 +5013,8 @@ impl ProxyBridge {
                         "jsonrpc": "2.0",
                         "id": msg.get("id").cloned().unwrap_or(Value::Null),
                         "error": {
-                            "code": -32005,
-                            "message": "Response blocked: structuredContent schema validation unavailable (missing tool context)"
+                            "code": -32001,
+                            "message": "Response blocked: security policy violation"
                         }
                     });
                     write_message(agent_writer, &blocked_response)
@@ -5073,8 +5076,8 @@ impl ProxyBridge {
                         "jsonrpc": "2.0",
                         "id": msg.get("id").cloned().unwrap_or(Value::Null),
                         "error": {
-                            "code": -32006,
-                            "message": "Response blocked: secrets detected in tool output"
+                            "code": -32001,
+                            "message": "Response blocked: security policy violation"
                         }
                     });
                     write_message(agent_writer, &blocked_response)

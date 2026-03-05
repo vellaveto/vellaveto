@@ -385,12 +385,13 @@ pub fn build_tls_acceptor(config: &TlsConfig) -> Result<Option<TlsAcceptor>, Tls
             // When configured, retain only cipher suites whose name matches the allowlist.
             if !config.cipher_suites.is_empty() {
                 let before = provider.cipher_suites.len();
+                // SECURITY (R240-TLS-1): Use exact match instead of substring matching.
+                // Substring matching on Debug format could match unintended cipher suites
+                // (e.g., "AES" matching all AES suites including weak ones). Exact match
+                // against the SuiteId Debug name prevents accidental inclusion.
                 provider.cipher_suites.retain(|suite| {
                     let name = format!("{:?}", suite.suite());
-                    config
-                        .cipher_suites
-                        .iter()
-                        .any(|allowed| name.contains(allowed.as_str()))
+                    config.cipher_suites.contains(&name)
                 });
                 let after = provider.cipher_suites.len();
                 if provider.cipher_suites.is_empty() {

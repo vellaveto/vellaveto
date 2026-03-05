@@ -23,6 +23,7 @@ use jsonwebtoken::{
     Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 use password_hash::{PasswordHash, PasswordVerifier};
+use percent_encoding::percent_decode_str;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use reqwest::{header as reqwest_header, Client};
@@ -2039,6 +2040,12 @@ fn sanitize_next(value: Option<String>) -> String {
     if value.len() > MAX_NEXT_LEN || value.contains("://") || has_dangerous_chars(&value) {
         return default;
     }
+    // SECURITY (R240-SRV-6): Percent-decode before scheme/path checks to prevent
+    // bypass via %3A%2F%2F (://), %2F%2F (//), or %5C (\) encoded sequences.
+    let decoded = percent_decode_str(&value).decode_utf8_lossy();
+    if decoded.contains("://") || decoded.starts_with("//") || decoded.contains('\\') {
+        return default;
+    }
     let normalized = if !value.starts_with('/') {
         let mut normalized = String::from("/");
         normalized.push_str(&value);
@@ -2446,6 +2453,12 @@ fn validate_cimd_redirect_uri(uri: &str) -> Result<(), IamError> {
             parsed.scheme()
         )));
     }
+
+    // SECURITY (R240-SRV-5): Validate redirect_uri host against SSRF ranges
+    // (private IPs, link-local, cloud metadata). Parity with validate_cimd_host()
+    // which already validates the CIMD document URL itself.
+    validate_url_no_ssrf(uri)
+        .map_err(|e| IamError::CimdValidation(format!("redirect_uri host is blocked ({e})")))?;
 
     Ok(())
 }

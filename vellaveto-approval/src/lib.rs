@@ -204,6 +204,25 @@ impl ApprovalStore {
     ///
     /// `default_ttl` is the time-to-live for new approvals (default: 15 minutes).
     pub fn new(log_path: PathBuf, default_ttl: std::time::Duration) -> Self {
+        // SECURITY (R240-APPR-1): Reject path traversal in log_path.
+        // A malicious config could write the approval JSONL file to a sensitive
+        // location via ".." components. persist_approval() creates parent dirs.
+        for component in log_path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                tracing::error!(
+                    "SECURITY: Approval log_path contains '..' path traversal — rejecting: {:?}",
+                    log_path
+                );
+                // Use /dev/null as a safe sink — all persists will succeed but write nothing.
+                return Self {
+                    pending: RwLock::new(HashMap::new()),
+                    dedup_index: RwLock::new(HashMap::new()),
+                    log_path: PathBuf::from("/dev/null"),
+                    default_ttl,
+                    max_pending: DEFAULT_MAX_PENDING,
+                };
+            }
+        }
         Self {
             pending: RwLock::new(HashMap::new()),
             dedup_index: RwLock::new(HashMap::new()),

@@ -216,6 +216,16 @@ pub fn create_canary(
 /// Returns an error string if the canary data is malformed (invalid hex,
 /// wrong key size, unparseable dates).
 pub fn verify_canary(canary: &WarrantCanary) -> Result<CanaryVerification, String> {
+    // SECURITY (R240-CAN-1): Reject unknown canary versions fail-closed.
+    // Prevents forward-compatibility confusion where a future version with
+    // a different payload format could be silently processed with v1 logic.
+    if canary.version != CANARY_VERSION {
+        return Err(format!(
+            "unsupported canary version: {} (expected {})",
+            canary.version, CANARY_VERSION
+        ));
+    }
+
     // Validate statement bounds
     if canary.statement.len() > MAX_STATEMENT_LENGTH {
         return Err(format!(

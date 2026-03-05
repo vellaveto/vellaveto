@@ -618,12 +618,34 @@ fn render_policy_pie_chart(html: &mut String, policies: &[vellaveto_types::Polic
     );
 }
 
+/// SECURITY (R240-SRV-1): Validate CSRF for dashboard POST requests.
+/// Requires either an Origin/Referer header or the X-Requested-With header.
+/// Cookie-authenticated endpoints cannot rely on API key for CSRF protection.
+fn validate_dashboard_csrf(headers: &axum::http::HeaderMap) -> bool {
+    // X-Requested-With is a custom header that browsers won't send cross-origin
+    // without CORS preflight (which would be blocked).
+    if headers.contains_key("x-requested-with") {
+        return true;
+    }
+    // Accept if Origin or Referer is present (validated by the CSRF middleware).
+    if headers.contains_key("origin") || headers.contains_key("referer") {
+        return true;
+    }
+    false
+}
+
 /// Handle approval form submission from dashboard.
 pub async fn dashboard_approve(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
+    // SECURITY (R240-SRV-1): CSRF check for cookie-authenticated dashboard forms.
+    if !validate_dashboard_csrf(&headers) {
+        tracing::warn!("Dashboard CSRF check failed: no Origin/Referer/X-Requested-With");
+        return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
+    }
+
     // Validate approval ID length (defense against oversized paths)
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
@@ -658,6 +680,12 @@ pub async fn dashboard_deny(
     headers: axum::http::HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
+    // SECURITY (R240-SRV-1): CSRF check for cookie-authenticated dashboard forms.
+    if !validate_dashboard_csrf(&headers) {
+        tracing::warn!("Dashboard CSRF check failed: no Origin/Referer/X-Requested-With");
+        return (StatusCode::FORBIDDEN, "CSRF validation failed").into_response();
+    }
+
     if id.len() > 128 {
         return (StatusCode::BAD_REQUEST, "Invalid approval ID").into_response();
     }
