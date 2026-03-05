@@ -502,8 +502,9 @@ impl FederationResolver {
 
         // SECURITY (FIND-R50-001): Check Content-Length header BEFORE downloading
         // to prevent OOM from malicious JWKS endpoints serving gigabytes.
+        // SECURITY (R240-P3-PROXY-5): Compare in u64 space to avoid truncation on 32-bit.
         if let Some(len) = resp.content_length() {
-            if len as usize > MAX_JWKS_BODY_BYTES {
+            if len > MAX_JWKS_BODY_BYTES as u64 {
                 return Err(FederationError::JwksFetchFailed {
                     org_id: org_id.to_string(),
                     source: format!(

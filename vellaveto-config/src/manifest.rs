@@ -257,10 +257,18 @@ impl ToolManifest {
                 &mut hasher,
                 tool.title_hash.as_deref().unwrap_or("").as_bytes(),
             );
+            // SECURITY (R240-P3-CFG-1): Log serialization failure instead of silent empty.
+            // A failed annotation serialization changes the signing content hash,
+            // causing silent signature mismatch on verification.
             let ann_str = tool
                 .annotations
                 .as_ref()
-                .map(|a| serde_json::to_string(a).unwrap_or_default())
+                .map(|a| {
+                    serde_json::to_string(a).unwrap_or_else(|e| {
+                        tracing::warn!(error = %e, "manifest annotation serialization failed");
+                        String::new()
+                    })
+                })
                 .unwrap_or_default();
             Self::hash_field(&mut hasher, ann_str.as_bytes());
         }

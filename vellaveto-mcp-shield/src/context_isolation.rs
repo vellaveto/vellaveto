@@ -228,11 +228,14 @@ impl ContextIsolator {
 
     /// Get the total number of context entries in a session.
     pub fn entry_count(&self, session_id: &str) -> usize {
-        self.sessions
-            .lock()
-            .ok()
-            .and_then(|s| s.get(session_id).map(|ctx| ctx.entries.len()))
-            .unwrap_or(0)
+        match self.sessions.lock() {
+            Ok(s) => s.get(session_id).map(|ctx| ctx.entries.len()).unwrap_or(0),
+            Err(_) => {
+                // SECURITY (R240-P3-SHLD-1): Log poisoning instead of silent 0.
+                tracing::error!("context sessions lock poisoned in entry_count");
+                0
+            }
+        }
     }
 
     /// End a session's context, clearing all stored entries.
@@ -256,7 +259,14 @@ impl ContextIsolator {
 
     /// Get the number of active context sessions.
     pub fn session_count(&self) -> usize {
-        self.sessions.lock().map(|s| s.len()).unwrap_or(0)
+        match self.sessions.lock() {
+            Ok(s) => s.len(),
+            Err(_) => {
+                // SECURITY (R240-P3-SHLD-2): Log poisoning instead of silent 0.
+                tracing::error!("context sessions lock poisoned in session_count");
+                0
+            }
+        }
     }
 
     /// Record context from a JSON-RPC response message.

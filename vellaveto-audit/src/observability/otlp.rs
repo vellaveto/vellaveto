@@ -285,7 +285,11 @@ fn normalize_hex_id(id: &str, target_len: usize) -> String {
 /// Convert a hex string to a fixed-size byte array, zero-padding if needed.
 fn hex_to_bytes_padded<const N: usize>(hex: &str, _len: usize) -> [u8; N] {
     let mut bytes = [0u8; N];
-    let decoded = hex::decode(hex).unwrap_or_default();
+    // SECURITY (R240-P3-AUD-3): Log decode failure instead of silent zeroing.
+    let decoded = hex::decode(hex).unwrap_or_else(|e| {
+        tracing::warn!(error = %e, hex_input = %hex, "hex decode failed in OTLP trace ID conversion");
+        Vec::new()
+    });
     let copy_len = decoded.len().min(N);
     bytes[..copy_len].copy_from_slice(&decoded[..copy_len]);
     bytes

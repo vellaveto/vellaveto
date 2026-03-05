@@ -181,7 +181,14 @@ impl SessionIsolator {
 
     /// Get the number of active sessions.
     pub fn session_count(&self) -> usize {
-        self.sessions.lock().map(|s| s.len()).unwrap_or(0)
+        match self.sessions.lock() {
+            Ok(s) => s.len(),
+            Err(_) => {
+                // SECURITY (R240-P3-SHLD-3): Log poisoning instead of silent 0.
+                tracing::error!("SessionIsolator lock poisoned in session_count");
+                0
+            }
+        }
     }
 }
 

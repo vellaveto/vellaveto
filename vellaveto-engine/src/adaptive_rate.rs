@@ -143,6 +143,7 @@ impl AdaptiveRateLimiter {
     ///
     /// Returns `Allow`, `Throttle`, or `Deny` based on the entity's
     /// current rate and anomaly state.
+    #[must_use = "rate limit decisions must not be discarded"]
     pub fn check(&mut self, entity_id: &str) -> RateDecision {
         let now = Instant::now();
         let base_rate = self.config.base_rate_per_minute;

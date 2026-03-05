@@ -149,6 +149,7 @@ impl CircuitBreakerManager {
     ///
     /// - `vellaveto_circuit_breaker_check_duration_seconds`: Histogram of check latency
     /// - `vellaveto_circuit_breaker_rejections_total`: Counter of rejected requests
+    #[must_use = "circuit breaker results must not be discarded"]
     pub fn can_proceed(&self, tool: &str) -> Result<(), String> {
         let start = std::time::Instant::now();
         // SECURITY (FIND-077, FIND-R211-001): Normalize tool name to prevent

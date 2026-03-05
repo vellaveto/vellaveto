@@ -539,9 +539,10 @@ impl PolicyVersionStore for InMemoryPolicyVersionStore {
                             staged_at.trim_end_matches('Z'),
                             "%Y-%m-%dT%H:%M:%S",
                         )
-                        .map(|ndt| ndt.and_utc().timestamp() as u64)
+                        // SECURITY (R240-P3-SRV-2): Use try_from to avoid wrap on pre-epoch timestamps.
+                        .map(|ndt| u64::try_from(ndt.and_utc().timestamp()).unwrap_or(u64::MAX))
                         .unwrap_or(u64::MAX); // fail-closed: unparseable = never staged
-                        let now_secs = chrono::Utc::now().timestamp() as u64;
+                        let now_secs = u64::try_from(chrono::Utc::now().timestamp()).unwrap_or(0);
                         let elapsed = now_secs.saturating_sub(staged_secs);
                         let required = self.config.staging_period_secs;
                         if elapsed < required {

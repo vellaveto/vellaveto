@@ -66,6 +66,7 @@ pub fn is_unicode_format_char(c: char) -> bool {
 /// SECURITY (IMP-R120-008): Canonical predicate extracted from duplicate
 /// `validate_no_dangerous_chars()` implementations in `accountability.rs`
 /// and `capability_token.rs`.
+#[must_use = "dangerous character check results must not be ignored"]
 pub fn has_dangerous_chars(s: &str) -> bool {
     s.chars()
         .any(|c| c.is_control() || is_unicode_format_char(c))

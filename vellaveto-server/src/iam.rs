@@ -1167,7 +1167,10 @@ impl IamState {
             ))
         })?;
 
-        let now = chrono::Utc::now().timestamp() as u64;
+        // SECURITY (R240-P3-SRV-3): Fail-closed on pre-epoch clock instead of wrapping.
+        let now = u64::try_from(chrono::Utc::now().timestamp()).map_err(|_| {
+            IamError::M2mTokenGeneration("system clock before epoch".to_string())
+        })?;
         let ttl = self.config.m2m.token_ttl_secs;
         let issuer = self
             .config

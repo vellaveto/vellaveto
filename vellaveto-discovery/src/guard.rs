@@ -176,10 +176,14 @@ impl TopologyGuard {
 
     /// Get the current topology (for serialization/inspection).
     pub fn current(&self) -> Option<Arc<TopologyGraph>> {
-        self.topology
-            .read()
-            .ok()
-            .and_then(|guard| guard.as_ref().cloned())
+        match self.topology.read() {
+            Ok(guard) => guard.as_ref().cloned(),
+            Err(_) => {
+                // SECURITY (R240-P3-DISC-1): Log poisoning — parity with check().
+                tracing::error!("TopologyGuard RwLock poisoned in current()");
+                None
+            }
+        }
     }
 
     /// Clear the topology (revert to bypass mode).

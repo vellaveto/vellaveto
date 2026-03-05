@@ -82,11 +82,15 @@ impl TopologyGraph {
             })
             .collect();
 
+        // SECURITY (R240-P3-DISC-2): Log clock anomaly instead of silent 0.
         let epoch_secs = self
             .crawled_at()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "SystemTime before UNIX_EPOCH in snapshot — using 0");
+                0
+            });
 
         TopologySnapshot {
             nodes,

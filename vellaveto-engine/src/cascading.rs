@@ -474,6 +474,7 @@ impl CascadingBreaker {
     ///
     /// Returns `Ok(())` if the pipeline is healthy or if the break duration
     /// has elapsed (probe allowed). Returns `Err(PipelineBroken)` if broken.
+    #[must_use = "pipeline break results must not be discarded"]
     pub fn check_pipeline(&self, pipeline_id: &str) -> Result<(), CascadingError> {
         if !self.config.enabled {
             return Ok(());

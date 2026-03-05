@@ -307,6 +307,7 @@ impl BehavioralTracker {
     /// matching the canonical MAX_NAME_LEN (256) used for tool names in vellaveto-types.
     const MAX_TOOL_KEY_LEN: usize = 256;
 
+    #[must_use = "behavioral anomaly alerts must not be discarded"]
     pub fn check_session(
         &self,
         agent_id: &str,

@@ -190,7 +190,14 @@ impl QuerySanitizer {
 
     /// Get the current number of PII mappings.
     pub fn mapping_count(&self) -> usize {
-        self.mappings.lock().map(|m| m.len()).unwrap_or(0)
+        match self.mappings.lock() {
+            Ok(m) => m.len(),
+            Err(_) => {
+                // SECURITY (R240-P3-SHLD-3): Log poisoning instead of silent 0.
+                tracing::error!("QuerySanitizer lock poisoned in mapping_count");
+                0
+            }
+        }
     }
 }
 

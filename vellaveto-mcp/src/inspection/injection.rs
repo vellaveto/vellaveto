@@ -336,7 +336,11 @@ impl InjectionScanner {
         }
 
         let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
-        let automaton = AhoCorasick::new(&pattern_refs).ok()?;
+        // SECURITY (R240-P3-MCP-1): Log compilation failure so operators know scanning is disabled.
+        let automaton = AhoCorasick::new(&pattern_refs).map_err(|e| {
+            tracing::error!(error = %e, "AhoCorasick compilation failed — injection scanner disabled");
+            e
+        }).ok()?;
         Some(Self {
             automaton,
             patterns,

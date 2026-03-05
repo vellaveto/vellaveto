@@ -349,8 +349,9 @@ impl<'a> SmartFallbackChain<'a> {
         let status = resp.status().as_u16();
 
         // SECURITY (FIND-R41-004): Fast-reject if Content-Length exceeds limit.
+        // SECURITY (R240-P3-PROXY-2): Compare in u64 space to avoid truncation on 32-bit.
         if let Some(len) = resp.content_length() {
-            if len as usize > MAX_RESPONSE_BODY_BYTES {
+            if len > MAX_RESPONSE_BODY_BYTES as u64 {
                 return Err(format!(
                     "response body too large: {len} bytes (max {MAX_RESPONSE_BODY_BYTES})"
                 ));

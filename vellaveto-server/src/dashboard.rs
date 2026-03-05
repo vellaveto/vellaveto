@@ -764,7 +764,10 @@ async fn render_exec_graph_section(html: &mut String, state: &AppState) {
                 .map(|t| {
                     let secs = t / 1000;
                     let nanos = (t % 1000) * 1_000_000;
-                    chrono::DateTime::from_timestamp(secs as i64, nanos as u32)
+                    // SECURITY (R240-P3-SRV-1): Safe cast via try_from to avoid wrap on adversarial timestamps.
+                    let secs_i64 = i64::try_from(secs).unwrap_or(i64::MAX);
+                    let nanos_u32 = u32::try_from(nanos).unwrap_or(0);
+                    chrono::DateTime::from_timestamp(secs_i64, nanos_u32)
                         .map(|dt| dt.format("%H:%M:%S").to_string())
                         .unwrap_or_else(|| "—".to_string())
                 })

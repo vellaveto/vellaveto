@@ -73,7 +73,13 @@ impl AuditQueryService for FileAuditQuery {
             .into_iter()
             .skip(offset)
             .take(limit)
-            .filter_map(|e| serde_json::to_value(e).ok())
+            .filter_map(|e| {
+                serde_json::to_value(e).map_err(|err| {
+                    // SECURITY (R240-P3-AUD-1): Log so audit gaps are observable.
+                    tracing::warn!(error = %err, "audit entry serialization failed — entry omitted");
+                    err
+                }).ok()
+            })
             .collect();
 
         Ok(AuditQueryResult {

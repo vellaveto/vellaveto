@@ -713,8 +713,11 @@ impl OAuthValidator {
         }
 
         let now = chrono::Utc::now().timestamp();
-        let iat = claims.iat as i64;
-        let skew = self.config.dpop_max_clock_skew.as_secs() as i64;
+        // SECURITY (R240-P3-PROXY-7): Safe cast — reject adversarial u64 > i64::MAX.
+        let iat = i64::try_from(claims.iat).map_err(|_| {
+            OAuthError::InvalidDpopProof("iat out of range".to_string())
+        })?;
+        let skew = self.config.dpop_max_clock_skew.as_secs().min(i64::MAX as u64) as i64;
         if (now - iat).abs() > skew {
             return Err(OAuthError::InvalidDpopProof(format!(
                 "iat outside allowed skew window (iat={}, now={})",
@@ -723,15 +726,22 @@ impl OAuthValidator {
         }
 
         // SECURITY (FIND-R210-005): Validate exp/nbf when present in DPoP proof.
+        // SECURITY (R240-P3-PROXY-8): Safe cast — reject adversarial u64 > i64::MAX.
         if let Some(exp) = claims.exp {
-            if (exp as i64) < now - skew {
+            let exp_i64 = i64::try_from(exp).map_err(|_| {
+                OAuthError::InvalidDpopProof("exp out of range".to_string())
+            })?;
+            if exp_i64 < now - skew {
                 return Err(OAuthError::InvalidDpopProof(
                     "DPoP proof expired".to_string(),
                 ));
             }
         }
         if let Some(nbf) = claims.nbf {
-            if (nbf as i64) > now + skew {
+            let nbf_i64 = i64::try_from(nbf).map_err(|_| {
+                OAuthError::InvalidDpopProof("nbf out of range".to_string())
+            })?;
+            if nbf_i64 > now + skew {
                 return Err(OAuthError::InvalidDpopProof(
                     "DPoP proof not yet valid (nbf in future)".to_string(),
                 ));
@@ -900,8 +910,9 @@ impl OAuthValidator {
         // Check Content-Length header BEFORE downloading, then read in bounded chunks.
         const MAX_JWKS_BODY_SIZE: usize = 1024 * 1024;
 
+        // SECURITY (R240-P3-PROXY-4): Compare in u64 space to avoid truncation on 32-bit.
         if let Some(len) = response.content_length() {
-            if len as usize > MAX_JWKS_BODY_SIZE {
+            if len > MAX_JWKS_BODY_SIZE as u64 {
                 return Err(OAuthError::JwksFetchFailed(format!(
                     "JWKS Content-Length {len} exceeds {MAX_JWKS_BODY_SIZE} byte limit"
                 )));

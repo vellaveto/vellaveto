@@ -81,12 +81,16 @@ pub(super) async fn read_bounded_response(
 ) -> Result<Bytes, String> {
     // Fast path: if Content-Length is known and exceeds limit, reject immediately
     if let Some(len) = resp.content_length() {
-        if len as usize > max_size {
+        // SECURITY (R240-P3-PROXY-1): Compare in u64 space to avoid truncation on 32-bit.
+        if len > max_size as u64 {
             return Err(format!("Response too large: {len} bytes (max {max_size})"));
         }
     }
 
-    let capacity = std::cmp::min(resp.content_length().unwrap_or(8192) as usize, max_size);
+    let capacity = std::cmp::min(
+        resp.content_length().map(|l| l.min(max_size as u64) as usize).unwrap_or(8192),
+        max_size,
+    );
     let mut body = Vec::with_capacity(capacity);
 
     while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {

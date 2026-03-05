@@ -107,8 +107,9 @@ impl UpstreamForwarder {
         // SECURITY (FIND-R55-GRPC-008): Bounded response body read.
         // Prevents OOM from oversized upstream responses. Fast-reject via
         // Content-Length, then chunked accumulation with size check.
+        // SECURITY (R240-P3-PROXY-6): Compare in u64 space to avoid truncation on 32-bit.
         if let Some(len) = response.content_length() {
-            if len as usize > MAX_GRPC_HTTP_RESPONSE_BYTES {
+            if len > MAX_GRPC_HTTP_RESPONSE_BYTES as u64 {
                 return Err(UpstreamError::HttpError(format!(
                     "response body too large: {} bytes (max {})",
                     len, MAX_GRPC_HTTP_RESPONSE_BYTES

@@ -138,6 +138,7 @@ pub enum VerdictOutcome {
 /// - V3: `Allow` only when `!is_deny && !rule_override_deny && !context_deny`
 /// - V8: Conditional with unfired condition + `on_no_match_continue` → `Continue`
 #[inline]
+#[must_use = "security verdicts must not be discarded"]
 pub fn compute_single_verdict(rm: &ResolvedMatch) -> VerdictOutcome {
     if !rm.matched {
         return VerdictOutcome::Continue;
@@ -203,6 +204,7 @@ pub fn compute_single_verdict(rm: &ResolvedMatch) -> VerdictOutcome {
 /// - **V6 (S2):** First matching policy in sorted order determines verdict
 /// - **V7 (S3):** At equal priority, deny-sorted-first means Deny wins
 /// - **V8:** Conditional with unfired condition → skipped to next policy
+#[must_use = "security verdicts must not be discarded"]
 pub fn compute_verdict(resolved: &[ResolvedMatch]) -> VerdictKind {
     // V1: Empty → Deny
     // V5: Loop bounded by resolved.len()
