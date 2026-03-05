@@ -20,6 +20,11 @@ use vellaveto_types::shield::{BlindCredential, SessionCredentialBinding};
 /// Maximum concurrent unlinked sessions.
 const MAX_UNLINKED_SESSIONS: usize = 1_000;
 
+/// Maximum length of a session ID in bytes.
+/// SECURITY (R238-SHLD-4): Prevents unbounded session ID strings from
+/// consuming excessive memory in HashMap keys.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 /// Manages session unlinkability through credential rotation.
 ///
 /// Each new session is bound to a fresh blind credential from the vault.
@@ -74,6 +79,19 @@ impl SessionUnlinker {
     /// Returns the blind credential to present to the provider.
     /// Fail-closed: if no credentials are available, the session cannot start.
     pub fn start_session(&self, session_id: &str) -> Result<BlindCredential, ShieldError> {
+        if session_id.is_empty() {
+            return Err(ShieldError::SessionIsolation(
+                "session_id must not be empty".to_string(),
+            ));
+        }
+        // SECURITY (R238-SHLD-4): Reject session IDs exceeding MAX_SESSION_ID_LEN
+        // to prevent excessive memory consumption in HashMap keys.
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            return Err(ShieldError::SessionIsolation(format!(
+                "session_id too long ({} bytes, max {MAX_SESSION_ID_LEN})",
+                session_id.len()
+            )));
+        }
         if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(ShieldError::SessionIsolation(
                 "session_id contains dangerous characters".to_string(),

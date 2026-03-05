@@ -253,10 +253,45 @@ impl IncidentReport {
                 ));
             }
         }
-        // SECURITY (R235-AUD-1): Validate per-entry dangerous chars in Vec fields.
-        // Without this, attacker-controlled strings in affected_systems/findings/
-        // recommendations can inject control chars into downstream SIEM/reports.
+        // SECURITY (R238-AUD-1): Validate timestamp fields for dangerous chars and length.
+        // Timestamps are ISO 8601 strings — control/format chars indicate injection.
+        for (name, value) in [
+            ("detected_at", &self.detected_at),
+            ("reported_at", &self.reported_at),
+        ] {
+            if value.len() > MAX_TEXT_FIELD_LEN {
+                return Err(IncidentReportError::Validation(format!(
+                    "{name} exceeds maximum length"
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(IncidentReportError::Validation(format!(
+                    "{name} contains control or Unicode format characters"
+                )));
+            }
+        }
+        if let Some(ref deadline) = self.dora_deadline {
+            if deadline.len() > MAX_TEXT_FIELD_LEN {
+                return Err(IncidentReportError::Validation(
+                    "dora_deadline exceeds maximum length".to_string(),
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(deadline) {
+                return Err(IncidentReportError::Validation(
+                    "dora_deadline contains control or Unicode format characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (R235-AUD-1, R238-AUD-2): Validate per-entry length and dangerous chars
+        // in Vec fields. Without this, attacker-controlled strings in affected_systems/
+        // findings/recommendations can inject control chars or cause unbounded growth
+        // in downstream SIEM/reports.
         for entry in &self.affected_systems {
+            if entry.len() > MAX_TEXT_FIELD_LEN {
+                return Err(IncidentReportError::Validation(
+                    "affected_systems entry exceeds maximum length".to_string(),
+                ));
+            }
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(IncidentReportError::Validation(
                     "affected_systems entry contains control or Unicode format characters"
@@ -265,6 +300,11 @@ impl IncidentReport {
             }
         }
         for entry in &self.findings {
+            if entry.len() > MAX_TEXT_FIELD_LEN {
+                return Err(IncidentReportError::Validation(
+                    "findings entry exceeds maximum length".to_string(),
+                ));
+            }
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(IncidentReportError::Validation(
                     "findings entry contains control or Unicode format characters".to_string(),
@@ -272,6 +312,11 @@ impl IncidentReport {
             }
         }
         for entry in &self.recommendations {
+            if entry.len() > MAX_TEXT_FIELD_LEN {
+                return Err(IncidentReportError::Validation(
+                    "recommendations entry exceeds maximum length".to_string(),
+                ));
+            }
             if vellaveto_types::has_dangerous_chars(entry) {
                 return Err(IncidentReportError::Validation(
                     "recommendations entry contains control or Unicode format characters"

@@ -159,6 +159,11 @@ impl CredentialVault {
     }
 
     /// Mark a credential as consumed (session ended normally).
+    ///
+    /// SECURITY (R238-SHLD-6): Only allows transitioning from `Active` to `Consumed`.
+    /// Other statuses (Available, Consumed, Expired) should not transition to Consumed
+    /// because: Available means it was never bound to a session, Consumed means
+    /// double-consume, and Expired means it was already invalidated.
     pub fn mark_consumed(&self, index: usize) -> Result<(), ShieldError> {
         let mut entries = self
             .entries
@@ -170,6 +175,14 @@ impl CredentialVault {
                 "credential index {} out of bounds (vault size {})",
                 index,
                 entries.len()
+            )));
+        }
+
+        // SECURITY (R238-SHLD-6): Only Active credentials can transition to Consumed.
+        if entries[index].status != CredentialStatus::Active {
+            return Err(ShieldError::CredentialVault(format!(
+                "credential at index {} has status {:?}, only Active credentials can be consumed",
+                index, entries[index].status
             )));
         }
 

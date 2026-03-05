@@ -1026,6 +1026,29 @@ impl IamState {
             return Err(IamError::M2mDisabled);
         }
 
+        // SECURITY (R238-XCUT-1): Validate input lengths BEFORE rate limiter DashMap
+        // insertion. Previously, unvalidated client_id was inserted into the rate
+        // limit map before length/dangerous-char checks, allowing attacker-controlled
+        // arbitrarily long strings to be stored in memory before rejection.
+        if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN || has_dangerous_chars(client_id) {
+            return Err(IamError::M2mInvalidCredentials);
+        }
+        if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN {
+            return Err(IamError::M2mInvalidCredentials);
+        }
+        if scopes.len() > MAX_M2M_REQUESTED_SCOPES {
+            return Err(IamError::M2mScopeNotPermitted(
+                "too many scopes requested".to_string(),
+            ));
+        }
+        for scope in scopes {
+            if scope.len() > MAX_M2M_SCOPE_REQUEST_LEN || has_dangerous_chars(scope) {
+                return Err(IamError::M2mScopeNotPermitted(
+                    "invalid scope value".to_string(),
+                ));
+            }
+        }
+
         // SECURITY (R237-SRV-4): Per-client rate limiting for M2M token requests.
         // Prevents credential-stuffing and brute-force attacks against client secrets.
         // Allows 10 requests per 60-second window per client_id.
@@ -1064,33 +1087,16 @@ impl IamState {
             } else {
                 *count = count.saturating_add(1);
                 if *count > M2M_RATE_LIMIT_MAX_REQUESTS {
+                    // SECURITY (R238-XCUT-1): Log sanitized client_id length, not
+                    // the raw value, to prevent log injection from unvalidated input.
+                    // Input validation above ensures client_id is bounded and safe.
                     tracing::warn!(
-                        client_id = %client_id,
+                        client_id_len = client_id.len(),
                         count = %count,
                         "M2M per-client rate limit exceeded"
                     );
                     return Err(IamError::M2mRateLimited);
                 }
-            }
-        }
-
-        // SECURITY: Validate input lengths before any processing.
-        if client_id.len() > MAX_M2M_CLIENT_ID_REQUEST_LEN || has_dangerous_chars(client_id) {
-            return Err(IamError::M2mInvalidCredentials);
-        }
-        if client_secret.len() > MAX_M2M_CLIENT_SECRET_REQUEST_LEN {
-            return Err(IamError::M2mInvalidCredentials);
-        }
-        if scopes.len() > MAX_M2M_REQUESTED_SCOPES {
-            return Err(IamError::M2mScopeNotPermitted(
-                "too many scopes requested".to_string(),
-            ));
-        }
-        for scope in scopes {
-            if scope.len() > MAX_M2M_SCOPE_REQUEST_LEN || has_dangerous_chars(scope) {
-                return Err(IamError::M2mScopeNotPermitted(
-                    "invalid scope value".to_string(),
-                ));
             }
         }
 
@@ -2489,12 +2495,16 @@ pub async fn client_metadata(
         .fetch_client_metadata(&req.client_id_url)
         .await
         .map_err(|e| match &e {
-            IamError::CimdValidation(msg) => (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: format!("Client metadata validation failed: {msg}"),
-                }),
-            ),
+            IamError::CimdValidation(_msg) => {
+                // SECURITY (R238-SRV-5): Do not echo user-controlled URL/details.
+                tracing::warn!("CIMD validation failed: {}", _msg);
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "Client metadata validation failed".to_string(),
+                    }),
+                )
+            }
             IamError::CimdFetch(_) => (
                 StatusCode::BAD_GATEWAY,
                 Json(ErrorResponse {
@@ -3204,6 +3214,54 @@ mod tests {
         assert!(
             result.is_ok(),
             "client-b should not be affected by client-a's rate limit"
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // R238-XCUT-1: Input validation before rate limiter DashMap insert
+    // ═══════════════════════════════════════════════════════════════
+
+    /// R238-XCUT-1: Oversized client_id rejected BEFORE being stored in rate limit map.
+    #[test]
+    fn test_r238_xcut1_m2m_long_client_id_rejected_before_rate_insert() {
+        let config = m2m_config_with_client("test-client", "test-secret-123", "operator", vec![]);
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+
+        // Send a client_id that exceeds MAX_M2M_CLIENT_ID_REQUEST_LEN (128 bytes).
+        let oversized_id = "A".repeat(200);
+        let result = iam.exchange_client_credentials(&oversized_id, "test-secret-123", &[]);
+        assert!(
+            matches!(result, Err(IamError::M2mInvalidCredentials)),
+            "Oversized client_id should be rejected"
+        );
+
+        // Verify the oversized client_id was NOT inserted into the rate limit map.
+        assert!(
+            !iam.m2m_rate_limits.contains_key(&oversized_id),
+            "Oversized client_id must not be stored in rate limit DashMap"
+        );
+    }
+
+    /// R238-XCUT-1: Dangerous chars in client_id rejected BEFORE rate limit map insert.
+    #[test]
+    fn test_r238_xcut1_m2m_dangerous_chars_rejected_before_rate_insert() {
+        let config = m2m_config_with_client("test-client", "test-secret-123", "operator", vec![]);
+        let secret = b"this-is-a-32-byte-or-longer-secret-key".to_vec();
+        let iam = IamState::new_for_test_with_secret(config, Some(secret));
+
+        // Send a client_id with dangerous chars (null byte).
+        let dangerous_id = "client\x00evil";
+        let result = iam.exchange_client_credentials(dangerous_id, "test-secret-123", &[]);
+        assert!(
+            matches!(result, Err(IamError::M2mInvalidCredentials)),
+            "Dangerous chars in client_id should be rejected"
+        );
+
+        // Verify the dangerous client_id was NOT inserted into the rate limit map.
+        assert!(
+            !iam.m2m_rate_limits.contains_key(dangerous_id),
+            "Client_id with dangerous chars must not be stored in rate limit DashMap"
         );
     }
 

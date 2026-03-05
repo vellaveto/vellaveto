@@ -31,6 +31,11 @@ const MAX_CONTEXT_ENTRY_LEN: usize = 65_536;
 /// Maximum total context bytes across all entries in a session (1 MB).
 const MAX_CONTEXT_TOTAL_BYTES: usize = 1_048_576;
 
+/// Maximum length of a session ID in bytes.
+/// SECURITY (R238-SHLD-4): Prevents unbounded session ID strings from
+/// consuming excessive memory in HashMap keys.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 /// A single piece of conversation context.
 struct ContextEntry {
     /// The role: "user" or "assistant".
@@ -73,7 +78,7 @@ pub struct ContextIsolator {
 }
 
 impl ContextIsolator {
-    /// Validate session_id for dangerous characters.
+    /// Validate session_id for dangerous characters and length.
     fn validate_session_id(session_id: &str) -> Result<(), ShieldError> {
         // SECURITY (R234-SHIELD-4): Reject session IDs with control chars, bidi
         // overrides, zero-width chars, etc.
@@ -81,6 +86,14 @@ impl ContextIsolator {
             return Err(ShieldError::SessionIsolation(
                 "session_id must not be empty".to_string(),
             ));
+        }
+        // SECURITY (R238-SHLD-4): Reject session IDs exceeding MAX_SESSION_ID_LEN
+        // to prevent excessive memory consumption in HashMap keys.
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            return Err(ShieldError::SessionIsolation(format!(
+                "session_id too long ({} bytes, max {MAX_SESSION_ID_LEN})",
+                session_id.len()
+            )));
         }
         if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(ShieldError::SessionIsolation(
@@ -223,9 +236,21 @@ impl ContextIsolator {
     }
 
     /// End a session's context, clearing all stored entries.
+    ///
+    /// SECURITY (R238-SHLD-1): Recovers from lock poisoning via `into_inner()`
+    /// to ensure context entries are always cleared. Silently skipping cleanup
+    /// on poisoning would leave conversation context in memory.
     pub fn end_session(&self, session_id: &str) {
-        if let Ok(mut sessions) = self.sessions.lock() {
-            sessions.remove(session_id);
+        match self.sessions.lock() {
+            Ok(mut sessions) => {
+                sessions.remove(session_id);
+            }
+            Err(poisoned) => {
+                tracing::error!(
+                    "SECURITY (R238-SHLD-1): context sessions lock poisoned during end_session — recovering"
+                );
+                poisoned.into_inner().remove(session_id);
+            }
         }
     }
 
@@ -302,25 +327,48 @@ impl ContextIsolator {
 /// - `result.content[].text` (tool call results)
 /// - `result.text` (simple text responses)
 /// - `result` as string directly
+///
+/// SECURITY (R238-SHLD-2): Output is bounded to `MAX_CONTEXT_ENTRY_LEN` to
+/// prevent unbounded string allocation from responses with thousands of
+/// content items. The `record()` method also checks length, but capping here
+/// prevents the allocation itself.
 fn extract_text_from_result(result: &serde_json::Value) -> String {
     // Try result.content[].text (MCP tool result format)
     if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-        let texts: Vec<&str> = content
-            .iter()
-            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
-            .collect();
-        if !texts.is_empty() {
-            return texts.join("\n");
+        let mut combined = String::new();
+        for item in content {
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                // R238-SHLD-2: Cap at MAX_CONTEXT_ENTRY_LEN to prevent unbounded allocation
+                if combined.len().saturating_add(text.len()).saturating_add(1) > MAX_CONTEXT_ENTRY_LEN
+                {
+                    break;
+                }
+                if !combined.is_empty() {
+                    combined.push('\n');
+                }
+                combined.push_str(text);
+            }
+        }
+        if !combined.is_empty() {
+            return combined;
         }
     }
 
     // Try result.text
     if let Some(text) = result.get("text").and_then(|t| t.as_str()) {
+        // R238-SHLD-2: Bound single text field
+        if text.len() > MAX_CONTEXT_ENTRY_LEN {
+            return text[..MAX_CONTEXT_ENTRY_LEN].to_string();
+        }
         return text.to_string();
     }
 
     // Try result as string directly
     if let Some(s) = result.as_str() {
+        // R238-SHLD-2: Bound string result
+        if s.len() > MAX_CONTEXT_ENTRY_LEN {
+            return s[..MAX_CONTEXT_ENTRY_LEN].to_string();
+        }
         return s.to_string();
     }
 

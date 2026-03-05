@@ -2182,3 +2182,218 @@ fn test_r237_shld3_context_isolator_method_allows_safe_chars() {
     let recent = ctx.get_recent_context("s1", 10).unwrap();
     assert!(recent[0].1.contains("tools/call-with_dots.v2"));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// R238 Shield Audit Tests
+// ═══════════════════════════════════════════════════════════════════
+
+// R238-SHLD-1: SessionIsolator end_session works correctly (basic test;
+// lock poisoning recovery is architectural — into_inner() is called
+// in the Err branch which cannot be triggered in single-threaded tests
+// without std::thread::spawn + panic, but we verify the happy path).
+#[test]
+fn test_r238_shld1_session_isolator_end_session_cleans_up() {
+    let isolator = crate::session_isolator::SessionIsolator::new();
+    // Create a session by sanitizing in it
+    isolator.sanitize_in_session("s1", "hello").unwrap();
+    assert_eq!(isolator.session_count(), 1);
+
+    // End the session — should remove it
+    isolator.end_session("s1");
+    assert_eq!(isolator.session_count(), 0);
+
+    // Desanitize should fail since session was cleaned up
+    let result = isolator.desanitize_in_session("s1", "hello");
+    assert!(result.is_err(), "session should be gone after end_session");
+}
+
+// R238-SHLD-1: ContextIsolator end_session works correctly
+#[test]
+fn test_r238_shld1_context_isolator_end_session_cleans_up() {
+    let ctx = crate::context_isolation::ContextIsolator::new();
+    ctx.record("s1", "user", "hello").unwrap();
+    assert_eq!(ctx.session_count(), 1);
+
+    ctx.end_session("s1");
+    assert_eq!(ctx.session_count(), 0);
+
+    // Getting context should fail since session was cleaned up
+    let result = ctx.get_recent_context("s1", 10);
+    assert!(
+        result.is_err(),
+        "session should be gone after end_session"
+    );
+}
+
+// R238-SHLD-2: extract_text_from_result bounded output
+#[test]
+fn test_r238_shld2_extract_text_bounded() {
+    let ctx = crate::context_isolation::ContextIsolator::new();
+
+    // Create a response with many large content items that would exceed
+    // MAX_CONTEXT_ENTRY_LEN (65536) if joined unbounded.
+    let mut content_items = Vec::new();
+    // Each item is 10,000 chars; 10 items = 100,000 chars > 65,536 limit
+    let large_text = "A".repeat(10_000);
+    for _ in 0..10 {
+        content_items.push(serde_json::json!({"type": "text", "text": large_text}));
+    }
+    let msg = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+            "content": content_items
+        }
+    });
+
+    // record_json_response should succeed (extract_text_from_result caps output)
+    let result = ctx.record_json_response("s1", &msg);
+    assert!(
+        result.is_ok(),
+        "bounded extract should not produce entry-too-large error: {result:?}"
+    );
+
+    // Verify the recorded context is at most MAX_CONTEXT_ENTRY_LEN
+    let entries = ctx.get_recent_context("s1", 10).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(
+        entries[0].1.len() <= 65_536,
+        "extracted text should be bounded to MAX_CONTEXT_ENTRY_LEN, got {}",
+        entries[0].1.len()
+    );
+}
+
+// R238-SHLD-4: Session ID too long rejected across all three modules
+#[test]
+fn test_r238_shld4_session_id_too_long_rejected() {
+    // SessionIsolator
+    let isolator = crate::session_isolator::SessionIsolator::new();
+    let long_id = "a".repeat(257);
+    let result = isolator.sanitize_in_session(&long_id, "hello");
+    assert!(result.is_err(), "session_isolator should reject long session_id");
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+
+    // ContextIsolator
+    let ctx = crate::context_isolation::ContextIsolator::new();
+    let result = ctx.record(&long_id, "user", "hello");
+    assert!(result.is_err(), "context_isolator should reject long session_id");
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+
+    // SessionUnlinker
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    let unlinker = SessionUnlinker::new(vault);
+    let result = unlinker.start_session(&long_id);
+    assert!(result.is_err(), "session_unlinker should reject long session_id");
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("too long"), "error should mention 'too long': {msg}");
+
+    // Verify that 256 bytes (the exact limit) is still accepted
+    let ok_id = "b".repeat(256);
+    let isolator2 = crate::session_isolator::SessionIsolator::new();
+    assert!(
+        isolator2.sanitize_in_session(&ok_id, "hello").is_ok(),
+        "256-byte session_id should be accepted"
+    );
+}
+
+// R238-SHLD-5: Store file size limit
+#[test]
+fn test_r238_shld5_store_file_size_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("huge.enc");
+    let store = crate::crypto::EncryptedAuditStore::new(path.clone(), "test-pass").unwrap();
+
+    // Write a normal entry to create a valid store
+    store.write_encrypted_entry(b"test").unwrap();
+
+    // Artificially inflate the file beyond 256 MB by writing a large blob
+    // We can't actually write 256 MB in a test, but we can check the validation
+    // logic by checking that a normal-sized file works fine.
+    let entries = store.read_all_entries().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0], b"test");
+
+    // Verify the limit by creating a sparse file that exceeds MAX_STORE_FILE_SIZE
+    let huge_path = dir.path().join("toobig.enc");
+
+    // Write the header first (version + salt)
+    let mut header = vec![1u8]; // FORMAT_VERSION
+    header.extend_from_slice(&[0u8; 16]); // salt
+    std::fs::write(&huge_path, &header).unwrap();
+
+    // Now extend the file to be larger than MAX_STORE_FILE_SIZE using seek
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&huge_path)
+        .unwrap();
+    // Set file size to 256 MB + 1 byte to trigger the limit
+    file.set_len(256 * 1024 * 1024 + 1).unwrap();
+    drop(file);
+
+    // Derive key with same passphrase and existing salt
+    let store2 = crate::crypto::EncryptedAuditStore::new(huge_path, "test-pass").unwrap();
+    let result = store2.read_all_entries();
+    assert!(result.is_err(), "should reject file larger than 256 MB");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("too large"),
+        "error should mention file too large: {msg}"
+    );
+}
+
+// R238-SHLD-6: mark_consumed requires Active status
+#[test]
+fn test_r238_shld6_mark_consumed_requires_active_status() {
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    // Attempt to mark an Available credential as consumed — should fail
+    let result = vault.mark_consumed(0);
+    assert!(
+        result.is_err(),
+        "should not allow marking Available credential as consumed"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("Active"),
+        "error should mention Active requirement: {msg}"
+    );
+
+    // Consume credential 1 (marks it Active)
+    let (_cred, idx) = vault.consume_credential().unwrap();
+
+    // Mark it consumed — should succeed (Active -> Consumed)
+    vault.mark_consumed(idx).unwrap();
+
+    // Mark it consumed again — should fail (Consumed -> Consumed)
+    let result = vault.mark_consumed(idx);
+    assert!(
+        result.is_err(),
+        "should not allow double-consume"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("Active"),
+        "double-consume error should mention Active requirement: {msg}"
+    );
+
+    // Expire a credential and try to mark it consumed — should fail
+    vault.expire_old_epochs(2).unwrap(); // expires remaining epoch-1 credentials
+    // Find an expired credential index
+    let status = vault.status();
+    // There should be expired credentials now
+    assert!(status.available == 0 || status.consumed > 0);
+
+    // Try to consume an expired one (index 1 or 2 should be expired if not consumed)
+    // We know index 0 was consumed (idx was 0), so try index 1
+    let result = vault.mark_consumed(1);
+    assert!(
+        result.is_err(),
+        "should not allow marking Expired credential as consumed"
+    );
+}

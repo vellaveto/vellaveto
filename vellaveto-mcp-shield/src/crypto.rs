@@ -170,8 +170,24 @@ impl EncryptedAuditStore {
     /// Prevents unbounded memory growth from a maliciously large store file.
     const MAX_STORE_ENTRIES: usize = 100_000;
 
+    /// Maximum store file size (256 MB).
+    /// SECURITY (R238-SHLD-5): Prevents loading a maliciously large store file
+    /// into memory. Checked before `std::fs::read()` to avoid the allocation.
+    const MAX_STORE_FILE_SIZE: u64 = 256 * 1024 * 1024;
+
     /// Read and decrypt all entries from the store.
     pub fn read_all_entries(&self) -> Result<Vec<Vec<u8>>, ShieldError> {
+        // SECURITY (R238-SHLD-5): Check file size before reading to prevent
+        // unbounded memory allocation from a maliciously large store file.
+        let metadata = std::fs::metadata(&self.path).map_err(ShieldError::Io)?;
+        if metadata.len() > Self::MAX_STORE_FILE_SIZE {
+            return Err(ShieldError::Decryption(format!(
+                "store file too large ({} bytes, max {} bytes)",
+                metadata.len(),
+                Self::MAX_STORE_FILE_SIZE
+            )));
+        }
+
         let data = std::fs::read(&self.path).map_err(ShieldError::Io)?;
         let header_len = 1 + SALT_LEN;
         if data.len() < header_len {

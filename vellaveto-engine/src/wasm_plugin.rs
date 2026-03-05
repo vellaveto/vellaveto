@@ -149,9 +149,11 @@ impl PluginAction {
     /// Deliberately excludes `resolved_ips` — plugin code should not be able
     /// to influence IP-based decisions, which are handled by the native engine.
     pub fn from_action(action: &Action) -> Self {
+        // SECURITY (R238-ENG-7): Normalize tool and function names so Wasm plugins
+        // doing string comparison cannot be bypassed via homoglyphs or case tricks.
         Self {
-            tool: action.tool.clone(),
-            function: action.function.clone(),
+            tool: crate::normalize::normalize_full(&action.tool),
+            function: crate::normalize::normalize_full(&action.function),
             parameters: action.parameters.clone(),
             target_paths: action.target_paths.clone(),
             target_domains: action.target_domains.clone(),

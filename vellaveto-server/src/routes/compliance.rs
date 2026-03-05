@@ -102,6 +102,10 @@ static COMPLIANCE_STATUS_CACHE: ReportCache = ReportCache::new();
 /// Uses a HashMap<String, CachedReport> for per-framework caching.
 static EVIDENCE_PACK_CACHE: Mutex<Option<HashMap<String, CachedReport>>> = Mutex::new(None);
 
+/// SECURITY (R238-SRV-7): Maximum number of entries in the evidence pack cache.
+/// Prevents unbounded HashMap growth from attacker-controlled framework names.
+const MAX_EVIDENCE_PACK_CACHE_ENTRIES: usize = 32;
+
 // ── Query Parameters ─────────────────────────────────────────────────────────
 
 /// Query parameters for the compliance status endpoint.
@@ -983,6 +987,18 @@ pub async fn evidence_pack(
                 }
             };
             let map = cache_guard.get_or_insert_with(HashMap::new);
+            // SECURITY (R238-SRV-7): Enforce cache size bound with LRU eviction.
+            // If at capacity and the key is not already present, evict the oldest entry.
+            if map.len() >= MAX_EVIDENCE_PACK_CACHE_ENTRIES && !map.contains_key(&framework) {
+                // Evict the entry with the oldest generated_at timestamp.
+                if let Some(oldest_key) = map
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.generated_at)
+                    .map(|(k, _)| k.clone())
+                {
+                    map.remove(&oldest_key);
+                }
+            }
             map.insert(
                 framework.clone(),
                 CachedReport {

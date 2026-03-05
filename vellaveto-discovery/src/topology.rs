@@ -49,6 +49,9 @@ pub const MAX_OUTPUT_HINTS: usize = 100;
 /// Maximum number of inferred dependencies per tool.
 pub const MAX_INFERRED_DEPS: usize = 100;
 
+/// Maximum length of a resource MIME type.
+pub const MAX_MIME_TYPE_LEN: usize = 256;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // NODE TYPES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -344,6 +347,14 @@ impl TopologyGraph {
                         MAX_TOOL_DESCRIPTION_LEN
                     )));
                 }
+                // SECURITY (R238-DISC-2): Reject control/format chars in tool descriptions
+                // to prevent injection into downstream UIs and LLM contexts.
+                if vellaveto_types::has_dangerous_chars(&tool_decl.description) {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Tool '{}' description on server '{}' contains control or format characters",
+                        tool_decl.name, server_decl.name
+                    )));
+                }
 
                 let qualified = format!("{}::{}", server_decl.name, tool_decl.name);
                 if index.contains_key(&qualified) {
@@ -398,6 +409,29 @@ impl TopologyGraph {
                         resource_decl.uri_template.len(),
                         MAX_URI_TEMPLATE_LEN
                     )));
+                }
+                // SECURITY (R238-DISC-3): Reject control/format chars in URI templates
+                // to prevent injection into downstream URL handling.
+                if vellaveto_types::has_dangerous_chars(&resource_decl.uri_template) {
+                    return Err(DiscoveryError::ValidationError(format!(
+                        "Resource '{}' URI template on server '{}' contains control or format characters",
+                        resource_decl.name, server_decl.name
+                    )));
+                }
+                // SECURITY (R238-DISC-5): Validate mime_type field — length and dangerous chars.
+                if let Some(ref mt) = resource_decl.mime_type {
+                    if mt.len() > MAX_MIME_TYPE_LEN {
+                        return Err(DiscoveryError::ValidationError(format!(
+                            "Resource '{}' mime_type exceeds max length {}",
+                            resource_decl.name, MAX_MIME_TYPE_LEN
+                        )));
+                    }
+                    if vellaveto_types::has_dangerous_chars(mt) {
+                        return Err(DiscoveryError::ValidationError(format!(
+                            "Resource '{}' mime_type contains dangerous characters",
+                            resource_decl.name
+                        )));
+                    }
                 }
 
                 let qualified = format!("{}::{}", server_decl.name, resource_decl.name);

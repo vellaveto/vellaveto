@@ -16,6 +16,11 @@ use vellaveto_audit::PiiScanner;
 /// Maximum number of concurrent sessions.
 const MAX_SESSIONS: usize = 1_000;
 
+/// Maximum length of a session ID in bytes.
+/// SECURITY (R238-SHLD-4): Prevents unbounded session ID strings from
+/// consuming excessive memory in HashMap keys.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 /// Maximum history entries per session.
 const MAX_HISTORY_PER_SESSION: usize = 10_000;
 
@@ -51,7 +56,7 @@ impl SessionIsolator {
         }
     }
 
-    /// Validate session_id for dangerous characters.
+    /// Validate session_id for dangerous characters and length.
     fn validate_session_id(session_id: &str) -> Result<(), ShieldError> {
         // SECURITY (R234-SHIELD-4): Reject session IDs with control chars, bidi
         // overrides, zero-width chars, etc. These can cause log injection, HashMap
@@ -60,6 +65,14 @@ impl SessionIsolator {
             return Err(ShieldError::SessionIsolation(
                 "session_id must not be empty".to_string(),
             ));
+        }
+        // SECURITY (R238-SHLD-4): Reject session IDs exceeding MAX_SESSION_ID_LEN
+        // to prevent excessive memory consumption in HashMap keys.
+        if session_id.len() > MAX_SESSION_ID_LEN {
+            return Err(ShieldError::SessionIsolation(format!(
+                "session_id too long ({} bytes, max {MAX_SESSION_ID_LEN})",
+                session_id.len()
+            )));
         }
         if vellaveto_types::has_dangerous_chars(session_id) {
             return Err(ShieldError::SessionIsolation(
@@ -144,9 +157,21 @@ impl SessionIsolator {
     }
 
     /// End a session, wiping all state.
+    ///
+    /// SECURITY (R238-SHLD-1): Recovers from lock poisoning via `into_inner()`
+    /// to ensure PII mappings are always cleared. Silently skipping cleanup
+    /// on poisoning would leave sensitive data in memory.
     pub fn end_session(&self, session_id: &str) {
-        if let Ok(mut sessions) = self.sessions.lock() {
-            sessions.remove(session_id);
+        match self.sessions.lock() {
+            Ok(mut sessions) => {
+                sessions.remove(session_id);
+            }
+            Err(poisoned) => {
+                tracing::error!(
+                    "SECURITY (R238-SHLD-1): sessions lock poisoned during end_session — recovering"
+                );
+                poisoned.into_inner().remove(session_id);
+            }
         }
     }
 

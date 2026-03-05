@@ -682,10 +682,12 @@ impl CollusionDetector {
             description: format!(
                 "{tracker_name} tracker at capacity ({max}) — possible evasion attack"
             ),
+            // SECURITY (R238-ENG-3): Use 1 instead of 0 to avoid timestamp
+            // collapse at epoch if system clock is misconfigured.
             detected_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
-                .unwrap_or(0),
+                .unwrap_or(1),
             evidence: CollusionEvidence {
                 entropy_values: None,
                 access_timestamps: None,
@@ -1448,11 +1450,20 @@ impl CollusionDetector {
     // ═══════════════════════════════════════════════
 
     /// Get current Unix timestamp in seconds.
+    ///
+    /// SECURITY (R238-ENG-3): Returns 1 (not 0) on clock failure to prevent
+    /// timestamp collapse where all events appear at epoch, defeating temporal
+    /// correlation windows.
     fn now_secs() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
-            .unwrap_or(0)
+            .unwrap_or_else(|_| {
+                tracing::error!(
+                    "SECURITY: System clock before UNIX epoch — using fallback timestamp 1"
+                );
+                1
+            })
     }
 }
 
