@@ -160,7 +160,7 @@ jobs:
         run: |
           echo "=== Checking extracted functions match production signatures ==="
           # Core functions that must stay in sync
-          grep -q 'pub fn is_private_ip' vellaveto-engine/src/ip.rs
+          grep -q 'fn is_private_ip' vellaveto-engine/src/ip.rs
           grep -q 'pub fn is_private_ipv4' formal/kani/src/ip.rs
           grep -q 'pub fn compute_entropy' vellaveto-engine/src/collusion.rs
           grep -q 'pub fn compute_entropy' formal/kani/src/entropy.rs
