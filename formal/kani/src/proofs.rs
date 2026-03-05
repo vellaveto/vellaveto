@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 68 harnesses verifying security properties using CBMC bounded model
+//! 77 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -30,6 +30,10 @@
 //! K61-K63: IDNA domain normalization fail-closed
 //! K64-K65: Unicode homoglyph normalization
 //! K66-K68: RwLock poisoning fail-closed
+//! K69-K70: PII sanitizer bidirectional correctness
+//! K71-K72: Collusion temporal window correctness
+//! K73-K75: Cascading failure FSM implementation-level transitions
+//! K76-K77: Injection scanner decode pipeline completeness
 
 use crate::path;
 use crate::Verdict;
@@ -2043,4 +2047,331 @@ fn proof_all_lock_poison_handlers_safe() {
     // Stronger: none produce Normal (poison always degrades)
     assert_ne!(outcome, LockOutcome::Normal,
         "K68 violated: poison produced Normal outcome");
+}
+
+// =========================================================================
+// K69: PII token insertion + replacement round-trip (inversion correctness)
+// =========================================================================
+
+#[kani::proof]
+#[kani::unwind(8)]
+fn proof_sanitizer_roundtrip_inversion() {
+    use crate::sanitizer::{sanitize_and_record, desanitize, make_token, contains_token_prefix};
+
+    // Create a small input without token patterns
+    let prefix = "Hi ";
+    let pii = "user@ex.com";
+    let suffix = " bye";
+    let input = format!("{}{}{}", prefix, pii, suffix);
+
+    // Precondition: input doesn't contain token prefix (no collision)
+    kani::assume(!contains_token_prefix(&input));
+
+    let matches = vec![crate::sanitizer::PiiMatch {
+        start: prefix.len(),
+        end: prefix.len() + pii.len(),
+        category: 0,
+    }];
+
+    let (sanitized, mappings, final_seq) = sanitize_and_record(&input, &matches, 0);
+    let restored = desanitize(&sanitized, &mappings);
+
+    // K69: Round-trip inversion
+    assert_eq!(restored, input,
+        "K69 violated: desanitize(sanitize(input)) != input");
+
+    // K70: Token uniqueness (sequence advanced)
+    assert_eq!(final_seq, 1,
+        "K70 violated: sequence didn't advance by match count");
+
+    // Verify the token is unique
+    let token = make_token(0, 0);
+    assert!(sanitized.contains(&token),
+        "K69: sanitized output should contain the token");
+}
+
+// =========================================================================
+// K70: PII token uniqueness from monotonic sequence counter
+// =========================================================================
+
+#[kani::proof]
+fn proof_sanitizer_token_uniqueness() {
+    use crate::sanitizer::make_token;
+
+    let cat1: u8 = kani::any();
+    let cat2: u8 = kani::any();
+    let seq1: u64 = kani::any();
+    let seq2: u64 = kani::any();
+    kani::assume(cat1 < 4 && cat2 < 4);
+    kani::assume(seq1 <= 999999 && seq2 <= 999999); // 6-digit range
+
+    // If category or sequence differ, tokens must differ
+    kani::assume(cat1 != cat2 || seq1 != seq2);
+
+    let t1 = make_token(cat1, seq1);
+    let t2 = make_token(cat2, seq2);
+
+    assert_ne!(t1, t2,
+        "K70 violated: distinct (category, sequence) pairs produced identical tokens");
+}
+
+// =========================================================================
+// K71: Temporal window — events outside window are expired
+// =========================================================================
+
+#[kani::proof]
+#[kani::unwind(6)]
+fn proof_temporal_window_expiry() {
+    use crate::temporal_window::{WindowEvent, expire_events, count_in_window};
+    use std::collections::VecDeque;
+
+    let now: u64 = kani::any();
+    let window_secs: u64 = kani::any();
+    kani::assume(window_secs > 0 && window_secs <= 86400); // 1s to 24h
+    kani::assume(now >= window_secs); // Avoid trivial case where cutoff = 0
+
+    let ts: u64 = kani::any();
+    kani::assume(ts <= now);
+
+    let mut events = VecDeque::new();
+    events.push_back(WindowEvent { timestamp: ts, is_error: false });
+
+    let cutoff = now.saturating_sub(window_secs);
+
+    if ts < cutoff {
+        // Event is outside window → should be expired
+        expire_events(&mut events, now, window_secs);
+        assert!(events.is_empty(),
+            "K71 violated: event outside window not expired");
+
+        // count_in_window should also exclude it
+        let mut events2 = VecDeque::new();
+        events2.push_back(WindowEvent { timestamp: ts, is_error: false });
+        let (total, _) = count_in_window(&events2, now, window_secs);
+        assert_eq!(total, 0,
+            "K71 violated: event outside window counted");
+    }
+}
+
+// =========================================================================
+// K72: Temporal window — boundary precision
+// =========================================================================
+
+#[kani::proof]
+fn proof_temporal_window_boundary() {
+    use crate::temporal_window::{WindowEvent, count_in_window};
+    use std::collections::VecDeque;
+
+    let now: u64 = kani::any();
+    let window_secs: u64 = kani::any();
+    kani::assume(window_secs > 0 && window_secs <= 86400);
+    kani::assume(now >= window_secs);
+
+    let cutoff = now.saturating_sub(window_secs);
+
+    // Event at exactly cutoff → must be INCLUDED (>= cutoff)
+    let mut events = VecDeque::new();
+    events.push_back(WindowEvent { timestamp: cutoff, is_error: false });
+    let (total, _) = count_in_window(&events, now, window_secs);
+    assert_eq!(total, 1,
+        "K72 violated: event at exactly cutoff boundary excluded");
+
+    // Event at cutoff - 1 → must be EXCLUDED (< cutoff)
+    if cutoff > 0 {
+        let mut events2 = VecDeque::new();
+        events2.push_back(WindowEvent { timestamp: cutoff - 1, is_error: false });
+        let (total2, _) = count_in_window(&events2, now, window_secs);
+        assert_eq!(total2, 0,
+            "K72 violated: event before cutoff boundary included");
+    }
+}
+
+// =========================================================================
+// K73: Cascading FSM — Closed→Open requires threshold AND min_events
+// =========================================================================
+
+#[kani::proof]
+fn proof_cascading_fsm_break_guard() {
+    use crate::cascading_fsm::{PipelineState, BreakerConfig, should_break};
+
+    let error_count: u64 = kani::any();
+    let total_count: u64 = kani::any();
+    let min_events: u32 = kani::any();
+    let threshold_pct: u32 = kani::any();
+
+    kani::assume(total_count <= 1000);
+    kani::assume(error_count <= total_count);
+    kani::assume(min_events > 0 && min_events <= 100);
+    kani::assume(threshold_pct > 0 && threshold_pct <= 100);
+
+    let threshold = threshold_pct as f64 / 100.0;
+    let config = BreakerConfig {
+        error_rate_threshold: threshold,
+        min_window_events: min_events,
+        break_duration_secs: 30,
+    };
+
+    let state = PipelineState {
+        is_broken: false,
+        broken_at: None,
+        break_count: 0,
+        error_count_in_window: error_count,
+        total_count_in_window: total_count,
+    };
+
+    let result = should_break(&state, &config);
+
+    // K73: If should_break is true, BOTH conditions must hold
+    if result {
+        assert!(total_count >= min_events as u64,
+            "K73 violated: broke circuit without enough events");
+        if total_count > 0 {
+            let rate = error_count as f64 / total_count as f64;
+            assert!(rate >= threshold || !rate.is_finite(),
+                "K73 violated: broke circuit below threshold");
+        }
+    }
+}
+
+// =========================================================================
+// K74: Cascading FSM — half-open probe after break_duration
+// =========================================================================
+
+#[kani::proof]
+fn proof_cascading_fsm_probe_timing() {
+    use crate::cascading_fsm::{PipelineState, BreakerConfig, should_allow_probe};
+
+    let broken_at: u64 = kani::any();
+    let now: u64 = kani::any();
+    let break_duration: u64 = kani::any();
+
+    kani::assume(break_duration > 0 && break_duration <= 3600);
+    kani::assume(now <= u64::MAX / 2); // Avoid overflow in add
+    kani::assume(broken_at <= now);
+
+    let config = BreakerConfig {
+        error_rate_threshold: 0.5,
+        min_window_events: 10,
+        break_duration_secs: break_duration,
+    };
+
+    let state = PipelineState {
+        is_broken: true,
+        broken_at: Some(broken_at),
+        break_count: 1,
+        error_count_in_window: 0,
+        total_count_in_window: 0,
+    };
+
+    let result = should_allow_probe(&state, now, &config);
+
+    // K74: Probe allowed iff now >= broken_at + break_duration
+    let expected = now >= broken_at.saturating_add(break_duration);
+    assert_eq!(result, expected,
+        "K74 violated: probe timing mismatch");
+}
+
+// =========================================================================
+// K75: Cascading FSM — recovery requires error_rate < threshold
+// =========================================================================
+
+#[kani::proof]
+fn proof_cascading_fsm_recovery_guard() {
+    use crate::cascading_fsm::{PipelineState, BreakerConfig, try_recover};
+
+    let error_count: u64 = kani::any();
+    let total_count: u64 = kani::any();
+    kani::assume(total_count <= 100);
+    kani::assume(error_count <= total_count);
+
+    let config = BreakerConfig {
+        error_rate_threshold: 0.5,
+        min_window_events: 10,
+        break_duration_secs: 30,
+    };
+
+    let mut state = PipelineState {
+        is_broken: true,
+        broken_at: Some(100),
+        break_count: 1,
+        error_count_in_window: error_count,
+        total_count_in_window: total_count,
+    };
+
+    // Set now well past break_duration to isolate error_rate guard
+    let recovered = try_recover(&mut state, 200, &config);
+
+    if recovered {
+        // K75: If recovery succeeded, error_rate must be < threshold
+        if total_count > 0 {
+            let rate = error_count as f64 / total_count as f64;
+            assert!(rate < config.error_rate_threshold,
+                "K75 violated: recovered with error_rate >= threshold");
+        }
+        assert!(!state.is_broken, "K75: recovered state must not be broken");
+    }
+}
+
+// =========================================================================
+// K76: Injection decode pipeline completeness
+// =========================================================================
+
+#[kani::proof]
+fn proof_injection_pipeline_completeness() {
+    use crate::injection_pipeline::{DECODE_PIPELINE, DecodeStage};
+
+    // K76: Pipeline has all 7 stages
+    assert_eq!(DECODE_PIPELINE.len(), 7,
+        "K76 violated: pipeline doesn't have exactly 7 stages");
+
+    // Verify ordering constraints
+    let url_pos = DECODE_PIPELINE.iter()
+        .position(|s| *s == DecodeStage::UrlDecode).unwrap();
+    let html_pos = DECODE_PIPELINE.iter()
+        .position(|s| *s == DecodeStage::HtmlEntityDecode).unwrap();
+    let double_pos = DECODE_PIPELINE.iter()
+        .position(|s| *s == DecodeStage::DoubleHtmlEntityDecode).unwrap();
+
+    assert!(url_pos < html_pos,
+        "K76 violated: URL decode must precede HTML decode");
+    assert!(html_pos < double_pos,
+        "K76 violated: HTML decode must precede double HTML decode");
+}
+
+// =========================================================================
+// K77: Injection — known patterns detected after decode chain
+// =========================================================================
+
+#[kani::proof]
+#[kani::unwind(20)]
+fn proof_injection_known_patterns_detected() {
+    use crate::injection_pipeline::{
+        url_decode, html_entity_decode, rot13_decode, contains_critical_pattern,
+    };
+
+    let pattern_idx: usize = kani::any();
+    kani::assume(pattern_idx < 4); // Check first 4 critical patterns
+
+    // URL-encoded versions of critical patterns must be detected after decode
+    let encoded = match pattern_idx {
+        0 => "%3Cscript%3E", // <script>
+        1 => "%3Coverride%3E", // <override>
+        2 => "%5BSYSTEM%5D", // [SYSTEM]
+        _ => "javascript%3A", // javascript:
+    };
+
+    let decoded = url_decode(encoded);
+    assert!(contains_critical_pattern(&decoded),
+        "K77 violated: URL-encoded attack pattern not detected after decode");
+
+    // HTML entity encoded versions
+    let html_encoded = match pattern_idx {
+        0 => "&lt;script&gt;",
+        1 => "&lt;override&gt;",
+        _ => return, // Only first two have HTML entity variants
+    };
+
+    let html_decoded = html_entity_decode(html_encoded);
+    assert!(contains_critical_pattern(&html_decoded),
+        "K77 violated: HTML-entity-encoded attack pattern not detected after decode");
 }

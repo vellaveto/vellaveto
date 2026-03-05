@@ -103,8 +103,9 @@ theorem s12_transitive_attenuation (t : CapToken) (chain : List CapToken)
     (hchain : AncestorChain t chain)
     (ancestor : CapToken) (h_in : ancestor ∈ chain) :
     attenuated t ancestor := by
-  induction hchain with
-  | root => exact absurd h_in (List.not_mem_nil ancestor)
+  induction hchain generalizing ancestor with
+  | root =>
+    exact absurd h_in (List.not_mem_nil ancestor)
   | step child parent rest hwf _hparent ih =>
     cases h_in with
     | head =>
@@ -131,8 +132,9 @@ theorem s13_depth_bounded (t : CapToken) (chain : List CapToken)
     (hchain : AncestorChain t chain)
     (ancestor : CapToken) (h_in : ancestor ∈ chain) :
     t.remainingDepth < ancestor.remainingDepth := by
-  induction hchain with
-  | root => exact absurd h_in (List.not_mem_nil ancestor)
+  induction hchain generalizing ancestor with
+  | root =>
+    exact absurd h_in (List.not_mem_nil ancestor)
   | step child parent rest hwf _hparent ih =>
     cases h_in with
     | head =>

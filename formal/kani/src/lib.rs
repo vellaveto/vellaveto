@@ -90,6 +90,15 @@
 //! | K66 | Cache lock poison → cache miss (never stale Allow) | Lock safety |
 //! | K67 | Deputy lock poison → InternalError (Deny) | Lock safety |
 //! | K68 | All lock poison handlers produce safe outcome | Lock safety |
+//! | K69 | PII token insertion + replacement round-trip (inversion) | Sanitizer bidirectional |
+//! | K70 | PII token uniqueness from monotonic sequence counter | Sanitizer bidirectional |
+//! | K71 | Temporal window: events outside window expired (no stale) | Collusion temporal |
+//! | K72 | Temporal window: boundary precision (>= cutoff included) | Collusion temporal |
+//! | K73 | Cascading FSM: Closed→Open requires threshold AND min_events | Cascading FSM |
+//! | K74 | Cascading FSM: half-open probe after break_duration | Cascading FSM |
+//! | K75 | Cascading FSM: recovery requires error_rate < threshold | Cascading FSM |
+//! | K76 | Injection decode pipeline completeness (7 stages ordered) | Injection completeness |
+//! | K77 | Injection: known patterns detected after decode chain | Injection completeness |
 //!
 //! # Source Correspondence
 //!
@@ -108,6 +117,10 @@
 //! - `domain.rs`: Extracted from `vellaveto-engine/src/domain.rs` (IDNA wrapper)
 //! - `unicode.rs`: Extracted from `vellaveto-types/src/unicode.rs` (homoglyph mapping)
 //! - `lock_safety.rs`: Models RwLock poisoning handlers across engine/MCP
+//! - `sanitizer.rs`: Extracted from `vellaveto-mcp-shield/src/sanitizer.rs` (PII inversion)
+//! - `temporal_window.rs`: Extracted from `vellaveto-engine/src/collusion.rs` (sliding window)
+//! - `cascading_fsm.rs`: Extracted from `vellaveto-engine/src/cascading.rs` (circuit breaker FSM)
+//! - `injection_pipeline.rs`: Extracted from `vellaveto-mcp/src/inspection/injection.rs` (decode chain)
 
 pub mod path;
 pub mod verified_core;
@@ -124,6 +137,10 @@ pub mod entropy;
 pub mod domain;
 pub mod unicode;
 pub mod lock_safety;
+pub mod sanitizer;
+pub mod temporal_window;
+pub mod cascading_fsm;
+pub mod injection_pipeline;
 
 #[cfg(kani)]
 mod proofs;

@@ -26,7 +26,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9–V10 | Path normalization idempotency + no-traversal (ALL inputs, actual Rust) |
-| `kani/src/proofs.rs` | Kani | K1–K68 | Bounded model checking of actual Rust (68 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K77 | Bounded model checking of actual Rust (77 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -35,13 +35,13 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**242 verification instances** across 7 tools:
+**251 verification instances** across 7 tools:
 - **Verus:** 28 verified functions on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 68 proof harnesses on actual Rust code (bounded) — K1-K68
+- **Kani:** 77 proof harnesses on actual Rust code (bounded) — K1-K77
 
 ## Coverage Matrix
 
@@ -98,6 +98,10 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | **AC3: Sequence monotonicity** | AC3 | — | — | — | — | — |
 | **AC4: Hash uniqueness** | AC4 | — | — | — | — | — |
 | **AC6: Last hash consistency** | AC6 | — | — | — | — | — |
+| **PII inversion correct** | — | — | — | — | — | K69, K70 |
+| **Temporal window expiry** | — | — | — | — | — | K71, K72 |
+| **Cascading FSM transitions** | C1–C5 | — | — | C1–C5 | — | K49–K52, K73–K75 |
+| **Injection decode complete** | — | — | — | — | — | K76, K77 |
 
 ## Directory Structure
 
@@ -177,6 +181,10 @@ formal/
       domain.rs                      ← IDNA domain normalization wrapper
       unicode.rs                     ← Homoglyph normalization (from vellaveto-types)
       lock_safety.rs                 ← RwLock poisoning fail-closed predicates
+      sanitizer.rs                   ← PII sanitizer bidirectional inversion
+      temporal_window.rs             ← Collusion temporal window correctness
+      cascading_fsm.rs               ← Cascading failure FSM transitions
+      injection_pipeline.rs          ← Injection scanner decode pipeline
 ```
 
 ## Tooling Setup

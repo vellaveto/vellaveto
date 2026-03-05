@@ -41,7 +41,7 @@ inductive AbacDecision where
 
 section AbacEval
 
-variable (matches : AbacPolicy -> Bool)
+variable (policyMatches : AbacPolicy -> Bool)
 
 /-- Core ABAC combining algorithm: scan policies in order.
     First forbid match -> Deny (immediate exit).
@@ -54,7 +54,7 @@ def abacEval (policies : List AbacPolicy) (bestPermit : Option String) : AbacDec
     | some pid => AbacDecision.allow pid
     | none => AbacDecision.noMatch
   | p :: ps =>
-    if matches p then
+    if policyMatches p then
       match p.effect with
       | .forbid => AbacDecision.deny p.id  -- S7: immediate exit
       | .permit =>
@@ -69,8 +69,8 @@ def abacEval (policies : List AbacPolicy) (bestPermit : Option String) : AbacDec
 
 /-- Helper: if the head is a matching forbid, result is Deny. -/
 theorem abacEval_head_forbid (p : AbacPolicy) (ps : List AbacPolicy)
-    (bp : Option String) (hm : matches p = true) (he : p.effect = AbacEffect.forbid) :
-    abacEval matches (p :: ps) bp = AbacDecision.deny p.id := by
+    (bp : Option String) (hm : policyMatches p = true) (he : p.effect = AbacEffect.forbid) :
+    abacEval policyMatches (p :: ps) bp = AbacDecision.deny p.id := by
   simp [abacEval, hm, he]
 
 /-- If a matching forbid exists anywhere in the policy list,
@@ -78,8 +78,8 @@ theorem abacEval_head_forbid (p : AbacPolicy) (ps : List AbacPolicy)
     This is the core ABAC invariant: forbid dominance. -/
 theorem s7_forbid_dominance
     (policies : List AbacPolicy) (bp : Option String)
-    (h : ∃ p ∈ policies, matches p = true ∧ p.effect = AbacEffect.forbid) :
-    ∃ pid, abacEval matches policies bp = AbacDecision.deny pid := by
+    (h : ∃ p ∈ policies, policyMatches p = true ∧ p.effect = AbacEffect.forbid) :
+    ∃ pid, abacEval policyMatches policies bp = AbacDecision.deny pid := by
   induction policies with
   | nil =>
     obtain ⟨p, hp, _⟩ := h
@@ -87,7 +87,7 @@ theorem s7_forbid_dominance
   | cons q qs ih =>
     obtain ⟨p, hp_mem, hp_match, hp_eff⟩ := h
     simp [abacEval]
-    cases hq : matches q
+    cases hq : policyMatches q
     · -- q does not match
       simp [hq]
       cases hp_mem with
@@ -116,10 +116,10 @@ theorem s8_forbid_ignores_priority
     (policies : List AbacPolicy) (bp : Option String)
     (pf pp : AbacPolicy)
     (hf_in : pf ∈ policies) (hp_in : pp ∈ policies)
-    (hf_match : matches pf = true) (hf_eff : pf.effect = AbacEffect.forbid)
-    (_hp_match : matches pp = true) (_hp_eff : pp.effect = AbacEffect.permit) :
-    ∃ pid, abacEval matches policies bp = AbacDecision.deny pid :=
-  s7_forbid_dominance matches policies bp ⟨pf, hf_in, hf_match, hf_eff⟩
+    (hf_match : policyMatches pf = true) (hf_eff : pf.effect = AbacEffect.forbid)
+    (_hp_match : policyMatches pp = true) (_hp_eff : pp.effect = AbacEffect.permit) :
+    ∃ pid, abacEval policyMatches policies bp = AbacDecision.deny pid :=
+  s7_forbid_dominance policyMatches policies bp ⟨pf, hf_in, hf_match, hf_eff⟩
 
 /-! ## S9: Permit Requires No Forbid -/
 
@@ -127,10 +127,10 @@ theorem s8_forbid_ignores_priority
     in the policy list. Contrapositive of S7. -/
 theorem s9_permit_requires_no_forbid
     (policies : List AbacPolicy) (bp : Option String) (pid : String)
-    (hresult : abacEval matches policies bp = AbacDecision.allow pid) :
-    ¬ ∃ p ∈ policies, matches p = true ∧ p.effect = AbacEffect.forbid := by
+    (hresult : abacEval policyMatches policies bp = AbacDecision.allow pid) :
+    ¬ ∃ p ∈ policies, policyMatches p = true ∧ p.effect = AbacEffect.forbid := by
   intro hcontra
-  obtain ⟨fid, hfid⟩ := s7_forbid_dominance matches policies bp hcontra
+  obtain ⟨fid, hfid⟩ := s7_forbid_dominance policyMatches policies bp hcontra
   rw [hfid] at hresult
   exact absurd hresult (by simp [AbacDecision.deny, AbacDecision.allow])
 
@@ -140,8 +140,8 @@ theorem s9_permit_requires_no_forbid
     dictates. Starting with `None`, it returns `NoMatch`. -/
 theorem s10_no_match_noMatch
     (policies : List AbacPolicy)
-    (h_none : ∀ p ∈ policies, matches p = false) :
-    abacEval matches policies none = AbacDecision.noMatch := by
+    (h_none : ∀ p ∈ policies, policyMatches p = false) :
+    abacEval policyMatches policies none = AbacDecision.noMatch := by
   induction policies with
   | nil => rfl
   | cons q qs ih =>

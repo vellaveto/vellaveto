@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   tla-plus:
-    name: "TLA+ Model Checking (6 specs)"
+    name: "TLA+ Model Checking (8 specs)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -57,11 +57,11 @@ jobs:
           curl -sSL -o formal/tla/tla2tools.jar \
             "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
 
-      - name: Run TLC on all 6 specifications
+      - name: Run TLC on all 8 specifications
         working-directory: formal/tla
         run: |
           set -e
-          for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do
+          for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do
             mc="MC_${spec}.tla"
             main="${spec}.tla"
             cfg="${spec}.cfg"
@@ -135,7 +135,7 @@ jobs:
           fi
 
   kani:
-    name: "Kani (68 harnesses — K1-K68)"
+    name: "Kani (77 harnesses — K1-K77)"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -152,7 +152,7 @@ jobs:
       - name: Verify extracted code correspondence (unit tests)
         working-directory: formal/kani
         run: |
-          echo "=== Running Kani production parity unit tests (109 tests) ==="
+          echo "=== Running Kani production parity unit tests (141 tests) ==="
           echo "These tests verify extracted algorithms match production behavior."
           cargo test --lib
 

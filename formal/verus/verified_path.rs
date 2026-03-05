@@ -211,10 +211,10 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
 pub proof fn lemma_normalize_idempotent(path: &Vec<u8>)
     ensures
         ({
-            let (ok1, norm1) = normalize_path_bytes(path);
-            ok1 ==> ({
-                let (ok2, norm2) = normalize_path_bytes(&norm1);
-                ok2 && norm2 == norm1
+            let r1 = normalize_path_bytes(path);
+            r1.0 ==> ({
+                let r2 = normalize_path_bytes(&r1.1);
+                r2.0 && r2.1 == r1.1
             })
         }),
 {
