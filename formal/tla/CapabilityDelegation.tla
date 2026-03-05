@@ -225,10 +225,10 @@ InvariantD5_TerminalIsolation ==
 (* happens (system quiesces). The depth is bounded and strictly           *)
 (* decreasing, so infinite delegation from a single chain is impossible.  *)
 (*                                                                        *)
-(* Formulated: if tokens exist, eventually some token has depth=0 OR      *)
-(* the system stops changing.                                             *)
+(* Formulated: if tokens exist, eventually some token has depth=0.        *)
+(* Depth is bounded and strictly decreasing, so chains are finite.        *)
 (**************************************************************************)
 LivenessDL1_ChainTermination ==
-    tokens # {} ~> (\E t \in tokens : t.depth = 0) \/ (UNCHANGED vars)
+    tokens # {} ~> (\E t \in tokens : t.depth = 0)
 
 =========================================================================

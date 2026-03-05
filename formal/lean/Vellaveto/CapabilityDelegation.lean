@@ -113,7 +113,7 @@ theorem s12_transitive_attenuation (t : CapToken) (chain : List CapToken)
     | tail _ h_rest =>
       exact attenuated_trans child parent ancestor
         (s11_monotonic_attenuation child parent hwf)
-        (ih h_rest)
+        (ih ancestor h_rest)
 
 /-! ## S13: Depth Bounded -/
 
@@ -140,7 +140,7 @@ theorem s13_depth_bounded (t : CapToken) (chain : List CapToken)
     | head =>
       exact depth_step child parent hwf
     | tail _ h_rest =>
-      exact Nat.lt_trans (depth_step child parent hwf) (ih h_rest)
+      exact Nat.lt_trans (depth_step child parent hwf) (ih ancestor h_rest)
 
 /-! ## S14: Temporal Monotonicity -/
 

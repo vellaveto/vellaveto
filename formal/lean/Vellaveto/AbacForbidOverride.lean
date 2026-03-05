@@ -80,7 +80,7 @@ theorem s7_forbid_dominance
     (policies : List AbacPolicy) (bp : Option String)
     (h : ∃ p ∈ policies, policyMatches p = true ∧ p.effect = AbacEffect.forbid) :
     ∃ pid, abacEval policyMatches policies bp = AbacDecision.deny pid := by
-  induction policies with
+  induction policies generalizing bp with
   | nil =>
     obtain ⟨p, hp, _⟩ := h
     exact absurd hp (List.not_mem_nil p)
