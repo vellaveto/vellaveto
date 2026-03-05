@@ -14,6 +14,8 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `MCPTaskLifecycle.tla` | TLA+ | T1–T5, TL1–TL2 | MCP Task primitive lifecycle state machine |
 | `CascadingFailure.tla` | TLA+ | C1–C5, CL1–CL2 | Multi-agent cascading failure circuit breaker |
 | `CapabilityDelegation.tla` | TLA+ | D1–D5, DL1 | Capability delegation depth/expiry/issuer invariants |
+| `CredentialVault.tla` | TLA+ | CV1–CV8, CVL1 | Credential vault state machine (Available→Active→Consumed) |
+| `AuditChain.tla` | TLA+ | AC1–AC9, ACL1 | Audit hash chain integrity (append-only, tamper-evident) |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 | `AbacForbidOverride.als` | Alloy | S7–S10 | ABAC forbid-override combining algorithm |
 | `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |
@@ -33,9 +35,9 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**220 verification instances** across 7 tools:
-- **Verus:** 27 proofs on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
-- **TLA+:** 34 safety invariants + 8 liveness properties (6 specs)
+**242 verification instances** across 7 tools:
+- **Verus:** 28 verified functions on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
+- **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
@@ -85,6 +87,17 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | **Homoglyph idempotent** | — | — | — | — | — | K64 |
 | **Confusable → ASCII** | — | — | — | — | — | K65 |
 | **Lock poison safe** | — | — | — | — | — | K66, K67, K68 |
+| **CV1: No double-consumption** | CV1 | — | — | — | — | — |
+| **CV2: Active-only consume** | CV2 | — | — | — | — | — |
+| **CV3: Epoch monotonicity** | CV3 | — | — | — | — | — |
+| **CV4: Capacity bounded** | CV4 | — | — | — | — | — |
+| **CV5: Fail-closed exhaustion** | CV5 | — | — | — | — | — |
+| **CV6: Binding uniqueness** | CV6 | — | — | — | — | — |
+| **CV7: Active implies bound** | CV7 | — | — | — | — | — |
+| **AC2: Chain linkage** | AC2 | — | — | — | — | — |
+| **AC3: Sequence monotonicity** | AC3 | — | — | — | — | — |
+| **AC4: Hash uniqueness** | AC4 | — | — | — | — | — |
+| **AC6: Last hash consistency** | AC6 | — | — | — | — | — |
 
 ## Directory Structure
 
@@ -108,6 +121,12 @@ formal/
     CapabilityDelegation.tla         ← Capability delegation state machine
     MC_CapabilityDelegation.tla      ← Model companion (principals, depth)
     CapabilityDelegation.cfg         ← TLC configuration for delegation
+    CredentialVault.tla              ← Credential vault state machine (CV1-CV8)
+    MC_CredentialVault.tla           ← Model companion (credentials, sessions)
+    CredentialVault.cfg              ← TLC configuration for credential vault
+    AuditChain.tla                   ← Audit hash chain integrity (AC1-AC9)
+    MC_AuditChain.tla                ← Model companion (entries, hashes)
+    AuditChain.cfg                   ← TLC configuration for audit chain
   alloy/
     CapabilityDelegation.als         ← Capability token delegation model (S11-S16)
     AbacForbidOverride.als           ← ABAC forbid-override model (S7-S10)
@@ -265,6 +284,33 @@ java -jar tla2tools.jar -config CascadingFailure.cfg MC_CascadingFailure.tla
 
 Expected output: all 5 invariants and 2 temporal properties pass with zero violations.
 
+### TLA+ Credential Vault (CV1–CV8, CVL1)
+
+```bash
+cd formal/tla
+java -jar tla2tools.jar -config CredentialVault.cfg MC_CredentialVault.tla
+```
+
+Expected output: all 6 invariants and 2 temporal properties pass with zero violations.
+
+### TLA+ Audit Chain (AC1–AC9, ACL1)
+
+```bash
+cd formal/tla
+java -jar tla2tools.jar -config AuditChain.cfg MC_AuditChain.tla
+```
+
+Expected output: all 7 invariants and 2 temporal properties pass with zero violations.
+
+### Kani Extracted Code Parity Check
+
+```bash
+bash formal/tools/check-kani-parity.sh
+```
+
+Expected output: all parity checks pass. Run this after modifying any
+function that is extracted into `formal/kani/src/` to detect drift.
+
 ### Lean 4 Proofs
 
 ```bash
@@ -387,6 +433,33 @@ Expected output: all 68 harnesses report VERIFICATION:- SUCCESSFUL.
 | C3 | **Open denies all:** open circuit rejects requests (fail-closed) | `cascading.rs` | TLA+ C3, Coq C3 |
 | C4 | **Half-open transient:** half-open is a transient probe state | Circuit breaker pattern | TLA+ C4, Coq C4 |
 | C5 | **Probe success closes:** successful probe returns to closed | Circuit breaker pattern | TLA+ C5, Coq C5 |
+
+### Credential Vault Safety (CV1–CV8)
+
+| ID | Property | Source | Spec Location |
+|----|----------|--------|---------------|
+| CV1 | **No double-consumption:** Consumed credential never consumed again | `credential_vault.rs:167-200` | TLA+ CV1 |
+| CV2 | **Active-only consume:** only Active → Consumed (R238-SHLD-6) | `credential_vault.rs:182-187` | TLA+ CV2 |
+| CV3 | **Epoch monotonicity:** current_epoch never decreases | `credential_vault.rs:99-101` | TLA+ CV3, CV3_Temporal |
+| CV4 | **Capacity bounded:** entries ≤ MAX_VAULT_ENTRIES | `credential_vault.rs:87-91` | TLA+ CV4 |
+| CV5 | **Fail-closed exhaustion:** no Available credential → no session | `credential_vault.rs:139-144` | TLA+ CV5 |
+| CV6 | **Binding uniqueness:** no two sessions share a credential | `session_unlinker.rs` | TLA+ CV6 |
+| CV7 | **Active implies bound:** Active credential always has a session | Structural | TLA+ CV7 |
+| CV8 | **Error preserves state:** errors don't change credentials | `credential_vault.rs:153-155` | TLA+ CV8 |
+
+### Audit Chain Integrity (AC1–AC9)
+
+| ID | Property | Source | Spec Location |
+|----|----------|--------|---------------|
+| AC1 | **Append-only:** log only grows within rotation cycle | `logger.rs:526-529` (append mode) | TLA+ AC1 |
+| AC2 | **Chain linkage:** entry[n].prev_hash = entry[n-1].hash | `logger.rs:513,519-520` | TLA+ AC2 |
+| AC3 | **Sequence monotonicity:** sequence numbers strictly increase | `logger.rs:490-495` (SeqCst counter) | TLA+ AC3, AC3_Temporal |
+| AC4 | **Hash uniqueness:** distinct entries have distinct hashes | `logger.rs:288-301` (SHA-256) | TLA+ AC4 |
+| AC5 | **First entry linkage:** respects rotation boundary | `logger.rs:513` | TLA+ AC5 |
+| AC6 | **Last hash consistency:** lastHash = log[last].hash | `logger.rs:519-520` | TLA+ AC6 |
+| AC7 | **ID uniqueness:** UUID uniqueness across entries | `logger.rs:506` (Uuid::new_v4) | TLA+ AC7 |
+| AC8 | **Sequence uniqueness:** no duplicate sequence numbers | `logger.rs:490-495` (fetch_add SeqCst) | TLA+ AC8 |
+| AC9 | **Error preserves log:** I/O errors don't corrupt chain | `logger.rs:526-545` | TLA+ AC9 |
 
 ### Verus Core Verdict (V1–V8, proven for ALL inputs on actual Rust)
 
@@ -516,6 +589,8 @@ property is proven by Verus V1/V2 on `compute_verdict` and by 10,200+ tests.
 | CL1 | **Circuit recovery:** open circuits eventually transition to half-open | `CascadingFailure.tla` |
 | CL2 | **Half-open resolves:** half-open circuits eventually close or reopen | `CascadingFailure.tla` |
 | DL1 | **Delegation terminates:** delegation chains exhaust depth budget | `CapabilityDelegation.tla` |
+| CVL1 | **Vault error recovery:** vault eventually recovers from errors | `CredentialVault.tla` |
+| ACL1 | **Audit error recovery:** audit chain eventually recovers from errors | `AuditChain.tla` |
 
 ## Design Decisions
 
@@ -589,7 +664,8 @@ hold for the normal evaluation path while still allowing error traces.
 ## Scope and Limitations
 
 These specifications verify **structural security properties** of the policy
-evaluation algorithms. They do **not** cover:
+evaluation algorithms, credential lifecycle, and audit chain integrity.
+They do **not** cover:
 
 - Pattern compilation correctness (covered by 24 fuzz targets)
 - Cryptographic correctness of Ed25519 signatures (assumes correct primitives)
@@ -629,12 +705,12 @@ verification layer.
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit tests | Rust `#[test]` | 9,018+ |
+| Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **27 proofs (V1-V12, D1-D6)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **60 proof harnesses (K1-K60)** |
-| **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 34 safety + 8 liveness** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **28 verified functions (V1-V12, D1-D6)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **68 proof harnesses (K1-K68)** |
+| **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
 | **Coq (deductive)** | **Proof assistant** | **8 files, 43 theorems** |
