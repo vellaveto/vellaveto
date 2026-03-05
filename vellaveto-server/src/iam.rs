@@ -556,12 +556,18 @@ impl std::fmt::Debug for IamState {
         f.debug_struct("IamState")
             .field("config", &self.config)
             .field("discovery", &self.discovery)
-            .field("m2m_signing_secret", &self.m2m_signing_secret.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "m2m_signing_secret",
+                &self.m2m_signing_secret.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("flow_states_count", &self.flow_states.len())
             .field("sessions_count", &self.sessions.len())
             .field("saml_assertion_ids_count", &self.saml_assertion_ids.len())
             .field("m2m_rate_limits_count", &self.m2m_rate_limits.len())
-            .field("saml_authn_request_ids_count", &self.saml_authn_request_ids.len())
+            .field(
+                "saml_authn_request_ids_count",
+                &self.saml_authn_request_ids.len(),
+            )
             .field("cimd_cache_count", &self.cimd_cache.len())
             .finish_non_exhaustive()
     }

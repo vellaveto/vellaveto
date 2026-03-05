@@ -1692,9 +1692,7 @@ fn try_percent_decode_injection(s: &str) -> Option<String> {
     if !s.contains('%') {
         return None;
     }
-    let decoded = percent_encoding::percent_decode_str(s)
-        .decode_utf8()
-        .ok()?;
+    let decoded = percent_encoding::percent_decode_str(s).decode_utf8().ok()?;
     if decoded == s {
         return None;
     }

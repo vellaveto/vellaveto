@@ -1245,7 +1245,10 @@ impl ProxyBridge {
                             // SECURITY (R239-MCP-2): Genericize deny reason in response
                             // to avoid leaking ABAC policy details to agents. The raw
                             // reason is already logged in the audit entry above.
-                            let response = make_denial_response(&id, "Request blocked: security policy violation");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -1284,7 +1287,10 @@ impl ProxyBridge {
                                 tracing::warn!("Audit log failed for ABAC deny: {}", e);
                             }
                             // SECURITY (R239-MCP-2): Genericize deny reason in response.
-                            let response = make_denial_response(&id, "Request blocked: security policy violation");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -3008,7 +3014,10 @@ impl ProxyBridge {
                                 tracing::warn!("Audit log failed for ABAC deny: {}", e);
                             }
                             // SECURITY (R239-MCP-2): Genericize ABAC deny reason for task handler.
-                            let response = make_denial_response(&id, "Request blocked: security policy violation");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -3049,7 +3058,10 @@ impl ProxyBridge {
                                 tracing::warn!("Audit log failed for ABAC deny: {}", e);
                             }
                             // SECURITY (R239-MCP-2): Genericize ABAC unknown variant deny for task handler.
-                            let response = make_denial_response(&id, "Request blocked: security policy violation");
+                            let response = make_denial_response(
+                                &id,
+                                "Request blocked: security policy violation",
+                            );
                             write_message(agent_writer, &response)
                                 .await
                                 .map_err(ProxyError::Framing)?;
@@ -3094,7 +3106,8 @@ impl ProxyBridge {
                 };
                 // SECURITY (R239-MCP-4): Genericize deny reason in response to avoid
                 // leaking policy details to agents. Raw reason is logged in audit entry.
-                let response = make_denial_response(&id, "Request blocked: security policy violation");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 if let Err(e) = self
                     .audit
                     .log_entry(
@@ -3137,7 +3150,8 @@ impl ProxyBridge {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 // SECURITY (R239-MCP-4): Genericize deny reason in response.
-                let response = make_denial_response(&id, "Request blocked: security policy violation");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 write_message(agent_writer, &response)
                     .await
                     .map_err(ProxyError::Framing)?;
@@ -3164,7 +3178,8 @@ impl ProxyBridge {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 // SECURITY (R239-MCP-4): Genericize deny reason in response.
-                let response = make_denial_response(&id, "Request blocked: security policy violation");
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
                 write_message(agent_writer, &response)
                     .await
                     .map_err(ProxyError::Framing)?;
