@@ -80,6 +80,8 @@
 //! | K56 | Terminal state → no further transitions | Task lifecycle |
 //! | K57 | At max tasks → reject new registration | Task lifecycle |
 //! | K58 | Self-cancel + different requester → reject | Task lifecycle |
+//! | K59 | Entropy finite, non-negative, ≤ 8.0, empty → 0.0 | Collusion detection |
+//! | K60 | grant_covers_action fail-closed (paths/domains) | Capability delegation |
 //!
 //! # Source Correspondence
 //!
@@ -94,6 +96,7 @@
 //! - `cascading.rs`: Extracted from `vellaveto-engine/src/cascading.rs`
 //! - `constraint.rs`: Extracted from `vellaveto-engine/src/constraint_eval.rs`
 //! - `task.rs`: Extracted from `vellaveto-mcp/src/task_state.rs`
+//! - `entropy.rs`: Extracted from `vellaveto-engine/src/collusion.rs`
 
 pub mod path;
 pub mod verified_core;
@@ -106,6 +109,7 @@ pub mod resolve;
 pub mod cascading;
 pub mod constraint;
 pub mod task;
+pub mod entropy;
 
 #[cfg(kani)]
 mod proofs;

@@ -190,6 +190,72 @@ pub fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGra
     true
 }
 
+/// Simplified action for capability coverage checking.
+pub struct ActionRef<'a> {
+    pub tool: &'a str,
+    pub function: &'a str,
+    pub target_paths: &'a [String],
+    pub target_domains: &'a [String],
+}
+
+/// Check if a grant covers a specific action.
+///
+/// Verbatim from production `grant_covers_action` in
+/// `vellaveto-mcp/src/capability_token.rs:485-537`.
+///
+/// Fail-closed: if grant has path/domain restrictions and action has none,
+/// the grant does NOT cover the action.
+pub fn grant_covers_action(grant: &CapabilityGrant, action: &ActionRef<'_>) -> bool {
+    // Check tool pattern
+    if !pattern_matches(&grant.tool_pattern, action.tool) {
+        return false;
+    }
+    // Check function pattern
+    if !pattern_matches(&grant.function_pattern, action.function) {
+        return false;
+    }
+    // Check path constraints (if any)
+    // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires path restrictions
+    // but the action provides no target_paths.
+    if !grant.allowed_paths.is_empty() {
+        if action.target_paths.is_empty() {
+            return false;
+        }
+        let all_covered = action.target_paths.iter().all(|path| {
+            // Fail-closed: if normalization fails, deny the grant
+            let normalized = match normalize_path_for_grant(path) {
+                Some(n) => n,
+                None => return false,
+            };
+            grant
+                .allowed_paths
+                .iter()
+                .any(|pattern| pattern_matches(pattern, &normalized))
+        });
+        if !all_covered {
+            return false;
+        }
+    }
+    // Check domain constraints (if any)
+    // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires domain restrictions
+    // but the action provides no target_domains.
+    if !grant.allowed_domains.is_empty() {
+        if action.target_domains.is_empty() {
+            return false;
+        }
+        let all_covered = action.target_domains.iter().all(|domain| {
+            grant
+                .allowed_domains
+                .iter()
+                .any(|pattern| pattern_matches(pattern, domain))
+        });
+        if !all_covered {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +300,80 @@ mod tests {
             max_invocations: 10,
         };
         assert!(grant_is_subset(&g, &g));
+    }
+
+    #[test]
+    fn test_grant_covers_matching_action() {
+        let g = CapabilityGrant {
+            tool_pattern: "read*".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec!["/home/*".to_string()],
+            allowed_domains: vec![],
+            max_invocations: 10,
+        };
+        let action = ActionRef {
+            tool: "read_file",
+            function: "execute",
+            target_paths: &["/home/user/file.txt".to_string()],
+            target_domains: &[],
+        };
+        assert!(grant_covers_action(&g, &action));
+    }
+
+    #[test]
+    fn test_grant_rejects_wrong_tool() {
+        let g = CapabilityGrant {
+            tool_pattern: "read*".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        };
+        let action = ActionRef {
+            tool: "write_file",
+            function: "execute",
+            target_paths: &[],
+            target_domains: &[],
+        };
+        assert!(!grant_covers_action(&g, &action));
+    }
+
+    #[test]
+    fn test_grant_fail_closed_empty_paths() {
+        // Grant requires paths but action provides none → fail-closed
+        let g = CapabilityGrant {
+            tool_pattern: "*".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec!["/safe/*".to_string()],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        };
+        let action = ActionRef {
+            tool: "read",
+            function: "exec",
+            target_paths: &[],
+            target_domains: &[],
+        };
+        assert!(!grant_covers_action(&g, &action));
+    }
+
+    #[test]
+    fn test_grant_fail_closed_empty_domains() {
+        // Grant requires domains but action provides none → fail-closed
+        let g = CapabilityGrant {
+            tool_pattern: "*".to_string(),
+            function_pattern: "*".to_string(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["*.example.com".to_string()],
+            max_invocations: 0,
+        };
+        let action = ActionRef {
+            tool: "fetch",
+            function: "get",
+            target_paths: &[],
+            target_domains: &[],
+        };
+        assert!(!grant_covers_action(&g, &action));
     }
 
     #[test]

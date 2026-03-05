@@ -233,14 +233,14 @@ MAPS TO:  vellaveto-engine/src/lib.rs (workflow constraint evaluation)
 | CircuitBreaker.v | C1-C5 (6 theorems) |
 | TaskLifecycle.v | T1-T3 (10 theorems) |
 
-### 1.5 Verus Deductive Verification (23 proofs on actual Rust, ALL inputs)
+### 1.5 Verus Deductive Verification (29 proofs on actual Rust, ALL inputs)
 
 Verus proves properties on the actual Rust code via Z3 SMT solving. Unlike
 bounded model checking, Verus proofs hold for ALL possible inputs — no bounds,
 no sampling. The verified code compiles with standard rustc after Verus erases
 ghost annotations. The proof applies to the binary.
 
-#### Core Verdict (V1-V8, 9 verified)
+#### Core Verdict (V1-V8, V11-V12, 12 verified)
 
 | ID | Property | Postcondition |
 |----|----------|--------------|
@@ -593,9 +593,9 @@ PR-level gating on security-critical paths will be added for:
 | Alloy assertions | 10 |
 | Lean 4 theorems | 30 |
 | Coq theorems | 43 |
-| Verus proofs (ALL inputs, deductive) | 27 |
-| Kani proof harnesses (bounded) | 58 |
-| **Total verification instances** | **210** |
+| Verus proofs (ALL inputs, deductive) | 29 |
+| Kani proof harnesses (bounded) | 60 |
+| **Total verification instances** | **212** |
 | Rust unit/integration tests | 10,200+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |
@@ -606,7 +606,7 @@ PR-level gating on security-critical paths will be added for:
 ## 8. Roadmap
 
 Phases 0–14 are complete. The TCB includes Verus deductive proofs on actual
-Rust code, 58 Kani bounded model checking harnesses, and comprehensive coverage
+Rust code, 60 Kani bounded model checking harnesses, and comprehensive coverage
 of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |

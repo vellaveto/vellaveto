@@ -26,14 +26,17 @@
 //! - `can_cancel` ↔ `vellaveto-mcp/src/task_state.rs:257-283`
 
 /// Task states matching the production MCP task lifecycle.
+///
+/// Maps to `vellaveto-types/src/task.rs` `TaskStatus` enum.
+/// Production names: Pending, Running, Completed, Failed{reason}, Cancelled, Expired.
+/// We omit `Failed.reason` since `is_terminal` doesn't depend on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
-    Submitted,
-    Working,
-    InputNeeded,
+    Pending,
+    Running,
     Completed,
     Failed,
-    Canceled,
+    Cancelled,
     Expired,
 }
 
@@ -46,7 +49,7 @@ pub const MAX_TRACKED_TASKS: usize = 100_000;
 pub fn is_terminal(state: TaskState) -> bool {
     matches!(
         state,
-        TaskState::Completed | TaskState::Failed | TaskState::Canceled | TaskState::Expired
+        TaskState::Completed | TaskState::Failed | TaskState::Cancelled | TaskState::Expired
     )
 }
 
@@ -106,27 +109,26 @@ mod tests {
     fn test_terminal_states() {
         assert!(is_terminal(TaskState::Completed));
         assert!(is_terminal(TaskState::Failed));
-        assert!(is_terminal(TaskState::Canceled));
+        assert!(is_terminal(TaskState::Cancelled));
         assert!(is_terminal(TaskState::Expired));
     }
 
     #[test]
     fn test_non_terminal_states() {
-        assert!(!is_terminal(TaskState::Submitted));
-        assert!(!is_terminal(TaskState::Working));
-        assert!(!is_terminal(TaskState::InputNeeded));
+        assert!(!is_terminal(TaskState::Pending));
+        assert!(!is_terminal(TaskState::Running));
     }
 
     #[test]
     fn test_terminal_no_transition() {
-        assert!(!can_transition(TaskState::Completed, TaskState::Working));
-        assert!(!can_transition(TaskState::Failed, TaskState::Submitted));
+        assert!(!can_transition(TaskState::Completed, TaskState::Running));
+        assert!(!can_transition(TaskState::Failed, TaskState::Pending));
     }
 
     #[test]
     fn test_non_terminal_can_transition() {
-        assert!(can_transition(TaskState::Working, TaskState::Completed));
-        assert!(can_transition(TaskState::Submitted, TaskState::Working));
+        assert!(can_transition(TaskState::Running, TaskState::Completed));
+        assert!(can_transition(TaskState::Pending, TaskState::Running));
     }
 
     #[test]

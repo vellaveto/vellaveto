@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 58 harnesses verifying security properties using CBMC bounded model
+//! 60 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -1579,15 +1579,14 @@ fn proof_terminal_state_immutable() {
     use crate::task::{TaskState, is_terminal, can_transition};
 
     let to: u8 = kani::any();
-    kani::assume(to < 7);
+    kani::assume(to < 6);
 
     let to_state = match to {
-        0 => TaskState::Submitted,
-        1 => TaskState::Working,
-        2 => TaskState::InputNeeded,
-        3 => TaskState::Completed,
-        4 => TaskState::Failed,
-        5 => TaskState::Canceled,
+        0 => TaskState::Pending,
+        1 => TaskState::Running,
+        2 => TaskState::Completed,
+        3 => TaskState::Failed,
+        4 => TaskState::Cancelled,
         _ => TaskState::Expired,
     };
 
@@ -1596,8 +1595,8 @@ fn proof_terminal_state_immutable() {
         "K56 violated: Completed transitioned");
     assert!(!can_transition(TaskState::Failed, to_state),
         "K56 violated: Failed transitioned");
-    assert!(!can_transition(TaskState::Canceled, to_state),
-        "K56 violated: Canceled transitioned");
+    assert!(!can_transition(TaskState::Cancelled, to_state),
+        "K56 violated: Cancelled transitioned");
     assert!(!can_transition(TaskState::Expired, to_state),
         "K56 violated: Expired transitioned");
 }
@@ -1646,4 +1645,131 @@ fn proof_cancel_authorization() {
     // Non-self-cancel mode: requester NOT in allow list → rejected
     assert!(!can_cancel(false, Some("creator"), Some("rogue"), false),
         "K58 violated: non-listed requester allowed");
+}
+
+// =========================================================================
+// Shannon Entropy Verification (K59)
+// =========================================================================
+
+// K59: Entropy is finite, non-negative, ≤ 8.0 (log2(256)), empty → 0.0
+#[kani::proof]
+fn proof_compute_entropy_properties() {
+    use crate::entropy::compute_entropy;
+
+    // Property 1: empty input returns exactly 0.0
+    assert_eq!(compute_entropy(&[]), 0.0,
+        "K59 violated: empty input did not return 0.0");
+
+    // Property 2: single-value input returns 0.0
+    let byte: u8 = kani::any();
+    let single = [byte; 4];
+    let e = compute_entropy(&single);
+    assert_eq!(e, 0.0,
+        "K59 violated: uniform input did not return 0.0");
+
+    // Property 3: result is always finite, non-negative, and ≤ 8.0
+    let a: u8 = kani::any();
+    let b: u8 = kani::any();
+    let c: u8 = kani::any();
+    let d: u8 = kani::any();
+    let data = [a, b, c, d];
+    let e = compute_entropy(&data);
+    assert!(e.is_finite(), "K59 violated: entropy not finite");
+    assert!(e >= 0.0, "K59 violated: entropy negative");
+    assert!(e <= 8.0, "K59 violated: entropy > log2(256)");
+}
+
+// =========================================================================
+// Capability Grant Coverage (K60)
+// =========================================================================
+
+// K60: grant_covers_action fail-closed on empty paths/domains
+#[kani::proof]
+fn proof_grant_covers_action_fail_closed() {
+    use crate::capability::{CapabilityGrant, ActionRef, grant_covers_action};
+
+    // Property 1: grant with path restrictions + action with no paths → false
+    let grant_with_paths = CapabilityGrant {
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec!["/safe/*".to_string()],
+        allowed_domains: vec![],
+        max_invocations: 0,
+    };
+    let action_no_paths = ActionRef {
+        tool: "any_tool",
+        function: "any_fn",
+        target_paths: &[],
+        target_domains: &[],
+    };
+    assert!(!grant_covers_action(&grant_with_paths, &action_no_paths),
+        "K60 violated: path-restricted grant covered action with no paths");
+
+    // Property 2: grant with domain restrictions + action with no domains → false
+    let grant_with_domains = CapabilityGrant {
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec![],
+        allowed_domains: vec!["*.example.com".to_string()],
+        max_invocations: 0,
+    };
+    let action_no_domains = ActionRef {
+        tool: "any_tool",
+        function: "any_fn",
+        target_paths: &[],
+        target_domains: &[],
+    };
+    assert!(!grant_covers_action(&grant_with_domains, &action_no_domains),
+        "K60 violated: domain-restricted grant covered action with no domains");
+
+    // Property 3: unrestricted grant covers any action
+    let unrestricted = CapabilityGrant {
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec![],
+        allowed_domains: vec![],
+        max_invocations: 0,
+    };
+    let any_action = ActionRef {
+        tool: "anything",
+        function: "anything",
+        target_paths: &[],
+        target_domains: &[],
+    };
+    assert!(grant_covers_action(&unrestricted, &any_action),
+        "K60 violated: unrestricted grant did not cover action");
+
+    // Property 4: tool mismatch → false (even if everything else matches)
+    let read_grant = CapabilityGrant {
+        tool_pattern: "read*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec![],
+        allowed_domains: vec![],
+        max_invocations: 0,
+    };
+    let write_action = ActionRef {
+        tool: "write_file",
+        function: "execute",
+        target_paths: &[],
+        target_domains: &[],
+    };
+    assert!(!grant_covers_action(&read_grant, &write_action),
+        "K60 violated: tool mismatch still covered");
+
+    // Property 5: path traversal in action → fail-closed (normalize returns None)
+    let path_grant = CapabilityGrant {
+        tool_pattern: "*".to_string(),
+        function_pattern: "*".to_string(),
+        allowed_paths: vec!["/safe/*".to_string()],
+        allowed_domains: vec![],
+        max_invocations: 0,
+    };
+    let traversal_action = ActionRef {
+        tool: "read",
+        function: "exec",
+        target_paths: &["/../etc/passwd".to_string()],
+        target_domains: &[],
+    };
+    assert!(!grant_covers_action(&path_grant, &traversal_action),
+        "K60 violated: path traversal was not blocked");
 }

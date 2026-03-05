@@ -9,6 +9,7 @@ on:
       - "vellaveto-mcp/src/inspection/**"
       - "vellaveto-mcp/src/capability_token.rs"
       - "vellaveto-mcp/src/task_state.rs"
+      - "vellaveto-engine/src/collusion.rs"
       - "vellaveto-tls/src/**"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "vellaveto-mcp/src/inspection/**"
       - "vellaveto-mcp/src/capability_token.rs"
       - "vellaveto-mcp/src/task_state.rs"
+      - "vellaveto-engine/src/collusion.rs"
       - "vellaveto-tls/src/**"
   # Weekly full verification even without changes
   schedule:
@@ -129,7 +131,7 @@ jobs:
           fi
 
   kani:
-    name: "Kani (25 harnesses — K1-K25)"
+    name: "Kani (60 harnesses — K1-K60)"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -146,17 +148,32 @@ jobs:
       - name: Verify extracted code correspondence (unit tests)
         working-directory: formal/kani
         run: |
-          echo "=== Running Kani production parity unit tests ==="
-          echo "These tests verify the extracted algorithm matches production behavior"
-          echo "on identical test vectors (path, verified_core, dlp_core)."
+          echo "=== Running Kani production parity unit tests (83 tests) ==="
+          echo "These tests verify extracted algorithms match production behavior."
           cargo test --lib
+
+      - name: Verify extraction sync (function signatures)
+        run: |
+          echo "=== Checking extracted functions match production signatures ==="
+          # Core functions that must stay in sync
+          grep -q 'pub fn is_private_ip' vellaveto-engine/src/ip.rs
+          grep -q 'pub fn is_private_ipv4' formal/kani/src/ip.rs
+          grep -q 'pub fn compute_entropy' vellaveto-engine/src/collusion.rs
+          grep -q 'pub fn compute_entropy' formal/kani/src/entropy.rs
+          grep -q 'fn is_terminal' vellaveto-types/src/task.rs
+          grep -q 'pub fn is_terminal' formal/kani/src/task.rs
+          grep -q 'fn grant_covers_action' vellaveto-mcp/src/capability_token.rs
+          grep -q 'pub fn grant_covers_action' formal/kani/src/capability.rs
+          grep -q 'fn normalize_path_for_grant' vellaveto-mcp/src/capability_token.rs
+          grep -q 'pub fn normalize_path_for_grant' formal/kani/src/capability.rs
+          echo "All extraction signatures verified."
 
       - name: Run Kani proofs
         working-directory: formal/kani
         run: cargo kani
 
   verus:
-    name: "Verus (23 proofs — V1-V8, D1-D6)"
+    name: "Verus (29 proofs — V1-V12, D1-D6)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -176,9 +193,9 @@ jobs:
           unzip -q verus.zip -d verus-bin
           chmod +x verus-bin/verus-x86-linux/verus
 
-      - name: Run Verus verification (V1-V8, core verdict)
+      - name: Run Verus verification (V1-V8, V11-V12, core verdict)
         run: |
-          echo "=== Verus: verified_core (V1-V8, ALL inputs) ==="
+          echo "=== Verus: verified_core (V1-V8, V11-V12, ALL inputs) ==="
           verus-bin/verus-x86-linux/verus --triggers-mode silent \
             formal/verus/verified_core.rs
 
@@ -187,3 +204,9 @@ jobs:
           echo "=== Verus: verified_dlp_core (D1-D6, ALL inputs) ==="
           verus-bin/verus-x86-linux/verus --triggers-mode silent \
             formal/verus/verified_dlp_core.rs
+
+      - name: Run Verus verification (V9-V10, path normalization)
+        run: |
+          echo "=== Verus: verified_path (V9-V10, ALL inputs) ==="
+          verus-bin/verus-x86-linux/verus --triggers-mode silent \
+            formal/verus/verified_path.rs

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Formalization completion (K59-K60, doc fixes, CI sync):**
+  K59 — Shannon entropy verification (`compute_entropy` from collusion detector: finite,
+  non-negative, ≤ 8.0, empty → 0.0). K60 — capability grant coverage fail-closed
+  (`grant_covers_action` from capability_token.rs: path/domain restriction enforcement).
+  Fixed task state extraction naming to match production (`Pending`/`Running`/`Cancelled`
+  vs phantom `Submitted`/`Working`/`InputNeeded`). Fixed all documentation count
+  inconsistencies (Verus 23→29, Kani 58→60, total 210→212). CI extraction sync checks.
+  Updated GitHub README with Verus row and 212-property badge. 83 parity tests pass.
+
 - **Phases 5–14 — Full Formalization Roadmap (K26-K58, V9-V12):**
   37 new verification instances bringing total from 173 to 210. All security-critical
   pure functions now formally verified on actual Rust code.

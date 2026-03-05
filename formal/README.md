@@ -24,7 +24,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9–V10 | Path normalization idempotency + no-traversal (ALL inputs, actual Rust) |
-| `kani/src/proofs.rs` | Kani | K1–K58 | Bounded model checking of actual Rust (58 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K60 | Bounded model checking of actual Rust (60 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -33,13 +33,13 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**210 verification instances** across 7 tools:
+**212 verification instances** across 7 tools:
 - **Verus:** 27 proofs on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
 - **TLA+:** 34 safety invariants + 8 liveness properties (6 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 58 proof harnesses on actual Rust code (bounded) — K1-K58
+- **Kani:** 60 proof harnesses on actual Rust code (bounded) — K1-K60
 
 ## Coverage Matrix
 
@@ -137,7 +137,7 @@ formal/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K58 property catalog)
+      lib.rs                         ← Crate root (K1-K60 property catalog)
       proofs.rs                      ← Proof harnesses (58 properties)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
@@ -150,6 +150,7 @@ formal/
       cascading.rs                   ← Cascading failure (Phase 10)
       constraint.rs                  ← Constraint evaluation (Phase 11)
       task.rs                        ← Task lifecycle (Phase 12)
+      entropy.rs                     ← Shannon entropy (collusion detection)
 ```
 
 ## Tooling Setup
@@ -303,7 +304,7 @@ Expected output:
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 3 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K58)
+### Kani Proof Harnesses (K1–K60)
 
 ```bash
 cd formal/kani
@@ -323,7 +324,7 @@ cargo kani --harness proof_terminal_state_immutable            # K56
 # ... (58 total)
 ```
 
-Expected output: all 58 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 60 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -391,7 +392,7 @@ Expected output: all 58 harnesses report VERIFICATION:- SUCCESSFUL.
 | V7 | **Deny-dominance at equal priority** | Deny beats Allow (requires `is_sorted`). Compositional*: same as V6. |
 | V8 | **Conditional pass-through** | Unfired condition → evaluation continues |
 
-Source: `formal/verus/verified_core.rs` (9 verified, 0 errors)
+Source: `formal/verus/verified_core.rs` (12 verified, 0 errors)
 
 ### Verus Cross-Call DLP (D1–D6, proven for ALL inputs on actual Rust)
 
@@ -406,7 +407,7 @@ Source: `formal/verus/verified_core.rs` (9 verified, 0 errors)
 
 Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K58, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K60, bounded model checking on actual Rust)
 
 | ID | Property | Bridge |
 |----|----------|--------|
@@ -468,6 +469,8 @@ Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 | K56 | **Terminal state immutable** | Task, T1 |
 | K57 | **Max tasks → reject** | Task, T5 |
 | K58 | **Self-cancel authorization** | Task |
+| K59 | **Entropy finite, non-negative, ≤ 8.0** | Collusion |
+| K60 | **Grant coverage fail-closed** | Capability |
 
 ### Harness Assurance Levels
 
@@ -613,7 +616,7 @@ verification layer.
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **27 proofs (V1-V12, D1-D6)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **58 proof harnesses (K1-K58)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **60 proof harnesses (K1-K60)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **6 specs, 34 safety + 8 liveness** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
