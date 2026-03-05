@@ -113,12 +113,14 @@ pub fn compute_verdict(resolved: &[ResolvedMatch]) -> VerdictKind {
     VerdictKind::Deny
 }
 
-/// Sort comparator for policies: priority descending, deny-first at equal
-/// priority, ID tiebreak.
+/// Sort comparator for policies: priority descending, deny-first at equal priority.
 ///
-/// Extracted from `vellaveto-engine/src/lib.rs:331-346` (`sort_policies`).
-/// Operates on `(priority, is_deny, id)` tuples instead of full Policy structs
-/// to avoid pulling in the full Policy type.
+/// Simplified extraction from `vellaveto-engine/src/lib.rs:331-346` (`sort_policies`).
+/// **Known omission:** production uses a 3rd ID tiebreaker for deterministic ordering
+/// when priority and deny/allow are equal. This extraction omits the ID tiebreaker
+/// because `ResolvedMatch` does not carry a policy ID field. The omission does not
+/// affect V6/V7 safety (priority + deny-first are sufficient) but means sort order
+/// may differ from production when priorities and types are equal.
 pub fn sort_resolved_matches(matches: &mut [ResolvedMatch]) {
     matches.sort_by(|a, b| {
         let pri = b.priority.cmp(&a.priority);

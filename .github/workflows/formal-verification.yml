@@ -7,12 +7,16 @@ on:
       - "formal/**"
       - "vellaveto-engine/src/**"
       - "vellaveto-mcp/src/inspection/**"
+      - "vellaveto-mcp/src/capability_token.rs"
+      - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-tls/src/**"
   pull_request:
     paths:
       - "formal/**"
       - "vellaveto-engine/src/**"
       - "vellaveto-mcp/src/inspection/**"
+      - "vellaveto-mcp/src/capability_token.rs"
+      - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-tls/src/**"
   # Weekly full verification even without changes
   schedule:

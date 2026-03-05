@@ -24,7 +24,7 @@
 //! | D3 | Total byte accounting correct: update_total_bytes maintains consistency |
 //! | D4 | Capacity check fail-closed: at max_fields, can_track_field returns false |
 //! | D5 | No arithmetic underflow: saturating subtraction prevents wrapping |
-//! | D6 | Overlap completeness: secret <= 2 * overlap split at any byte is fully covered |
+//! | D6 | Overlap completeness: secret <= 2 * overlap split at `split_point <= overlap_size` fully covered |
 //!
 //! # Trust Boundary
 //!
