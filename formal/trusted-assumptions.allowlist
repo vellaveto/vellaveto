@@ -1,5 +1,6 @@
 # kind<TAB>relative-path<TAB>trimmed source line
 # Keep this inventory explicit and minimal. Remove entries when proofs are discharged.
+verus	formal/verus/verified_path.rs	assume(
 verus	formal/verus/verified_path.rs	assume(false); // V9 idempotency: admitted pending full spec-level proof
 lean	formal/lean/Vellaveto/CapabilityDelegation.lean	axiom grantSubset : Grant -> Grant -> Prop
 lean	formal/lean/Vellaveto/CapabilityDelegation.lean	axiom grantSubset_refl : ∀ g, grantSubset g g
