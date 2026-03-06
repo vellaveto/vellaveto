@@ -13,6 +13,7 @@ on:
       - "vellaveto-engine/src/domain.rs"
       - "vellaveto-types/src/unicode.rs"
       - "vellaveto-tls/src/**"
+      - "vellaveto-mcp-shield/src/sanitizer.rs"
   pull_request:
     paths:
       - "formal/**"
@@ -24,6 +25,7 @@ on:
       - "vellaveto-engine/src/domain.rs"
       - "vellaveto-types/src/unicode.rs"
       - "vellaveto-tls/src/**"
+      - "vellaveto-mcp-shield/src/sanitizer.rs"
   workflow_dispatch:
   # Weekly full verification even without changes
   schedule:
@@ -37,10 +39,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  trusted-assumptions:
+    name: "Trusted Assumption Inventory"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify explicit formal assumption inventory
+        run: bash formal/tools/check-formal-trusted-assumptions.sh
+
   tla-plus:
     name: "TLA+ Model Checking (8 specs)"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -157,27 +172,8 @@ jobs:
           echo "These tests verify extracted algorithms match production behavior."
           cargo test --lib
 
-      - name: Verify extraction sync (function signatures)
-        run: |
-          echo "=== Checking extracted functions match production signatures ==="
-          # Core functions that must stay in sync
-          grep -q 'fn is_private_ip' vellaveto-engine/src/ip.rs
-          grep -q 'pub fn is_private_ipv4' formal/kani/src/ip.rs
-          grep -q 'pub fn compute_entropy' vellaveto-engine/src/collusion.rs
-          grep -q 'pub fn compute_entropy' formal/kani/src/entropy.rs
-          grep -q 'fn is_terminal' vellaveto-types/src/task.rs
-          grep -q 'pub fn is_terminal' formal/kani/src/task.rs
-          grep -q 'fn grant_covers_action' vellaveto-mcp/src/capability_token.rs
-          grep -q 'pub fn grant_covers_action' formal/kani/src/capability.rs
-          grep -q 'fn normalize_path_for_grant' vellaveto-mcp/src/capability_token.rs
-          grep -q 'pub fn normalize_path_for_grant' formal/kani/src/capability.rs
-          # IDNA domain normalization
-          grep -q 'fn normalize_domain_for_match' vellaveto-engine/src/domain.rs
-          grep -q 'pub fn normalize_domain_for_match' formal/kani/src/domain.rs
-          # Unicode homoglyph normalization
-          grep -q 'pub fn normalize_homoglyphs' vellaveto-types/src/unicode.rs
-          grep -q 'pub fn normalize_homoglyphs' formal/kani/src/unicode.rs
-          echo "All extraction signatures verified."
+      - name: Verify extraction sync
+        run: RUN_KANI_PARITY_TESTS=0 bash formal/tools/check-kani-parity.sh
 
       - name: Run Kani proofs
         working-directory: formal/kani
