@@ -24,6 +24,7 @@ on:
       - "vellaveto-engine/src/domain.rs"
       - "vellaveto-types/src/unicode.rs"
       - "vellaveto-tls/src/**"
+  workflow_dispatch:
   # Weekly full verification even without changes
   schedule:
     - cron: "0 6 * * 1"
