@@ -38,6 +38,19 @@ pub struct SessionIsolator {
 }
 
 impl SessionIsolator {
+    /// Extract placeholder tokens from a desanitization candidate.
+    ///
+    /// Supports both legacy decimal placeholders and the current 16-hex token
+    /// format so session binding keeps working across format migrations.
+    fn extract_placeholders(input: &str) -> Result<Vec<String>, ShieldError> {
+        let re = regex::Regex::new(r"\[PII_[A-Z0-9_]+_(?:\d{6}|[0-9A-F]{16})\]")
+            .map_err(|e| ShieldError::Config(format!("invalid placeholder regex: {e}")))?;
+        Ok(re
+            .find_iter(input)
+            .map(|m| m.as_str().to_string())
+            .collect())
+    }
+
     /// Create a new session isolator with default bounds.
     pub fn new() -> Self {
         Self {
@@ -156,6 +169,38 @@ impl SessionIsolator {
         let state = sessions.get(session_id).ok_or_else(|| {
             ShieldError::SessionIsolation(format!("unknown session: {session_id}"))
         })?;
+
+        // SECURITY (R238-SHLD-2): Bind restoration to the most recent outbound
+        // sanitized request in this session. Without explicit request IDs, the
+        // latest request is the safest fail-closed approximation; restoring
+        // placeholders from older turns lets a server probe the session's
+        // mapping table by replaying guessed placeholder IDs.
+        //
+        // Only check placeholders that this session's sanitizer OWNS. Placeholders
+        // from other sessions are unknown to this sanitizer and will pass through
+        // unchanged during desanitization — no PII leak risk.
+        let placeholders = Self::extract_placeholders(input)?;
+        let owned_placeholders: Vec<&String> = placeholders
+            .iter()
+            .filter(|p| state.sanitizer.has_placeholder(p))
+            .collect();
+        if !owned_placeholders.is_empty() {
+            let latest_outbound = state.history.back().ok_or_else(|| {
+                ShieldError::Desanitization(
+                    "no outbound sanitized request available for placeholder restoration"
+                        .to_string(),
+                )
+            })?;
+            if owned_placeholders
+                .iter()
+                .any(|placeholder| !latest_outbound.contains(placeholder.as_str()))
+            {
+                return Err(ShieldError::Desanitization(
+                    "response placeholders do not match the most recent outbound sanitized request (fail-closed)"
+                        .to_string(),
+                ));
+            }
+        }
 
         state.sanitizer.desanitize(input)
     }

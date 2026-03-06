@@ -509,10 +509,19 @@ impl PolicyEngine {
                     ),
                 )?))
             }
+            // SECURITY (R242-ENG-1): Normalize string operands via normalize_full()
+            // before comparison, matching the ABAC engine pattern (R237-ENG-3/5).
+            // Without this, Cyrillic/fullwidth/NFKC variants bypass Eq/Ne/OneOf/NoneOf.
             CompiledConstraint::Eq {
                 value: expected, ..
             } => {
-                if value == expected {
+                let matches = match (value.as_str(), expected.as_str()) {
+                    (Some(a), Some(b)) => {
+                        crate::normalize::normalize_full(a) == crate::normalize::normalize_full(b)
+                    }
+                    _ => value == expected,
+                };
+                if matches {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         &format!(
@@ -527,7 +536,13 @@ impl PolicyEngine {
             CompiledConstraint::Ne {
                 value: expected, ..
             } => {
-                if value != expected {
+                let matches = match (value.as_str(), expected.as_str()) {
+                    (Some(a), Some(b)) => {
+                        crate::normalize::normalize_full(a) != crate::normalize::normalize_full(b)
+                    }
+                    _ => value != expected,
+                };
+                if matches {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         &format!(
@@ -540,7 +555,17 @@ impl PolicyEngine {
                 }
             }
             CompiledConstraint::OneOf { values, .. } => {
-                if values.contains(value) {
+                let matches = match value.as_str() {
+                    Some(val_str) => {
+                        let norm_val = crate::normalize::normalize_full(val_str);
+                        values.iter().any(|v| match v.as_str() {
+                            Some(s) => crate::normalize::normalize_full(s) == norm_val,
+                            None => v == value,
+                        })
+                    }
+                    None => values.contains(value),
+                };
+                if matches {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         &format!(
@@ -553,7 +578,17 @@ impl PolicyEngine {
                 }
             }
             CompiledConstraint::NoneOf { values, .. } => {
-                if !values.contains(value) {
+                let matches = match value.as_str() {
+                    Some(val_str) => {
+                        let norm_val = crate::normalize::normalize_full(val_str);
+                        values.iter().any(|v| match v.as_str() {
+                            Some(s) => crate::normalize::normalize_full(s) == norm_val,
+                            None => v == value,
+                        })
+                    }
+                    None => values.contains(value),
+                };
+                if !matches {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         &format!(
@@ -749,6 +784,23 @@ mod tests {
         assert!(matches!(result.unwrap(), Verdict::Allow));
     }
 
+    #[test]
+    fn test_evaluate_compiled_constraint_eq_normalizes_unicode_strings() {
+        let policy = make_conditional_policy(
+            "eq-normalized",
+            json!({
+                "parameter_constraints": [
+                    { "param": "role", "op": "eq", "value": "admin", "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "role": "аdmin" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(matches!(result, Some(Verdict::Deny { .. })));
+    }
+
     // ---- Ne constraint tests ----
 
     #[test]
@@ -808,6 +860,23 @@ mod tests {
         assert!(matches!(result.unwrap(), Verdict::Allow));
     }
 
+    #[test]
+    fn test_evaluate_compiled_constraint_one_of_normalizes_unicode_strings() {
+        let policy = make_conditional_policy(
+            "one-of-normalized",
+            json!({
+                "parameter_constraints": [
+                    { "param": "env", "op": "one_of", "values": ["prod"], "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "env": "ＰＲＯＤ" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(matches!(result, Some(Verdict::Deny { .. })));
+    }
+
     // ---- NoneOf constraint tests ----
 
     #[test]
@@ -846,6 +915,23 @@ mod tests {
         let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
         assert!(result.is_some());
         assert!(matches!(result.unwrap(), Verdict::Allow));
+    }
+
+    #[test]
+    fn test_evaluate_compiled_constraint_none_of_normalized_member_does_not_fire() {
+        let policy = make_conditional_policy(
+            "none-of-normalized",
+            json!({
+                "parameter_constraints": [
+                    { "param": "role", "op": "none_of", "values": ["admin"], "on_match": "deny" }
+                ]
+            }),
+        );
+        let engine = PolicyEngine::with_policies(false, &[policy]).unwrap();
+        let action = Action::new("tool", "func", json!({ "role": "аdmin" }));
+        let cp = &engine.compiled_policies[0];
+        let result = engine.evaluate_compiled_conditions(&action, cp).unwrap();
+        assert!(matches!(result, Some(Verdict::Allow)));
     }
 
     // ---- Missing param with on_missing=deny (fail-closed default) ----

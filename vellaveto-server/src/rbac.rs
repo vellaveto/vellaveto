@@ -713,7 +713,14 @@ pub fn endpoint_permission(method: &axum::http::Method, path: &str) -> Option<Pe
         (&Method::GET, "/api/registry/tools") => Some(Permission::ToolRegistryRead),
         (_, p) if p.starts_with("/api/registry/tools/") => Some(Permission::ToolRegistryWrite),
 
-        // Dashboard
+        // Dashboard — SECURITY (R242-SRV-1): Approve/deny require ApprovalResolve,
+        // not just DashboardAccess. Viewer role must not resolve security approvals.
+        (&Method::POST, p)
+            if p.starts_with("/dashboard/approvals/")
+                && (p.ends_with("/approve") || p.ends_with("/deny")) =>
+        {
+            Some(Permission::ApprovalResolve)
+        }
         (_, p) if p.starts_with("/dashboard") => Some(Permission::DashboardAccess),
 
         // SECURITY (R230-SRV-1): Explicit topology endpoint permissions.
@@ -1133,7 +1140,11 @@ mod tests {
         );
         assert_eq!(
             endpoint_permission(&Method::POST, "/dashboard/approvals/123/approve"),
-            Some(Permission::DashboardAccess)
+            Some(Permission::ApprovalResolve)
+        );
+        assert_eq!(
+            endpoint_permission(&Method::POST, "/dashboard/approvals/123/deny"),
+            Some(Permission::ApprovalResolve)
         );
     }
 

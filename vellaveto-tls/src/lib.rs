@@ -141,8 +141,10 @@ impl SpiffeIdentity {
             if check_path.contains("/../") || check_path.ends_with("/..") || check_path == "/.." {
                 return None;
             }
-            // Reject control characters, null bytes, and Unicode format chars
-            for c in workload_path.chars() {
+            // SECURITY (R238-TLS-1): Validate the DECODED path for dangerous characters,
+            // not just the original. Percent-encoded format chars (%E2%80%8B = zero-width
+            // space) pass the original check but produce dangerous chars after decoding.
+            for c in check_path.chars() {
                 if c == '\0' || c.is_control() {
                     return None;
                 }
@@ -757,6 +759,40 @@ mod tests {
         assert!(SpiffeIdentity::parse("spiffe://prod-1.example.org/ns/default").is_some());
         assert!(SpiffeIdentity::parse("spiffe://a/b").is_some());
         assert!(SpiffeIdentity::parse("spiffe://123.456/x").is_some());
+    }
+
+    /// R238-TLS-1: Percent-encoded Unicode format chars in workload path must be rejected.
+    /// The dangerous char check must run on the DECODED path, not the original.
+    #[test]
+    fn test_r238_tls1_spiffe_percent_encoded_format_chars_rejected() {
+        // %AD = U+00AD (SOFT HYPHEN) — a Unicode format character.
+        // Before R238-TLS-1 fix, the check ran on the original path where
+        // '%', 'A', 'D' are normal ASCII chars, so it passed.
+        // After fix, the decoded char '\u{00AD}' is caught.
+        let result = SpiffeIdentity::parse("spiffe://example.org/%ADworkload");
+        assert!(
+            result.is_none(),
+            "Percent-encoded soft hyphen (U+00AD) in workload path must be rejected"
+        );
+
+        // %E2%80%8B involves multi-byte UTF-8: each byte decoded individually
+        // produces C1 control chars (0x80, 0x8B) caught by is_control().
+        let result2 = SpiffeIdentity::parse("spiffe://example.org/%E2%80%8Bworkload");
+        assert!(
+            result2.is_none(),
+            "Percent-encoded zero-width space bytes in workload path must be rejected"
+        );
+
+        // Verify non-encoded format chars are still rejected
+        let result3 = SpiffeIdentity::parse("spiffe://example.org/\u{200B}hidden");
+        assert!(
+            result3.is_none(),
+            "Direct zero-width space in workload path must be rejected"
+        );
+
+        // Verify clean paths still work
+        let result4 = SpiffeIdentity::parse("spiffe://example.org/ns/default/sa/myapp");
+        assert!(result4.is_some(), "Clean workload path should be accepted");
     }
 
     // ── extract_spiffe_ids (merged from vellaveto-server) ────────────

@@ -8,6 +8,7 @@
 //! Bidirectional PII sanitization using vellaveto-audit's PiiScanner.
 
 use crate::error::ShieldError;
+use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use vellaveto_audit::PiiScanner;
@@ -44,7 +45,7 @@ impl QuerySanitizer {
         }
     }
 
-    /// Sanitize input text, replacing PII with `[PII_{CAT}_{SEQ:06}]` placeholders.
+    /// Sanitize input text, replacing PII with `[PII_{CAT}_{TOKEN}]` placeholders.
     pub fn sanitize(&self, input: &str) -> Result<String, ShieldError> {
         let matches = self.scanner.find_matches(input);
         if matches.is_empty() {
@@ -72,7 +73,16 @@ impl QuerySanitizer {
             }
 
             result.push_str(&input[last_end..m.start]);
-            let placeholder = format!("[PII_{}_{:06}]", m.category.to_uppercase(), *seq);
+            // SECURITY (R242-SHLD-1): Use an unpredictable token instead of
+            // a sequential counter so placeholders cannot be guessed and
+            // probed as a desanitization oracle.
+            let placeholder = loop {
+                let token: u64 = rand::thread_rng().gen();
+                let candidate = format!("[PII_{}_{:016X}]", m.category.to_uppercase(), token);
+                if !mappings.contains_key(&candidate) {
+                    break candidate;
+                }
+            };
             mappings.insert(
                 placeholder.clone(),
                 PiiMapping {
@@ -151,10 +161,18 @@ impl QuerySanitizer {
                 }
                 Ok(serde_json::Value::Array(result))
             }
+            // SECURITY (R242-SHLD-2): Sanitize/desanitize JSON object keys, not just
+            // values. PII embedded in key names (e.g. dynamic keys from database columns,
+            // filenames, usernames) would otherwise pass through unsanitized.
             serde_json::Value::Object(map) => {
                 let mut result = serde_json::Map::new();
                 for (key, val) in map {
-                    result.insert(key.clone(), self.walk_json(val, sanitize, depth + 1)?);
+                    let processed_key = if sanitize {
+                        self.sanitize(key)?
+                    } else {
+                        self.desanitize(key)?
+                    };
+                    result.insert(processed_key, self.walk_json(val, sanitize, depth + 1)?);
                 }
                 Ok(serde_json::Value::Object(result))
             }
@@ -184,6 +202,23 @@ impl QuerySanitizer {
                     "SECURITY: sanitizer sequence lock poisoned during clear — recovering"
                 );
                 *poisoned.into_inner() = 0;
+            }
+        }
+    }
+
+    /// Check whether a placeholder key is known to this sanitizer's mapping table.
+    ///
+    /// SECURITY (R242-SHLD-3): Used by SessionIsolator to distinguish between
+    /// placeholders that belong to THIS session (reject if stale) vs placeholders
+    /// from OTHER sessions (pass through unchanged during desanitization).
+    pub fn has_placeholder(&self, placeholder: &str) -> bool {
+        match self.mappings.lock() {
+            Ok(m) => m.contains_key(placeholder),
+            Err(_) => {
+                // Fail-closed: if lock poisoned, assume placeholder is known
+                // (will be rejected by the staleness check → Deny).
+                tracing::error!("QuerySanitizer lock poisoned in has_placeholder");
+                true
             }
         }
     }

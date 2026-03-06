@@ -190,12 +190,35 @@ pub struct EntityStore {
 
 impl EntityStore {
     /// Build an entity store from config entities.
+    ///
+    /// SECURITY (R242-ENG-2): Keys are normalized via `normalize_full()` to match
+    /// the normalized lookup keys constructed in `matches_principal()`. Without this,
+    /// entities with non-ASCII type/id would never match normalized lookup keys.
     pub fn from_config(entities: &[AbacEntity]) -> Self {
         let mut map = HashMap::new();
         let mut memberships = HashMap::new();
         for entity in entities {
-            let key = format!("{}::{}", entity.entity_type, entity.id);
-            memberships.insert(key.clone(), entity.parents.clone());
+            let key = format!(
+                "{}::{}",
+                crate::normalize::normalize_full(&entity.entity_type),
+                crate::normalize::normalize_full(&entity.id)
+            );
+            let normalized_parents: Vec<String> = entity
+                .parents
+                .iter()
+                .map(|p| {
+                    if let Some((t, i)) = p.split_once("::") {
+                        format!(
+                            "{}::{}",
+                            crate::normalize::normalize_full(t),
+                            crate::normalize::normalize_full(i)
+                        )
+                    } else {
+                        crate::normalize::normalize_full(p)
+                    }
+                })
+                .collect();
+            memberships.insert(key.clone(), normalized_parents);
             map.insert(key, entity.clone());
         }
         Self {
@@ -205,8 +228,14 @@ impl EntityStore {
     }
 
     /// Look up an entity by type and ID.
+    ///
+    /// SECURITY (R242-ENG-2): Normalize lookup key to match storage normalization.
     pub fn lookup(&self, entity_type: &str, id: &str) -> Option<&AbacEntity> {
-        let key = format!("{entity_type}::{id}");
+        let key = format!(
+            "{}::{}",
+            crate::normalize::normalize_full(entity_type),
+            crate::normalize::normalize_full(id)
+        );
         self.entities.get(&key)
     }
 
@@ -215,8 +244,15 @@ impl EntityStore {
     /// Uses a visited set to prevent exponential blowup through diamond-shaped
     /// membership graphs (FIND-R44-001).
     pub fn is_member_of(&self, entity_key: &str, group_key: &str) -> bool {
+        let normalized_entity_key = normalize_entity_key(entity_key);
+        let normalized_group_key = normalize_entity_key(group_key);
         let mut visited = HashSet::new();
-        self.is_member_of_bounded(entity_key, group_key, 0, &mut visited)
+        self.is_member_of_bounded(
+            &normalized_entity_key,
+            &normalized_group_key,
+            0,
+            &mut visited,
+        )
     }
 
     fn is_member_of_bounded(
@@ -245,6 +281,18 @@ impl EntityStore {
             }
         }
         false
+    }
+}
+
+fn normalize_entity_key(key: &str) -> String {
+    if let Some((entity_type, id)) = key.split_once("::") {
+        format!(
+            "{}::{}",
+            crate::normalize::normalize_full(entity_type),
+            crate::normalize::normalize_full(id)
+        )
+    } else {
+        crate::normalize::normalize_full(key)
     }
 }
 
@@ -1598,6 +1646,57 @@ mod tests {
         let store = EntityStore::from_config(&entities);
         assert!(store.lookup("Agent", "agent-1").is_some());
         assert!(store.lookup("Agent", "nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_entity_store_lookup_normalizes_unicode_keys() {
+        let entities = vec![AbacEntity {
+            entity_type: "Agent".to_string(),
+            id: "admin".to_string(),
+            attributes: HashMap::new(),
+            parents: vec![],
+        }];
+        let store = EntityStore::from_config(&entities);
+
+        assert!(
+            store.lookup("Ａｇｅｎｔ", "аdmin").is_some(),
+            "lookup should normalize fullwidth type and Cyrillic-homoglyph ID"
+        );
+    }
+
+    #[test]
+    fn test_entity_store_memberships_normalize_parent_keys() {
+        let entities = vec![
+            AbacEntity {
+                entity_type: "Group".to_string(),
+                id: "admins".to_string(),
+                attributes: HashMap::new(),
+                parents: vec![],
+            },
+            AbacEntity {
+                entity_type: "Agent".to_string(),
+                id: "admin".to_string(),
+                attributes: HashMap::new(),
+                parents: vec!["Ｇroup::аdmins".to_string()],
+            },
+        ];
+        let store = EntityStore::from_config(&entities);
+
+        let entity_key = format!(
+            "{}::{}",
+            crate::normalize::normalize_full("Agent"),
+            crate::normalize::normalize_full("admin")
+        );
+        let group_key = format!(
+            "{}::{}",
+            crate::normalize::normalize_full("Group"),
+            crate::normalize::normalize_full("admins")
+        );
+
+        assert!(
+            store.is_member_of(&entity_key, &group_key),
+            "membership edges should normalize stored parent keys"
+        );
     }
 
     #[test]

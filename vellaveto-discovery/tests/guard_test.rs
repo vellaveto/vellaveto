@@ -428,3 +428,31 @@ fn test_guard_upsert_server_preserves_other_servers() {
         TopologyVerdict::Known { .. }
     ));
 }
+
+/// R238-DISC-1: Unknown tool names are sanitized in TopologyVerdict to prevent
+/// log injection via control chars or bidi overrides in attacker-supplied names.
+#[test]
+fn test_r238_disc1_unknown_tool_name_sanitized() {
+    let topo = make_test_topology();
+    let guard = TopologyGuard::new();
+    guard.update(topo);
+
+    // Inject control characters and bidi overrides in tool name
+    let malicious = "evil\u{202E}tool\x00hidden";
+    let verdict = guard.check(malicious);
+
+    match verdict {
+        TopologyVerdict::Unknown { requested_tool, .. } => {
+            // The requested_tool should be sanitized (no control/format chars)
+            assert!(
+                !requested_tool.contains('\u{202E}'),
+                "Bidi override should be sanitized: {requested_tool:?}"
+            );
+            assert!(
+                !requested_tool.contains('\0'),
+                "Null byte should be sanitized: {requested_tool:?}"
+            );
+        }
+        other => panic!("expected Unknown verdict, got {other:?}"),
+    }
+}

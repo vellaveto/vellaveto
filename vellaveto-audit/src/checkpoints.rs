@@ -348,14 +348,30 @@ impl AuditLogger {
 
             // 5. Verify Ed25519 signature over canonical content
             let content = cp.signing_content();
-            if verifying_key.verify(&content, &signature).is_err() {
+            let verified_content = if verifying_key.verify(&content, &signature).is_ok() {
+                content
+            } else if cp.signature_version.unwrap_or(1) <= 1 {
+                let legacy_content = cp.legacy_signing_content();
+                if verifying_key.verify(&legacy_content, &signature).is_ok() {
+                    legacy_content
+                } else {
+                    return Ok(CheckpointVerification {
+                        valid: false,
+                        checkpoints_checked: i + 1,
+                        first_invalid_at: Some(i),
+                        failure_reason: Some("Ed25519 signature verification failed".to_string()),
+                    });
+                }
+            } else {
                 return Ok(CheckpointVerification {
                     valid: false,
                     checkpoints_checked: i + 1,
                     first_invalid_at: Some(i),
                     failure_reason: Some("Ed25519 signature verification failed".to_string()),
                 });
-            }
+            };
+            #[cfg(not(feature = "pqc-hybrid"))]
+            let _ = &verified_content;
 
             // 5b. Phase 54: Verify ML-DSA-65 signature for hybrid (v2) checkpoints
             let sig_version = cp.signature_version.unwrap_or(1);
@@ -401,7 +417,7 @@ impl AuditLogger {
                     })?;
                     if let Err(e) = crate::pqc::ml_dsa_verify(
                         pqc_vk,
-                        &content,
+                        &verified_content,
                         pqc_sig,
                         crate::pqc::CHECKPOINT_CONTEXT,
                     ) {

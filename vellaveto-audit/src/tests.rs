@@ -1692,6 +1692,47 @@ async fn test_checkpoint_key_continuity_rejects_key_change() {
 }
 
 #[tokio::test]
+async fn test_checkpoint_legacy_v1_signature_still_verifies() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let key = AuditLogger::generate_signing_key();
+    let logger = AuditLogger::new(log_path.clone()).with_signing_key(key.clone());
+
+    let action = test_action();
+    logger
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    let entries = logger.load_entries().await.unwrap();
+    let mut checkpoint = Checkpoint {
+        id: uuid::Uuid::new_v4().to_string(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        entry_count: entries.len(),
+        chain_head_hash: entries.last().and_then(|e| e.entry_hash.clone()),
+        signature: String::new(),
+        verifying_key: hex::encode(key.verifying_key().as_bytes()),
+        merkle_root: None,
+        pqc_signature: None,
+        pqc_verifying_key: None,
+        signature_version: None,
+    };
+    let legacy_sig = key.sign(&checkpoint.legacy_signing_content());
+    checkpoint.signature = hex::encode(legacy_sig.to_bytes());
+
+    let cp_path = logger.checkpoint_path();
+    let serialized = format!("{}\n", serde_json::to_string(&checkpoint).unwrap());
+    tokio::fs::write(&cp_path, serialized).await.unwrap();
+
+    let verification = logger.verify_checkpoints().await.unwrap();
+    assert!(
+        verification.valid,
+        "legacy v1 checkpoints must still verify after signature-version binding"
+    );
+    assert_eq!(verification.checkpoints_checked, 1);
+}
+
+#[tokio::test]
 async fn test_checkpoint_key_from_bytes_roundtrip() {
     let key = AuditLogger::generate_signing_key();
     let bytes = key.to_bytes();
@@ -5103,5 +5144,92 @@ async fn test_r228_verify_chain_mixed_suffix_regression_detected() {
     assert!(
         !verification.valid,
         "Timestamp regression with mixed Z/+00:00 suffixes must be detected"
+    );
+}
+
+/// R238-AUD-1: Tenant ID with dangerous characters is dropped (fail-closed).
+#[tokio::test]
+async fn test_r238_aud1_tenant_id_dangerous_chars_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("audit_tenant_dangerous.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    let action = vellaveto_types::Action::new("test", "op", json!({}));
+    let verdict = vellaveto_types::Verdict::Allow;
+
+    // Metadata with dangerous chars in tenant_id (bidi override U+202E)
+    let metadata = json!({
+        "tenant_id": "tenant\u{202E}evil",
+    });
+    logger.log_entry(&action, &verdict, metadata).await.unwrap();
+
+    // Read the logged entry — tenant_id should be absent (dropped via skip_serializing_if)
+    let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    assert!(
+        entry.get("tenant_id").is_none(),
+        "tenant_id with dangerous characters should be absent from entry"
+    );
+    assert!(
+        entry["metadata"].get("tenant_id").is_none(),
+        "dangerous metadata.tenant_id should be removed from metadata too"
+    );
+}
+
+/// R238-AUD-1: Tenant ID exceeding MAX_TENANT_ID_LEN is dropped.
+#[tokio::test]
+async fn test_r238_aud1_tenant_id_too_long_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("audit_tenant_long.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    let action = vellaveto_types::Action::new("test", "op", json!({}));
+    let verdict = vellaveto_types::Verdict::Allow;
+
+    // Metadata with overlong tenant_id (65 chars, max is 64)
+    let long_id = "t".repeat(vellaveto_types::audit_store::MAX_TENANT_ID_LEN + 1);
+    let metadata = json!({ "tenant_id": long_id });
+    logger.log_entry(&action, &verdict, metadata).await.unwrap();
+
+    let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    assert!(
+        entry.get("tenant_id").is_none(),
+        "overlong tenant_id should be absent from entry"
+    );
+    assert!(
+        entry["metadata"].get("tenant_id").is_none(),
+        "overlong metadata.tenant_id should be removed from metadata too"
+    );
+}
+
+/// R238-AUD-1: Valid tenant ID passes through.
+#[tokio::test]
+async fn test_r238_aud1_tenant_id_valid_passes() {
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("audit_tenant_valid.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    let action = vellaveto_types::Action::new("test", "op", json!({}));
+    let verdict = vellaveto_types::Verdict::Allow;
+
+    let metadata = json!({ "tenant_id": "tenant-abc-123" });
+    logger.log_entry(&action, &verdict, metadata).await.unwrap();
+
+    let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    assert_eq!(
+        entry.get("tenant_id").unwrap().as_str().unwrap(),
+        "tenant-abc-123",
+        "valid tenant_id should be preserved"
+    );
+    assert_eq!(
+        entry["metadata"]
+            .get("tenant_id")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "tenant-abc-123",
+        "valid metadata.tenant_id should be preserved"
     );
 }

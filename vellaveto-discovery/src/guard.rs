@@ -143,8 +143,10 @@ impl TopologyGuard {
                 // Not found — generate suggestion via simple string distance
                 let available = topology.tool_names();
                 let suggestion = find_closest_match(tool_name, &available);
+                // SECURITY (R238-DISC-1): Sanitize echoed tool name to prevent
+                // log injection via control/bidi chars in attacker-supplied names.
                 TopologyVerdict::Unknown {
-                    requested_tool: tool_name.to_string(),
+                    requested_tool: vellaveto_types::sanitize_for_log(tool_name, 256),
                     suggestion,
                     available_tools: available,
                 }

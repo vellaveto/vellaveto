@@ -92,7 +92,7 @@ pub struct RotationVerification {
 /// server and modifies audit entries, they cannot forge valid Ed25519 signatures
 /// without the signing key. Checkpoints are stored in a separate JSONL file
 /// alongside the audit log.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
     /// Unique checkpoint identifier.
@@ -136,6 +136,19 @@ impl Checkpoint {
     /// Content = SHA-256(id || timestamp || entry_count_le || chain_head_hash)
     /// Each field is length-prefixed with u64 LE to prevent boundary collisions.
     pub(crate) fn signing_content(&self) -> Vec<u8> {
+        self.signing_content_internal(true)
+    }
+
+    /// Legacy checkpoint signing content prior to signature-version binding.
+    ///
+    /// SECURITY (R238-AUD-5): Verification uses this only as a compatibility
+    /// fallback for legacy v1 checkpoints that were signed before the
+    /// signature_version field was bound into the Ed25519 signature.
+    pub(crate) fn legacy_signing_content(&self) -> Vec<u8> {
+        self.signing_content_internal(false)
+    }
+
+    fn signing_content_internal(&self, bind_signature_version: bool) -> Vec<u8> {
         let mut hasher = Sha256::new();
         Self::hash_field(&mut hasher, self.id.as_bytes());
         Self::hash_field(&mut hasher, self.timestamp.as_bytes());
@@ -149,6 +162,12 @@ impl Checkpoint {
             &mut hasher,
             self.merkle_root.as_deref().unwrap_or("").as_bytes(),
         );
+        if bind_signature_version {
+            // SECURITY (R238-AUD-5): Bind signature_version into the Ed25519
+            // signature so v2 checkpoints cannot be downgraded to v1 without
+            // invalidating the checkpoint signature.
+            Self::hash_field(&mut hasher, &[self.signature_version.unwrap_or(1)]);
+        }
         // Phase 54: Include PQC verifying key for hybrid (v2) checkpoints.
         // For v1 (legacy), this block is skipped → identical signing content.
         // SECURITY: Prevents stripping PQC fields without invalidating Ed25519 sig.
@@ -164,6 +183,25 @@ impl Checkpoint {
     pub(crate) fn hash_field(hasher: &mut Sha256, data: &[u8]) {
         hasher.update((data.len() as u64).to_le_bytes());
         hasher.update(data);
+    }
+}
+
+/// SECURITY (R238-AUD-1): Custom Debug redacts cryptographic material
+/// (signatures, verifying keys) to prevent accidental exposure in logs.
+impl std::fmt::Debug for Checkpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Checkpoint")
+            .field("id", &self.id)
+            .field("timestamp", &self.timestamp)
+            .field("entry_count", &self.entry_count)
+            .field("chain_head_hash", &self.chain_head_hash)
+            .field("signature", &"[REDACTED]")
+            .field("verifying_key", &"[REDACTED]")
+            .field("merkle_root", &self.merkle_root)
+            .field("pqc_signature", &self.pqc_signature.as_ref().map(|_| "[REDACTED]"))
+            .field("pqc_verifying_key", &self.pqc_verifying_key.as_ref().map(|_| "[REDACTED]"))
+            .field("signature_version", &self.signature_version)
+            .finish()
     }
 }
 

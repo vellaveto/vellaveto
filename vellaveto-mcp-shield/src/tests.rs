@@ -76,6 +76,26 @@ fn test_sanitizer_json_recursive() {
 }
 
 #[test]
+fn test_sanitizer_json_object_keys_roundtrip() {
+    let sanitizer = QuerySanitizer::new(PiiScanner::default());
+    let input = serde_json::json!({
+        "user@example.com": {
+            "owner@example.com": "notify admin@example.com"
+        }
+    });
+
+    let sanitized = sanitizer.sanitize_json(&input).unwrap();
+    let sanitized_str = serde_json::to_string(&sanitized).unwrap();
+    assert!(!sanitized_str.contains("user@example.com"));
+    assert!(!sanitized_str.contains("owner@example.com"));
+    assert!(!sanitized_str.contains("admin@example.com"));
+    assert!(sanitized_str.contains("[PII_"));
+
+    let restored = sanitizer.desanitize_json(&sanitized).unwrap();
+    assert_eq!(restored, input);
+}
+
+#[test]
 fn test_sanitizer_max_mappings_fail_closed() {
     let sanitizer = QuerySanitizer::new(PiiScanner::default());
     // Fill up mappings (each unique email creates a mapping)
@@ -164,11 +184,56 @@ fn test_session_independent_pii_maps() {
     let restored = isolator.desanitize_in_session("s1", &s1_result).unwrap();
     assert_eq!(restored, "user1@example.com");
 
-    // Cross-session desanitization should NOT restore the other session's PII
-    let cross_restored = isolator.desanitize_in_session("s2", &s1_result).unwrap();
+    // Cross-session desanitization: session s2 does NOT own session s1's
+    // placeholders, so they pass through unchanged (no PII leak).
+    let cross_restored = isolator
+        .desanitize_in_session("s2", &s1_result)
+        .unwrap();
     assert_ne!(
         cross_restored, "user1@example.com",
+        "cross-session desanitization must NOT restore other session's PII"
+    );
+    assert!(
+        !cross_restored.contains("user1@example.com"),
         "session isolation should prevent cross-session PII restoration"
+    );
+}
+
+#[test]
+fn test_session_placeholder_format_is_bound_by_regex() {
+    let isolator = SessionIsolator::new();
+    let sanitized = isolator
+        .sanitize_in_session("s1", "user@example.com")
+        .unwrap();
+
+    let placeholder = sanitized
+        .split_whitespace()
+        .find(|segment| segment.starts_with("[PII_"))
+        .expect("sanitized output should contain a placeholder");
+
+    let restored = isolator.desanitize_in_session("s1", placeholder).unwrap();
+    assert_eq!(restored, "user@example.com");
+}
+
+#[test]
+fn test_session_desanitize_only_accepts_most_recent_outbound_placeholders() {
+    let isolator = SessionIsolator::new();
+    let older = isolator
+        .sanitize_in_session("s1", "older@example.com")
+        .unwrap();
+    let newer = isolator
+        .sanitize_in_session("s1", "newer@example.com")
+        .unwrap();
+
+    let restored_newer = isolator.desanitize_in_session("s1", &newer).unwrap();
+    assert_eq!(restored_newer, "newer@example.com");
+
+    let stale = isolator.desanitize_in_session("s1", &older);
+    assert!(stale.is_err(), "stale placeholders must fail closed");
+    let err = stale.unwrap_err().to_string();
+    assert!(
+        err.contains("most recent outbound sanitized request"),
+        "error should explain request binding, got: {err}"
     );
 }
 
@@ -1295,7 +1360,7 @@ fn test_pipeline_desanitize_then_context_record() {
     let placeholder = sanitized_text
         .split_whitespace()
         .find(|s| s.starts_with("[PII_"))
-        .unwrap_or("[PII_EMAIL_000001]");
+        .expect("sanitized output should contain a placeholder");
 
     // Simulate inbound response using the actual placeholder
     let response = serde_json::json!({

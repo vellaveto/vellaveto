@@ -405,7 +405,7 @@ impl AuditLogger {
             }
         };
 
-        let logged_metadata = match self.redaction_level {
+        let mut logged_metadata = match self.redaction_level {
             RedactionLevel::Off => metadata,
             RedactionLevel::KeysOnly => redact_keys_only(&metadata),
             RedactionLevel::KeysAndPatterns => {
@@ -497,10 +497,38 @@ impl AuditLogger {
         // Phase 44: Extract tenant_id from metadata for per-tenant audit scoping.
         // The tenant_id is injected into metadata by build_evaluate_audit_metadata(),
         // so we extract it here to populate the dedicated AuditEntry field.
-        let tenant_id = logged_metadata
-            .get("tenant_id")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        //
+        // SECURITY (R238-AUD-1): Validate tenant_id for dangerous characters and length.
+        // Metadata KEYS are validated at line 350, but VALUES (including tenant_id) were
+        // not. A malicious tenant_id could inject control/bidi chars into audit logs,
+        // break multi-tenant queries, or corrupt JSONL exports.
+        let tenant_id = match logged_metadata.get("tenant_id") {
+            Some(serde_json::Value::String(s)) => {
+                if s.len() > vellaveto_types::audit_store::MAX_TENANT_ID_LEN {
+                    tracing::warn!(
+                        "tenant_id exceeds max length ({} > {}), dropping",
+                        s.len(),
+                        vellaveto_types::audit_store::MAX_TENANT_ID_LEN
+                    );
+                    None
+                } else if vellaveto_types::has_dangerous_chars(s) {
+                    tracing::warn!("tenant_id contains dangerous characters, dropping");
+                    None
+                } else {
+                    Some(s.clone())
+                }
+            }
+            Some(_) => {
+                tracing::warn!("tenant_id is not a string, dropping");
+                None
+            }
+            None => None,
+        };
+        if tenant_id.is_none() {
+            if let Some(obj) = logged_metadata.as_object_mut() {
+                obj.remove("tenant_id");
+            }
+        }
 
         let mut entry = AuditEntry {
             id: Uuid::new_v4().to_string(),
