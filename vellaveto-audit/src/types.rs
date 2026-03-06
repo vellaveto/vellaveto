@@ -198,8 +198,14 @@ impl std::fmt::Debug for Checkpoint {
             .field("signature", &"[REDACTED]")
             .field("verifying_key", &"[REDACTED]")
             .field("merkle_root", &self.merkle_root)
-            .field("pqc_signature", &self.pqc_signature.as_ref().map(|_| "[REDACTED]"))
-            .field("pqc_verifying_key", &self.pqc_verifying_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "pqc_signature",
+                &self.pqc_signature.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field(
+                "pqc_verifying_key",
+                &self.pqc_verifying_key.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("signature_version", &self.signature_version)
             .finish()
     }

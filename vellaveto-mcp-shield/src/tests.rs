@@ -186,9 +186,7 @@ fn test_session_independent_pii_maps() {
 
     // Cross-session desanitization: session s2 does NOT own session s1's
     // placeholders, so they pass through unchanged (no PII leak).
-    let cross_restored = isolator
-        .desanitize_in_session("s2", &s1_result)
-        .unwrap();
+    let cross_restored = isolator.desanitize_in_session("s2", &s1_result).unwrap();
     assert_ne!(
         cross_restored, "user1@example.com",
         "cross-session desanitization must NOT restore other session's PII"
