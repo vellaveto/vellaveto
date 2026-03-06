@@ -27,6 +27,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 /// Source attestation for a tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolSource {
     /// Server or provider name.
     pub server: String,
@@ -176,6 +177,35 @@ impl ToolNamespaceRegistry {
         // format chars. Delegate to canonical predicate.
         if vellaveto_types::has_dangerous_chars(tool_name) {
             return Err(NamespaceError::InvalidName(tool_name.to_string()));
+        }
+
+        // SECURITY (R239-MCP-2): Validate ToolSource fields for dangerous chars.
+        // These come from external registrations and are stored/compared — control
+        // chars could smuggle past comparisons or corrupt log output.
+        if source.server.is_empty()
+            || source.server.len() > 512
+            || vellaveto_types::has_dangerous_chars(&source.server)
+        {
+            return Err(NamespaceError::InvalidName(
+                "source server contains invalid characters or is out of bounds".to_string(),
+            ));
+        }
+        if source.version.is_empty()
+            || source.version.len() > 128
+            || vellaveto_types::has_dangerous_chars(&source.version)
+        {
+            return Err(NamespaceError::InvalidName(
+                "source version contains invalid characters or is out of bounds".to_string(),
+            ));
+        }
+        if source.definition_hash.is_empty()
+            || source.definition_hash.len() > 256
+            || vellaveto_types::has_dangerous_chars(&source.definition_hash)
+        {
+            return Err(NamespaceError::InvalidName(
+                "source definition_hash contains invalid characters or is out of bounds"
+                    .to_string(),
+            ));
         }
 
         let normalized_name = tool_name.to_lowercase();
@@ -748,6 +778,20 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_source_deny_unknown_fields() {
+        let json = r#"{
+            "server": "server1",
+            "version": "1.0.0",
+            "definition_hash": "hash_server1",
+            "trusted": true,
+            "extra": false
+        }"#;
+
+        let result: Result<ToolSource, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_list_tools() {
         let registry = ToolNamespaceRegistry::new();
 
@@ -759,5 +803,90 @@ mod tests {
 
         let tools = registry.list_tools();
         assert_eq!(tools.len(), 2);
+    }
+
+    // ── R239-MCP-2: ToolSource field validation tests ──────────────
+
+    #[test]
+    fn test_register_rejects_dangerous_chars_in_server() {
+        let registry = ToolNamespaceRegistry::new();
+        let source = ToolSource {
+            server: "evil\x00server".to_string(),
+            version: "1.0.0".to_string(),
+            definition_hash: "abc123".to_string(),
+            registered_at: None,
+            trusted: true,
+        };
+        let result = registry.register("good_tool", source);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("source server"),
+            "Should mention source server"
+        );
+    }
+
+    #[test]
+    fn test_register_rejects_dangerous_chars_in_version() {
+        let registry = ToolNamespaceRegistry::new();
+        let source = ToolSource {
+            server: "server1".to_string(),
+            version: "1.0\u{200B}.0".to_string(), // zero-width space
+            definition_hash: "abc123".to_string(),
+            registered_at: None,
+            trusted: true,
+        };
+        let result = registry.register("good_tool", source);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("source version"),
+            "Should mention source version"
+        );
+    }
+
+    #[test]
+    fn test_register_rejects_dangerous_chars_in_definition_hash() {
+        let registry = ToolNamespaceRegistry::new();
+        let source = ToolSource {
+            server: "server1".to_string(),
+            version: "1.0.0".to_string(),
+            definition_hash: "abc\ndef".to_string(),
+            registered_at: None,
+            trusted: true,
+        };
+        let result = registry.register("good_tool", source);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("definition_hash"),
+            "Should mention definition_hash"
+        );
+    }
+
+    #[test]
+    fn test_register_rejects_empty_server() {
+        let registry = ToolNamespaceRegistry::new();
+        let source = ToolSource {
+            server: "".to_string(),
+            version: "1.0.0".to_string(),
+            definition_hash: "abc123".to_string(),
+            registered_at: None,
+            trusted: true,
+        };
+        assert!(registry.register("good_tool", source).is_err());
+    }
+
+    #[test]
+    fn test_register_rejects_oversized_server() {
+        let registry = ToolNamespaceRegistry::new();
+        let source = ToolSource {
+            server: "x".repeat(513),
+            version: "1.0.0".to_string(),
+            definition_hash: "abc123".to_string(),
+            registered_at: None,
+            trusted: true,
+        };
+        assert!(registry.register("good_tool", source).is_err());
     }
 }

@@ -166,9 +166,9 @@ impl ShadowAiDiscovery {
         let now = chrono::Utc::now().to_rfc3339();
 
         // Check if agent is registered
-        // SECURITY (FO-004): Fail-closed on poisoned lock — if the lock is poisoned,
-        // treat the agent as registered (true) to avoid false negatives that would
-        // skip shadow AI tracking. Previous `.unwrap_or(false)` was fail-open.
+        // SECURITY (R239-MCP-4): Fail-closed on poisoned lock — treat agent as
+        // UNregistered so shadow AI tracking still fires. Returning `true` here
+        // would skip tracking, letting rogue agents operate undetected.
         let agent_registered = self
             .registered_agents
             .read()
@@ -176,9 +176,9 @@ impl ShadowAiDiscovery {
             .unwrap_or_else(|_| {
                 tracing::error!(
                     target: "vellaveto::security",
-                    "RwLock poisoned in ShadowAiDiscovery::observe_request (registered_agents) — fail-closed: treating as registered"
+                    "RwLock poisoned in ShadowAiDiscovery::observe_request (registered_agents) — fail-closed: treating as unregistered"
                 );
-                true
+                false
             });
 
         if !agent_registered && !agent_id.is_empty() {

@@ -127,65 +127,51 @@ impl RekorEntry {
     /// Maximum number of inclusion proof hashes.
     const MAX_PROOF_HASHES: usize = 64;
 
-    /// SECURITY (FIND-R176-006): Validate a deserialized Rekor entry.
+    /// SECURITY (FIND-R176-006, R239-MCP-1): Validate a deserialized Rekor entry.
+    /// Checks both length bounds and dangerous character content on all string fields.
     pub fn validate(&self) -> Result<(), RekorError> {
-        if self.log_id.len() > Self::MAX_LOG_ID_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "log_id length {} exceeds maximum {}",
-                self.log_id.len(),
-                Self::MAX_LOG_ID_LEN
-            )));
-        }
-        if self.body.api_version.len() > Self::MAX_API_VERSION_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "api_version length {} exceeds maximum {}",
-                self.body.api_version.len(),
-                Self::MAX_API_VERSION_LEN
-            )));
-        }
-        if self.body.kind.len() > Self::MAX_KIND_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "kind length {} exceeds maximum {}",
-                self.body.kind.len(),
-                Self::MAX_KIND_LEN
-            )));
-        }
-        if self.body.spec.signature.content.len() > Self::MAX_CRYPTO_CONTENT_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "signature content length {} exceeds maximum {}",
-                self.body.spec.signature.content.len(),
-                Self::MAX_CRYPTO_CONTENT_LEN
-            )));
-        }
-        if self.body.spec.signature.public_key.content.len() > Self::MAX_CRYPTO_CONTENT_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "public_key content length {} exceeds maximum {}",
-                self.body.spec.signature.public_key.content.len(),
-                Self::MAX_CRYPTO_CONTENT_LEN
-            )));
-        }
-        if self.body.spec.data.hash.algorithm.len() > Self::MAX_HASH_ALGO_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "hash algorithm length {} exceeds maximum {}",
-                self.body.spec.data.hash.algorithm.len(),
-                Self::MAX_HASH_ALGO_LEN
-            )));
-        }
-        if self.body.spec.data.hash.value.len() > Self::MAX_HASH_VALUE_LEN {
-            return Err(RekorError::InvalidProof(format!(
-                "hash value length {} exceeds maximum {}",
-                self.body.spec.data.hash.value.len(),
-                Self::MAX_HASH_VALUE_LEN
-            )));
-        }
-        if let Some(ref proof) = self.inclusion_proof {
-            if proof.root_hash.len() > Self::MAX_HASH_VALUE_LEN {
+        // Helper: check length + dangerous chars for a named field.
+        fn check_field(name: &str, value: &str, max_len: usize) -> Result<(), RekorError> {
+            if value.len() > max_len {
                 return Err(RekorError::InvalidProof(format!(
-                    "root_hash length {} exceeds maximum {}",
-                    proof.root_hash.len(),
-                    Self::MAX_HASH_VALUE_LEN
+                    "{name} length {} exceeds maximum {max_len}",
+                    value.len(),
                 )));
             }
+            if vellaveto_types::has_dangerous_chars(value) {
+                return Err(RekorError::InvalidProof(format!(
+                    "{name} contains control or Unicode format characters",
+                )));
+            }
+            Ok(())
+        }
+
+        check_field("log_id", &self.log_id, Self::MAX_LOG_ID_LEN)?;
+        check_field("api_version", &self.body.api_version, Self::MAX_API_VERSION_LEN)?;
+        check_field("kind", &self.body.kind, Self::MAX_KIND_LEN)?;
+        check_field(
+            "signature.content",
+            &self.body.spec.signature.content,
+            Self::MAX_CRYPTO_CONTENT_LEN,
+        )?;
+        check_field(
+            "public_key.content",
+            &self.body.spec.signature.public_key.content,
+            Self::MAX_CRYPTO_CONTENT_LEN,
+        )?;
+        check_field(
+            "hash.algorithm",
+            &self.body.spec.data.hash.algorithm,
+            Self::MAX_HASH_ALGO_LEN,
+        )?;
+        check_field(
+            "hash.value",
+            &self.body.spec.data.hash.value,
+            Self::MAX_HASH_VALUE_LEN,
+        )?;
+
+        if let Some(ref proof) = self.inclusion_proof {
+            check_field("root_hash", &proof.root_hash, Self::MAX_HASH_VALUE_LEN)?;
             if proof.hashes.len() > Self::MAX_PROOF_HASHES {
                 return Err(RekorError::InvalidProof(format!(
                     "proof hashes count {} exceeds maximum {}",
@@ -194,14 +180,11 @@ impl RekorEntry {
                 )));
             }
             for (i, hash) in proof.hashes.iter().enumerate() {
-                if hash.len() > Self::MAX_HASH_VALUE_LEN {
-                    return Err(RekorError::InvalidProof(format!(
-                        "proof hash[{}] length {} exceeds maximum {}",
-                        i,
-                        hash.len(),
-                        Self::MAX_HASH_VALUE_LEN
-                    )));
-                }
+                check_field(
+                    &format!("proof hash[{i}]"),
+                    hash,
+                    Self::MAX_HASH_VALUE_LEN,
+                )?;
             }
         }
         Ok(())
@@ -223,6 +206,7 @@ pub struct RekorVerifier {
 
 /// Result of a full Rekor verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RekorVerification {
     /// Whether the inclusion proof is valid.
     pub inclusion_valid: bool,
@@ -598,6 +582,16 @@ mod tests {
     }
 
     #[test]
+    fn test_verification_result_deny_unknown_fields() {
+        let json = r#"{"inclusion_valid":true,"hash_matches":true,"timestamp":1700000000,"log_index":42,"extra":"bad"}"#;
+        let result: Result<RekorVerification, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "RekorVerification should reject unknown fields"
+        );
+    }
+
+    #[test]
     fn test_inclusion_proof_with_sibling() {
         let verifier = RekorVerifier::new();
         let mut entry = make_test_entry("abc");
@@ -656,5 +650,71 @@ mod tests {
 
         let result = verifier.verify_inclusion_proof(&entry);
         assert!(matches!(result, Err(RekorError::InvalidProof(_))));
+    }
+
+    // ── R239-MCP-1: has_dangerous_chars validation tests ───────────
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_log_id() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.log_id = "log\x00id".to_string();
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_api_version() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.body.api_version = "0.0.\x01".to_string();
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_kind() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.body.kind = "hashed\u{200B}rekord".to_string(); // zero-width space
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_hash_value() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.body.spec.data.hash.value = "abc\ndef".to_string();
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_root_hash() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.inclusion_proof = Some(RekorInclusionProof {
+            log_index: 1,
+            root_hash: "abc\x7f".to_string(),
+            tree_size: 2,
+            hashes: vec![],
+        });
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_rejects_control_chars_in_proof_hash() {
+        let mut entry = make_test_entry("aa".repeat(32).as_str());
+        entry.inclusion_proof = Some(RekorInclusionProof {
+            log_index: 1,
+            root_hash: "abcdef".to_string(),
+            tree_size: 2,
+            hashes: vec!["ok".to_string(), "bad\x00".to_string()],
+        });
+        let err = entry.validate().unwrap_err();
+        assert!(err.to_string().contains("control or Unicode format"));
+    }
+
+    #[test]
+    fn test_validate_accepts_clean_entry() {
+        let entry = make_test_entry(&"aa".repeat(32));
+        assert!(entry.validate().is_ok());
     }
 }

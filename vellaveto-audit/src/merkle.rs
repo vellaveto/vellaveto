@@ -53,6 +53,7 @@ pub struct MerkleTree {
 
 /// Inclusion proof for a single leaf in the Merkle tree.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MerkleProof {
     /// Index of the leaf being proved (0-based).
     pub leaf_index: u64,
@@ -66,6 +67,7 @@ pub struct MerkleProof {
 
 /// A single step in a Merkle inclusion proof.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProofStep {
     /// Hex-encoded sibling hash.
     pub hash: String,
@@ -75,6 +77,7 @@ pub struct ProofStep {
 
 /// Result of verifying a Merkle inclusion proof.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MerkleVerification {
     /// Whether the proof is valid.
     pub valid: bool,
@@ -263,7 +266,8 @@ impl MerkleTree {
         // SECURITY (FIND-R46-001/002): Check file size before reading to prevent OOM.
         match std::fs::metadata(&self.leaf_file_path) {
             Ok(meta) => {
-                let max_file_size = self.max_leaf_count * HASH_SIZE as u64;
+                // SECURITY (R239-AUD-1): Use saturating_mul to prevent overflow.
+                let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
                 if meta.len() > max_file_size {
                     return Err(AuditError::Validation(format!(
                         "Merkle leaf file too large ({} bytes, max {} bytes for {} leaves)",
@@ -362,7 +366,8 @@ impl MerkleTree {
 
         // SECURITY (FIND-R46-004): Check file size before reading to prevent OOM.
         let file_meta = std::fs::metadata(&self.leaf_file_path)?;
-        let max_file_size = self.max_leaf_count * HASH_SIZE as u64;
+        // SECURITY (R239-AUD-1): Use saturating_mul to prevent overflow.
+                let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
         if file_meta.len() > max_file_size {
             return Err(AuditError::Validation(format!(
                 "Merkle leaf file too large for proof generation ({} bytes, max {} bytes)",
@@ -839,6 +844,44 @@ mod tests {
             }
             other => panic!("expected validation error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_merkle_proof_deny_unknown_fields() {
+        let json = r#"{
+            "leaf_index": 0,
+            "tree_size": 1,
+            "siblings": [],
+            "root_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "extra": true
+        }"#;
+
+        let result: Result<MerkleProof, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_proof_step_deny_unknown_fields() {
+        let json = r#"{
+            "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "is_left": false,
+            "extra": true
+        }"#;
+
+        let result: Result<ProofStep, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_merkle_verification_deny_unknown_fields() {
+        let json = r#"{
+            "valid": true,
+            "failure_reason": null,
+            "extra": true
+        }"#;
+
+        let result: Result<MerkleVerification, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     // ── Crash recovery (initialize) ─────────────────────────────────

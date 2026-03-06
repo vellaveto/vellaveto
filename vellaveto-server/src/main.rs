@@ -1893,10 +1893,12 @@ async fn cmd_evaluate(
                     Ok(decision) if decision.allow => (verdict, Some(decision)),
                     Ok(decision) => (
                         Verdict::Deny {
-                            reason: decision
-                                .reason
-                                .clone()
-                                .unwrap_or_else(|| "Denied by OPA policy".to_string()),
+                            // SECURITY (R239-SRV-1): Use fixed denial reason.
+                            // The OPA reason comes from an external server and
+                            // may contain control characters or injection
+                            // patterns. The raw reason is still available in the
+                            // OpaDecision metadata for auditing.
+                            reason: "Denied by OPA policy".to_string(),
                         },
                         Some(decision),
                     ),

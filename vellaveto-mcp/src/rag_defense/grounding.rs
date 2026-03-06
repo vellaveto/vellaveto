@@ -76,6 +76,7 @@ pub enum GroundingEnforcement {
 
 /// Result of a grounding check.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GroundingResult {
     /// Overall grounding score (0.0-1.0).
     pub score: f32,
@@ -99,6 +100,9 @@ pub struct GroundingResult {
     pub method: GroundingMethod,
 }
 
+/// Maximum number of claims/contradictions/attributions in a grounding result.
+const MAX_GROUNDING_ITEMS: usize = 1000;
+
 impl GroundingResult {
     /// Check if the response is adequately grounded.
     pub fn is_grounded(&self) -> bool {
@@ -117,10 +121,59 @@ impl GroundingResult {
     pub fn hallucinated_claims(&self) -> Vec<&ClaimScore> {
         self.claim_scores.iter().filter(|c| c.score < 0.5).collect()
     }
+
+    /// SECURITY (R239-MCP-3): Validate deserialized grounding results.
+    /// Rejects NaN/Infinity scores and unbounded collections.
+    pub fn validate(&self) -> Result<(), GroundingError> {
+        fn check_score(name: &str, v: f32) -> Result<(), GroundingError> {
+            if !v.is_finite() || v < 0.0 || v > 1.0 {
+                return Err(GroundingError::ContextError(format!(
+                    "{name} score {v} is not in [0.0, 1.0]"
+                )));
+            }
+            Ok(())
+        }
+        check_score("GroundingResult", self.score)?;
+        if self.claim_scores.len() > MAX_GROUNDING_ITEMS {
+            return Err(GroundingError::ContextError(format!(
+                "claim_scores count {} exceeds maximum {MAX_GROUNDING_ITEMS}",
+                self.claim_scores.len()
+            )));
+        }
+        for cs in &self.claim_scores {
+            check_score("ClaimScore", cs.score)?;
+        }
+        if self.contradictions.len() > MAX_GROUNDING_ITEMS {
+            return Err(GroundingError::ContextError(format!(
+                "contradictions count {} exceeds maximum {MAX_GROUNDING_ITEMS}",
+                self.contradictions.len()
+            )));
+        }
+        for c in &self.contradictions {
+            check_score("Contradiction.confidence", c.confidence)?;
+        }
+        if self.attributions.len() > MAX_GROUNDING_ITEMS {
+            return Err(GroundingError::ContextError(format!(
+                "attributions count {} exceeds maximum {MAX_GROUNDING_ITEMS}",
+                self.attributions.len()
+            )));
+        }
+        for a in &self.attributions {
+            check_score("Attribution.confidence", a.confidence)?;
+        }
+        if self.ungrounded_claims.len() > MAX_GROUNDING_ITEMS {
+            return Err(GroundingError::ContextError(format!(
+                "ungrounded_claims count {} exceeds maximum {MAX_GROUNDING_ITEMS}",
+                self.ungrounded_claims.len()
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// Score for an individual claim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ClaimScore {
     /// The claim text.
     pub claim: String,
@@ -149,6 +202,7 @@ pub enum NliLabel {
 
 /// A contradiction between response and context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Contradiction {
     /// The contradicting claim in the response.
     pub claim: String,
@@ -162,6 +216,7 @@ pub struct Contradiction {
 
 /// Attribution of a claim to a source document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Attribution {
     /// The claim text.
     pub claim: String,
@@ -761,5 +816,160 @@ mod tests {
         let parsed: GroundingResult = serde_json::from_str(&json).unwrap();
         assert!((parsed.score - 0.85).abs() < f32::EPSILON);
         assert!(parsed.passed);
+    }
+
+    #[test]
+    fn test_grounding_result_deny_unknown_fields() {
+        let json = r#"{"score":0.85,"passed":true,"claim_scores":[],"ungrounded_claims":[],"contradictions":[],"attributions":[],"method":"Lexical","extra":"bad"}"#;
+        let result: Result<GroundingResult, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "GroundingResult should reject unknown fields"
+        );
+    }
+
+    #[test]
+    fn test_claim_score_deny_unknown_fields() {
+        let json =
+            r#"{"claim":"c","score":0.5,"best_evidence":null,"nli_label":null,"extra":"bad"}"#;
+        let result: Result<ClaimScore, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "ClaimScore should reject unknown fields");
+    }
+
+    #[test]
+    fn test_contradiction_deny_unknown_fields() {
+        let json = r#"{"claim":"c","evidence":"e","confidence":0.5,"extra":"bad"}"#;
+        let result: Result<Contradiction, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "Contradiction should reject unknown fields"
+        );
+    }
+
+    #[test]
+    fn test_attribution_deny_unknown_fields() {
+        let json =
+            r#"{"claim":"c","source_id":"doc-1","passage":"p","confidence":0.5,"extra":"bad"}"#;
+        let result: Result<Attribution, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Attribution should reject unknown fields");
+    }
+
+    // ── R239-MCP-3: f32 NaN/Infinity/range validation tests ───────
+
+    #[test]
+    fn test_grounding_result_validate_rejects_nan_score() {
+        let result = GroundingResult {
+            score: f32::NAN,
+            passed: false,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_rejects_infinity_score() {
+        let result = GroundingResult {
+            score: f32::INFINITY,
+            passed: false,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_rejects_negative_score() {
+        let result = GroundingResult {
+            score: -0.1,
+            passed: false,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_rejects_over_one_score() {
+        let result = GroundingResult {
+            score: 1.01,
+            passed: false,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_rejects_nan_claim_score() {
+        let result = GroundingResult {
+            score: 0.5,
+            passed: true,
+            claim_scores: vec![ClaimScore {
+                claim: "test".to_string(),
+                score: f32::NAN,
+                best_evidence: None,
+                nli_label: None,
+            }],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_rejects_nan_contradiction_confidence() {
+        let result = GroundingResult {
+            score: 0.5,
+            passed: true,
+            claim_scores: vec![],
+            ungrounded_claims: vec![],
+            contradictions: vec![Contradiction {
+                claim: "test".to_string(),
+                evidence: "evidence".to_string(),
+                confidence: f32::NAN,
+            }],
+            attributions: vec![],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_err());
+    }
+
+    #[test]
+    fn test_grounding_result_validate_accepts_valid() {
+        let result = GroundingResult {
+            score: 0.8,
+            passed: true,
+            claim_scores: vec![ClaimScore {
+                claim: "test".to_string(),
+                score: 0.9,
+                best_evidence: Some("evidence".to_string()),
+                nli_label: Some(NliLabel::Entailment),
+            }],
+            ungrounded_claims: vec![],
+            contradictions: vec![],
+            attributions: vec![Attribution {
+                claim: "test".to_string(),
+                source_id: "doc1".to_string(),
+                passage: "evidence".to_string(),
+                confidence: 0.9,
+            }],
+            method: GroundingMethod::Lexical,
+        };
+        assert!(result.validate().is_ok());
     }
 }

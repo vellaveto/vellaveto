@@ -83,6 +83,84 @@ pub struct SecurityPostureScore {
     pub frameworks: Vec<PostureFrameworkScore>,
 }
 
+/// Maximum number of items in posture collections.
+const MAX_POSTURE_ITEMS: usize = 500;
+
+/// Maximum length for string fields in posture types.
+const MAX_POSTURE_STRING_LEN: usize = 1024;
+
+impl SecurityPostureScore {
+    /// SECURITY (R239-TYP-1): Validate posture score for NaN/Infinity and bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        fn check_percent(name: &str, v: f32) -> Result<(), String> {
+            if !v.is_finite() || v < 0.0 || v > 100.0 {
+                return Err(format!("{name} {v} is not in [0.0, 100.0]"));
+            }
+            Ok(())
+        }
+        check_percent("overall_score_percent", self.overall_score_percent)?;
+        if self.categories.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "categories count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.categories.len()
+            ));
+        }
+        for c in &self.categories {
+            check_percent("category score_percent", c.score_percent)?;
+        }
+        if self.frameworks.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "frameworks count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.frameworks.len()
+            ));
+        }
+        for f in &self.frameworks {
+            check_percent("framework score_percent", f.score_percent)?;
+        }
+        if self.generated_at.len() > MAX_POSTURE_STRING_LEN {
+            return Err("generated_at too long".to_string());
+        }
+        if self.tier.len() > MAX_POSTURE_STRING_LEN {
+            return Err("tier too long".to_string());
+        }
+        Ok(())
+    }
+}
+
+impl PostureGapReport {
+    /// SECURITY (R239-TYP-1): Validate gap report for NaN/Infinity and bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.overall_coverage_percent.is_finite()
+            || self.overall_coverage_percent < 0.0
+            || self.overall_coverage_percent > 100.0
+        {
+            return Err(format!(
+                "overall_coverage_percent {} is not in [0.0, 100.0]",
+                self.overall_coverage_percent
+            ));
+        }
+        if self.critical_gaps.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "critical_gaps count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.critical_gaps.len()
+            ));
+        }
+        if self.recommendations.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "recommendations count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.recommendations.len()
+            ));
+        }
+        if self.high_priority_focus_areas.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "high_priority_focus_areas count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.high_priority_focus_areas.len()
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// A normalized coverage summary for a framework in the control matrix view.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

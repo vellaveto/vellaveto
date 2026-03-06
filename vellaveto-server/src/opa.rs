@@ -116,6 +116,33 @@ impl OpaInput {
     /// traffic to the OPA sidecar. This enforces a 1 MB cap on the serialized
     /// context payload.
     pub fn validate(&self) -> Result<(), OpaError> {
+        // SECURITY (R239-SRV-2): Validate string fields for dangerous chars before
+        // sending to OPA. These come from the evaluate request and are included in
+        // the cache key — control chars could smuggle past key comparisons.
+        if vellaveto_types::has_dangerous_chars(&self.tool) {
+            return Err(OpaError::ValidationFailed(
+                "tool contains control or format characters".to_string(),
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.function) {
+            return Err(OpaError::ValidationFailed(
+                "function contains control or format characters".to_string(),
+            ));
+        }
+        if let Some(ref p) = self.principal {
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err(OpaError::ValidationFailed(
+                    "principal contains control or format characters".to_string(),
+                ));
+            }
+        }
+        if let Some(ref s) = self.session_id {
+            if vellaveto_types::has_dangerous_chars(s) {
+                return Err(OpaError::ValidationFailed(
+                    "session_id contains control or format characters".to_string(),
+                ));
+            }
+        }
         let context_size = serde_json::to_string(&self.context)
             .map_err(|e| OpaError::ValidationFailed(format!("context serialization failed: {e}")))?
             .len();
@@ -131,6 +158,7 @@ impl OpaInput {
 
 /// OPA response wrapper.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OpaResponse {
     result: serde_json::Value,
 }
@@ -610,6 +638,13 @@ mod tests {
     }
 
     #[test]
+    fn test_opa_response_deny_unknown_fields() {
+        let result: Result<OpaResponse, _> =
+            serde_json::from_str(r#"{"result":true,"unexpected":1}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_cache_key_is_stable_and_input_sensitive() {
         let config = OpaConfig {
             enabled: true,
@@ -805,6 +840,77 @@ mod tests {
             principal: None,
             session_id: None,
             context: serde_json::Value::Null,
+        };
+        assert!(input.validate().is_ok());
+    }
+
+    // ── R239-SRV-2: OpaInput dangerous char validation tests ──────
+
+    #[test]
+    fn test_opa_input_validate_rejects_control_chars_in_tool() {
+        let input = OpaInput {
+            tool: "bash\x00".to_string(),
+            function: "run".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: None,
+            context: serde_json::Value::Null,
+        };
+        let err = input.validate().unwrap_err();
+        assert!(err.to_string().contains("tool"));
+    }
+
+    #[test]
+    fn test_opa_input_validate_rejects_control_chars_in_function() {
+        let input = OpaInput {
+            tool: "bash".to_string(),
+            function: "run\n".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: None,
+            context: serde_json::Value::Null,
+        };
+        let err = input.validate().unwrap_err();
+        assert!(err.to_string().contains("function"));
+    }
+
+    #[test]
+    fn test_opa_input_validate_rejects_control_chars_in_principal() {
+        let input = OpaInput {
+            tool: "bash".to_string(),
+            function: "run".to_string(),
+            parameters: serde_json::json!({}),
+            principal: Some("admin\x7f".to_string()),
+            session_id: None,
+            context: serde_json::Value::Null,
+        };
+        let err = input.validate().unwrap_err();
+        assert!(err.to_string().contains("principal"));
+    }
+
+    #[test]
+    fn test_opa_input_validate_rejects_control_chars_in_session_id() {
+        let input = OpaInput {
+            tool: "bash".to_string(),
+            function: "run".to_string(),
+            parameters: serde_json::json!({}),
+            principal: None,
+            session_id: Some("sess\u{200B}ion".to_string()),
+            context: serde_json::Value::Null,
+        };
+        let err = input.validate().unwrap_err();
+        assert!(err.to_string().contains("session_id"));
+    }
+
+    #[test]
+    fn test_opa_input_validate_accepts_clean_input() {
+        let input = OpaInput {
+            tool: "file_read".to_string(),
+            function: "read".to_string(),
+            parameters: serde_json::json!({"path": "/tmp/test"}),
+            principal: Some("agent-1".to_string()),
+            session_id: Some("sess-abc-123".to_string()),
+            context: serde_json::json!({"source": "test"}),
         };
         assert!(input.validate().is_ok());
     }

@@ -785,7 +785,8 @@ impl OAuthValidator {
 
         // Replay protection: reject reused JTIs within the replay window.
         let now_u64 = now.max(0) as u64;
-        let replay_window = std::cmp::max((skew.max(0) as u64) * 2, 600);
+        // SECURITY (R239-PROXY-1): Use saturating_mul to prevent overflow.
+        let replay_window = std::cmp::max((skew.max(0) as u64).saturating_mul(2), 600);
         let oldest_allowed = now_u64.saturating_sub(replay_window);
 
         // Replay key is token-bound when `ath` is present to avoid false

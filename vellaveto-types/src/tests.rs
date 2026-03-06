@@ -37,6 +37,17 @@ fn test_verdict_all_variants() {
 }
 
 #[test]
+fn test_verdict_deny_unknown_fields() {
+    let mut json = serde_json::to_value(Verdict::Deny {
+        reason: "blocked".to_string(),
+    })
+    .unwrap();
+    json["Deny"]["unexpected"] = json!(true);
+    let result: Result<Verdict, _> = serde_json::from_value(json);
+    assert!(result.is_err(), "Verdict must reject unknown nested fields");
+}
+
+#[test]
 fn test_policy_type_conditional_with_value() {
     let pt = PolicyType::Conditional {
         conditions: json!({"tool_pattern": "bash", "forbidden_parameters": ["force"]}),
@@ -44,6 +55,20 @@ fn test_policy_type_conditional_with_value() {
     let json_str = serde_json::to_string(&pt).unwrap();
     let deserialized: PolicyType = serde_json::from_str(&json_str).unwrap();
     assert_eq!(pt, deserialized);
+}
+
+#[test]
+fn test_policy_type_conditional_deny_unknown_fields() {
+    let mut json = serde_json::to_value(PolicyType::Conditional {
+        conditions: json!({"tool_pattern": "bash"}),
+    })
+    .unwrap();
+    json["Conditional"]["unexpected"] = json!(true);
+    let result: Result<PolicyType, _> = serde_json::from_value(json);
+    assert!(
+        result.is_err(),
+        "PolicyType must reject unknown nested fields"
+    );
 }
 
 #[test]
@@ -822,6 +847,20 @@ fn test_task_status_display() {
     );
     assert_eq!(TaskStatus::Cancelled.to_string(), "cancelled");
     assert_eq!(TaskStatus::Expired.to_string(), "expired");
+}
+
+#[test]
+fn test_task_status_failed_deny_unknown_fields() {
+    let mut json = serde_json::to_value(TaskStatus::Failed {
+        reason: "timeout".to_string(),
+    })
+    .unwrap();
+    json["failed"]["unexpected"] = json!(true);
+    let result: Result<TaskStatus, _> = serde_json::from_value(json);
+    assert!(
+        result.is_err(),
+        "TaskStatus must reject unknown nested fields"
+    );
 }
 
 #[test]
@@ -2865,6 +2904,20 @@ fn test_leader_status_default_is_unknown() {
 }
 
 #[test]
+fn test_leader_status_deny_unknown_fields() {
+    let mut json = serde_json::to_value(LeaderStatus::Leader {
+        since: "2026-02-15T10:00:00Z".to_string(),
+    })
+    .unwrap();
+    json["unexpected"] = json!(true);
+    let result: Result<LeaderStatus, _> = serde_json::from_value(json);
+    assert!(
+        result.is_err(),
+        "LeaderStatus must reject unknown nested fields"
+    );
+}
+
+#[test]
 fn test_service_endpoint_roundtrip() {
     let mut labels = HashMap::new();
     labels.insert("region".to_string(), "us-east-1".to_string());
@@ -2928,6 +2981,20 @@ fn test_discovery_event_updated_roundtrip() {
     let json_str = serde_json::to_string(&event).unwrap();
     let deserialized: DiscoveryEvent = serde_json::from_str(&json_str).unwrap();
     assert_eq!(event, deserialized);
+}
+
+#[test]
+fn test_discovery_event_deny_unknown_fields() {
+    let mut json = serde_json::to_value(DiscoveryEvent::Removed {
+        id: "pod-2".to_string(),
+    })
+    .unwrap();
+    json["unexpected"] = json!(true);
+    let result: Result<DiscoveryEvent, _> = serde_json::from_value(json);
+    assert!(
+        result.is_err(),
+        "DiscoveryEvent must reject unknown nested fields"
+    );
 }
 
 #[test]
@@ -10372,4 +10439,92 @@ fn test_r224_007_policy_lifecycle_status_rejects_staging_exceeds_tracked() {
         err.contains("staging_count") && err.contains("tracked_policies"),
         "expected staging_count > tracked_policies rejection, got: {err}"
     );
+}
+
+// ── R239-TYP-1: Posture validation tests ──────────────────────────
+
+#[test]
+fn test_security_posture_score_validate_rejects_nan() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: f32::NAN,
+        tier: "good".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_security_posture_score_validate_rejects_infinity() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: f32::INFINITY,
+        tier: "good".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_security_posture_score_validate_rejects_negative() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: -1.0,
+        tier: "good".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_security_posture_score_validate_rejects_over_100() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: 100.1,
+        tier: "good".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    assert!(score.validate().is_err());
+}
+
+#[test]
+fn test_security_posture_score_validate_accepts_valid() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: 85.5,
+        tier: "good".to_string(),
+        categories: vec![crate::posture::PostureCategoryScore {
+            name: "runtime".to_string(),
+            score_percent: 90.0,
+            inputs: 3,
+        }],
+        frameworks: vec![crate::posture::PostureFrameworkScore {
+            name: "OWASP".to_string(),
+            score_percent: 80.0,
+            enabled: true,
+        }],
+    };
+    assert!(score.validate().is_ok());
+}
+
+#[test]
+fn test_posture_gap_report_validate_rejects_nan() {
+    let report = crate::posture::PostureGapReport {
+        generated_at: "2026-03-06T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_coverage_percent: f32::NAN,
+        critical_gaps: vec![],
+        recommendations: vec![],
+        high_priority_focus_areas: vec![],
+    };
+    assert!(report.validate().is_err());
 }
