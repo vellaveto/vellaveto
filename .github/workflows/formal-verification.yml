@@ -55,7 +55,7 @@ jobs:
   tla-plus:
     name: "TLA+ Model Checking (8 specs)"
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -69,9 +69,13 @@ jobs:
 
       - name: Download TLA+ tools
         run: |
+          set -euo pipefail
+          TLA_VERSION="v1.8.0"
+          TLA_SHA256="11535876a02412e28b3d093f7fa25455c8fe2cdef1602da4d189ac1688d77b3e"
           mkdir -p formal/tla
-          curl -sSL -o formal/tla/tla2tools.jar \
-            "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar"
+          curl -fsSL --retry 3 --retry-delay 2 -o formal/tla/tla2tools.jar \
+            "https://github.com/tlaplus/tlaplus/releases/download/${TLA_VERSION}/tla2tools.jar"
+          echo "${TLA_SHA256}  formal/tla/tla2tools.jar" | sha256sum -c -
 
       - name: Run TLC on all 8 specifications
         working-directory: formal/tla
@@ -83,10 +87,10 @@ jobs:
             cfg="${spec}.cfg"
             if [ -f "$mc" ]; then
               echo "=== TLA+ $spec (via MC_${spec}) ==="
-              java -jar tla2tools.jar -config "$cfg" "$mc"
+              java -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$mc"
             elif [ -f "$cfg" ] && [ -f "$main" ]; then
               echo "=== TLA+ $spec (direct) ==="
-              java -jar tla2tools.jar -config "$cfg" "$main"
+              java -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$main"
             else
               echo "SKIP: $spec (files not found)"
             fi
@@ -104,7 +108,14 @@ jobs:
 
       - name: Install elan and Lean 4
         run: |
-          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
+          set -euo pipefail
+          ELAN_VERSION="v4.2.0"
+          ELAN_SHA256="620db834935d0da55ac9cda207b2e370e8034061cbb0228af5eb6c14b02f0c0c"
+          curl -fsSL --retry 3 --retry-delay 2 -o elan.tar.gz \
+            "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ELAN_SHA256}  elan.tar.gz" | sha256sum -c -
+          tar -xzf elan.tar.gz
+          ./elan-init -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Build Lean proofs
@@ -153,7 +164,7 @@ jobs:
   kani:
     name: "Kani (77 harnesses — K1-K77)"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -162,7 +173,8 @@ jobs:
 
       - name: Install Kani
         run: |
-          cargo install --locked kani-verifier
+          KANI_VERSION="0.67.0"
+          cargo install --locked kani-verifier --version "${KANI_VERSION}"
           cargo kani setup
 
       - name: Verify extracted code correspondence (unit tests)
@@ -180,7 +192,7 @@ jobs:
         run: cargo kani
 
   verus:
-    name: "Verus (29 proofs — V1-V12, D1-D6)"
+    name: "Verus (V1-V12, D1-D6)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -194,9 +206,12 @@ jobs:
 
       - name: Download Verus binary release
         run: |
+          set -euo pipefail
           VERUS_VERSION="0.2026.03.01.25809cb"
-          curl -sSL -o verus.zip \
+          VERUS_SHA256="2af942e6919b203b1732d1176817abd09e66fe890fc8021a4aa8e2aac7f7cbb1"
+          curl -fsSL --retry 3 --retry-delay 2 -o verus.zip \
             "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
+          echo "${VERUS_SHA256}  verus.zip" | sha256sum -c -
           unzip -q verus.zip -d verus-bin
           chmod +x verus-bin/verus-x86-linux/verus
 
