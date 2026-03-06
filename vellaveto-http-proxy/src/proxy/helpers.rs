@@ -88,7 +88,9 @@ pub(super) async fn read_bounded_response(
     }
 
     let capacity = std::cmp::min(
-        resp.content_length().map(|l| l.min(max_size as u64) as usize).unwrap_or(8192),
+        resp.content_length()
+            .map(|l| l.min(max_size as u64) as usize)
+            .unwrap_or(8192),
         max_size,
     );
     let mut body = Vec::with_capacity(capacity);

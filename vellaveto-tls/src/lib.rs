@@ -67,10 +67,7 @@ fn percent_decode_workload_path(path: &str) -> Option<String> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (
-                hex_digit(bytes[i + 1]),
-                hex_digit(bytes[i + 2]),
-            ) {
+            if let (Some(hi), Some(lo)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
                 decoded.push((hi << 4 | lo) as char);
                 i += 3;
                 continue;
@@ -79,7 +76,11 @@ fn percent_decode_workload_path(path: &str) -> Option<String> {
         decoded.push(bytes[i] as char);
         i += 1;
     }
-    if decoded == path { None } else { Some(decoded) }
+    if decoded == path {
+        None
+    } else {
+        Some(decoded)
+    }
 }
 
 fn hex_digit(b: u8) -> Option<u8> {
@@ -137,10 +138,7 @@ impl SpiffeIdentity {
             let decoded_path = percent_decode_workload_path(&workload_path);
             let check_path = decoded_path.as_deref().unwrap_or(&workload_path);
             // Reject path traversal sequences
-            if check_path.contains("/../")
-                || check_path.ends_with("/..")
-                || check_path == "/.."
-            {
+            if check_path.contains("/../") || check_path.ends_with("/..") || check_path == "/.." {
                 return None;
             }
             // Reject control characters, null bytes, and Unicode format chars

@@ -371,14 +371,11 @@ mod tests {
         )
         .await;
         // Should fail with connection error, NOT "HTTPS required"
-        match result {
-            Err(FallbackError::AllFailed { last_error, .. }) => {
-                assert!(
-                    !last_error.contains("HTTPS required"),
-                    "localhost HTTP should be allowed, got: {last_error}"
-                );
-            }
-            _ => {} // Connection might succeed on some systems — fine either way
+        if let Err(FallbackError::AllFailed { last_error, .. }) = result {
+            assert!(
+                !last_error.contains("HTTPS required"),
+                "localhost HTTP should be allowed, got: {last_error}"
+            );
         }
     }
 
@@ -396,14 +393,11 @@ mod tests {
             std::time::Duration::from_millis(50),
         )
         .await;
-        match result {
-            Err(FallbackError::AllFailed { last_error, .. }) => {
-                assert!(
-                    !last_error.contains("HTTPS required"),
-                    "HTTPS URLs should be allowed, got: {last_error}"
-                );
-            }
-            _ => {}
+        if let Err(FallbackError::AllFailed { last_error, .. }) = result {
+            assert!(
+                !last_error.contains("HTTPS required"),
+                "HTTPS URLs should be allowed, got: {last_error}"
+            );
         }
     }
 }

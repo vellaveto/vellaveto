@@ -714,10 +714,13 @@ impl OAuthValidator {
 
         let now = chrono::Utc::now().timestamp();
         // SECURITY (R240-P3-PROXY-7): Safe cast — reject adversarial u64 > i64::MAX.
-        let iat = i64::try_from(claims.iat).map_err(|_| {
-            OAuthError::InvalidDpopProof("iat out of range".to_string())
-        })?;
-        let skew = self.config.dpop_max_clock_skew.as_secs().min(i64::MAX as u64) as i64;
+        let iat = i64::try_from(claims.iat)
+            .map_err(|_| OAuthError::InvalidDpopProof("iat out of range".to_string()))?;
+        let skew = self
+            .config
+            .dpop_max_clock_skew
+            .as_secs()
+            .min(i64::MAX as u64) as i64;
         if (now - iat).abs() > skew {
             return Err(OAuthError::InvalidDpopProof(format!(
                 "iat outside allowed skew window (iat={}, now={})",
@@ -728,9 +731,8 @@ impl OAuthValidator {
         // SECURITY (FIND-R210-005): Validate exp/nbf when present in DPoP proof.
         // SECURITY (R240-P3-PROXY-8): Safe cast — reject adversarial u64 > i64::MAX.
         if let Some(exp) = claims.exp {
-            let exp_i64 = i64::try_from(exp).map_err(|_| {
-                OAuthError::InvalidDpopProof("exp out of range".to_string())
-            })?;
+            let exp_i64 = i64::try_from(exp)
+                .map_err(|_| OAuthError::InvalidDpopProof("exp out of range".to_string()))?;
             if exp_i64 < now - skew {
                 return Err(OAuthError::InvalidDpopProof(
                     "DPoP proof expired".to_string(),
@@ -738,9 +740,8 @@ impl OAuthValidator {
             }
         }
         if let Some(nbf) = claims.nbf {
-            let nbf_i64 = i64::try_from(nbf).map_err(|_| {
-                OAuthError::InvalidDpopProof("nbf out of range".to_string())
-            })?;
+            let nbf_i64 = i64::try_from(nbf)
+                .map_err(|_| OAuthError::InvalidDpopProof("nbf out of range".to_string()))?;
             if nbf_i64 > now + skew {
                 return Err(OAuthError::InvalidDpopProof(
                     "DPoP proof not yet valid (nbf in future)".to_string(),
