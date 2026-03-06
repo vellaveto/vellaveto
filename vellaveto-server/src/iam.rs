@@ -3757,7 +3757,7 @@ mod tests {
             let flow = FlowState::new(
                 format!("next-{i}"),
                 format!("verifier-{i}"),
-                format!("nonce-{i}"),
+                format!("challenge-{i}"),
             );
             assert!(iam.store_flow(format!("state-{i}"), flow).is_ok());
         }
@@ -3766,7 +3766,7 @@ mod tests {
         let flow = FlowState::new(
             "next-overflow".to_string(),
             "verifier-overflow".to_string(),
-            "nonce-overflow".to_string(),
+            "challenge-overflow".to_string(),
         );
         let result = iam.store_flow("state-overflow".to_string(), flow);
         assert!(

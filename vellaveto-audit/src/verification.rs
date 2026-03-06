@@ -138,6 +138,17 @@ impl AuditLogger {
             )));
         }
 
+        // SECURITY: Validate log_path has no path-traversal components before I/O.
+        // Defense-in-depth: the path originates from application config, but we
+        // validate here to satisfy CodeQL rust/path-injection analysis.
+        for component in self.log_path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(AuditError::Validation(
+                    "audit log path contains '..' traversal component".to_string(),
+                ));
+            }
+        }
+
         match tokio::fs::metadata(&self.log_path).await {
             Ok(meta) if meta.len() > Self::MAX_AUDIT_LOG_SIZE => {
                 return Err(AuditError::Validation(format!(

@@ -267,7 +267,14 @@ impl std::fmt::Debug for RegistryConfig {
             .field("cache_ttl_secs", &self.cache_ttl_secs)
             .field("require_https", &self.require_https)
             .field("only_verified", &self.only_verified)
-            .field("api_key", &self.api_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "api_key",
+                if self.api_key.is_some() {
+                    &"[REDACTED]" as &dyn std::fmt::Debug
+                } else {
+                    &"None" as &dyn std::fmt::Debug
+                },
+            )
             .finish()
     }
 }

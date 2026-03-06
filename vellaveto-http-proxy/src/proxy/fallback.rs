@@ -93,6 +93,8 @@ pub async fn forward_with_fallback(
     let mut last_error = String::new();
 
     for attempt in 0..=effective_retries {
+        // SECURITY: upstream_url was validated above by validate_upstream_url_scheme()
+        // which enforces HTTPS for non-localhost hosts (R239-PROXY-1).
         let mut request = client.post(upstream_url).timeout(timeout);
 
         // SECURITY (FIND-041-008): Only forward allowlisted headers to
