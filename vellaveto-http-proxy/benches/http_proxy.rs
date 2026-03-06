@@ -9,7 +9,7 @@
 
 //! Benchmarks for the HTTP proxy hot path: origin validation, call chain HMAC,
 //! evaluation context building, and privilege escalation detection.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::result_large_err)]
 
 use criterion::{criterion_group, criterion_main, Criterion};
 use std::hint::black_box;

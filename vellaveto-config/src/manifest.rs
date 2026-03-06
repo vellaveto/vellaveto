@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::default_true;
 
+const MAX_MANIFEST_SCHEMA_VERSION_LEN: usize = 32;
+const MAX_MANIFEST_TOOL_NAME_LEN: usize = 256;
+const SHA256_HEX_LEN: usize = 64;
+const ED25519_SIG_HEX_LEN: usize = 128;
+const ED25519_VERIFYING_KEY_HEX_LEN: usize = 64;
+
 /// Snapshot of MCP tool annotations at manifest creation time.
 ///
 /// These hints describe behavioral properties of a tool. Changes to annotations
@@ -217,6 +223,9 @@ impl ToolManifest {
             )
             .into());
         }
+        manifest
+            .validate()
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
         Ok(manifest)
     }
 
@@ -426,6 +435,116 @@ impl ToolManifest {
             discrepancies,
         }
     }
+
+    /// Validate manifest content loaded from disk before it influences runtime verification.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version.trim().is_empty() {
+            return Err("manifest.schema_version must not be empty or whitespace-only".to_string());
+        }
+        if self.schema_version.len() > MAX_MANIFEST_SCHEMA_VERSION_LEN {
+            return Err(format!(
+                "manifest.schema_version length {} exceeds maximum {}",
+                self.schema_version.len(),
+                MAX_MANIFEST_SCHEMA_VERSION_LEN
+            ));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.schema_version) {
+            return Err(
+                "manifest.schema_version contains control or Unicode format characters".to_string(),
+            );
+        }
+        if self.tools.len() > MAX_MANIFEST_TOOLS {
+            return Err(format!(
+                "manifest.tools count {} exceeds maximum {}",
+                self.tools.len(),
+                MAX_MANIFEST_TOOLS
+            ));
+        }
+
+        let mut seen_names = std::collections::HashSet::new();
+        for (index, tool) in self.tools.iter().enumerate() {
+            if tool.name.trim().is_empty() {
+                return Err(format!(
+                    "manifest.tools[{index}].name must not be empty or whitespace-only"
+                ));
+            }
+            if tool.name.len() > MAX_MANIFEST_TOOL_NAME_LEN {
+                return Err(format!(
+                    "manifest.tools[{index}].name length {} exceeds maximum {}",
+                    tool.name.len(),
+                    MAX_MANIFEST_TOOL_NAME_LEN
+                ));
+            }
+            if vellaveto_types::has_dangerous_chars(&tool.name) {
+                return Err(format!(
+                    "manifest.tools[{index}].name contains control or Unicode format characters"
+                ));
+            }
+            if !seen_names.insert(tool.name.as_str()) {
+                return Err(format!(
+                    "manifest.tools[{index}] duplicates tool name '{}'",
+                    tool.name
+                ));
+            }
+
+            validate_hex_len(
+                &tool.input_schema_hash,
+                SHA256_HEX_LEN,
+                &format!("manifest.tools[{index}].input_schema_hash"),
+            )?;
+            if let Some(description_hash) = &tool.description_hash {
+                validate_hex_len(
+                    description_hash,
+                    SHA256_HEX_LEN,
+                    &format!("manifest.tools[{index}].description_hash"),
+                )?;
+            }
+            if let Some(title_hash) = &tool.title_hash {
+                validate_hex_len(
+                    title_hash,
+                    SHA256_HEX_LEN,
+                    &format!("manifest.tools[{index}].title_hash"),
+                )?;
+            }
+        }
+
+        if let Some(signature) = &self.signature {
+            validate_hex_len(signature, ED25519_SIG_HEX_LEN, "manifest.signature")?;
+        }
+        if let Some(verifying_key) = &self.verifying_key {
+            validate_hex_len(
+                verifying_key,
+                ED25519_VERIFYING_KEY_HEX_LEN,
+                "manifest.verifying_key",
+            )?;
+        }
+        if let Some(created_at) = &self.created_at {
+            if created_at.trim().is_empty() {
+                return Err("manifest.created_at must not be empty or whitespace-only".to_string());
+            }
+            if vellaveto_types::has_dangerous_chars(created_at) {
+                return Err(
+                    "manifest.created_at contains control or Unicode format characters".to_string(),
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn validate_hex_len(value: &str, expected_len: usize, field: &str) -> Result<(), String> {
+    if value.len() != expected_len {
+        return Err(format!(
+            "{field} length {} must be exactly {} hex characters",
+            value.len(),
+            expected_len
+        ));
+    }
+    if !value.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("{field} must be ASCII hex"));
+    }
+    Ok(())
 }
 
 /// Enforcement mode for manifest verification failures.
@@ -966,6 +1085,66 @@ mod tests {
         manifest.save_manifest(path.to_str().unwrap()).unwrap();
         let loaded = ToolManifest::load_pinned_manifest(path.to_str().unwrap()).unwrap();
         assert_eq!(manifest, loaded);
+    }
+
+    #[test]
+    fn test_manifest_load_rejects_duplicate_tool_names() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("manifest.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "schema_version": "2.0",
+                "tools": [
+                    {"name": "dup", "input_schema_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+                    {"name": "dup", "input_schema_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = ToolManifest::load_pinned_manifest(path.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("duplicates tool name"));
+    }
+
+    #[test]
+    fn test_manifest_load_rejects_non_hex_schema_hash() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("manifest.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "schema_version": "2.0",
+                "tools": [
+                    {"name": "tool_a", "input_schema_hash": "not-hex"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = ToolManifest::load_pinned_manifest(path.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("input_schema_hash"));
+    }
+
+    #[test]
+    fn test_manifest_load_rejects_dangerous_tool_name() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("manifest.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "schema_version": "2.0",
+                "tools": [
+                    {"name": "tool\u202Ename", "input_schema_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = ToolManifest::load_pinned_manifest(path.to_str().unwrap()).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("contains control or Unicode format characters"));
     }
 
     #[test]
