@@ -86,8 +86,8 @@ pub fn count_components(path: &Vec<u8>) -> (result: usize)
 /// Spec-level model of normalize_path_bytes result.
 ///
 /// Opaque spec function — its behavior is established by the `ensures`
-/// clause on the exec function via `when_used_as_spec`.
-pub closed spec fn spec_normalize_path_bytes(path: Seq<u8>) -> (bool, Seq<u8>);
+/// clause on the exec function.
+pub uninterp spec fn spec_normalize_path_bytes(path: Seq<u8>) -> (bool, Seq<u8>);
 
 /// Normalize a path by resolving "." and ".." components.
 ///
@@ -95,7 +95,6 @@ pub closed spec fn spec_normalize_path_bytes(path: Seq<u8>) -> (bool, Seq<u8>);
 /// success=false when ".." would go above the root.
 ///
 /// This is a byte-level equivalent of production `normalize_path_for_grant`.
-#[verifier::when_used_as_spec(spec_normalize_path_bytes)]
 pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
     ensures
         // V10: On success, no ".." component in output

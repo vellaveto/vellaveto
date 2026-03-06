@@ -192,7 +192,7 @@ theorem normalize_idempotent_core
 
 /-! ## Verification cross-references
 
-The Lean formalization is fully machine-checked (no `sorry` markers).
+The Lean formalization is fully machine-checked (all proofs complete).
 The key proof strategy is:
 
 1. `resolveComponents_isClean`: Output is always clean (by structural induction).
