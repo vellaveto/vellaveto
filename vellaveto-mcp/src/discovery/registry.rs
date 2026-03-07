@@ -122,7 +122,7 @@ pub struct RegistryServerEntry {
 impl RegistryServerEntry {
     /// Validate the entry's fields are within bounds.
     pub fn validate(&self) -> Result<(), DiscoveryError> {
-        if self.server_id.is_empty() || self.server_id.len() > MAX_REGISTRY_SERVER_ID_LEN {
+        if self.server_id.trim().is_empty() || self.server_id.len() > MAX_REGISTRY_SERVER_ID_LEN {
             return Err(DiscoveryError::InvalidMetadata(
                 "server_id must be non-empty and within bounds".to_string(),
             ));
@@ -132,7 +132,7 @@ impl RegistryServerEntry {
                 "server_id contains control or Unicode format characters".to_string(),
             ));
         }
-        if self.name.is_empty() || self.name.len() > MAX_REGISTRY_SERVER_NAME_LEN {
+        if self.name.trim().is_empty() || self.name.len() > MAX_REGISTRY_SERVER_NAME_LEN {
             return Err(DiscoveryError::InvalidMetadata(
                 "name must be non-empty and within bounds".to_string(),
             ));
@@ -156,7 +156,7 @@ impl RegistryServerEntry {
                 ));
             }
         }
-        if self.url.is_empty() || self.url.len() > MAX_REGISTRY_SERVER_URL_LEN {
+        if self.url.trim().is_empty() || self.url.len() > MAX_REGISTRY_SERVER_URL_LEN {
             return Err(DiscoveryError::InvalidMetadata(
                 "url must be non-empty and within bounds".to_string(),
             ));
@@ -166,18 +166,38 @@ impl RegistryServerEntry {
                 "url contains control or Unicode format characters".to_string(),
             ));
         }
-        if self.version.is_empty() || self.version.len() > MAX_VERSION_LEN {
+        if self.version.trim().is_empty() || self.version.len() > MAX_VERSION_LEN {
             return Err(DiscoveryError::InvalidMetadata(
                 "version must be non-empty and within bounds".to_string(),
             ));
         }
+        if vellaveto_types::has_dangerous_chars(&self.version) {
+            return Err(DiscoveryError::InvalidMetadata(
+                "version contains control or Unicode format characters".to_string(),
+            ));
+        }
         if let Some(ref ph) = self.publisher_hash {
+            if ph.trim().is_empty() {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "publisher_hash must not be empty or whitespace-only".to_string(),
+                ));
+            }
             if ph.len() > MAX_PUBLISHER_HASH_LEN {
                 return Err(DiscoveryError::InvalidMetadata(format!(
                     "publisher_hash length {} exceeds maximum {}",
                     ph.len(),
                     MAX_PUBLISHER_HASH_LEN
                 )));
+            }
+            if vellaveto_types::has_dangerous_chars(ph) {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "publisher_hash contains control or Unicode format characters".to_string(),
+                ));
+            }
+            if !ph.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "publisher_hash must be ASCII hex".to_string(),
+                ));
             }
         }
         if self.capabilities.len() > MAX_REGISTRY_CAPABILITIES {
@@ -188,12 +208,22 @@ impl RegistryServerEntry {
             )));
         }
         for cap in &self.capabilities {
+            if cap.trim().is_empty() {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "capabilities must not contain empty or whitespace-only values".to_string(),
+                ));
+            }
             if cap.len() > MAX_CAPABILITY_LEN {
                 return Err(DiscoveryError::InvalidMetadata(format!(
                     "capability length {} exceeds maximum {}",
                     cap.len(),
                     MAX_CAPABILITY_LEN
                 )));
+            }
+            if vellaveto_types::has_dangerous_chars(cap) {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "capability contains control or Unicode format characters".to_string(),
+                ));
             }
         }
         if self.tags.len() > MAX_REGISTRY_TAGS {
@@ -204,12 +234,22 @@ impl RegistryServerEntry {
             )));
         }
         for tag in &self.tags {
+            if tag.trim().is_empty() {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "tags must not contain empty or whitespace-only values".to_string(),
+                ));
+            }
             if tag.len() > MAX_TAG_LEN {
                 return Err(DiscoveryError::InvalidMetadata(format!(
                     "tag length {} exceeds maximum {}",
                     tag.len(),
                     MAX_TAG_LEN
                 )));
+            }
+            if vellaveto_types::has_dangerous_chars(tag) {
+                return Err(DiscoveryError::InvalidMetadata(
+                    "tag contains control or Unicode format characters".to_string(),
+                ));
             }
         }
         Ok(())
@@ -888,6 +928,34 @@ mod tests {
     fn test_entry_validate_capability_too_long_rejected() {
         let mut entry = sample_entry("srv-1");
         entry.capabilities = vec!["x".repeat(MAX_CAPABILITY_LEN + 1)];
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn test_entry_validate_dangerous_chars_in_version_rejected() {
+        let mut entry = sample_entry("srv-1");
+        entry.version = "1.0.0\u{200B}".to_string();
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn test_entry_validate_non_hex_publisher_hash_rejected() {
+        let mut entry = sample_entry("srv-1");
+        entry.publisher_hash = Some("not-hex".to_string());
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn test_entry_validate_whitespace_only_capability_rejected() {
+        let mut entry = sample_entry("srv-1");
+        entry.capabilities = vec!["   ".to_string()];
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn test_entry_validate_dangerous_chars_in_tag_rejected() {
+        let mut entry = sample_entry("srv-1");
+        entry.tags = vec!["prod\u{202E}".to_string()];
         assert!(entry.validate().is_err());
     }
 

@@ -134,6 +134,7 @@ impl std::fmt::Debug for SessionEvent {
 
 /// Result of a state transition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TransitionResult {
     /// State before transition.
     pub previous: SessionState,
@@ -158,6 +159,7 @@ pub enum TransitionAction {
 
 /// Summary of a session's state and history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionSummary {
     /// Current session state.
     pub state: SessionState,
@@ -1667,6 +1669,26 @@ mod tests {
         let deserialized: SessionSummary = serde_json::from_str(&json).expect("Should deserialize");
         assert_eq!(deserialized.state, SessionState::Active);
         assert_eq!(deserialized.anomaly_count, 2);
+    }
+
+    #[test]
+    fn test_summary_deny_unknown_fields() {
+        let json = r#"{"state":"Active","anomaly_count":2,"violation_count":1,"started_at":1700000000,"last_action_at":1700000100,"transitions":[],"extra":"bad"}"#;
+        let result: Result<SessionSummary, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "SessionSummary should reject unknown fields"
+        );
+    }
+
+    #[test]
+    fn test_transition_result_deny_unknown_fields() {
+        let json = r#"{"previous":"Init","current":"Active","action":"None","extra":"bad"}"#;
+        let result: Result<TransitionResult, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "TransitionResult should reject unknown fields"
+        );
     }
 
     /// IMP-R122-005: Transitions beyond MAX_TRANSITION_HISTORY are silently

@@ -758,6 +758,7 @@ impl CascadingBreaker {
 
 /// Summary of cascading breaker state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CascadingSummary {
     pub total_pipelines: usize,
     pub healthy_pipelines: usize,
@@ -1114,6 +1115,16 @@ mod tests {
         let parsed: CascadingSummary = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.total_pipelines, 5);
         assert_eq!(parsed.broken_pipelines, 2);
+    }
+
+    #[test]
+    fn test_summary_deny_unknown_fields() {
+        let json = r#"{"total_pipelines":5,"healthy_pipelines":3,"broken_pipelines":2,"active_chains":10,"max_chain_depth":10,"extra":"bad"}"#;
+        let result: Result<CascadingSummary, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "deny_unknown_fields should reject unknown fields"
+        );
     }
 
     // ── R229 regression tests ───────────────────────────────────────────
