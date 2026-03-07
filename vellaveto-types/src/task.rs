@@ -141,6 +141,7 @@ impl TaskCreateParams {
 /// This enum tracks the current state for policy enforcement and audit.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum TaskStatus {
     /// Task has been accepted but not yet started.
     #[default]

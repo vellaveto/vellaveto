@@ -901,12 +901,13 @@ impl McpGrpcService {
         // SECURITY (FIND-R53-GRPC-002): Rug-pull detection — block calls to tools
         // with changed annotations since initial tools/list.
         // Parity with HTTP handler (handlers.rs:404-434) and WS (websocket/mod.rs:682).
+        // SECURITY (R240-PROXY-1): Fall back to global registry on session miss.
         let is_flagged = self
             .state
             .sessions
             .get_mut(session_id)
             .map(|s| s.flagged_tools.contains(tool_name))
-            .unwrap_or(false);
+            .unwrap_or_else(|| self.state.sessions.is_tool_globally_flagged(tool_name));
 
         if is_flagged {
             let action = extractor::extract_action(tool_name, arguments);
@@ -1493,12 +1494,13 @@ impl McpGrpcService {
         // SECURITY (FIND-R115-041): Rug-pull detection for resource URIs.
         // If the upstream server was flagged (annotations changed since initial tools/list),
         // block resource reads from that server. Parity with HTTP handler (handlers.rs:1555).
+        // SECURITY (R240-PROXY-1): Fall back to global registry on session miss.
         let is_flagged = self
             .state
             .sessions
             .get_mut(session_id)
             .map(|s| s.flagged_tools.contains(uri))
-            .unwrap_or(false);
+            .unwrap_or_else(|| self.state.sessions.is_tool_globally_flagged(uri));
         if is_flagged {
             let action = extractor::extract_resource_action(uri);
             let verdict = Verdict::Deny {

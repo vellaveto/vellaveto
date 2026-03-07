@@ -656,6 +656,7 @@ impl Action {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 #[must_use = "security verdicts must not be discarded"]
+#[serde(deny_unknown_fields)]
 pub enum Verdict {
     Allow,
     Deny { reason: String },
@@ -673,6 +674,7 @@ pub enum Verdict {
 /// Marked `#[non_exhaustive]` to allow future variants without breaking downstream matches.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
+#[serde(deny_unknown_fields)]
 pub enum PolicyType {
     Allow,
     Deny,

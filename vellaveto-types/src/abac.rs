@@ -917,6 +917,94 @@ pub struct FederationAnchorInfo {
     pub identity_mapping_count: usize,
 }
 
+/// Maximum anchors in a FederationStatus.
+const MAX_FEDERATION_ANCHORS: usize = 500;
+/// Maximum length for federation string fields.
+const MAX_FEDERATION_FIELD_LEN: usize = 1024;
+
+impl FederationStatus {
+    /// SECURITY (R240-TYP-1): Validate federation status for bounds and dangerous chars.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.anchors.len() > MAX_FEDERATION_ANCHORS {
+            return Err(format!(
+                "FederationStatus anchors count {} exceeds max {MAX_FEDERATION_ANCHORS}",
+                self.anchors.len()
+            ));
+        }
+        for (i, anchor) in self.anchors.iter().enumerate() {
+            anchor
+                .validate()
+                .map_err(|e| format!("FederationStatus anchors[{i}]: {e}"))?;
+        }
+        Ok(())
+    }
+}
+
+impl FederationAnchorStatus {
+    /// SECURITY (R240-TYP-1): Validate anchor status for bounds and dangerous chars.
+    pub fn validate(&self) -> Result<(), String> {
+        fn check_field(name: &str, value: &str) -> Result<(), String> {
+            if value.len() > MAX_FEDERATION_FIELD_LEN {
+                return Err(format!(
+                    "{name} length {} exceeds max {MAX_FEDERATION_FIELD_LEN}",
+                    value.len()
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "{name} contains control or Unicode format characters"
+                ));
+            }
+            Ok(())
+        }
+        check_field("org_id", &self.org_id)?;
+        check_field("display_name", &self.display_name)?;
+        check_field("issuer_pattern", &self.issuer_pattern)?;
+        check_field("trust_level", &self.trust_level)?;
+        if !VALID_TRUST_LEVELS.contains(&self.trust_level.as_str()) {
+            return Err(format!(
+                "trust_level '{}' is not one of {:?}",
+                self.trust_level, VALID_TRUST_LEVELS
+            ));
+        }
+        if let Some(ts) = &self.jwks_last_fetched {
+            check_field("jwks_last_fetched", ts)?;
+        }
+        Ok(())
+    }
+}
+
+impl FederationAnchorInfo {
+    /// SECURITY (R240-TYP-1): Validate anchor info for bounds and dangerous chars.
+    pub fn validate(&self) -> Result<(), String> {
+        fn check_field(name: &str, value: &str) -> Result<(), String> {
+            if value.len() > MAX_FEDERATION_FIELD_LEN {
+                return Err(format!(
+                    "{name} length {} exceeds max {MAX_FEDERATION_FIELD_LEN}",
+                    value.len()
+                ));
+            }
+            if crate::core::has_dangerous_chars(value) {
+                return Err(format!(
+                    "{name} contains control or Unicode format characters"
+                ));
+            }
+            Ok(())
+        }
+        check_field("org_id", &self.org_id)?;
+        check_field("display_name", &self.display_name)?;
+        check_field("issuer_pattern", &self.issuer_pattern)?;
+        check_field("trust_level", &self.trust_level)?;
+        if !VALID_TRUST_LEVELS.contains(&self.trust_level.as_str()) {
+            return Err(format!(
+                "trust_level '{}' is not one of {:?}",
+                self.trust_level, VALID_TRUST_LEVELS
+            ));
+        }
+        Ok(())
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // LEAST-AGENCY TRACKING (21.2)
 // ═══════════════════════════════════════════════════════════════════════════════

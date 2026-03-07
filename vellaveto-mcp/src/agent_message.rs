@@ -53,6 +53,7 @@ pub enum MessageError {
 
 /// Signed inter-agent message envelope.
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignedAgentMessage {
     /// Agent ID of the sender
     pub sender: String,
@@ -110,7 +111,45 @@ mod signature_serde {
     }
 }
 
+/// Maximum length for agent ID fields in signed messages.
+const MAX_AGENT_ID_LEN: usize = 512;
+/// Maximum payload size for signed messages (1 MB).
+const MAX_SIGNED_PAYLOAD_LEN: usize = 1_048_576;
+
 impl SignedAgentMessage {
+    /// SECURITY (R241-MCP-2): Validate deserialized message fields before processing.
+    pub fn validate(&self) -> Result<(), MessageError> {
+        if self.sender.len() > MAX_AGENT_ID_LEN {
+            return Err(MessageError::InvalidSender(format!(
+                "sender length {} exceeds max {MAX_AGENT_ID_LEN}",
+                self.sender.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.sender) {
+            return Err(MessageError::InvalidSender(
+                "sender contains dangerous characters".to_string(),
+            ));
+        }
+        if self.recipient.len() > MAX_AGENT_ID_LEN {
+            return Err(MessageError::InvalidSender(format!(
+                "recipient length {} exceeds max {MAX_AGENT_ID_LEN}",
+                self.recipient.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.recipient) {
+            return Err(MessageError::InvalidSender(
+                "recipient contains dangerous characters".to_string(),
+            ));
+        }
+        if self.payload.len() > MAX_SIGNED_PAYLOAD_LEN {
+            return Err(MessageError::InvalidSender(format!(
+                "payload length {} exceeds max {MAX_SIGNED_PAYLOAD_LEN}",
+                self.payload.len()
+            )));
+        }
+        Ok(())
+    }
+
     /// Sign a message with the sender's private key.
     /// SECURITY (FIND-027): Returns Result to handle RNG failure without panic.
     pub fn sign(
@@ -165,6 +204,9 @@ impl SignedAgentMessage {
         max_age_secs: u64,
         nonce_tracker: Option<&NonceTracker>,
     ) -> Result<(), MessageError> {
+        // SECURITY (R241-MCP-2): Validate fields before processing.
+        self.validate()?;
+
         // Check message freshness
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -673,5 +715,135 @@ mod tests {
         // Invalid UTF-8
         let message = alice.sign_message("bob", &[0xff, 0xfe]).unwrap();
         assert_eq!(message.payload_str(), None);
+    }
+
+    #[test]
+    fn test_signed_agent_message_deny_unknown_fields() {
+        let json = format!(
+            r#"{{
+                "sender": "alice",
+                "recipient": "bob",
+                "payload": [104, 105],
+                "signature": "{}",
+                "nonce": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "timestamp": 123,
+                "extra": true
+            }}"#,
+            "00".repeat(64)
+        );
+
+        let result: Result<SignedAgentMessage, _> = serde_json::from_str(&json);
+        assert!(result.is_err());
+    }
+
+    // =========================================================================
+    // R241-MCP-2: SignedAgentMessage validate() tests
+    // =========================================================================
+
+    #[test]
+    fn test_validate_valid_message() {
+        let msg = SignedAgentMessage {
+            sender: "agent-a".to_string(),
+            recipient: "agent-b".to_string(),
+            payload: vec![1, 2, 3],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        assert!(msg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_sender_too_long() {
+        let msg = SignedAgentMessage {
+            sender: "a".repeat(600),
+            recipient: "agent-b".to_string(),
+            payload: vec![1, 2, 3],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.to_string().contains("sender"), "{err}");
+    }
+
+    #[test]
+    fn test_validate_sender_dangerous_chars() {
+        let msg = SignedAgentMessage {
+            sender: "agent\x00a".to_string(),
+            recipient: "agent-b".to_string(),
+            payload: vec![1, 2, 3],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.to_string().contains("sender"), "{err}");
+    }
+
+    #[test]
+    fn test_validate_recipient_too_long() {
+        let msg = SignedAgentMessage {
+            sender: "agent-a".to_string(),
+            recipient: "b".repeat(600),
+            payload: vec![1, 2, 3],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.to_string().contains("recipient"), "{err}");
+    }
+
+    #[test]
+    fn test_validate_recipient_dangerous_chars() {
+        let msg = SignedAgentMessage {
+            sender: "agent-a".to_string(),
+            recipient: "agent\x1Bb".to_string(),
+            payload: vec![1, 2, 3],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.to_string().contains("recipient"), "{err}");
+    }
+
+    #[test]
+    fn test_validate_payload_too_large() {
+        let msg = SignedAgentMessage {
+            sender: "agent-a".to_string(),
+            recipient: "agent-b".to_string(),
+            payload: vec![0u8; 2_000_000],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: 1000,
+        };
+        let err = msg.validate().unwrap_err();
+        assert!(err.to_string().contains("payload"), "{err}");
+    }
+
+    #[test]
+    fn test_verify_calls_validate() {
+        // Verify that verify() rejects a message with dangerous chars in sender
+        // BEFORE attempting signature verification.
+        let key = SigningKey::generate(&mut rand::rngs::OsRng);
+        let pubkey = key.verifying_key();
+        let msg = SignedAgentMessage {
+            sender: "agent\x00evil".to_string(),
+            recipient: "bob".to_string(),
+            payload: vec![],
+            signature: [0u8; 64],
+            nonce: [0u8; 32],
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        };
+        let err = msg.verify(&pubkey, 300, None).unwrap_err();
+        assert!(
+            matches!(err, MessageError::InvalidSender(_)),
+            "expected InvalidSender, got: {err}"
+        );
     }
 }

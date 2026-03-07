@@ -16,6 +16,7 @@ use std::collections::HashMap;
 /// Leader election status for a Vellaveto instance.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum LeaderStatus {
     /// This instance currently holds the leader lease.
     Leader {
@@ -192,6 +193,7 @@ impl ServiceEndpoint {
 /// Events emitted by service discovery watchers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
 pub enum DiscoveryEvent {
     /// A new endpoint was discovered.
     Added(ServiceEndpoint),

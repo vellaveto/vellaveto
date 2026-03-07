@@ -848,11 +848,12 @@ async fn relay_client_to_upstream(
 
                         // SECURITY (FIND-R46-007): Rug-pull detection.
                         // Block calls to tools whose annotations changed since initial tools/list.
+                        // SECURITY (R240-PROXY-1): Fall back to global registry on session miss.
                         let is_flagged = state
                             .sessions
                             .get_mut(&session_id)
                             .map(|s| s.flagged_tools.contains(tool_name))
-                            .unwrap_or(false);
+                            .unwrap_or_else(|| state.sessions.is_tool_globally_flagged(tool_name));
                         if is_flagged {
                             let verdict = Verdict::Deny {
                                 reason: format!(
@@ -1584,12 +1585,13 @@ async fn relay_client_to_upstream(
                         // If the upstream server was flagged (annotations changed since initial
                         // tools/list), block resource reads from that server.
                         // Parity with HTTP handler (handlers.rs:1555).
+                        // SECURITY (R240-PROXY-1): Fall back to global registry on session miss.
                         {
                             let is_flagged = state
                                 .sessions
                                 .get_mut(&session_id)
                                 .map(|s| s.flagged_tools.contains(uri.as_str()))
-                                .unwrap_or(false);
+                                .unwrap_or_else(|| state.sessions.is_tool_globally_flagged(uri.as_str()));
                             if is_flagged {
                                 let action = extractor::extract_resource_action(uri);
                                 let verdict = Verdict::Deny {

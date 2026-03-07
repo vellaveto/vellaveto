@@ -774,6 +774,8 @@ impl NhiDelegationLink {
     const MAX_PERMISSION_LEN: usize = 1024;
     /// Maximum length for a single scope constraint entry.
     const MAX_SCOPE_CONSTRAINT_LEN: usize = 1024;
+    /// Maximum length for the optional reason field.
+    const MAX_REASON_LEN: usize = 512;
 
     /// Validate bounds on deserialized data.
     ///
@@ -860,6 +862,21 @@ impl NhiDelegationLink {
                 ));
             }
         }
+        // SECURITY (R240-TYP-2): Validate optional reason field.
+        if let Some(reason) = &self.reason {
+            if reason.len() > Self::MAX_REASON_LEN {
+                return Err(format!(
+                    "NhiDelegationLink reason length {} exceeds max {}",
+                    reason.len(),
+                    Self::MAX_REASON_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(reason) {
+                return Err(
+                    "NhiDelegationLink reason contains control or format characters".to_string(),
+                );
+            }
+        }
         Ok(())
     }
 }
@@ -894,6 +911,9 @@ impl NhiDelegationChain {
         self.chain.len() > effective_max
     }
 
+    /// Maximum length for the resolved_at timestamp.
+    const MAX_RESOLVED_AT_LEN: usize = 64;
+
     pub fn validate(&self) -> Result<(), String> {
         if self.max_depth > Self::MAX_DELEGATION_DEPTH {
             return Err(format!(
@@ -901,6 +921,19 @@ impl NhiDelegationChain {
                 self.max_depth,
                 Self::MAX_DELEGATION_DEPTH
             ));
+        }
+        // SECURITY (R240-TYP-2): Validate resolved_at timestamp.
+        if self.resolved_at.len() > Self::MAX_RESOLVED_AT_LEN {
+            return Err(format!(
+                "NhiDelegationChain resolved_at length {} exceeds max {}",
+                self.resolved_at.len(),
+                Self::MAX_RESOLVED_AT_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.resolved_at) {
+            return Err(
+                "NhiDelegationChain resolved_at contains control or format characters".to_string(),
+            );
         }
         for link in &self.chain {
             link.validate()?;

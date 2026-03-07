@@ -113,6 +113,15 @@ pub async fn register_shadow_agent(
             }),
         ));
     }
+    // SECURITY (R241-SRV-1): Validate fingerprint fields from external input.
+    if let Err(_msg) = req.fingerprint.validate() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid fingerprint".to_string(),
+            }),
+        ));
+    }
 
     let detector = state.shadow_agent.as_ref().ok_or_else(|| {
         (

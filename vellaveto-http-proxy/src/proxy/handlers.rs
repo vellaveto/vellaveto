@@ -441,12 +441,15 @@ pub async fn handle_mcp_post(
                 ));
             }
 
-            // Check rug-pull flags — block calls to tools with changed annotations
+            // Check rug-pull flags — block calls to tools with changed annotations.
+            // SECURITY (R240-PROXY-1): Fall back to global registry when session is
+            // missing (evicted by timeout or capacity pressure). This closes the
+            // TOCTOU where session eviction dropped flagged_tools.
             let is_flagged = state
                 .sessions
                 .get_mut(&session_id)
                 .map(|s| s.flagged_tools.contains(&tool_name))
-                .unwrap_or(false);
+                .unwrap_or_else(|| state.sessions.is_tool_globally_flagged(&tool_name));
 
             if is_flagged {
                 let action = extractor::extract_action(&tool_name, &arguments);
@@ -1586,11 +1589,12 @@ pub async fn handle_mcp_post(
             // block resource reads from that server. The URI itself is checked against the
             // flagged_tools set, which contains both tool names and server identifiers recorded
             // during rug-pull detection.
+            // SECURITY (R240-PROXY-1): Fall back to global registry on session miss.
             let is_flagged = state
                 .sessions
                 .get_mut(&session_id)
                 .map(|s| s.flagged_tools.contains(uri.as_str()))
-                .unwrap_or(false);
+                .unwrap_or_else(|| state.sessions.is_tool_globally_flagged(uri.as_str()));
             if is_flagged {
                 let action = extractor::extract_resource_action(&uri);
                 let verdict = Verdict::Deny {

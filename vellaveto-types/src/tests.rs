@@ -3194,6 +3194,67 @@ fn test_agent_fingerprint_summary_mixed_multibyte_ascii() {
 }
 
 // ═══════════════════════════════════════════════════
+// R241-TYP-1: AgentFingerprint validate()
+// ═══════════════════════════════════════════════════
+
+#[test]
+fn test_agent_fingerprint_validate_valid() {
+    let fp = AgentFingerprint {
+        jwt_sub: Some("user-42".to_string()),
+        jwt_iss: Some("https://auth.example.com".to_string()),
+        client_id: Some("client-abc".to_string()),
+        ip_hash: Some("deadbeef".to_string()),
+    };
+    assert!(fp.validate().is_ok());
+}
+
+#[test]
+fn test_agent_fingerprint_validate_empty_is_ok() {
+    let fp = AgentFingerprint::default();
+    assert!(fp.validate().is_ok());
+}
+
+#[test]
+fn test_agent_fingerprint_validate_jwt_sub_too_long() {
+    let fp = AgentFingerprint {
+        jwt_sub: Some("x".repeat(2000)),
+        ..Default::default()
+    };
+    let err = fp.validate().unwrap_err();
+    assert!(err.contains("jwt_sub"), "{err}");
+}
+
+#[test]
+fn test_agent_fingerprint_validate_jwt_iss_dangerous_chars() {
+    let fp = AgentFingerprint {
+        jwt_iss: Some("https://evil.com\x00".to_string()),
+        ..Default::default()
+    };
+    let err = fp.validate().unwrap_err();
+    assert!(err.contains("jwt_iss"), "{err}");
+}
+
+#[test]
+fn test_agent_fingerprint_validate_client_id_dangerous_chars() {
+    let fp = AgentFingerprint {
+        client_id: Some("client\x1B[31m-red".to_string()),
+        ..Default::default()
+    };
+    let err = fp.validate().unwrap_err();
+    assert!(err.contains("client_id"), "{err}");
+}
+
+#[test]
+fn test_agent_fingerprint_validate_ip_hash_too_long() {
+    let fp = AgentFingerprint {
+        ip_hash: Some("h".repeat(2000)),
+        ..Default::default()
+    };
+    let err = fp.validate().unwrap_err();
+    assert!(err.contains("ip_hash"), "{err}");
+}
+
+// ═══════════════════════════════════════════════════
 // MCP 2025-11-25 TOOL NAME VALIDATION (Phase 30)
 // ═══════════════════════════════════════════════════
 
@@ -10527,4 +10588,207 @@ fn test_posture_gap_report_validate_rejects_nan() {
         high_priority_focus_areas: vec![],
     };
     assert!(report.validate().is_err());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// R240-TYP-1: Federation Status Validation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+fn make_valid_anchor_status() -> crate::abac::FederationAnchorStatus {
+    crate::abac::FederationAnchorStatus {
+        org_id: "acme-corp".to_string(),
+        display_name: "Acme Corp".to_string(),
+        issuer_pattern: "https://auth.acme.com/*".to_string(),
+        trust_level: "full".to_string(),
+        has_jwks_uri: true,
+        jwks_cached: true,
+        jwks_last_fetched: Some("2026-03-06T12:00:00Z".to_string()),
+        identity_mapping_count: 5,
+        successful_validations: 100,
+        failed_validations: 2,
+    }
+}
+
+#[test]
+fn test_federation_status_validate_valid() {
+    let status = crate::abac::FederationStatus {
+        enabled: true,
+        trust_anchor_count: 1,
+        anchors: vec![make_valid_anchor_status()],
+    };
+    assert!(status.validate().is_ok());
+}
+
+#[test]
+fn test_federation_status_validate_too_many_anchors() {
+    let status = crate::abac::FederationStatus {
+        enabled: true,
+        trust_anchor_count: 501,
+        anchors: (0..501)
+            .map(|i| {
+                let mut a = make_valid_anchor_status();
+                a.org_id = format!("org-{i}");
+                a
+            })
+            .collect(),
+    };
+    let err = status.validate().unwrap_err();
+    assert!(err.contains("exceeds max"), "{err}");
+}
+
+#[test]
+fn test_federation_anchor_status_validate_invalid_trust_level() {
+    let mut anchor = make_valid_anchor_status();
+    anchor.trust_level = "admin".to_string();
+    let err = anchor.validate().unwrap_err();
+    assert!(err.contains("trust_level"), "{err}");
+}
+
+#[test]
+fn test_federation_anchor_status_validate_dangerous_chars_org_id() {
+    let mut anchor = make_valid_anchor_status();
+    anchor.org_id = "acme\x00corp".to_string();
+    let err = anchor.validate().unwrap_err();
+    assert!(err.contains("org_id"), "{err}");
+}
+
+#[test]
+fn test_federation_anchor_status_validate_oversized_display_name() {
+    let mut anchor = make_valid_anchor_status();
+    anchor.display_name = "A".repeat(2000);
+    let err = anchor.validate().unwrap_err();
+    assert!(err.contains("display_name"), "{err}");
+}
+
+#[test]
+fn test_federation_anchor_info_validate_valid() {
+    let info = crate::abac::FederationAnchorInfo {
+        org_id: "acme-corp".to_string(),
+        display_name: "Acme Corp".to_string(),
+        issuer_pattern: "https://auth.acme.com/*".to_string(),
+        trust_level: "limited".to_string(),
+        has_jwks_uri: true,
+        identity_mapping_count: 3,
+    };
+    assert!(info.validate().is_ok());
+}
+
+#[test]
+fn test_federation_anchor_info_validate_invalid_trust_level() {
+    let info = crate::abac::FederationAnchorInfo {
+        org_id: "acme-corp".to_string(),
+        display_name: "Acme Corp".to_string(),
+        issuer_pattern: "https://auth.acme.com/*".to_string(),
+        trust_level: "superuser".to_string(),
+        has_jwks_uri: true,
+        identity_mapping_count: 3,
+    };
+    let err = info.validate().unwrap_err();
+    assert!(err.contains("trust_level"), "{err}");
+}
+
+#[test]
+fn test_federation_anchor_status_validate_dangerous_chars_jwks_timestamp() {
+    let mut anchor = make_valid_anchor_status();
+    anchor.jwks_last_fetched = Some("2026\x1B[31m-03-06".to_string());
+    let err = anchor.validate().unwrap_err();
+    assert!(err.contains("jwks_last_fetched"), "{err}");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// R240-TYP-2: NHI Delegation Chain/Link Validation Gaps
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_nhi_delegation_chain_validate_resolved_at_too_long() {
+    let chain = crate::nhi::NhiDelegationChain {
+        chain: vec![],
+        max_depth: 5,
+        resolved_at: "T".repeat(100),
+    };
+    let err = chain.validate().unwrap_err();
+    assert!(err.contains("resolved_at"), "{err}");
+}
+
+#[test]
+fn test_nhi_delegation_chain_validate_resolved_at_dangerous_chars() {
+    let chain = crate::nhi::NhiDelegationChain {
+        chain: vec![],
+        max_depth: 5,
+        resolved_at: "2026-03-06\x00T12:00:00Z".to_string(),
+    };
+    let err = chain.validate().unwrap_err();
+    assert!(err.contains("resolved_at"), "{err}");
+}
+
+#[test]
+fn test_nhi_delegation_chain_validate_resolved_at_valid() {
+    let chain = crate::nhi::NhiDelegationChain {
+        chain: vec![],
+        max_depth: 5,
+        resolved_at: "2026-03-06T12:00:00Z".to_string(),
+    };
+    assert!(chain.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_delegation_link_validate_reason_too_long() {
+    let link = crate::nhi::NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        active: true,
+        reason: Some("R".repeat(600)),
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("reason"), "{err}");
+}
+
+#[test]
+fn test_nhi_delegation_link_validate_reason_dangerous_chars() {
+    let link = crate::nhi::NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        active: true,
+        reason: Some("legit\x1Breason".to_string()),
+    };
+    let err = link.validate().unwrap_err();
+    assert!(err.contains("reason"), "{err}");
+}
+
+#[test]
+fn test_nhi_delegation_link_validate_reason_valid() {
+    let link = crate::nhi::NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        active: true,
+        reason: Some("Automated delegation for CI pipeline".to_string()),
+    };
+    assert!(link.validate().is_ok());
+}
+
+#[test]
+fn test_nhi_delegation_link_validate_reason_none_valid() {
+    let link = crate::nhi::NhiDelegationLink {
+        from_agent: "agent-a".to_string(),
+        to_agent: "agent-b".to_string(),
+        permissions: vec!["read".to_string()],
+        scope_constraints: vec![],
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: "2026-12-31T23:59:59Z".to_string(),
+        active: true,
+        reason: None,
+    };
+    assert!(link.validate().is_ok());
 }

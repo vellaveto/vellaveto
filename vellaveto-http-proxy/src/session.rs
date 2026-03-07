@@ -132,6 +132,31 @@ const MAX_KNOWN_TOOLS: usize = 2048;
 /// SECURITY (FIND-R51-014): Maximum flagged tools per session.
 const MAX_FLAGGED_TOOLS: usize = 2048;
 
+/// SECURITY (R240-PROXY-1): Maximum entries in the global flagged-tools registry.
+/// Prevents unbounded growth when many distinct tools are flagged across sessions.
+const MAX_GLOBAL_FLAGGED_TOOLS: usize = 10_000;
+
+/// SECURITY (R240-PROXY-1): Default TTL for global flagged-tool entries (24 hours).
+/// After this period, a flagged tool is no longer blocked globally.
+/// Operators who want permanent blocking should use policy rules instead.
+const GLOBAL_FLAGGED_TOOL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Entry in the global flagged-tools registry.
+/// Records when a tool was flagged so it can be expired after TTL.
+#[derive(Debug, Clone)]
+pub struct GlobalFlaggedToolEntry {
+    /// When the tool was first flagged.
+    pub flagged_at: Instant,
+    /// TTL after which this entry expires.
+    pub ttl: Duration,
+}
+
+impl GlobalFlaggedToolEntry {
+    fn is_expired(&self) -> bool {
+        self.flagged_at.elapsed() > self.ttl
+    }
+}
+
 /// Per-session tracking of a discovered tool (Phase 34.3).
 #[derive(Debug, Clone)]
 pub struct DiscoveredToolSession {
@@ -484,6 +509,11 @@ pub struct SessionStore {
     /// after this duration regardless of activity. Prevents indefinite
     /// session reuse (e.g., stolen session IDs).
     max_lifetime: Option<Duration>,
+    /// SECURITY (R240-PROXY-1): Global flagged-tools registry that persists
+    /// rug-pull detections beyond session lifetime. Prevents TOCTOU bypass
+    /// where session eviction (timeout or capacity) drops flagged_tools,
+    /// allowing an attacker to call a rug-pulled tool in a new session.
+    global_flagged_tools: Arc<DashMap<String, GlobalFlaggedToolEntry>>,
 }
 
 impl SessionStore {
@@ -493,6 +523,7 @@ impl SessionStore {
             session_timeout,
             max_sessions,
             max_lifetime: None,
+            global_flagged_tools: Arc::new(DashMap::new()),
         }
     }
 
@@ -595,6 +626,62 @@ impl SessionStore {
     /// Delete a specific session (e.g., on client disconnect via DELETE).
     pub fn remove(&self, session_id: &str) -> bool {
         self.sessions.remove(session_id).is_some()
+    }
+
+    // =========================================================================
+    // Global Flagged-Tools Registry (R240-PROXY-1)
+    // =========================================================================
+
+    /// Record a tool name in the global flagged-tools registry.
+    ///
+    /// SECURITY (R240-PROXY-1): This ensures rug-pull detections survive session
+    /// eviction. Even if the session that detected the rug-pull is expired or
+    /// evicted under capacity pressure, the tool remains blocked globally.
+    pub fn flag_tool_globally(&self, tool_name: String) {
+        if self.global_flagged_tools.len() >= MAX_GLOBAL_FLAGGED_TOOLS {
+            // Evict expired entries to make room
+            self.evict_expired_global_flags();
+            if self.global_flagged_tools.len() >= MAX_GLOBAL_FLAGGED_TOOLS {
+                tracing::warn!(
+                    tool = %tool_name,
+                    capacity = MAX_GLOBAL_FLAGGED_TOOLS,
+                    "Global flagged-tools registry at capacity; dropping new entry"
+                );
+                return;
+            }
+        }
+        // Only insert if not already present (don't reset TTL on re-flag)
+        self.global_flagged_tools
+            .entry(tool_name)
+            .or_insert_with(|| GlobalFlaggedToolEntry {
+                flagged_at: Instant::now(),
+                ttl: GLOBAL_FLAGGED_TOOL_TTL,
+            });
+    }
+
+    /// Check whether a tool is flagged in the global registry.
+    ///
+    /// SECURITY (R240-PROXY-1): Returns true if the tool was flagged by any
+    /// session and the flag has not yet expired. This is the fallback check
+    /// when a session lookup returns None (session evicted).
+    pub fn is_tool_globally_flagged(&self, tool_name: &str) -> bool {
+        self.global_flagged_tools
+            .get(tool_name)
+            .map(|entry| !entry.is_expired())
+            .unwrap_or(false)
+    }
+
+    /// Remove expired entries from the global flagged-tools registry.
+    pub fn evict_expired_global_flags(&self) -> usize {
+        let before = self.global_flagged_tools.len();
+        self.global_flagged_tools
+            .retain(|_, entry| !entry.is_expired());
+        before.saturating_sub(self.global_flagged_tools.len())
+    }
+
+    /// Number of entries in the global flagged-tools registry.
+    pub fn global_flagged_tools_len(&self) -> usize {
+        self.global_flagged_tools.len()
     }
 }
 
@@ -1189,5 +1276,149 @@ mod tests {
             eval.agent_identity.as_ref().unwrap().issuer.as_deref(),
             Some("test-issuer")
         );
+    }
+
+    // =========================================================================
+    // Global Flagged-Tools Registry Tests (R240-PROXY-1)
+    // =========================================================================
+
+    #[test]
+    fn test_global_flagged_tool_basic() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        assert!(!store.is_tool_globally_flagged("evil_tool"));
+        assert_eq!(store.global_flagged_tools_len(), 0);
+
+        store.flag_tool_globally("evil_tool".to_string());
+        assert!(store.is_tool_globally_flagged("evil_tool"));
+        assert!(!store.is_tool_globally_flagged("safe_tool"));
+        assert_eq!(store.global_flagged_tools_len(), 1);
+    }
+
+    #[test]
+    fn test_global_flagged_tool_survives_session_eviction() {
+        // This is the core TOCTOU fix test: flag a tool in a session,
+        // evict the session, verify the tool is still globally flagged.
+        let store = SessionStore::new(Duration::from_secs(300), 2);
+        let id1 = store.get_or_create(None);
+
+        // Flag a tool in session
+        if let Some(mut s) = store.get_mut(&id1) {
+            s.insert_flagged_tool("rug_pulled_tool".to_string());
+        }
+        // Also record globally (as helpers.rs does)
+        store.flag_tool_globally("rug_pulled_tool".to_string());
+
+        // Verify session-local check works
+        let is_flagged = store
+            .get_mut(&id1)
+            .map(|s| s.flagged_tools.contains("rug_pulled_tool"))
+            .unwrap_or(false);
+        assert!(is_flagged);
+
+        // Evict by creating enough sessions to exceed capacity
+        store.get_or_create(None);
+        store.get_or_create(None); // triggers eviction of oldest (id1)
+
+        // Session is gone — old check would return false (TOCTOU!)
+        let session_gone = store.get_mut(&id1).is_none();
+        assert!(session_gone, "session should have been evicted");
+
+        // Global registry still catches it — TOCTOU fixed
+        assert!(store.is_tool_globally_flagged("rug_pulled_tool"));
+    }
+
+    #[test]
+    fn test_global_flagged_tool_expiry() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+
+        // Insert with a very short TTL by manipulating the entry directly
+        store.global_flagged_tools.insert(
+            "expired_tool".to_string(),
+            GlobalFlaggedToolEntry {
+                flagged_at: Instant::now() - Duration::from_secs(25 * 60 * 60), // 25h ago
+                ttl: GLOBAL_FLAGGED_TOOL_TTL, // 24h TTL
+            },
+        );
+
+        // Should be expired
+        assert!(!store.is_tool_globally_flagged("expired_tool"));
+
+        // Eviction should remove it
+        let evicted = store.evict_expired_global_flags();
+        assert_eq!(evicted, 1);
+        assert_eq!(store.global_flagged_tools_len(), 0);
+    }
+
+    #[test]
+    fn test_global_flagged_tool_capacity_bound() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+
+        // Fill to capacity
+        for i in 0..MAX_GLOBAL_FLAGGED_TOOLS {
+            store.flag_tool_globally(format!("tool_{i}"));
+        }
+        assert_eq!(store.global_flagged_tools_len(), MAX_GLOBAL_FLAGGED_TOOLS);
+
+        // One more should be silently dropped (capacity reached)
+        store.flag_tool_globally("overflow_tool".to_string());
+        assert!(!store.is_tool_globally_flagged("overflow_tool"));
+        assert_eq!(store.global_flagged_tools_len(), MAX_GLOBAL_FLAGGED_TOOLS);
+    }
+
+    #[test]
+    fn test_global_flagged_tool_capacity_evicts_expired_first() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+
+        // Fill to capacity with expired entries
+        for i in 0..MAX_GLOBAL_FLAGGED_TOOLS {
+            store.global_flagged_tools.insert(
+                format!("old_tool_{i}"),
+                GlobalFlaggedToolEntry {
+                    flagged_at: Instant::now() - Duration::from_secs(25 * 60 * 60),
+                    ttl: GLOBAL_FLAGGED_TOOL_TTL,
+                },
+            );
+        }
+        assert_eq!(store.global_flagged_tools_len(), MAX_GLOBAL_FLAGGED_TOOLS);
+
+        // New flag should succeed after evicting expired entries
+        store.flag_tool_globally("fresh_tool".to_string());
+        assert!(store.is_tool_globally_flagged("fresh_tool"));
+    }
+
+    #[test]
+    fn test_global_flagged_tool_no_ttl_reset_on_reflag() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+
+        // Insert with a known timestamp
+        let old_time = Instant::now() - Duration::from_secs(60 * 60); // 1h ago
+        store.global_flagged_tools.insert(
+            "tool_a".to_string(),
+            GlobalFlaggedToolEntry {
+                flagged_at: old_time,
+                ttl: GLOBAL_FLAGGED_TOOL_TTL,
+            },
+        );
+
+        // Re-flag should NOT reset the timestamp (or_insert, not insert)
+        store.flag_tool_globally("tool_a".to_string());
+        let entry = store.global_flagged_tools.get("tool_a").unwrap();
+        assert_eq!(entry.flagged_at, old_time);
+    }
+
+    #[test]
+    fn test_global_flagged_tool_unwrap_or_else_fallback() {
+        // Simulate what the handler code does: session lookup fails,
+        // falls back to global registry.
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+        store.flag_tool_globally("globally_flagged".to_string());
+
+        // Session doesn't exist — simulates evicted session
+        let is_flagged = store
+            .get_mut("nonexistent-session")
+            .map(|s| s.flagged_tools.contains("globally_flagged"))
+            .unwrap_or_else(|| store.is_tool_globally_flagged("globally_flagged"));
+
+        assert!(is_flagged, "global fallback should catch flagged tool");
     }
 }

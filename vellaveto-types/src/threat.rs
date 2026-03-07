@@ -288,7 +288,35 @@ impl fmt::Debug for AgentFingerprint {
     }
 }
 
+/// Maximum length for AgentFingerprint string fields.
+const MAX_FINGERPRINT_FIELD_LEN: usize = 1024;
+
 impl AgentFingerprint {
+    /// SECURITY (R241-TYP-1): Validate fingerprint fields for bounds and dangerous chars.
+    pub fn validate(&self) -> Result<(), String> {
+        fn check_opt(name: &str, value: &Option<String>) -> Result<(), String> {
+            if let Some(v) = value {
+                if v.len() > MAX_FINGERPRINT_FIELD_LEN {
+                    return Err(format!(
+                        "AgentFingerprint {name} length {} exceeds max {MAX_FINGERPRINT_FIELD_LEN}",
+                        v.len()
+                    ));
+                }
+                if crate::core::has_dangerous_chars(v) {
+                    return Err(format!(
+                        "AgentFingerprint {name} contains control or format characters"
+                    ));
+                }
+            }
+            Ok(())
+        }
+        check_opt("jwt_sub", &self.jwt_sub)?;
+        check_opt("jwt_iss", &self.jwt_iss)?;
+        check_opt("client_id", &self.client_id)?;
+        check_opt("ip_hash", &self.ip_hash)?;
+        Ok(())
+    }
+
     /// Returns true if this fingerprint has any identifying information.
     pub fn is_populated(&self) -> bool {
         self.jwt_sub.is_some()

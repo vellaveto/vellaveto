@@ -944,6 +944,8 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             sessions.evict_expired();
+            // SECURITY (R240-PROXY-1): Also clean up expired global flagged-tool entries.
+            sessions.evict_expired_global_flags();
         }
     });
 

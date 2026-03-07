@@ -158,6 +158,9 @@ pub(super) async fn extract_annotations_from_response(
         for name in result.flagged_tool_names() {
             // SECURITY (FIND-R51-014): Use bounded insertion for flagged tools.
             s.insert_flagged_tool(name.to_string());
+            // SECURITY (R240-PROXY-1): Also record in global registry so the flag
+            // survives session eviction (timeout or capacity pressure).
+            sessions.flag_tool_globally(name.to_string());
         }
     }
 
