@@ -289,7 +289,9 @@ impl AuditLogger {
                 });
             }
             if !timestamps_nondecreasing {
-                let prev_ts = prev_timestamp.expect("regression requires previous timestamp");
+                // prev_timestamp is guaranteed Some here (timestamps_nondecreasing is false
+                // only when the Some branch at line 266 sets it)
+                let prev_ts = prev_timestamp.unwrap_or("");
                 tracing::warn!(
                     entry_index = i,
                     prev_ts = prev_ts,
