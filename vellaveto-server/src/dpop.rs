@@ -859,7 +859,13 @@ pub fn compute_jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopErr
     // Without this, an attacker can inject arbitrary JSON structure via format string,
     // producing a controlled thumbprint that enables DPoP token binding bypass.
     fn validate_jwk_member(value: &str, field: &str) -> Result<(), DpopError> {
-        if value.contains('"') || value.contains('\\') {
+        // SECURITY (R244-DPOP-4): Also reject control/format characters in JWK
+        // members. These could appear in base64-encoded key material and enable
+        // log injection or terminal spoofing when thumbprints are logged.
+        if value.contains('"')
+            || value.contains('\\')
+            || vellaveto_types::has_dangerous_chars(value)
+        {
             return Err(DpopError::MalformedProof(format!(
                 "JWK '{field}' contains invalid characters"
             )));

@@ -187,9 +187,10 @@ impl AuditQueryService for PostgresAuditQuery {
         // PostgreSQL allows reusing the same $N parameter in multiple positions.
         if params.text_search.is_some() {
             let p = wb.next_param();
+            // SECURITY (R244-SINK-1): Include ESCAPE clause so backslash-escaped
+            // %, _, and \ in the pattern are interpreted correctly by PostgreSQL.
             wb.add_condition(format!(
-                "(tool ILIKE {} OR function_name ILIKE {} OR metadata::text ILIKE {})",
-                p, p, p
+                "(tool ILIKE {p} ESCAPE '\\' OR function_name ILIKE {p} ESCAPE '\\' OR metadata::text ILIKE {p} ESCAPE '\\')",
             ));
         }
 
@@ -417,8 +418,9 @@ fn build_filter_clauses(params: &AuditQueryParams) -> String {
         idx = idx.saturating_add(1);
     }
     if params.text_search.is_some() {
+        // SECURITY (R244-SINK-1): Include ESCAPE clause for proper pattern handling.
         clauses.push(format!(
-            "AND (tool ILIKE ${p} OR function_name ILIKE ${p} OR metadata::text ILIKE ${p})",
+            "AND (tool ILIKE ${p} ESCAPE '\\' OR function_name ILIKE ${p} ESCAPE '\\' OR metadata::text ILIKE ${p} ESCAPE '\\')",
             p = idx
         ));
         idx = idx.saturating_add(1);
