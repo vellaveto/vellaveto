@@ -52,20 +52,32 @@ jobs:
           CRATES=(
             vellaveto-types
             vellaveto-canonical
+            vellaveto-canary
             vellaveto-config
+            vellaveto-discovery
             vellaveto-engine
             vellaveto-audit
             vellaveto-approval
+            vellaveto-mcp-shield
             vellaveto-mcp
+            vellaveto-tls
             vellaveto-cluster
-            vellaveto-server
+            vellaveto-http-proxy-shield
             vellaveto-http-proxy
+            vellaveto-server
             vellaveto-proxy
+            vellaveto-shield
+            vellaveto-operator
           )
 
           for crate in "${CRATES[@]}"; do
             echo "--- Publishing $crate ---"
-            cargo publish -p "$crate" $FLAGS --locked || {
+            OUTPUT=$(cargo publish -p "$crate" $FLAGS --locked 2>&1) || {
+              if echo "$OUTPUT" | grep -q "already uploaded"; then
+                echo "$crate already published, skipping"
+                continue
+              fi
+              echo "$OUTPUT"
               echo "Failed to publish $crate"
               exit 1
             }
