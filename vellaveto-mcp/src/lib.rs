@@ -71,6 +71,7 @@ pub mod tool_namespace;
 pub mod tool_registry;
 pub mod transparency;
 pub(crate) mod util;
+pub(crate) mod verified_capability_attenuation;
 pub mod workflow_tracker;
 
 use serde::{Deserialize, Serialize};

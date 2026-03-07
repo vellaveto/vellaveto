@@ -30,6 +30,8 @@ use vellaveto_types::{
     MAX_DELEGATION_DEPTH, MAX_GRANTS,
 };
 
+use crate::verified_capability_attenuation;
+
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
 const MAX_CAPABILITY_TTL_SECS: u64 = 365 * 24 * 3600;
@@ -170,12 +172,13 @@ pub fn attenuate_capability_token(
     signing_key_hex: &str,
     ttl_secs: u64,
 ) -> Result<CapabilityToken, CapabilityError> {
-    // Check delegation depth
-    if parent.remaining_depth == 0 {
-        return Err(CapabilityError::AttenuationViolation(
-            "parent token has remaining_depth 0 — cannot delegate further".to_string(),
-        ));
-    }
+    let new_depth =
+        verified_capability_attenuation::attenuated_remaining_depth(parent.remaining_depth)
+            .ok_or_else(|| {
+                CapabilityError::AttenuationViolation(
+                    "parent token has remaining_depth 0 — cannot delegate further".to_string(),
+                )
+            })?;
 
     if new_holder.is_empty() {
         return Err(CapabilityError::SigningFailed(
@@ -217,7 +220,8 @@ pub fn attenuate_capability_token(
     let now = chrono::Utc::now();
     let parent_expires = chrono::DateTime::parse_from_rfc3339(&parent.expires_at)
         .map_err(|e| CapabilityError::SigningFailed(format!("invalid parent expires_at: {e}")))?;
-    if now >= parent_expires {
+    let parent_expires_utc = parent_expires.with_timezone(&chrono::Utc);
+    if now >= parent_expires_utc {
         return Err(CapabilityError::AttenuationViolation(
             "parent token has expired".to_string(),
         ));
@@ -242,15 +246,25 @@ pub fn attenuate_capability_token(
     let public_key_hex = hex::encode(verifying_key.as_bytes());
 
     let issued_at = now.to_rfc3339();
-    let new_depth = parent.remaining_depth - 1;
-
-    // Clamp expiry to parent's expiry (parent_expires already parsed above)
-    let requested_expires = now + chrono::Duration::seconds(ttl_secs as i64);
-    let clamped_expires = if requested_expires > parent_expires {
-        parent_expires.with_timezone(&chrono::Utc)
-    } else {
-        requested_expires
-    };
+    let now_epoch = u64::try_from(now.timestamp())
+        .map_err(|_| CapabilityError::SigningFailed("system time before Unix epoch".to_string()))?;
+    let parent_expires_epoch = u64::try_from(parent_expires_utc.timestamp()).map_err(|_| {
+        CapabilityError::SigningFailed("parent expires_at before Unix epoch".to_string())
+    })?;
+    let clamped_expires_epoch = verified_capability_attenuation::attenuated_expiry_epoch(
+        parent_expires_epoch,
+        now_epoch,
+        ttl_secs,
+        MAX_CAPABILITY_TTL_SECS,
+    )
+    .ok_or_else(|| {
+        CapabilityError::SigningFailed("attenuation expiry computation failed".to_string())
+    })?;
+    let clamped_expires =
+        chrono::DateTime::<chrono::Utc>::from_timestamp(clamped_expires_epoch as i64, 0)
+            .ok_or_else(|| {
+                CapabilityError::SigningFailed("attenuation expiry out of range".to_string())
+            })?;
     let expires_at = clamped_expires.to_rfc3339();
 
     let token_id = Uuid::new_v4().to_string();

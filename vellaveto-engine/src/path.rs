@@ -16,7 +16,6 @@
 
 use crate::error::EngineError;
 use std::borrow::Cow;
-use std::path::{Component, PathBuf};
 
 /// Default maximum percent-decoding iterations for path normalization.
 /// Paths requiring more iterations fail-closed with an error.
@@ -127,50 +126,53 @@ pub fn normalize_path_bounded(raw: &str, max_iterations: u32) -> Result<String, 
         current = Cow::Owned(decoded.into_owned());
     }
 
-    let path = PathBuf::from(current.as_ref());
-    let mut components = Vec::new();
+    normalize_decoded_path(current.as_ref())
+}
 
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                match components.last() {
-                    Some(Component::RootDir) | None => {
-                        // At root or empty — absorb the .., can't go above root
-                        continue;
-                    }
-                    _ => {
-                        components.pop();
-                        continue;
-                    }
-                }
-            }
-            Component::CurDir => continue,
-            _ => {}
-        }
-        components.push(component);
+/// Normalize an already-decoded slash-separated path into the engine's
+/// canonical absolute form.
+///
+/// This is the proof-friendly kernel used after percent-decoding and
+/// backslash normalization. It absorbs `..` above root, drops `.` and empty
+/// components, and always returns an absolute path on success.
+pub(crate) fn normalize_decoded_path(decoded: &str) -> Result<String, EngineError> {
+    if decoded.contains('\0') {
+        return Err(EngineError::PathNormalization {
+            reason: "decoded path contains null byte".to_string(),
+        });
     }
 
-    let result: PathBuf = components.iter().collect();
-    let s = result.to_string_lossy();
-    if s.is_empty() {
-        // Fix #9: Return "/" (root) instead of the raw input when normalization
-        // produces an empty string. The raw input contains the traversal sequences
-        // that normalization was supposed to remove.
+    let starts_with_slash = decoded.starts_with('/');
+    let mut stack: Vec<&str> = Vec::new();
+
+    for component in decoded.split('/') {
+        match component {
+            "" | "." => continue,
+            ".." => {
+                stack.pop();
+            }
+            _ => stack.push(component),
+        }
+    }
+
+    if stack.is_empty() && !starts_with_slash {
         return Err(EngineError::PathNormalization {
             reason: "normalization produced empty path".to_string(),
         });
     }
 
-    // SECURITY (R11-PATH-6): Enforce absolute path output.
-    // If the input was a relative path (e.g., "etc/passwd"), the result
-    // will not start with '/', causing it to miss absolute-path glob
-    // patterns like "/etc/**". Prepend '/' to make it matchable.
-    let s = s.into_owned();
-    if !s.starts_with('/') {
-        return Ok(format!("/{s}"));
+    let mut normalized = String::with_capacity(decoded.len().saturating_add(1));
+    normalized.push('/');
+
+    if let Some((first, rest)) = stack.split_first() {
+        normalized.push_str(first);
+        for component in rest {
+            normalized.push('/');
+            normalized.push_str(component);
+        }
     }
 
-    Ok(s)
+    Ok(normalized)
 }
 
 #[cfg(test)]
@@ -247,6 +249,18 @@ mod tests {
     fn test_normalize_path_empty_result() {
         // Path that resolves to empty should error
         assert!(normalize_path("..").is_err());
+    }
+
+    #[test]
+    fn test_normalize_decoded_path_kernel() {
+        assert_eq!(normalize_decoded_path("/etc/../passwd").unwrap(), "/passwd");
+        assert_eq!(normalize_decoded_path("etc/passwd").unwrap(), "/etc/passwd");
+        assert_eq!(normalize_decoded_path("/../../etc").unwrap(), "/etc");
+        assert_eq!(
+            normalize_decoded_path("//server///share").unwrap(),
+            "/server/share"
+        );
+        assert!(normalize_decoded_path("..").is_err());
     }
 
     // ════════════════════════════════════════════════════════

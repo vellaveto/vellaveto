@@ -73,9 +73,18 @@ VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
+PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
+PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
+PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
+PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
+VERUS_ENTROPY="$PROJECT_DIR/formal/verus/verified_entropy_gate.rs"
+PROD_CROSS_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs"
+PROD_CROSS_DLP_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/inspection/cross_call_dlp.rs"
+VERUS_CROSS_DLP="$PROJECT_DIR/formal/verus/verified_cross_call_dlp.rs"
 PROD_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_dlp_core.rs"
 VERUS_DLP="$PROJECT_DIR/formal/verus/verified_dlp_core.rs"
-PROD_CAP="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+PROD_PATH="$PROJECT_DIR/vellaveto-engine/src/path.rs"
 VERUS_PATH="$PROJECT_DIR/formal/verus/verified_path.rs"
 
 echo "--- Core Verdict ---"
@@ -121,6 +130,81 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
 echo ""
 
+echo "--- Capability Attenuation Kernel ---"
+check_file_pair \
+    "verified_capability_attenuation.rs ↔ vellaveto-mcp/src/verified_capability_attenuation.rs" \
+    "$PROD_CAPABILITY_ATTENUATION" \
+    "$VERUS_CAPABILITY_ATTENUATION"
+for fn in attenuated_remaining_depth attenuated_expiry_epoch; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_ATTENUATION" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_ATTENUATION" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability attenuation uses verified depth gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_attenuation::attenuated_remaining_depth' \
+    "$VERUS_CAPABILITY_ATTENUATION" \
+    'pub[[:space:]]+fn[[:space:]]+attenuated_remaining_depth'
+check_symbol_parity \
+    "capability attenuation uses verified expiry gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_attenuation::attenuated_expiry_epoch' \
+    "$VERUS_CAPABILITY_ATTENUATION" \
+    'pub[[:space:]]+fn[[:space:]]+attenuated_expiry_epoch'
+echo ""
+
+echo "--- Entropy Alert Gate ---"
+check_file_pair \
+    "verified_entropy_gate.rs ↔ vellaveto-engine/src/verified_entropy_gate.rs" \
+    "$PROD_ENTROPY" \
+    "$VERUS_ENTROPY"
+for fn in is_high_entropy_millibits should_alert_on_high_entropy_count high_severity_entropy_threshold entropy_alert_level entropy_alert_severity; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_ENTROPY" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_ENTROPY" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "entropy wrapper uses verified fixed-point comparator" \
+    "$PROD_ENTROPY_WRAPPER" \
+    'pub\(crate\)[[:space:]]+use[[:space:]]+crate::verified_entropy_gate::' \
+    "$VERUS_ENTROPY" \
+    'pub[[:space:]]+fn[[:space:]]+is_high_entropy_millibits'
+echo ""
+
+echo "--- Cross-Call DLP Tracker Gate ---"
+check_file_pair \
+    "verified_cross_call_dlp.rs ↔ vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs" \
+    "$PROD_CROSS_DLP" \
+    "$VERUS_CROSS_DLP"
+for fn in should_emit_capacity_exhausted_finding should_update_buffer; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CROSS_DLP" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CROSS_DLP" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "cross-call tracker uses verified capacity finding gate" \
+    "$PROD_CROSS_DLP_WRAPPER" \
+    'verified_cross_call_dlp::should_emit_capacity_exhausted_finding' \
+    "$VERUS_CROSS_DLP" \
+    'pub[[:space:]]+fn[[:space:]]+should_emit_capacity_exhausted_finding'
+check_symbol_parity \
+    "cross-call tracker uses verified update gate" \
+    "$PROD_CROSS_DLP_WRAPPER" \
+    'verified_cross_call_dlp::should_update_buffer' \
+    "$VERUS_CROSS_DLP" \
+    'pub[[:space:]]+fn[[:space:]]+should_update_buffer'
+echo ""
+
 echo "--- DLP Buffer Core ---"
 check_file_pair "verified_dlp_core.rs ↔ vellaveto-mcp/src/inspection/verified_dlp_core.rs" "$PROD_DLP" "$VERUS_DLP"
 for fn in is_utf8_char_boundary extract_tail can_track_field update_total_bytes; do
@@ -134,11 +218,17 @@ done
 echo ""
 
 echo "--- Path Normalization Kernel ---"
-check_file_pair "verified_path.rs ↔ vellaveto-mcp/src/capability_token.rs" "$PROD_CAP" "$VERUS_PATH"
+check_file_pair "verified_path.rs ↔ vellaveto-engine/src/path.rs" "$PROD_PATH" "$VERUS_PATH"
 check_symbol_parity \
-    "production capability path normalization entrypoint exists" \
-    "$PROD_CAP" \
-    'fn[[:space:]]+normalize_path_for_grant' \
+    "production engine path normalization kernel exists" \
+    "$PROD_PATH" \
+    'pub(\(crate\))?[[:space:]]+fn[[:space:]]+normalize_decoded_path' \
+    "$VERUS_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+normalize_path_bytes'
+check_symbol_parity \
+    "engine path wrapper calls the verified kernel boundary" \
+    "$PROD_PATH" \
+    'normalize_decoded_path\(current\.as_ref\(\)\)' \
     "$VERUS_PATH" \
     'pub[[:space:]]+fn[[:space:]]+normalize_path_bytes'
 echo ""

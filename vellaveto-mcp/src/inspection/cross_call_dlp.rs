@@ -29,6 +29,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::dlp::{self, DlpFinding};
+use super::verified_cross_call_dlp;
 use super::verified_dlp_core;
 
 /// Default overlap buffer size per field (bytes).
@@ -100,6 +101,7 @@ impl CrossCallDlpTracker {
         }
 
         let mut findings = Vec::new();
+        let field_exists = self.buffers.contains_key(field_path);
 
         // Retrieve previous overlap buffer for this field
         let previous_tail = self
@@ -141,7 +143,11 @@ impl CrossCallDlpTracker {
         // SECURITY (R237-MCP-4): Before updating the buffer, check if this is a new field
         // that would exceed capacity. If so, add a synthetic finding so the caller can
         // deny the request rather than silently losing cross-call DLP coverage.
-        if !self.buffers.contains_key(field_path) && self.buffers.len() >= self.max_fields {
+        if verified_cross_call_dlp::should_emit_capacity_exhausted_finding(
+            field_exists,
+            self.buffers.len(),
+            self.max_fields,
+        ) {
             findings.push(DlpFinding {
                 pattern_name: "cross_call_dlp_capacity_exhausted".to_string(),
                 location: format!("{field_path}(capacity-exceeded)"),
@@ -149,7 +155,7 @@ impl CrossCallDlpTracker {
         }
 
         // Update the overlap buffer with the tail of current_value
-        self.update_buffer(field_path, current_value);
+        self.update_buffer(field_path, current_value, field_exists);
 
         findings
     }
@@ -157,19 +163,19 @@ impl CrossCallDlpTracker {
     /// Update the overlap buffer for a field with the tail of the given value.
     ///
     /// Uses verified_dlp_core functions for buffer arithmetic (D1-D5).
-    fn update_buffer(&mut self, field_path: &str, value: &str) {
+    fn update_buffer(&mut self, field_path: &str, value: &str, field_exists: bool) {
         let value_bytes = value.as_bytes();
+        let new_buffer_bytes = value_bytes.len().min(self.overlap_size);
+        let max_total_bytes = self.max_fields.saturating_mul(self.overlap_size);
 
-        // D4: Check capacity using verified core
-        if !self.buffers.contains_key(field_path)
-            && !verified_dlp_core::can_track_field(
-                self.buffers.len(),
-                self.max_fields,
-                self.total_bytes,
-                value_bytes.len().min(self.overlap_size),
-                self.max_fields.saturating_mul(self.overlap_size),
-            )
-        {
+        if !verified_cross_call_dlp::should_update_buffer(
+            field_exists,
+            self.buffers.len(),
+            self.max_fields,
+            self.total_bytes,
+            new_buffer_bytes,
+            max_total_bytes,
+        ) {
             tracing::warn!(
                 field_path = %field_path,
                 tracked_fields = self.buffers.len(),

@@ -1,8 +1,10 @@
 # Verus Formal Verification
 
 Deductive verification of Vellaveto's core verdict computation, constraint
-evaluation fail-closed control flow, DLP buffer arithmetic, and path
-normalization using [Verus](https://github.com/verus-lang/verus).
+evaluation fail-closed control flow, capability attenuation arithmetic,
+fixed-point entropy alert gating, cross-call DLP tracker gating, DLP buffer
+arithmetic, and path normalization using
+[Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
 
@@ -59,7 +61,54 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_forbidden_precedes_approval` | Forbidden parameter presence overrides `require_approval` and yields `Deny` |
 | `lemma_no_match_continue_is_only_continue` | `Continue` is reachable only on the explicit no-match path |
 
-### Path Normalization (`verified_path.rs`) — 30 verified items; V9-V10 fully proved
+### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 11 verified items, CAP-ATT-1–CAP-ATT-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-ATT-1 | Depth decrement | A delegable parent always yields child depth `parent - 1` |
+| CAP-ATT-2 | Depth fail-closed | Depth `0` cannot delegate further |
+| CAP-ATT-3 | Expiry clamp | Child expiry is always at or before the parent expiry and at or before `now + ttl` |
+| CAP-ATT-4 | Transitive non-increase | Repeated attenuation keeps both depth and expiry monotonically decreasing |
+
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_depth_strictly_decreases` | Any delegable parent loses at least one depth unit |
+| `lemma_depth_transitive` | Two attenuation steps keep depth strictly decreasing |
+| `lemma_expiry_never_exceeds_parent` | The clamped child expiry never exceeds the parent expiry |
+| `lemma_expiry_stays_within_requested_window` | The child expiry never exceeds the requested `now + ttl` window |
+| `lemma_parent_expiry_is_fail_closed` | An already expired parent cannot produce a child expiry |
+| `lemma_ttl_limit_is_fail_closed` | A TTL above policy cannot produce a child expiry |
+| `lemma_expiry_transitive_nonincreasing` | A second attenuation step cannot increase expiry past the first or root parent |
+
+### Entropy Alert Gate (`verified_entropy_gate.rs`) — 11 verified items, ENT-GATE-1–ENT-GATE-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| ENT-GATE-1 | Fixed-point threshold comparison | `is_high_entropy_millibits(obs, thresh)` iff `obs >= thresh` |
+| ENT-GATE-2 | Alert count threshold | Entropy alert activates iff `high_entropy_count >= min_entropy_observations` |
+| ENT-GATE-3 | Saturating high-severity threshold | Doubling the minimum observation count saturates at `u32::MAX` |
+| ENT-GATE-4 | Severity tier mapping | Counts at or above the doubled threshold map to `High`, otherwise `Medium` |
+| ENT-GATE-5 | Optional alert severity | `entropy_alert_severity` returns `None` below threshold and `Some(level)` otherwise |
+
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_no_alert_below_threshold` | Counts below the alert threshold can never yield an entropy alert |
+| `lemma_threshold_alerts_medium` | In the non-saturating range, hitting the exact threshold yields `Medium` severity |
+| `lemma_high_severity_threshold_alerts_high` | Hitting the saturated high-severity threshold always yields `High` |
+
+### Path Normalization (`verified_path.rs`) — 31 verified items; V9-V10 fully proved
 
 Current status for ALL possible inputs:
 
@@ -68,7 +117,7 @@ Current status for ALL possible inputs:
 | V9 | Idempotence | Fully proved: `normalize(normalize(x)) = normalize(x)` |
 | V10 | No traversal in output | Fully proved: normalized output never contains `..` component |
 
-Verification result: **30 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **31 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Discharged Helper Lemmas
 
@@ -76,7 +125,13 @@ Verification result: **30 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-------|---------------|
 | `lemma_component_has_no_dotdot` | A normal component cannot be `..` at component boundaries |
 | `lemma_join_prefix_step_has_no_dotdot` | Reconstructing output from normal components preserves V10 |
+| `lemma_process_bytes_total` | The extracted component-processing kernel is total on null-free inputs |
 | `lemma_normalize_idempotent` | The spec-normalized path is a fixed point of normalization (V9) |
+
+This proof now targets the extracted engine kernel in
+`vellaveto-engine/src/path.rs::normalize_decoded_path`, which is called by
+`normalize_path_bounded()` after percent-decoding, UTF-8 validation, and
+backslash normalization.
 
 Path idempotence is also independently proved elsewhere in the suite:
 - Lean: `formal/lean/Vellaveto/PathNormalization.lean`
@@ -108,14 +163,41 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_capacity_fail_closed` | At max_fields, can_track_field is always false |
 | `lemma_ascii_all_boundaries` | For ASCII input, all bytes are char boundaries |
 
+### Cross-Call DLP Tracker Gate (`verified_cross_call_dlp.rs`) — 9 verified items, CC-DLP-1–CC-DLP-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CC-DLP-1 | Existing field never emits capacity finding | Capacity-exhausted synthetic findings only apply to new fields |
+| CC-DLP-2 | Existing field always updates | Existing tracked fields keep overlap coverage even when the tracker is at field capacity |
+| CC-DLP-3 | New field at capacity blocks update | A new field at or above `max_fields` cannot enter the overlap tracker |
+| CC-DLP-4 | New field below capacity with budget updates | A new field is admitted only when both field-count and byte-budget gates pass |
+| CC-DLP-5 | Capacity finding implies update blocked | For new fields, the synthetic fail-closed finding and update denial stay aligned |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_existing_field_never_emits_capacity_finding` | Existing fields can never raise the synthetic capacity finding |
+| `lemma_existing_field_always_updates` | Existing fields always pass the update gate |
+| `lemma_new_field_at_capacity_emits_and_blocks_update` | New fields at capacity both emit the finding and fail the update gate |
+| `lemma_new_field_below_capacity_with_budget_updates` | New fields below capacity and within byte budget are admitted |
+| `lemma_capacity_finding_implies_update_blocked` | The fail-closed capacity finding cannot diverge from the update decision |
+
 ## Production Code Correspondence
 
 | Verus File | Production File | Wiring |
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
+| `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
+| `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
+| `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
-| `formal/verus/verified_path.rs` | `vellaveto-mcp/src/capability_token.rs` | Byte-level equivalent of `normalize_path_for_grant` |
+| `formal/verus/verified_path.rs` | `vellaveto-engine/src/path.rs` | Byte-level equivalent of `normalize_decoded_path`, called by `normalize_path_bounded()` after decode/backslash normalization |
 
 The executable logic is semantically equivalent — Verus annotations (`ensures`,
 `requires`, `invariant`, `decreases`, `proof fn`) are erased during normal
@@ -132,33 +214,48 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
+# Capability attenuation depth/expiry kernel (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
+
 # Constraint evaluation fail-closed control flow (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
 
 # Core verdict + rule override (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
+# Fixed-point entropy alert gate (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_entropy_gate.rs
+
+# Cross-call DLP tracker gate (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cross_call_dlp.rs
+
 # DLP buffer arithmetic (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization no-traversal (30 verified)
+# Path normalization no-traversal (31 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 
 # Option 2: From source
 git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
+verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
+verus formal/verus/verified_entropy_gate.rs
+verus formal/verus/verified_cross_call_dlp.rs
 verus formal/verus/verified_dlp_core.rs
 verus formal/verus/verified_path.rs
 ```
 
 Expected output:
+- `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_entropy_gate.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_cross_call_dlp.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_path.rs`: `verification results:: 30 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 31 verified, 0 errors`
 
 ## Trust Boundary
 
@@ -170,7 +267,7 @@ Verus trusts:
 - rustc codegen (LLVM)
 
 Verus does NOT verify:
-- The `HashMap` wrapper in `cross_call_dlp.rs` (lookup table, not security logic)
+- The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 

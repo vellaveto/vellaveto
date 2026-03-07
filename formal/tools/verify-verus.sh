@@ -15,8 +15,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 FILES=(
+    "formal/verus/verified_capability_attenuation.rs"
     "formal/verus/verified_constraint_eval.rs"
+    "formal/verus/verified_cross_call_dlp.rs"
     "formal/verus/verified_core.rs"
+    "formal/verus/verified_entropy_gate.rs"
     "formal/verus/verified_dlp_core.rs"
     "formal/verus/verified_path.rs"
 )

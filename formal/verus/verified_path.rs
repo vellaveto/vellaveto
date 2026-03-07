@@ -8,8 +8,8 @@
 //! Verus-verified path normalization.
 //!
 //! This file proves path normalization properties V9-V10 for ALL inputs
-//! using a pure byte-level algorithm that produces identical results to
-//! `normalize_path_for_grant` in `vellaveto-mcp/src/capability_token.rs`.
+//! using a pure byte-level algorithm that produces identical results to the
+//! post-decode normalization kernel in `vellaveto-engine/src/path.rs`.
 //!
 //! We cannot use `std::path::PathBuf::components()` or `Cow` in Verus,
 //! so we implement a byte-level equivalent that splits on `/`, resolves
@@ -28,7 +28,7 @@
 //! # Trust Boundary
 //!
 //! Proves properties on a byte-level reimplementation. Parity with production
-//! `normalize_path_for_grant` is established by unit tests (not formal proof).
+//! `normalize_decoded_path` is established by unit tests and parity checks.
 //! The production function uses `str::split('/')` — we use an equivalent
 //! byte-level split.
 
@@ -122,7 +122,7 @@ pub open spec fn spec_process_component(
         (true, stack)
     } else if comp.len() == 2 && comp[0] == DOT && comp[1] == DOT {
         if stack.len() == 0 {
-            (false, Seq::<Seq<u8>>::empty())
+            (true, stack)
         } else {
             (true, stack.drop_last())
         }
@@ -167,8 +167,8 @@ pub open spec fn spec_normalize_path_bytes(path: Seq<u8>) -> (bool, Seq<u8>) {
     } else {
         let starts_with_slash = path.len() > 0 && path[0] == SLASH;
         let processed = spec_process_bytes(path, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty());
-        if processed.0 {
-            (true, spec_render_path(starts_with_slash, processed.1))
+        if starts_with_slash || processed.1.len() > 0 {
+            (true, spec_render_path(true, processed.1))
         } else {
             (false, Seq::<u8>::empty())
         }
@@ -263,6 +263,47 @@ pub proof fn lemma_process_bytes_preserves_normality(
         }
     } else {
         lemma_process_bytes_preserves_normality(
+            rest.subrange(1, rest.len() as int),
+            stack,
+            current.push(rest[0]),
+        );
+    }
+}
+
+pub proof fn lemma_process_bytes_total(
+    rest: Seq<u8>,
+    stack: Seq<Seq<u8>>,
+    current: Seq<u8>,
+)
+    requires
+        spec_has_no_null_seq(rest),
+        spec_stack_is_normal_seq(stack),
+        forall|i: int| 0 <= i < current.len() ==> #[trigger] current[i] != SLASH && current[i] != 0,
+    ensures
+        spec_process_bytes(rest, stack, current).0,
+    decreases rest.len(),
+{
+    if rest.len() == 0 {
+        assert(spec_process_component(current, stack).0);
+    } else if rest[0] == SLASH {
+        assert(spec_process_component(current, stack).0);
+        lemma_process_bytes_total(
+            rest.subrange(1, rest.len() as int),
+            spec_process_component(current, stack).1,
+            Seq::<u8>::empty(),
+        );
+    } else {
+        assert(rest[0] != 0);
+        assert forall|i: int| 0 <= i < current.push(rest[0]).len()
+            implies #[trigger] current.push(rest[0])[i] != SLASH && current.push(rest[0])[i] != 0 by {
+            if i < current.len() {
+                assert(current.push(rest[0])[i] == current[i]);
+            } else {
+                assert(i == current.len());
+                assert(current.push(rest[0])[i] == rest[0]);
+            }
+        };
+        lemma_process_bytes_total(
             rest.subrange(1, rest.len() as int),
             stack,
             current.push(rest[0]),
@@ -395,34 +436,20 @@ pub proof fn lemma_process_render_path_identity(starts_with_slash: bool, stack: 
     }
 }
 
-pub proof fn lemma_normalize_rendered_path_identity(
-    starts_with_slash: bool,
-    stack: Seq<Seq<u8>>,
-)
+pub proof fn lemma_normalize_absolute_rendered_path_identity(stack: Seq<Seq<u8>>)
     requires spec_stack_is_normal_seq(stack),
     ensures
-        spec_normalize_path_bytes(spec_render_path(starts_with_slash, stack))
-            == (true, spec_render_path(starts_with_slash, stack)),
+        spec_normalize_path_bytes(spec_render_path(true, stack))
+            == (true, spec_render_path(true, stack)),
 {
-    let rendered = spec_render_path(starts_with_slash, stack);
-    lemma_render_path_has_no_null(starts_with_slash, stack);
-    lemma_process_render_path_identity(starts_with_slash, stack);
+    let rendered = spec_render_path(true, stack);
+    lemma_render_path_has_no_null(true, stack);
+    lemma_process_render_path_identity(true, stack);
     assert(spec_has_no_null_seq(rendered));
     assert(spec_process_bytes(rendered, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()) == (true, stack));
     assert(spec_normalize_path_bytes(rendered) == (true, rendered)) by {
-        if starts_with_slash {
-            assert(rendered.len() > 0);
-            assert(rendered[0] == SLASH);
-        } else {
-            if stack.len() == 0 {
-                assert(rendered == Seq::<u8>::empty());
-            } else {
-                assert(rendered == spec_render_relative(stack));
-                assert(spec_component_is_normal_seq(stack[0]));
-                assert(rendered[0] == stack[0][0]);
-                assert(rendered[0] != SLASH);
-            }
-        }
+        assert(rendered.len() > 0);
+        assert(rendered[0] == SLASH);
         assert(spec_process_bytes(rendered, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()) == (true, stack));
     };
 }
@@ -435,12 +462,14 @@ pub proof fn lemma_normalize_idempotent(path: Seq<u8>)
                 == spec_normalize_path_bytes(path),
 {
     if spec_has_no_null_seq(path) {
-        let starts_with_slash = path.len() > 0 && path[0] == SLASH;
         let processed = spec_process_bytes(path, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty());
-        if processed.0 {
+        if (path.len() > 0 && path[0] == SLASH) || processed.1.len() > 0 {
+            lemma_process_bytes_total(path, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty());
             lemma_process_bytes_preserves_normality(path, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty());
-            lemma_normalize_rendered_path_identity(starts_with_slash, processed.1);
-            assert(spec_normalize_path_bytes(path) == (true, spec_render_path(starts_with_slash, processed.1)));
+            assert(processed.0);
+            assert(spec_stack_is_normal_seq(processed.1));
+            lemma_normalize_absolute_rendered_path_identity(processed.1);
+            assert(spec_normalize_path_bytes(path) == (true, spec_render_path(true, processed.1)));
         }
     }
 }
@@ -729,10 +758,20 @@ pub fn apply_component(current: &Vec<u8>, stack: &mut Vec<Vec<u8>>) -> (ok: bool
         return true;
     }
     if current.len() == 2 && current[0] == DOT && current[1] == DOT {
-        if stack.len() == 0 {
-            return false;
+        if stack.len() > 0 {
+            let _ = stack.pop();
+            proof {
+                assert forall|j: int| 0 <= j < stack.deep_view().len()
+                    implies #[trigger] stack.deep_view()[j] == old(stack).deep_view()[j] by {
+                    assert(stack@[j] == old(stack)@[j]);
+                    assert(stack.deep_view()[j] == old(stack).deep_view()[j]);
+                };
+            }
+        } else {
+            proof {
+                assert(stack.deep_view() == old(stack).deep_view());
+            }
         }
-        let _ = stack.pop();
         return true;
     }
 
@@ -774,9 +813,10 @@ pub fn apply_component(current: &Vec<u8>, stack: &mut Vec<Vec<u8>>) -> (ok: bool
 /// Normalize a path by resolving "." and ".." components.
 ///
 /// Returns (success, normalized_bytes).
-/// success=false when ".." would go above the root.
+/// success=false only for null bytes or when a relative input collapses to an
+/// empty normalized path.
 ///
-/// This is a byte-level equivalent of production `normalize_path_for_grant`.
+/// This is a byte-level equivalent of production `normalize_decoded_path`.
 pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
     ensures
         result.0 == spec_normalize_path_bytes(path@).0,
@@ -837,18 +877,7 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
         let b = path[i];
 
         if b == SLASH {
-            let ok = apply_component(&current, &mut stack);
-            if !ok {
-                proof {
-                    assert(rest.len() > 0);
-                    assert(rest[0] == SLASH);
-                    assert(!spec_process_component(current_before, stack_before).0);
-                    assert(spec_process_bytes(rest, stack_before, current_before) == (false, Seq::<Seq<u8>>::empty()));
-                    assert(spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()) == (false, Seq::<Seq<u8>>::empty()));
-                    assert(spec_normalize_path_bytes(path@) == (false, Seq::<u8>::empty()));
-                }
-                return (false, Vec::new());
-            }
+            let _ok = apply_component(&current, &mut stack);
             proof {
                 assert(rest.len() > 0);
                 assert(rest[0] == SLASH);
@@ -907,16 +936,7 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
 
     let ghost stack_before = stack.deep_view();
     let ghost current_before = current@;
-    let ok = apply_component(&current, &mut stack);
-    if !ok {
-        proof {
-            assert(!spec_process_component(current_before, stack_before).0);
-            assert(spec_process_bytes(Seq::<u8>::empty(), stack_before, current_before) == (false, Seq::<Seq<u8>>::empty()));
-            assert(spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()) == (false, Seq::<Seq<u8>>::empty()));
-            assert(spec_normalize_path_bytes(path@) == (false, Seq::<u8>::empty()));
-        }
-        return (false, Vec::new());
-    }
+    let _ok = apply_component(&current, &mut stack);
     proof {
         assert(spec_process_component(current_before, stack_before).0);
         assert(spec_process_bytes(Seq::<u8>::empty(), stack_before, current_before) == spec_process_component(current_before, stack_before));
@@ -924,17 +944,27 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
         assert(stack.deep_view() == spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()).1);
     }
 
-    // Reconstruct output from the normalized stack.
-    let mut out: Vec<u8> = Vec::new();
-    if starts_with_slash {
-        out.push(SLASH);
+    if !starts_with_slash && stack.len() == 0 {
+        proof {
+            assert(stack.deep_view().len() == 0);
+            assert(spec_normalize_path_bytes(path@) == (false, Seq::<u8>::empty())) by {
+                assert(spec_has_no_null_seq(path@));
+                assert(spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()).1.len() == 0);
+                assert(stack.deep_view() == spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()).1);
+            };
+        }
+        return (false, Vec::new());
     }
+
+    // Reconstruct the engine's canonical absolute output from the normalized stack.
+    let mut out: Vec<u8> = Vec::new();
+    out.push(SLASH);
     let mut si: usize = 0;
     while si < stack.len()
         invariant
             0 <= si <= stack.len(),
             spec_stack_is_normal(&stack),
-            out@ =~= spec_join_prefix(starts_with_slash, &stack, si as int),
+            out@ =~= spec_join_prefix(true, &stack, si as int),
             spec_no_dotdot_component_seq(out@),
         decreases stack.len() - si,
     {
@@ -955,11 +985,11 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
                 spec_component_is_normal(comp),
                 out@ =~=
                     if si > 0 {
-                        spec_join_prefix(starts_with_slash, &stack, si as int)
+                        spec_join_prefix(true, &stack, si as int)
                             + seq![SLASH]
                             + comp@.subrange(0, ci as int)
                     } else {
-                        spec_join_prefix(starts_with_slash, &stack, si as int)
+                        spec_join_prefix(true, &stack, si as int)
                             + comp@.subrange(0, ci as int)
                     },
             decreases comp.len() - ci,
@@ -968,20 +998,21 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
             ci = ci + 1;
         }
         proof {
-            lemma_join_prefix_step_has_no_dotdot(starts_with_slash, &stack, si as int);
+            lemma_join_prefix_step_has_no_dotdot(true, &stack, si as int);
         }
         si = si + 1;
     }
 
     proof {
-        lemma_join_prefix_matches_render_path(starts_with_slash, &stack, stack.len() as int);
-        assert(out@ == spec_join_prefix(starts_with_slash, &stack, stack.len() as int));
+        lemma_join_prefix_matches_render_path(true, &stack, stack.len() as int);
+        assert(out@ == spec_join_prefix(true, &stack, stack.len() as int));
         assert(stack.deep_view().subrange(0, stack.len() as int) == stack.deep_view());
-        assert(out@ == spec_render_path(starts_with_slash, stack.deep_view()));
+        assert(out@ == spec_render_path(true, stack.deep_view()));
         assert(spec_normalize_path_bytes(path@) == (true, out@)) by {
             assert(spec_has_no_null_seq(path@));
             assert(spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()).0);
             assert(stack.deep_view() == spec_process_bytes(path@, Seq::<Seq<u8>>::empty(), Seq::<u8>::empty()).1);
+            assert(starts_with_slash || stack.deep_view().len() > 0);
         };
     }
 

@@ -28,6 +28,7 @@ mod context_check;
 pub mod coverage;
 pub mod deputy;
 mod domain;
+mod entropy_gate;
 mod error;
 pub mod impact;
 mod ip;
@@ -42,6 +43,7 @@ mod rule_check;
 mod traced;
 pub mod verified_constraint_eval;
 pub mod verified_core;
+mod verified_entropy_gate;
 pub mod wasm_plugin;
 
 #[cfg(kani)]

@@ -25,6 +25,10 @@
 //! - **Fail-closed**: Lock poisoning and capacity exhaustion produce alerts.
 //! - **Observable**: Every detection logged with structured tracing.
 
+use crate::entropy_gate::{
+    entropy_alert_severity, entropy_observation_millibits, entropy_threshold_millibits,
+    is_high_entropy_millibits, EntropyAlertLevel,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::RwLock;
@@ -422,7 +426,7 @@ struct ResourceAccessEvent {
 #[derive(Debug, Clone)]
 struct EntropyProfile {
     /// Recent entropy values for parameter data.
-    samples: VecDeque<f64>,
+    samples: VecDeque<EntropyObservation>,
     /// Count of samples exceeding the threshold.
     high_entropy_count: u32,
     /// Total samples recorded.
@@ -436,6 +440,34 @@ impl EntropyProfile {
             high_entropy_count: 0,
             total_samples: 0,
         }
+    }
+}
+
+/// Telemetry and decision-grade representation of one entropy sample.
+///
+/// The raw `bits_per_byte` value is preserved for evidence and metrics, while
+/// the security decision path uses `decision_millibits` to avoid scattered
+/// floating-point threshold comparisons in the detector state machine.
+#[derive(Debug, Clone, Copy)]
+struct EntropyObservation {
+    bits_per_byte: f64,
+    /// Conservative fixed-point score used for security decisions.
+    ///
+    /// Observations round up to the nearest millibit so borderline values bias
+    /// toward alerting rather than silently missing a suspicious sample.
+    decision_millibits: u16,
+}
+
+impl EntropyObservation {
+    fn new(bits_per_byte: f64) -> Self {
+        Self {
+            bits_per_byte,
+            decision_millibits: entropy_observation_millibits(bits_per_byte),
+        }
+    }
+
+    fn is_high(self, threshold_millibits: u16) -> bool {
+        is_high_entropy_millibits(self.decision_millibits, threshold_millibits)
     }
 }
 
@@ -724,8 +756,9 @@ impl CollusionDetector {
             return Ok(None);
         }
 
-        let entropy = Self::compute_entropy(data);
-        let is_high = entropy >= self.config.entropy_threshold;
+        let observation = EntropyObservation::new(Self::compute_entropy(data));
+        let threshold_millibits = entropy_threshold_millibits(self.config.entropy_threshold);
+        let is_high = observation.is_high(threshold_millibits);
 
         let mut profiles = self
             .entropy_profiles
@@ -753,38 +786,40 @@ impl CollusionDetector {
         if profile.samples.len() >= MAX_ENTROPY_SAMPLES_PER_AGENT {
             // Evict oldest and adjust count if it was high-entropy.
             if let Some(old) = profile.samples.pop_front() {
-                if old >= self.config.entropy_threshold {
+                if old.is_high(threshold_millibits) {
                     profile.high_entropy_count = profile.high_entropy_count.saturating_sub(1);
                 }
             }
         }
-        profile.samples.push_back(entropy);
+        profile.samples.push_back(observation);
         profile.total_samples = profile.total_samples.saturating_add(1);
         if is_high {
             profile.high_entropy_count = profile.high_entropy_count.saturating_add(1);
         }
 
         // Check if we have enough high-entropy observations to alert.
-        if profile.high_entropy_count >= self.config.min_entropy_observations {
+        if let Some(alert_level) = entropy_alert_severity(
+            profile.high_entropy_count,
+            self.config.min_entropy_observations,
+        ) {
             let entropy_values: Vec<f64> = profile
                 .samples
                 .iter()
                 .copied()
-                .filter(|&e| e >= self.config.entropy_threshold)
+                .filter(|sample| sample.is_high(threshold_millibits))
+                .map(|sample| sample.bits_per_byte)
                 .take(10) // Limit evidence size
                 .collect();
 
             let now = Self::now_secs();
+            let severity = match alert_level {
+                EntropyAlertLevel::High => CollusionSeverity::High,
+                EntropyAlertLevel::Medium => CollusionSeverity::Medium,
+            };
 
             let alert = CollusionAlert {
                 collusion_type: CollusionType::SteganographicChannel,
-                severity: if profile.high_entropy_count
-                    >= self.config.min_entropy_observations.saturating_mul(2)
-                {
-                    CollusionSeverity::High
-                } else {
-                    CollusionSeverity::Medium
-                },
+                severity,
                 agent_ids: vec![agent_id.to_string()],
                 target: format!("agent:{agent_id}"),
                 description: format!(
@@ -811,7 +846,7 @@ impl CollusionDetector {
             tracing::warn!(
                 agent_id = %agent_id,
                 high_entropy_count = %profile.high_entropy_count,
-                latest_entropy = %entropy,
+                latest_entropy = %observation.bits_per_byte,
                 "Potential steganographic channel detected in agent parameters"
             );
 
@@ -1591,6 +1626,31 @@ mod tests {
         assert!(
             entropy > 3.0 && entropy < 5.5,
             "English text should have ~3.5-4.5 bits/byte entropy, got {entropy}"
+        );
+    }
+
+    #[test]
+    fn test_entropy_decision_helper_uses_fixed_point_threshold() {
+        let threshold = entropy_threshold_millibits(6.5);
+        assert_eq!(threshold, 6500);
+
+        let exact = EntropyObservation::new(6.5);
+        let clearly_low = EntropyObservation::new(6.498);
+        let clearly_high = EntropyObservation::new(6.8);
+
+        assert!(exact.is_high(threshold));
+        assert!(!clearly_low.is_high(threshold));
+        assert!(clearly_high.is_high(threshold));
+    }
+
+    #[test]
+    fn test_entropy_decision_helper_biases_borderline_values_toward_alerting() {
+        let threshold = entropy_threshold_millibits(6.5);
+        let borderline = EntropyObservation::new(6.4991);
+
+        assert!(
+            borderline.is_high(threshold),
+            "Borderline entropy should classify high under the conservative fixed-point gate"
         );
     }
 

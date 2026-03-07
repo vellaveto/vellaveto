@@ -34,6 +34,7 @@ pub mod multimodal;
 pub mod scanner_base;
 pub mod tool_description;
 pub mod util;
+pub mod verified_cross_call_dlp;
 pub mod verified_dlp_core;
 
 // Re-export all public items from submodules for backwards compatibility

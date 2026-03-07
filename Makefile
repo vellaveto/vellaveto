@@ -44,11 +44,11 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Step 4: Formal verification (graceful skip when tools not installed)
 	@echo "── [4/6] Formal verification ───────────────────────────────"
 	@echo '{}' > $(EVIDENCE_DIR)/formal.json
-	@# TLA+ (6 specifications)
+	@# TLA+ (8 specifications)
 	@if command -v java >/dev/null 2>&1 && [ -f formal/tla/tla2tools.jar ]; then \
-		echo "Running TLA+ model checker (6 specs)..."; \
+		echo "Running TLA+ model checker (8 specs)..."; \
 		TLA_OK=true; \
-		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do \
+		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do \
 			cfg="formal/tla/$${spec}.cfg"; \
 			mc="formal/tla/MC_$${spec}.tla"; \
 			main="formal/tla/$${spec}.tla"; \
@@ -99,12 +99,23 @@ verify: ## Run full verification suite and produce evidence bundle
 	else \
 		echo "SKIP: Coq (requires coqc 8.16+)"; \
 	fi
-	@# Kani (9 harnesses on actual Rust)
+	@# Trusted formal assumption inventory
+	@echo "Checking trusted formal assumptions..."
+	bash formal/tools/check-formal-trusted-assumptions.sh
+	@# Kani (77 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking (9 harnesses)..."; \
+		echo "Running Kani bounded model checking (77 harnesses)..."; \
 		cd formal/kani && cargo kani 2>&1 | tail -10; \
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
+	fi
+	@# Verus (100 verified items on actual Rust)
+	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ]; then \
+		echo "Running Verus deductive verification..."; \
+		bash formal/tools/check-verus-parity.sh; \
+		bash formal/tools/verify-verus.sh; \
+	else \
+		echo "SKIP: Verus (set VERUS_BIN, install verus, or unpack verus-bin/)"; \
 	fi
 	@echo ""
 	@# Step 5: Benchmark sanity (short run — not full benchmarks)
@@ -168,11 +179,14 @@ bench-quick: ## Run quick benchmark sanity check
 	cargo bench -p vellaveto-engine -- --quick
 
 .PHONY: formal
-formal: formal-tla formal-alloy formal-lean formal-coq formal-kani ## Run all formal verification tools
+formal: formal-trusted-assumptions formal-tla formal-alloy formal-lean formal-coq formal-kani formal-verus ## Run all formal verification tools
+
+.PHONY: verify-all
+verify-all: formal ## Run the full local formal verification mesh
 
 .PHONY: formal-tla
-formal-tla: ## Run TLA+ model checking (6 specs, requires Java 11+ and tla2tools.jar)
-	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation; do \
+formal-tla: ## Run TLA+ model checking (8 specs, requires Java 11+ and tla2tools.jar)
+	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do \
 		cfg="formal/tla/$${spec}.cfg"; \
 		mc="formal/tla/MC_$${spec}.tla"; \
 		main="formal/tla/$${spec}.tla"; \
@@ -199,8 +213,17 @@ formal-coq: ## Run Coq type checker (8 files, 43 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani
-formal-kani: ## Run Kani bounded model checking (9 harnesses)
+formal-kani: ## Run Kani bounded model checking (77 harnesses)
 	cd formal/kani && cargo kani
+
+.PHONY: formal-trusted-assumptions
+formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches the allowlist
+	bash formal/tools/check-formal-trusted-assumptions.sh
+
+.PHONY: formal-verus
+formal-verus: ## Run Verus parity checks and canonical verification
+	bash formal/tools/check-verus-parity.sh
+	bash formal/tools/verify-verus.sh
 
 .PHONY: clean
 clean: ## Clean build artifacts
