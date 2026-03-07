@@ -2,7 +2,7 @@
 
 ## The Problem
 
-VellaVeto has 132 verification instances across 5 tools (TLA+, Lean 4, Coq, Alloy, Kani) — more formal verification than any MCP security tool and most security middleware. But the verification has a structural weakness: the TLA+, Lean, and Coq proofs operate on abstract mathematical models, while the production code is 39K lines of Rust with String operations, HashMaps, glob matching, serde deserialization, and Unicode normalization. The models prove properties about idealized policy evaluation. The Rust code does the actual policy evaluation. The correspondence between them is informal — tested by 9,960+ tests and 24 fuzz targets, but not proven.
+VellaVeto has 264 verification instances across 7 tools (TLA+, Lean 4, Coq, Alloy, Kani, Verus, and the MCPSEC benchmark) — more formal verification than any MCP security tool and most security middleware. But the verification has a structural weakness: the TLA+, Lean, and Coq proofs operate on abstract mathematical models, while the production code is 39K lines of Rust with String operations, HashMaps, glob matching, serde deserialization, and Unicode normalization. The models prove properties about idealized policy evaluation. The Rust code does the actual policy evaluation. The correspondence between them is informal — tested by 10,350+ tests and 24 fuzz targets, but not proven.
 
 This plan closes that gap using Verus to prove properties directly on the Rust code that rustc compiles into the binary. No separate reference model. No differential testing against a reference implementation. The proof applies to what ships.
 

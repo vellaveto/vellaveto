@@ -54,7 +54,7 @@ Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying M
 
 **Honest caveats:**
 
-- The 232 security audit rounds are **internal** — systematic red-teaming where we attack our own code. They are not third-party audits. The methodology and all findings are documented in the changelog and security review docs. We'd welcome independent review.
+- The 245 security audit rounds are **internal** — systematic red-teaming where we attack our own code. They are not third-party audits. The methodology and all findings are documented in the changelog and security review docs. We'd welcome independent review.
 - Injection detection is a pre-filter, not a security boundary. A sufficiently novel injection will get through.
 - DLP does not detect secrets split across multiple tool calls.
 - The project is complex (19 Rust crates), but you don't need to understand any of it — `--protect shield` gives you solid defaults in one flag. If you want something simpler, [PipeLock](https://github.com/luckyPipewrench/pipelock) (single Go binary) is a good alternative.
@@ -92,7 +92,7 @@ Happy to discuss design decisions, tradeoffs, or anything else.
 
 You're right — BUSL-1.1 is not OSI-approved. We use it for enterprise crates (server, http-proxy, operator) to sustain development. Core security crates — types, engine, audit, config, discovery — are MPL-2.0. Every BSL version converts to MPL-2.0 after 3 years. Free for ≤3 nodes / ≤25 endpoints. We chose this over AGPL because AGPL's network-use clause creates uncertainty for proxy deployments.
 
-### "232 audit rounds — by whom?"
+### "245 audit rounds — by whom?"
 
 Internal red-teaming, not third-party. We attack our own code systematically: pick an attack class, enumerate vectors, write exploits, document findings, fix them, write regression tests, verify fixes. It's documented in the changelog (every round has a commit) and docs/SECURITY_REVIEW.md. We'd welcome independent review — if a security firm wants to audit it, we'll make it easy.
 

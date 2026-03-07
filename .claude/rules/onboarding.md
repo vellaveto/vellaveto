@@ -4,7 +4,7 @@ Every instance — agent, Claude Code session, or contributor — MUST follow th
 protocol before modifying any code. Compiling and running tests is necessary but
 not sufficient. You must **understand** before you **change**.
 
-This protocol exists because 232 adversarial audit rounds exposed a recurring
+This protocol exists because 245 adversarial audit rounds exposed a recurring
 pattern: breakage caused by assumptions rather than verified understanding.
 
 ---
@@ -92,7 +92,7 @@ change — use the ones relevant to what you modified.
 
 ## 3. The 17 Assumption Traps
 
-These are the most common mistakes from 232 audit rounds. Each one has caused
+These are the most common mistakes from 245 audit rounds. Each one has caused
 real CI failures or security findings. Read them. Memorize them.
 
 ### Trap 1: Wrong constant for the domain

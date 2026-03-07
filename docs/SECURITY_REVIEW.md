@@ -43,8 +43,8 @@ Puppetry injection, and SANDWORM supply chain worm hardening.
 
 | Metric | Value |
 |--------|-------|
-| Total audit rounds | 232 |
-| Total findings | 1,550+ |
+| Total audit rounds | 245 |
+| Total findings | 1,650+ |
 | Findings resolved | 100% |
 | CRITICAL findings | ~40 |
 | HIGH findings | ~200 |

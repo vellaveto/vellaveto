@@ -92,11 +92,11 @@ Best Practices Gold badge. Criteria are organized by category.
 | `crypto_random` | MET | Uses `rand` crate with OS entropy |
 | `delivery_mitigation` | MET | SHA-256 checksums, SLSA provenance, cargo-vet |
 | `delivery_unsigned` | MET | Release artifacts include checksums |
-| `vulnerabilities_fixed_60_days` | MET | All findings resolved (232 audit rounds, 100% resolution) |
+| `vulnerabilities_fixed_60_days` | MET | All findings resolved (245 audit rounds, 100% resolution) |
 | `no_unpatched_vulnerabilities` | MET | cargo-audit in CI, Dependabot |
 | `vulnerabilities_critical_fixed` | MET | CRITICAL findings fixed within same session |
 | `hardening` | MET | docs/HARDENING.md |
-| `security_review` | MET | docs/SECURITY_REVIEW.md (232 adversarial audit rounds) |
+| `security_review` | MET | docs/SECURITY_REVIEW.md (245 adversarial audit rounds) |
 | `dynamic_analysis` | MET | 24 fuzz targets, 5 run in CI (fuzz-ci.yml) |
 | `dynamic_analysis_unsafe` | MET | Zero `unsafe` in library code |
 | `dynamic_analysis_enable_assertions` | MET | `overflow-checks = true`, debug_assertions in test profile |

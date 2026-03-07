@@ -37,8 +37,8 @@ All verdicts are **fail-closed**: errors, missing policies, and unresolved conte
 
 ## Internal Audit Summary
 
-- **232 adversarial audit rounds** completed (Feb 2025 – Mar 2026)
-- **1,550+ findings** identified and resolved
+- **245 adversarial audit rounds** completed (Feb 2025 – Mar 2026)
+- **1,650+ findings** identified and resolved
 - Categories: injection evasion (23%), policy bypass (18%), authentication (15%), information disclosure (12%), SSRF (8%), DLP bypass (7%), audit tampering (5%), other (12%)
 - Resolution rate: 100% of CRITICAL/HIGH, 98% of MEDIUM, 95% of LOW
 
