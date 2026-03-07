@@ -65,6 +65,12 @@ const JTI_REPLAY_WINDOW_SECS: u64 = 300;
 /// Maximum clock skew tolerance in seconds.
 const MAX_CLOCK_SKEW_SECS: u64 = 60;
 
+/// Maximum length of a DPoP `typ` header field.
+const MAX_TYP_LENGTH: usize = 16;
+
+/// Maximum length of a DPoP `alg` header field.
+const MAX_ALG_LENGTH: usize = 16;
+
 /// Maximum length of an `htm` (HTTP method) value.
 const MAX_HTM_LENGTH: usize = 16;
 
@@ -198,6 +204,37 @@ impl std::fmt::Debug for DpopHeader {
             .field("alg", &self.alg)
             .field("jwk", &"[REDACTED]")
             .finish()
+    }
+}
+
+impl DpopHeader {
+    /// Validate header field lengths and content.
+    ///
+    /// SECURITY (R242-SRV-1): `typ` and `alg` flow into error messages
+    /// (`InvalidType`) and audit logs. Dangerous characters could be injected
+    /// if not validated before use.
+    pub fn validate(&self) -> Result<(), DpopError> {
+        if self.typ.is_empty() || self.typ.len() > MAX_TYP_LENGTH {
+            return Err(DpopError::ValidationFailed(
+                "typ must be non-empty and within bounds".to_string(),
+            ));
+        }
+        if has_dangerous_chars(&self.typ) {
+            return Err(DpopError::ValidationFailed(
+                "typ contains dangerous characters".to_string(),
+            ));
+        }
+        if self.alg.is_empty() || self.alg.len() > MAX_ALG_LENGTH {
+            return Err(DpopError::ValidationFailed(
+                "alg must be non-empty and within bounds".to_string(),
+            ));
+        }
+        if has_dangerous_chars(&self.alg) {
+            return Err(DpopError::ValidationFailed(
+                "alg contains dangerous characters".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -459,6 +496,12 @@ impl DpopVerifier {
         let header: DpopHeader = serde_json::from_slice(&header_bytes).map_err(|e| {
             self.increment_failures();
             DpopError::MalformedProof(format!("invalid header JSON: {e}"))
+        })?;
+
+        // SECURITY (R242-SRV-1): Validate header fields before use.
+        header.validate().map_err(|e| {
+            self.increment_failures();
+            e
         })?;
 
         // Verify typ
@@ -1805,5 +1848,77 @@ mod tests {
         assert!(!h.contains('+'));
         assert!(!h.contains('/'));
         assert!(!h.contains('='));
+    }
+
+    // ── R242-SRV-1: DpopHeader validate tests ────────────────────────
+
+    #[test]
+    fn test_header_validate_valid() {
+        let header = DpopHeader {
+            typ: "dpop+jwt".to_string(),
+            alg: "ES256".to_string(),
+            jwk: json!({"kty": "EC"}),
+        };
+        assert!(header.validate().is_ok());
+    }
+
+    #[test]
+    fn test_header_validate_empty_typ_rejected() {
+        let header = DpopHeader {
+            typ: String::new(),
+            alg: "ES256".to_string(),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_validate_empty_alg_rejected() {
+        let header = DpopHeader {
+            typ: "dpop+jwt".to_string(),
+            alg: String::new(),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_validate_typ_dangerous_chars_rejected() {
+        let header = DpopHeader {
+            typ: "dpop\u{200B}+jwt".to_string(),
+            alg: "ES256".to_string(),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_validate_alg_dangerous_chars_rejected() {
+        let header = DpopHeader {
+            typ: "dpop+jwt".to_string(),
+            alg: "ES\x00256".to_string(),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_validate_typ_over_max_length_rejected() {
+        let header = DpopHeader {
+            typ: "x".repeat(MAX_TYP_LENGTH + 1),
+            alg: "ES256".to_string(),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
+    }
+
+    #[test]
+    fn test_header_validate_alg_over_max_length_rejected() {
+        let header = DpopHeader {
+            typ: "dpop+jwt".to_string(),
+            alg: "A".repeat(MAX_ALG_LENGTH + 1),
+            jwk: json!({}),
+        };
+        assert!(header.validate().is_err());
     }
 }

@@ -60,6 +60,15 @@ const MAX_INDICATOR_TAGS: usize = 50;
 /// Maximum length per tag string.
 const MAX_TAG_LEN: usize = 256;
 
+/// Maximum length for source field.
+const MAX_SOURCE_LEN: usize = 512;
+
+/// Maximum length for description field.
+const MAX_DESCRIPTION_LEN: usize = 4_096;
+
+/// Maximum length for first_seen / last_seen timestamp fields.
+const MAX_TIMESTAMP_LEN: usize = 64;
+
 /// A threat indicator from intelligence feeds.
 // SECURITY (R234-SRV-4): Reject unknown fields from external threat feeds
 // to prevent attacker-injected fields from surviving deserialization.
@@ -88,8 +97,47 @@ pub struct ThreatIndicator {
 }
 
 impl ThreatIndicator {
-    /// Validate indicator bounds (FIND-R58-SRV-008).
+    /// Validate indicator bounds and content (FIND-R58-SRV-008, R242-SRV-2).
     pub fn validate(&self) -> Result<(), ThreatIntelError> {
+        // SECURITY (R242-SRV-2): Validate value — flows into cache keys and log output.
+        if self.value.len() > MAX_INDICATOR_VALUE_LEN {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "value too long ({} > {MAX_INDICATOR_VALUE_LEN} bytes)",
+                self.value.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.value) {
+            return Err(ThreatIntelError::InvalidResponse(
+                "value contains control or format characters".to_string(),
+            ));
+        }
+        // SECURITY (R242-SRV-2): Validate source — appears in audit logs.
+        if self.source.len() > MAX_SOURCE_LEN {
+            return Err(ThreatIntelError::InvalidResponse(format!(
+                "source too long ({} > {MAX_SOURCE_LEN} bytes)",
+                self.source.len()
+            )));
+        }
+        if vellaveto_types::has_dangerous_chars(&self.source) {
+            return Err(ThreatIntelError::InvalidResponse(
+                "source contains control or format characters".to_string(),
+            ));
+        }
+        // SECURITY (R242-SRV-2): Validate description — appears in threat reports.
+        if let Some(ref desc) = self.description {
+            if desc.len() > MAX_DESCRIPTION_LEN {
+                return Err(ThreatIntelError::InvalidResponse(format!(
+                    "description too long ({} > {MAX_DESCRIPTION_LEN} bytes)",
+                    desc.len()
+                )));
+            }
+            if vellaveto_types::has_dangerous_chars(desc) {
+                return Err(ThreatIntelError::InvalidResponse(
+                    "description contains control or format characters".to_string(),
+                ));
+            }
+        }
+        // Validate tags (count + length + content).
         if self.tags.len() > MAX_INDICATOR_TAGS {
             return Err(ThreatIntelError::InvalidResponse(format!(
                 "indicator has {} tags, max {}",
@@ -104,6 +152,28 @@ impl ThreatIndicator {
                     tag.len(),
                     MAX_TAG_LEN
                 )));
+            }
+            // SECURITY (R242-SRV-2): Tags flow into audit metadata.
+            if vellaveto_types::has_dangerous_chars(tag) {
+                return Err(ThreatIntelError::InvalidResponse(
+                    "tag contains control or format characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (R242-SRV-2): Validate timestamp fields — parsed and logged.
+        for (name, ts_opt) in [("first_seen", &self.first_seen), ("last_seen", &self.last_seen)] {
+            if let Some(ref ts) = ts_opt {
+                if ts.len() > MAX_TIMESTAMP_LEN {
+                    return Err(ThreatIntelError::InvalidResponse(format!(
+                        "{name} too long ({} > {MAX_TIMESTAMP_LEN} bytes)",
+                        ts.len()
+                    )));
+                }
+                if vellaveto_types::has_dangerous_chars(ts) {
+                    return Err(ThreatIntelError::InvalidResponse(format!(
+                        "{name} contains control or format characters"
+                    )));
+                }
             }
         }
         Ok(())
@@ -963,6 +1033,120 @@ mod tests {
             last_seen: None,
         };
         assert!(indicator.validate().is_ok());
+    }
+
+    // ── R242-SRV-2: dangerous char validation on all string fields ───
+
+    #[test]
+    fn test_indicator_validate_value_dangerous_chars_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Domain,
+            value: "evil\u{200B}.com".to_string(),
+            confidence: 90,
+            severity: Severity::High,
+            source: "test".to_string(),
+            description: None,
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_source_dangerous_chars_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Domain,
+            value: "evil.com".to_string(),
+            confidence: 90,
+            severity: Severity::High,
+            source: "feed\x00injected".to_string(),
+            description: None,
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_description_dangerous_chars_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Ip,
+            value: "1.2.3.4".to_string(),
+            confidence: 50,
+            severity: Severity::Medium,
+            source: "test".to_string(),
+            description: Some("malware\u{200B}description".to_string()),
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_tag_dangerous_chars_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Ip,
+            value: "1.2.3.4".to_string(),
+            confidence: 50,
+            severity: Severity::Medium,
+            source: "test".to_string(),
+            description: None,
+            tags: vec!["apt\x1bgroup".to_string()],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_first_seen_dangerous_chars_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Domain,
+            value: "evil.com".to_string(),
+            confidence: 80,
+            severity: Severity::High,
+            source: "test".to_string(),
+            description: None,
+            tags: vec![],
+            first_seen: Some("2026-01-01\x00T00:00:00Z".to_string()),
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_source_too_long_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Domain,
+            value: "evil.com".to_string(),
+            confidence: 90,
+            severity: Severity::High,
+            source: "x".repeat(MAX_SOURCE_LEN + 1),
+            description: None,
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
+    }
+
+    #[test]
+    fn test_indicator_validate_description_too_long_rejected() {
+        let indicator = ThreatIndicator {
+            indicator_type: IndicatorType::Ip,
+            value: "1.2.3.4".to_string(),
+            confidence: 50,
+            severity: Severity::Medium,
+            source: "test".to_string(),
+            description: Some("d".repeat(MAX_DESCRIPTION_LEN + 1)),
+            tags: vec![],
+            first_seen: None,
+            last_seen: None,
+        };
+        assert!(indicator.validate().is_err());
     }
 
     // ── Severity ordering ─────────────────────────────────────────────

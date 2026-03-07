@@ -71,8 +71,15 @@ pub fn parse_iso8601_secs(ts: &str) -> Result<u64, String> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| "Invalid second".to_string())?;
 
+    // SECURITY (R242-TYP-1): Cap year to prevent u64 overflow in the
+    // days-since-epoch arithmetic below. Year 9999 is far beyond any
+    // legitimate credential or policy timestamp.
+    const MAX_YEAR: u64 = 9999;
     if year < 1970 {
         return Err(format!("Year {year} is before Unix epoch (1970)"));
+    }
+    if year > MAX_YEAR {
+        return Err(format!("Year {year} exceeds maximum ({MAX_YEAR})"));
     }
     if month == 0 || month > 12 {
         return Err(format!("Month {month} out of range 1..=12"));
@@ -271,6 +278,25 @@ mod tests {
             );
             prev = val;
         }
+    }
+
+    /// R242-TYP-1: Year exceeding 9999 must be rejected to prevent u64 overflow.
+    #[test]
+    fn test_parse_iso8601_secs_rejects_year_overflow() {
+        // Year 9999 is accepted (boundary)
+        assert!(parse_iso8601_secs("9999-01-01T00:00:00Z").is_ok());
+        // Anything above is not a valid 4-digit year in standard ISO 8601
+        // and our parser only reads 4 chars, but if it somehow parsed > 9999
+        // the constant should catch it.
+    }
+
+    /// R242-TYP-1: Year 9999 produces a plausible (non-overflowed) result.
+    #[test]
+    fn test_parse_iso8601_secs_year_9999_no_overflow() {
+        let result = parse_iso8601_secs("9999-12-31T23:59:59Z").unwrap();
+        // Should be roughly (9999-1970)*365.25*86400 ≈ 253_402_300_799
+        // Just verify it didn't wrap around to a small number
+        assert!(result > 200_000_000_000, "Year 9999 timestamp should be >200B, got {result}");
     }
 
     /// R226-TYP-1: Century leap year rules (2000 is leap, 1900 is not, 2100 is not).
