@@ -44,6 +44,10 @@ Completed now:
     `vellaveto-audit/src/verified_audit_append.rs`
   - Merkle append/init/proof-shape fail-closed guards in
     `vellaveto-audit/src/verified_merkle.rs`
+  - Merkle next-level/proof-fold/peak-fold kernel in
+    `vellaveto-audit/src/verified_merkle_fold.rs`
+  - Merkle proof sibling/orientation/parent-step kernel in
+    `vellaveto-audit/src/verified_merkle_path.rs`
   - cross-rotation manifest linkage/path-safety guards in
     `vellaveto-audit/src/verified_rotation_manifest.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
@@ -159,9 +163,12 @@ Current status:
 - append/recovery counter kernel landed in Verus
 - per-entry audit-chain verification guard landed in Verus
 - Merkle append/init/proof-shape fail-closed guards landed in Verus
+- Merkle next-level/proof-fold/peak-fold kernel landed in Verus
+- Merkle proof sibling/orientation/parent-step kernel landed in Verus
 - cross-rotation manifest linkage/path-safety guards landed in Verus
-- Merkle root/proof consistency and explicit filesystem assumptions are still
-  outside the Verus boundary
+- abstract Merkle root/proof induction landed in Verus
+- concrete hash-function assumptions and explicit filesystem assumptions are
+  still outside the Verus boundary
 
 ### Phase 5: Refinement in Verus
 
@@ -204,8 +211,8 @@ Current status:
 2. Decide whether Phase 2 needs a real per-entry expiry model in
    `CrossCallDlpTracker` or whether the stale-entry invariant should move to the
    session-lifecycle boundary instead.
-3. Then expand into remaining capability containment, broader Merkle
-   correctness, and refinement kernels.
+3. Then expand into remaining capability containment, the concrete Merkle
+   hash-function boundary, and refinement kernels.
 
 ## Working Rule
 

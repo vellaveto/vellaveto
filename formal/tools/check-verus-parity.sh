@@ -79,6 +79,8 @@ PROD_AUDIT_APPEND_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/logger.rs"
 PROD_AUDIT_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/verification.rs"
 PROD_AUDIT_RECOVERY_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/rotation.rs"
 PROD_MERKLE="$PROJECT_DIR/vellaveto-audit/src/verified_merkle.rs"
+PROD_MERKLE_FOLD="$PROJECT_DIR/vellaveto-audit/src/verified_merkle_fold.rs"
+PROD_MERKLE_PATH="$PROJECT_DIR/vellaveto-audit/src/verified_merkle_path.rs"
 PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
@@ -89,6 +91,8 @@ PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
 VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
 VERUS_MERKLE="$PROJECT_DIR/formal/verus/verified_merkle.rs"
+VERUS_MERKLE_FOLD="$PROJECT_DIR/formal/verus/verified_merkle_fold.rs"
+VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
@@ -281,6 +285,84 @@ check_symbol_parity \
     'verified_merkle::sibling_hash_len_valid' \
     "$VERUS_MERKLE" \
     'pub[[:space:]]+fn[[:space:]]+sibling_hash_len_valid'
+echo ""
+
+echo "--- Merkle Fold Kernel ---"
+check_file_pair \
+    "verified_merkle_fold.rs ↔ vellaveto-audit/src/verified_merkle_fold.rs" \
+    "$PROD_MERKLE_FOLD" \
+    "$VERUS_MERKLE_FOLD"
+for fn in next_level_len next_level_hashes fold_proof_step fold_peak_into_root; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_MERKLE_FOLD" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_MERKLE_FOLD" \
+        "pub([[:space:]]+open[[:space:]]+spec)?[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "merkle root uses verified peak-fold helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_fold::fold_peak_into_root' \
+    "$VERUS_MERKLE_FOLD" \
+    'pub([[:space:]]+open[[:space:]]+spec)?[[:space:]]+fn[[:space:]]+fold_peak_into_root'
+check_symbol_parity \
+    "merkle level builder uses verified next-level helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_fold::next_level_hashes' \
+    "$VERUS_MERKLE_FOLD" \
+    'pub([[:space:]]+open[[:space:]]+spec)?[[:space:]]+fn[[:space:]]+next_level_hashes'
+check_symbol_parity \
+    "merkle proof verification uses verified fold-step helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_fold::fold_proof_step' \
+    "$VERUS_MERKLE_FOLD" \
+    'pub([[:space:]]+open[[:space:]]+spec)?[[:space:]]+fn[[:space:]]+fold_proof_step'
+echo ""
+
+echo "--- Merkle Proof-Path Kernel ---"
+check_file_pair \
+    "verified_merkle_path.rs ↔ vellaveto-audit/src/verified_merkle_path.rs" \
+    "$PROD_MERKLE_PATH" \
+    "$VERUS_MERKLE_PATH"
+for fn in proof_sibling_index proof_step_is_left proof_level_has_sibling proof_parent_index proof_step_places_sibling_left; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_MERKLE_PATH" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_MERKLE_PATH" \
+        "pub([[:space:]]+open[[:space:]]+spec)?[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "merkle proof generation uses verified sibling-presence gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_path::proof_level_has_sibling' \
+    "$VERUS_MERKLE_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+proof_level_has_sibling'
+check_symbol_parity \
+    "merkle proof generation uses verified sibling-index helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_path::proof_sibling_index' \
+    "$VERUS_MERKLE_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+proof_sibling_index'
+check_symbol_parity \
+    "merkle proof generation uses verified direction helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_path::proof_step_is_left' \
+    "$VERUS_MERKLE_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+proof_step_is_left'
+check_symbol_parity \
+    "merkle proof generation uses verified parent-index helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_path::proof_parent_index' \
+    "$VERUS_MERKLE_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+proof_parent_index'
+check_symbol_parity \
+    "merkle proof verification uses verified concatenation-direction helper" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle_path::proof_step_places_sibling_left' \
+    "$VERUS_MERKLE_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+proof_step_places_sibling_left'
 echo ""
 
 echo "--- Rotation Manifest Kernel ---"

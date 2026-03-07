@@ -19,7 +19,7 @@
 //! crash recovery and proof generation without replaying the full log.
 
 use crate::types::AuditError;
-use crate::verified_merkle;
+use crate::{verified_merkle, verified_merkle_fold, verified_merkle_path};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
@@ -234,7 +234,7 @@ impl MerkleTree {
         // Iterate from lowest peak to highest; accumulator goes on the right
         for p in self.peaks.iter().flatten() {
             root = Some(match root {
-                Some(r) => hash_internal(p, &r),
+                Some(r) => verified_merkle_fold::fold_peak_into_root(*p, r),
                 None => *p,
             });
         }
@@ -445,16 +445,7 @@ impl MerkleTree {
 
         let mut current = leaves.to_vec();
         while current.len() > 1 {
-            let mut next = Vec::new();
-            let mut i = 0;
-            while i + 1 < current.len() {
-                next.push(hash_internal(&current[i], &current[i + 1]));
-                i += 2;
-            }
-            // Odd node promoted
-            if i < current.len() {
-                next.push(current[i]);
-            }
+            let next = verified_merkle_fold::next_level_hashes(&current);
             levels.push(next.clone());
             current = next;
         }
@@ -463,20 +454,15 @@ impl MerkleTree {
         let mut siblings = Vec::new();
         let mut idx = index;
         for level in &levels[..levels.len() - 1] {
-            let sibling_idx = if idx.is_multiple_of(2) {
-                idx + 1
-            } else {
-                idx - 1
-            };
-            if sibling_idx < level.len() {
+            if verified_merkle_path::proof_level_has_sibling(idx, level.len()) {
+                let sibling_idx = verified_merkle_path::proof_sibling_index(idx);
                 siblings.push(ProofStep {
                     hash: hex::encode(level[sibling_idx]),
-                    is_left: idx % 2 == 1,
+                    is_left: verified_merkle_path::proof_step_is_left(idx),
                 });
             }
-            // If sibling_idx >= level.len(), this node is promoted (odd one out)
-            // and has no sibling at this level — skip.
-            idx /= 2;
+            // A trailing odd node is promoted unchanged and emits no ProofStep.
+            idx = verified_merkle_path::proof_parent_index(idx);
         }
 
         Ok(siblings)
@@ -542,11 +528,11 @@ impl MerkleTree {
             let mut sibling_arr = [0u8; 32];
             sibling_arr.copy_from_slice(&sibling);
 
-            current = if step.is_left {
-                hash_internal(&sibling_arr, &current)
-            } else {
-                hash_internal(&current, &sibling_arr)
-            };
+            current = verified_merkle_fold::fold_proof_step(
+                current,
+                sibling_arr,
+                verified_merkle_path::proof_step_places_sibling_left(step.is_left),
+            );
         }
 
         let computed_root = hex::encode(current);
@@ -756,6 +742,46 @@ mod tests {
                 "Proof for leaf {idx} (5-leaf tree) should verify"
             );
         }
+    }
+
+    #[test]
+    fn test_proof_three_leaves_promoted_tail_skips_first_level() {
+        let (mut tree, _tmp) = make_tree();
+        let leaves: Vec<[u8; 32]> = (0..3u8).map(|i| hash_leaf(&[i; 32])).collect();
+        for leaf in &leaves {
+            tree.append(*leaf).expect("append");
+        }
+
+        let proof = tree.generate_proof(2).expect("proof");
+        assert_eq!(
+            proof.siblings.len(),
+            1,
+            "promoted tail should skip one level"
+        );
+        assert!(
+            proof.siblings[0].is_left,
+            "promoted tail should meet a left sibling at the parent level"
+        );
+    }
+
+    #[test]
+    fn test_proof_four_leaves_encodes_left_right_directions() {
+        let (mut tree, _tmp) = make_tree();
+        let leaves: Vec<[u8; 32]> = (0..4u8).map(|i| hash_leaf(&[i; 32])).collect();
+        for leaf in &leaves {
+            tree.append(*leaf).expect("append");
+        }
+
+        let proof = tree.generate_proof(1).expect("proof");
+        assert_eq!(proof.siblings.len(), 2);
+        assert!(
+            proof.siblings[0].is_left,
+            "leaf 1 first meets leaf 0 on the left"
+        );
+        assert!(
+            !proof.siblings[1].is_left,
+            "the parent of leaves 0/1 then meets the right subtree on the right"
+        );
     }
 
     #[test]

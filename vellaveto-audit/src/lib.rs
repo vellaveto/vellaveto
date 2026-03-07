@@ -38,6 +38,8 @@ mod verification;
 pub(crate) mod verified_audit_append;
 pub(crate) mod verified_audit_chain;
 pub(crate) mod verified_merkle;
+pub(crate) mod verified_merkle_fold;
+pub(crate) mod verified_merkle_path;
 pub(crate) mod verified_rotation_manifest;
 
 // ── Phase 19: Immutable audit log archive ────────────────────────────────────

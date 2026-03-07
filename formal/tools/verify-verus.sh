@@ -18,6 +18,8 @@ FILES=(
     "formal/verus/verified_audit_append.rs"
     "formal/verus/verified_audit_chain.rs"
     "formal/verus/verified_merkle.rs"
+    "formal/verus/verified_merkle_fold.rs"
+    "formal/verus/verified_merkle_path.rs"
     "formal/verus/verified_rotation_manifest.rs"
     "formal/verus/verified_capability_attenuation.rs"
     "formal/verus/verified_capability_grant.rs"

@@ -29,6 +29,8 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_audit_append.rs` | Verus | AUD-APP-1–AUD-APP-5 | Audit append/recovery counter transitions on actual Rust |
 | `verus/verified_audit_chain.rs` | Verus | AUD-CHAIN-1–AUD-CHAIN-5 | Audit-chain verification guard on actual Rust |
 | `verus/verified_merkle.rs` | Verus | MERKLE-1–MERKLE-6 | Merkle append/init/proof-shape fail-closed guards on actual Rust |
+| `verus/verified_merkle_fold.rs` | Verus | MERKLE-FOLD-1–MERKLE-FOLD-7 | Merkle next-level/proof-fold/peak-fold structure on actual Rust |
+| `verus/verified_merkle_path.rs` | Verus | MERKLE-PATH-1–MERKLE-PATH-5 | Merkle proof sibling/orientation/parent-step structure on actual Rust |
 | `verus/verified_rotation_manifest.rs` | Verus | ROT-MAN-1–ROT-MAN-3 | Cross-rotation manifest linkage and path-safety guards on actual Rust |
 | `verus/verified_capability_attenuation.rs` | Verus | CAP-ATT-1–CAP-ATT-4 | Capability delegation depth/expiry attenuation on actual Rust |
 | `verus/verified_capability_grant.rs` | Verus | CAP-GRANT-1–CAP-GRANT-4 | Capability grant restriction-shape and invocation attenuation on actual Rust |
@@ -48,7 +50,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
 Current formal suite across 6 tools:
-- **Verus:** 14 verified files on actual Rust code; current local outputs are 17 verified (`verified_audit_append.rs`), 17 verified (`verified_audit_chain.rs`), 21 verified (`verified_merkle.rs`), 14 verified (`verified_rotation_manifest.rs`), 11 verified (`verified_capability_attenuation.rs`), 8 verified (`verified_capability_grant.rs`), 9 verified (`verified_capability_literal.rs`), 10 verified (`verified_capability_pattern.rs`), 12 verified (`verified_constraint_eval.rs`), 9 verified (`verified_cross_call_dlp.rs`), 12 verified (`verified_core.rs`), 11 verified (`verified_entropy_gate.rs`), 14 verified (`verified_dlp_core.rs`), and 31 verified (`verified_path.rs`)
+- **Verus:** 16 verified files / 224 verified items on actual Rust code; current local outputs are 17 verified (`verified_audit_append.rs`), 17 verified (`verified_audit_chain.rs`), 21 verified (`verified_merkle.rs`), 15 verified (`verified_merkle_fold.rs`), 13 verified (`verified_merkle_path.rs`), 14 verified (`verified_rotation_manifest.rs`), 11 verified (`verified_capability_attenuation.rs`), 8 verified (`verified_capability_grant.rs`), 9 verified (`verified_capability_literal.rs`), 10 verified (`verified_capability_pattern.rs`), 12 verified (`verified_constraint_eval.rs`), 9 verified (`verified_cross_call_dlp.rs`), 12 verified (`verified_core.rs`), 11 verified (`verified_entropy_gate.rs`), 14 verified (`verified_dlp_core.rs`), and 31 verified (`verified_path.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -174,6 +176,8 @@ formal/
     verified_audit_append.rs         ← Audit append/recovery counter transitions (17 verified)
     verified_audit_chain.rs          ← Audit-chain verification guard (17 verified)
     verified_merkle.rs               ← Merkle append/init/proof-shape fail-closed guards (21 verified)
+    verified_merkle_fold.rs          ← Merkle next-level/proof-fold/peak-fold structure (15 verified)
+    verified_merkle_path.rs          ← Merkle proof sibling/orientation/parent structure (13 verified)
     verified_rotation_manifest.rs    ← Cross-rotation manifest linkage/path-safety guards (14 verified)
     verified_capability_attenuation.rs ← Capability delegation depth/expiry attenuation (11 verified)
     verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (8 verified)
@@ -382,6 +386,12 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_aud
 # Merkle append/init/proof-shape fail-closed guards (21 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
 
+# Merkle next-level/proof-fold/peak-fold structure (15 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_fold.rs
+
+# Merkle proof sibling/orientation/parent structure (13 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_path.rs
+
 # Cross-rotation manifest linkage/path-safety guards (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs
 
@@ -420,6 +430,8 @@ Expected output:
 - `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
+- `verified_merkle_fold.rs`: `verification results:: 15 verified, 0 errors`
+- `verified_merkle_path.rs`: `verification results:: 13 verified, 0 errors`
 - `verified_rotation_manifest.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
@@ -797,7 +809,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **196 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **224 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |

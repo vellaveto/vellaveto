@@ -3,11 +3,11 @@
 Deductive verification of Vellaveto's core verdict computation, constraint
 evaluation fail-closed control flow, audit append/recovery counter transitions,
 audit-chain verification guards, Merkle append/init/proof-shape guards,
-cross-rotation manifest linkage/path-safety guards, capability attenuation
-arithmetic, capability grant attenuation, capability literal matching fast
-paths, capability pattern attenuation, fixed-point entropy alert gating,
-cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization
-using
+Merkle fold structure, Merkle proof-path structure, cross-rotation
+manifest linkage/path-safety guards, capability attenuation arithmetic,
+capability grant attenuation, capability literal matching fast paths,
+capability pattern attenuation, fixed-point entropy alert gating,
+cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -154,6 +154,62 @@ Verification result: **21 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_bounded_sibling_count_accepted` | A Merkle proof with at most 64 siblings satisfies the depth guard |
 | `lemma_hash_len_32_accepted` | A 32-byte decoded sibling hash satisfies the width guard |
 | `lemma_hash_len_non_32_rejected` | Any decoded sibling hash whose length is not 32 bytes is rejected |
+
+### Merkle Fold Kernel (`verified_merkle_fold.rs`) — 15 verified items, MERKLE-FOLD-1–MERKLE-FOLD-7
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| MERKLE-FOLD-1 | Next-level width rounds up | Building the next Merkle level always yields `len / 2 + len % 2` nodes |
+| MERKLE-FOLD-2 | First pair parent construction | The first parent in any level of width at least two is `left || right` in that order |
+| MERKLE-FOLD-3 | Odd-tail promotion | A trailing node in an odd-width level is promoted unchanged |
+| MERKLE-FOLD-4 | Proof fold direction | Proof verification folds `current || sibling` or `sibling || current` exactly as encoded by the direction bit |
+| MERKLE-FOLD-5 | Parent-step correspondence | One proof step reconstructs the same abstract parent that the next-level builder produces at the matching parent index |
+| MERKLE-FOLD-6 | Peak fold direction | Root folding always places the higher peak on the left of the accumulator |
+| MERKLE-FOLD-7 | Abstract proof/root reconstruction | The recursively generated proof steps reconstruct the same abstract root as repeated next-level folding |
+
+Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_next_level_len_drops_pair` | Removing a leading pair reduces the rounded-up next-level width by exactly one |
+| `lemma_next_level_length_matches_round_up` | The recursive next-level builder has the expected rounded-up width |
+| `lemma_fold_proof_step_respects_direction` | The proof-step fold preserves the exact left/right concatenation order |
+| `lemma_fold_peak_places_peak_on_left` | Peak folding always puts the new peak on the left of the running root |
+| `lemma_first_pair_builds_next_level_parent` | The first pair in a non-trivial level builds the first parent exactly |
+| `lemma_trailing_odd_node_promoted` | The last node in an odd-width level is carried upward unchanged |
+| `lemma_parent_step_matches_fold` | The proof-step fold at any index matches the parent selected by the next-level builder |
+| `lemma_proof_reconstructs_root_with_fuel` | Any proof path reconstructs the same abstract root when given sufficient recursion fuel |
+| `lemma_proof_reconstructs_root` | The canonical proof path for any valid index reconstructs the abstract tree root |
+
+### Merkle Proof-Path Kernel (`verified_merkle_path.rs`) — 13 verified items, MERKLE-PATH-1–MERKLE-PATH-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| MERKLE-PATH-1 | Sibling pairing rule | Even node indices pair with the right neighbor; odd indices pair with the left neighbor |
+| MERKLE-PATH-2 | Promotion boundary | A trailing unpaired node in an odd-width level emits no proof step and is promoted unchanged |
+| MERKLE-PATH-3 | Direction-bit encoding | The generated `is_left` bit is true iff the sibling must be hashed on the left |
+| MERKLE-PATH-4 | Parent ascent | Advancing one proof level always maps `node_index` to `node_index / 2` |
+| MERKLE-PATH-5 | Verifier direction preservation | Proof verification interprets the encoded `is_left` bit without inversion |
+
+Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_even_index_uses_right_sibling` | An even node index pairs with the sibling at `index + 1` and does not encode a left sibling |
+| `lemma_odd_index_uses_left_sibling` | An odd node index pairs with the sibling at `index - 1` and encodes a left sibling |
+| `lemma_trailing_even_index_without_pair_is_promoted` | The last node in an odd-width level is promoted without emitting a sibling step |
+| `lemma_paired_even_index_has_sibling` | An even node with a neighbor to its right always emits a proof step |
+| `lemma_valid_odd_index_has_left_sibling` | Any odd node index within bounds always emits a left-sibling proof step |
+| `lemma_parent_index_halves_child` | Each ascent step computes the parent index by integer division by two |
+| `lemma_verifier_direction_is_identity` | The verifier preserves the encoded left/right direction bit exactly |
 
 ### Rotation Manifest Guards (`verified_rotation_manifest.rs`) — 14 verified items, ROT-MAN-1–ROT-MAN-3
 
@@ -388,6 +444,8 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_audit_append.rs` | `vellaveto-audit/src/verified_audit_append.rs` | `logger.rs` routes rotation reset and counter updates through the verified append kernel, while `rotation.rs` routes restart recovery through the verified next-sequence helper |
 | `formal/verus/verified_audit_chain.rs` | `vellaveto-audit/src/verified_audit_chain.rs` | `verification.rs` routes timestamp, sequence, hash-presence, and hashed-step validation through the verified audit-chain kernel |
 | `formal/verus/verified_merkle.rs` | `vellaveto-audit/src/verified_merkle.rs` | `merkle.rs` routes append capacity, initialization replay bounds, and proof shape validation through the verified Merkle kernel |
+| `formal/verus/verified_merkle_fold.rs` | `vellaveto-audit/src/verified_merkle_fold.rs` | `merkle.rs` routes next-level construction, proof-step folding, and peak folding through the verified Merkle fold kernel |
+| `formal/verus/verified_merkle_path.rs` | `vellaveto-audit/src/verified_merkle_path.rs` | `merkle.rs` routes sibling presence, sibling index selection, `is_left` encoding, parent ascent, and verifier concatenation direction through the verified proof-path kernel |
 | `formal/verus/verified_rotation_manifest.rs` | `vellaveto-audit/src/verified_rotation_manifest.rs` | `rotation.rs` routes cross-rotation start-hash linkage, rotated filename safety, and the missing-file prune boundary through the verified manifest kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
@@ -421,6 +479,12 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_aud
 
 # Merkle append/init/proof-shape fail-closed guards (21 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
+
+# Merkle next-level/proof-fold/peak-fold structure (15 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_fold.rs
+
+# Merkle proof sibling/orientation/parent structure (13 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_path.rs
 
 # Cross-rotation manifest linkage/path-safety guards (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs
@@ -462,6 +526,8 @@ cargo build --release
 verus formal/verus/verified_audit_append.rs
 verus formal/verus/verified_audit_chain.rs
 verus formal/verus/verified_merkle.rs
+verus formal/verus/verified_merkle_fold.rs
+verus formal/verus/verified_merkle_path.rs
 verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
@@ -479,6 +545,8 @@ Expected output:
 - `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
+- `verified_merkle_fold.rs`: `verification results:: 15 verified, 0 errors`
+- `verified_merkle_path.rs`: `verification results:: 13 verified, 0 errors`
 - `verified_rotation_manifest.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
