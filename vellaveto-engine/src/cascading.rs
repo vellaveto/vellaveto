@@ -209,9 +209,16 @@ impl CascadingConfig {
                 self.break_duration_secs
             )));
         }
-        // SECURITY (R229-ENG-9): Bound min_window_events to prevent disabling
+        // SECURITY (R229-ENG-9 + R245-ENG-2): Bound min_window_events to [1, 100_000].
+        // Zero would make the circuit breaker trigger on the first failure regardless
+        // of sample size, causing spurious tripping. Upper bound prevents disabling
         // circuit breakers by setting an unreachably high minimum.
         const MAX_MIN_WINDOW_EVENTS: u32 = 100_000;
+        if self.min_window_events == 0 {
+            return Err(CascadingError::InvalidConfig(
+                "min_window_events must be >= 1, got 0".to_string(),
+            ));
+        }
         if self.min_window_events > MAX_MIN_WINDOW_EVENTS {
             return Err(CascadingError::InvalidConfig(format!(
                 "min_window_events must be <= {}, got {}",
@@ -748,10 +755,11 @@ impl CascadingBreaker {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or_else(|e| {
-                // SECURITY (R240-ENG-5): Log clock anomaly instead of silent fallback.
-                // A pre-epoch clock could silently bypass time-window checks.
-                tracing::warn!(error = %e, "SystemTime before UNIX_EPOCH — using 0");
-                0
+                // SECURITY (R245-ENG-1): Return 1, not 0, on pre-epoch clock —
+                // consistent with collusion.rs. A 0 value could cause division-by-zero
+                // or off-by-one in time-window arithmetic.
+                tracing::warn!(error = %e, "SystemTime before UNIX_EPOCH — using 1");
+                1
             })
     }
 }
@@ -839,6 +847,24 @@ mod tests {
         let mut cfg = default_config();
         cfg.break_duration_secs = 0;
         assert!(cfg.validate().is_err());
+    }
+
+    // ── R245 regression tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_r245_config_validate_zero_min_window_events_rejected() {
+        let mut cfg = default_config();
+        cfg.min_window_events = 0;
+        let err = cfg.validate().unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("min_window_events must be >= 1"));
+    }
+
+    #[test]
+    fn test_r245_config_validate_one_min_window_events_accepted() {
+        let mut cfg = default_config();
+        cfg.min_window_events = 1;
+        assert!(cfg.validate().is_ok());
     }
 
     // ────────────────────────────────────────────────

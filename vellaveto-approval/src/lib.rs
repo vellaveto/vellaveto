@@ -249,6 +249,22 @@ impl ApprovalStore {
         default_ttl: std::time::Duration,
         max_pending: usize,
     ) -> Self {
+        // SECURITY (R245-APPR-1): Reject path traversal — parity with new().
+        for component in log_path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                tracing::error!(
+                    "SECURITY: Approval log_path contains '..' path traversal — rejecting: {:?}",
+                    log_path
+                );
+                return Self {
+                    pending: RwLock::new(HashMap::new()),
+                    dedup_index: RwLock::new(HashMap::new()),
+                    log_path: PathBuf::from("/dev/null"),
+                    default_ttl,
+                    max_pending: DEFAULT_MAX_PENDING,
+                };
+            }
+        }
         let effective_max = if max_pending == 0 {
             tracing::error!(
                 "ApprovalStore::with_max_pending called with 0; clamping to 1. \
@@ -2541,6 +2557,34 @@ mod tests {
             result.unwrap_err(),
             ApprovalError::CapacityExceeded(1)
         ));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // R245-APPR-1: with_max_pending path traversal parity with new()
+    // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_r245_with_max_pending_path_traversal_rejected() {
+        let traversal_path = PathBuf::from("/tmp/../etc/shadow/approvals.jsonl");
+        let store = ApprovalStore::with_max_pending(
+            traversal_path,
+            std::time::Duration::from_secs(900),
+            10,
+        );
+        // Path traversal should be rejected — log_path rewritten to /dev/null
+        assert_eq!(store.log_path, PathBuf::from("/dev/null"));
+    }
+
+    #[tokio::test]
+    async fn test_r245_with_max_pending_clean_path_accepted() {
+        let dir = TempDir::new().unwrap();
+        let clean_path = dir.path().join("approvals.jsonl");
+        let store = ApprovalStore::with_max_pending(
+            clean_path.clone(),
+            std::time::Duration::from_secs(900),
+            10,
+        );
+        assert_eq!(store.log_path, clean_path);
     }
 
     // ─────────────────────────────────────────────────────────────────────
