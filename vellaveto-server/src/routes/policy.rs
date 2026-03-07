@@ -173,13 +173,17 @@ pub async fn add_policy(
                 .filter(|p| tenant_ctx.policy_matches(&p.id))
                 .count() as u64;
             if tenant_policy_count >= quotas.max_policies {
+                // SECURITY (R243-SRV-1): Do not disclose quota numbers to clients.
+                // Log the details server-side for operator visibility.
+                tracing::warn!(
+                    tenant_policy_count = tenant_policy_count,
+                    max_policies = quotas.max_policies,
+                    "Tenant policy quota exceeded"
+                );
                 return (
                     StatusCode::TOO_MANY_REQUESTS,
                     Json(json!({
-                        "error": format!(
-                            "Tenant policy quota exceeded ({}/{})",
-                            tenant_policy_count, quotas.max_policies
-                        )
+                        "error": "Tenant policy quota exceeded"
                     })),
                 );
             }

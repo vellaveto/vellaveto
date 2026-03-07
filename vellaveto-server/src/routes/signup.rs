@@ -184,10 +184,11 @@ pub async fn signup(
         ));
     }
     if !ALLOWED_TIERS.contains(&plan.as_str()) {
+        // SECURITY (R243-SRV-3): Do not enumerate valid tiers to clients.
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("invalid plan tier; allowed: {}", ALLOWED_TIERS.join(", ")),
+                error: "Invalid plan tier".to_string(),
             }),
         ));
     }

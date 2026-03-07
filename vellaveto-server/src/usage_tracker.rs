@@ -300,7 +300,15 @@ impl TenantUsageTracker {
                 }
             })
             .map_err(|used| {
-                format!("evaluation quota exceeded ({used}/{tier_limit} for current period)")
+                // SECURITY (R243-SRV-4): Log quota numbers server-side only;
+                // do not include in the error string returned to callers
+                // (which may flow into API responses via deny reasons).
+                tracing::warn!(
+                    used = used,
+                    tier_limit = tier_limit,
+                    "evaluation quota exceeded for current period"
+                );
+                "evaluation quota exceeded".to_string()
             })?;
 
         let used = previous_used.saturating_add(1);

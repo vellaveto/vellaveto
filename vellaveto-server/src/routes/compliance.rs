@@ -834,13 +834,11 @@ pub async fn evidence_pack(
 
     // SECURITY: Allowlist check — only known frameworks accepted
     if !EVIDENCE_PACK_FRAMEWORKS.contains(&framework.as_str()) {
+        // SECURITY (R243-SRV-2): Do not enumerate valid frameworks to clients.
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!(
-                    "Unknown framework. Valid values: {}",
-                    EVIDENCE_PACK_FRAMEWORKS.join(", ")
-                ),
+                error: "Unknown or unsupported framework".to_string(),
             }),
         ));
     }
