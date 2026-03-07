@@ -215,8 +215,7 @@ impl RecrawlScheduler {
                     resources: result.resources_found,
                     fingerprint: new_fingerprint.clone(),
                     // SECURITY (R246-ENG-1): Safe cast — as_millis() returns u128.
-                    duration_ms: u64::try_from(result.duration.as_millis())
-                        .unwrap_or(u64::MAX),
+                    duration_ms: u64::try_from(result.duration.as_millis()).unwrap_or(u64::MAX),
                 });
 
                 // Compute diff before updating

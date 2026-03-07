@@ -127,7 +127,9 @@ fn test_guard_unknown_limits_available_tools() {
     guard.load(topology);
 
     match guard.check("missing_tool") {
-        TopologyVerdict::Unknown { available_tools, .. } => {
+        TopologyVerdict::Unknown {
+            available_tools, ..
+        } => {
             assert_eq!(available_tools.len(), 5);
         }
         other => panic!("Expected Unknown, got {other:?}"),

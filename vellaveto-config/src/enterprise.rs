@@ -311,9 +311,7 @@ impl SpiffeConfig {
             // SECURITY (R246-SPIFFE-1): Reject empty SPIFFE IDs. An empty string
             // bypasses identity matching checks since it matches no valid SPIFFE URI.
             if sid.is_empty() {
-                return Err(format!(
-                    "spiffe.allowed_spiffe_ids[{i}] must not be empty"
-                ));
+                return Err(format!("spiffe.allowed_spiffe_ids[{i}] must not be empty"));
             }
             if vellaveto_types::has_dangerous_chars(sid) {
                 return Err(

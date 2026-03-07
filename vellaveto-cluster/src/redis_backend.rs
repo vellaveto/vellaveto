@@ -450,9 +450,8 @@ impl ClusterBackend for RedisBackend {
         // SECURITY (R246-CLUST-1): Use try_from for defense-in-depth. The
         // with_ttl_secs() validation caps at 30 days, but the cast should be
         // safe independently in case validation is ever relaxed.
-        let ttl_secs = i64::try_from(self.default_ttl_secs).map_err(|_| {
-            ClusterError::Validation("approval TTL overflows i64".to_string())
-        })?;
+        let ttl_secs = i64::try_from(self.default_ttl_secs)
+            .map_err(|_| ClusterError::Validation("approval TTL overflows i64".to_string()))?;
         let ttl = chrono::Duration::seconds(ttl_secs);
         let expires_at = now + ttl;
 

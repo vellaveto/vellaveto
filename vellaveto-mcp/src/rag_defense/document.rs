@@ -507,12 +507,10 @@ mod tests {
         let doc = DocumentMetadata::new("doc1", "abc123", "source").with_signature("short");
         let score = verifier.compute_trust_score(&doc);
 
-        assert!(
-            !score
-                .factors
-                .iter()
-                .any(|f| matches!(f, TrustFactor::SignatureVerified(_)))
-        );
+        assert!(!score
+            .factors
+            .iter()
+            .any(|f| matches!(f, TrustFactor::SignatureVerified(_))));
     }
 
     #[test]
