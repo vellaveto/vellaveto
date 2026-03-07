@@ -296,7 +296,10 @@ mod tests {
         let result = parse_iso8601_secs("9999-12-31T23:59:59Z").unwrap();
         // Should be roughly (9999-1970)*365.25*86400 ≈ 253_402_300_799
         // Just verify it didn't wrap around to a small number
-        assert!(result > 200_000_000_000, "Year 9999 timestamp should be >200B, got {result}");
+        assert!(
+            result > 200_000_000_000,
+            "Year 9999 timestamp should be >200B, got {result}"
+        );
     }
 
     /// R226-TYP-1: Century leap year rules (2000 is leap, 1900 is not, 2100 is not).

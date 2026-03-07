@@ -137,23 +137,17 @@ impl SecurityPostureScore {
             return Err("scope.kind invalid".to_string());
         }
         if let Some(ref tenant) = self.scope.tenant {
-            if tenant.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(tenant)
-            {
+            if tenant.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(tenant) {
                 return Err("scope.tenant invalid".to_string());
             }
         }
         for c in &self.categories {
-            if c.name.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(&c.name)
-            {
+            if c.name.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(&c.name) {
                 return Err("category name invalid".to_string());
             }
         }
         for f in &self.frameworks {
-            if f.name.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(&f.name)
-            {
+            if f.name.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(&f.name) {
                 return Err("framework name invalid".to_string());
             }
         }
@@ -198,9 +192,7 @@ impl PostureGapReport {
             return Err("generated_at invalid".to_string());
         }
         if let Some(ref tenant) = self.scope.tenant {
-            if tenant.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(tenant)
-            {
+            if tenant.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(tenant) {
                 return Err("scope.tenant invalid".to_string());
             }
         }
@@ -211,24 +203,18 @@ impl PostureGapReport {
                 ("severity", &gap.severity),
                 ("description", &gap.description),
             ] {
-                if val.len() > MAX_POSTURE_STRING_LEN
-                    || crate::core::has_dangerous_chars(val)
-                {
+                if val.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(val) {
                     return Err(format!("critical_gap {name} invalid"));
                 }
             }
         }
         for (i, rec) in self.recommendations.iter().enumerate() {
-            if rec.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(rec)
-            {
+            if rec.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(rec) {
                 return Err(format!("recommendations[{i}] invalid"));
             }
         }
         for (i, area) in self.high_priority_focus_areas.iter().enumerate() {
-            if area.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(area)
-            {
+            if area.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(area) {
                 return Err(format!("high_priority_focus_areas[{i}] invalid"));
             }
         }
@@ -295,16 +281,12 @@ impl ControlCoverageMatrix {
             return Err("generated_at invalid".to_string());
         }
         if let Some(ref tenant) = self.scope.tenant {
-            if tenant.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(tenant)
-            {
+            if tenant.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(tenant) {
                 return Err("scope.tenant invalid".to_string());
             }
         }
         for f in &self.frameworks {
-            if !f.coverage_percent.is_finite()
-                || !(0.0..=100.0).contains(&f.coverage_percent)
-            {
+            if !f.coverage_percent.is_finite() || !(0.0..=100.0).contains(&f.coverage_percent) {
                 return Err(format!(
                     "framework coverage_percent {} is not in [0.0, 100.0]",
                     f.coverage_percent
@@ -317,9 +299,7 @@ impl ControlCoverageMatrix {
             }
         }
         for (i, h) in self.highlights.iter().enumerate() {
-            if h.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(h)
-            {
+            if h.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(h) {
                 return Err(format!("highlights[{i}] invalid"));
             }
         }
@@ -392,9 +372,7 @@ impl PostureEvidencePackExport {
             return Err("framework invalid".to_string());
         }
         if let Some(ref tenant) = self.scope.tenant {
-            if tenant.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(tenant)
-            {
+            if tenant.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(tenant) {
                 return Err("scope.tenant invalid".to_string());
             }
         }
@@ -406,9 +384,7 @@ impl PostureEvidencePackExport {
             ));
         }
         for (i, area) in self.high_priority_focus_areas.iter().enumerate() {
-            if area.len() > MAX_POSTURE_STRING_LEN
-                || crate::core::has_dangerous_chars(area)
-            {
+            if area.len() > MAX_POSTURE_STRING_LEN || crate::core::has_dangerous_chars(area) {
                 return Err(format!("high_priority_focus_areas[{i}] invalid"));
             }
         }

@@ -834,7 +834,11 @@ mod tests {
             recipient: "bob".to_string(),
             payload: vec![],
             signature: [0u8; 64],
-            nonce: [0u8; 32],
+            nonce: {
+                let mut n = [0u8; 32];
+                getrandom::getrandom(&mut n).unwrap();
+                n
+            },
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

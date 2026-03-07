@@ -276,7 +276,9 @@ impl TrackedTask {
             return Err("TrackedTask task_id contains control or format characters".to_string());
         }
         // SECURITY (R243-TYP-2): Validate nested TaskStatus (Failed reason).
-        self.status.validate().map_err(|e| format!("TrackedTask status: {e}"))?;
+        self.status
+            .validate()
+            .map_err(|e| format!("TrackedTask status: {e}"))?;
         if self.tool.is_empty() {
             return Err("TrackedTask tool must not be empty".to_string());
         }
