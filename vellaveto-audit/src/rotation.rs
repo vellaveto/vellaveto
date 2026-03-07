@@ -8,6 +8,7 @@
 use crate::logger::AuditLogger;
 use crate::types::{AuditEntry, AuditError, RotationVerification};
 use crate::verified_audit_append;
+use crate::verified_rotation_manifest;
 use chrono::Utc;
 use ed25519_dalek::{Signer, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
@@ -661,18 +662,22 @@ impl AuditLogger {
                 .get("start_hash")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            if !claimed_start_hash.is_empty() {
-                if let Some(ref prev_tail) = previous_tail_hash {
-                    if claimed_start_hash != prev_tail {
-                        return Ok(RotationVerification {
-                            valid: false,
-                            files_checked: i,
-                            first_failure: Some(format!(
-                                "Cross-rotation linkage broken at segment {i}: start_hash '{claimed_start_hash}' does not match previous tail_hash '{prev_tail}'"
-                            )),
-                        });
-                    }
-                }
+            let claimed_start_hash_matches_previous_tail = previous_tail_hash
+                .as_ref()
+                .is_some_and(|prev_tail| claimed_start_hash == prev_tail);
+            if !verified_rotation_manifest::rotation_start_hash_link_valid(
+                claimed_start_hash.is_empty(),
+                previous_tail_hash.is_some(),
+                claimed_start_hash_matches_previous_tail,
+            ) {
+                let prev_tail = previous_tail_hash.as_deref().unwrap_or_default();
+                return Ok(RotationVerification {
+                    valid: false,
+                    files_checked: i,
+                    first_failure: Some(format!(
+                        "Cross-rotation linkage broken at segment {i}: start_hash '{claimed_start_hash}' does not match previous tail_hash '{prev_tail}'"
+                    )),
+                });
             }
 
             let rotated_file = entry
@@ -703,7 +708,12 @@ impl AuditLogger {
                 .map(|f| f == rotated_file)
                 .unwrap_or(false);
 
-            if has_traversal || is_absolute || !is_bare_filename || rotated_file.is_empty() {
+            if !verified_rotation_manifest::rotated_file_reference_valid(
+                has_traversal,
+                is_absolute,
+                is_bare_filename,
+                rotated_file.is_empty(),
+            ) {
                 return Ok(RotationVerification {
                     valid: false,
                     files_checked: i,
@@ -727,7 +737,7 @@ impl AuditLogger {
             // prefix of missing files). Once we see a file that exists, we've passed
             // the prune boundary.
             if !rotated_path.exists() {
-                if files_checked > 0 {
+                if !verified_rotation_manifest::missing_rotated_file_allowed(files_checked) {
                     // We've already seen existing files — this is NOT a prune.
                     // A non-oldest file is missing, indicating undetected deletion.
                     return Ok(RotationVerification {

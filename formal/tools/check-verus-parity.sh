@@ -80,6 +80,7 @@ PROD_AUDIT_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/verification.rs"
 PROD_AUDIT_RECOVERY_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/rotation.rs"
 PROD_MERKLE="$PROJECT_DIR/vellaveto-audit/src/verified_merkle.rs"
 PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
+PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
@@ -88,6 +89,7 @@ PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
 VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
 VERUS_MERKLE="$PROJECT_DIR/formal/verus/verified_merkle.rs"
+VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
@@ -279,6 +281,39 @@ check_symbol_parity \
     'verified_merkle::sibling_hash_len_valid' \
     "$VERUS_MERKLE" \
     'pub[[:space:]]+fn[[:space:]]+sibling_hash_len_valid'
+echo ""
+
+echo "--- Rotation Manifest Kernel ---"
+check_file_pair \
+    "verified_rotation_manifest.rs ↔ vellaveto-audit/src/verified_rotation_manifest.rs" \
+    "$PROD_ROTATION_MANIFEST" \
+    "$VERUS_ROTATION_MANIFEST"
+for fn in rotation_start_hash_link_valid rotated_file_reference_valid missing_rotated_file_allowed; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_ROTATION_MANIFEST" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_ROTATION_MANIFEST" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "rotation verifier uses verified start-hash linkage guard" \
+    "$PROD_AUDIT_RECOVERY_WRAPPER" \
+    'verified_rotation_manifest::rotation_start_hash_link_valid' \
+    "$VERUS_ROTATION_MANIFEST" \
+    'pub[[:space:]]+fn[[:space:]]+rotation_start_hash_link_valid'
+check_symbol_parity \
+    "rotation verifier uses verified rotated-file path guard" \
+    "$PROD_AUDIT_RECOVERY_WRAPPER" \
+    'verified_rotation_manifest::rotated_file_reference_valid' \
+    "$VERUS_ROTATION_MANIFEST" \
+    'pub[[:space:]]+fn[[:space:]]+rotated_file_reference_valid'
+check_symbol_parity \
+    "rotation verifier uses verified prune-boundary guard" \
+    "$PROD_AUDIT_RECOVERY_WRAPPER" \
+    'verified_rotation_manifest::missing_rotated_file_allowed' \
+    "$VERUS_ROTATION_MANIFEST" \
+    'pub[[:space:]]+fn[[:space:]]+missing_rotated_file_allowed'
 echo ""
 
 echo "--- Capability Attenuation Kernel ---"

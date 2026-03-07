@@ -44,6 +44,8 @@ Completed now:
     `vellaveto-audit/src/verified_audit_append.rs`
   - Merkle append/init/proof-shape fail-closed guards in
     `vellaveto-audit/src/verified_merkle.rs`
+  - cross-rotation manifest linkage/path-safety guards in
+    `vellaveto-audit/src/verified_rotation_manifest.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
   - cross-call tracker field-capacity/update gate in
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
@@ -157,6 +159,7 @@ Current status:
 - append/recovery counter kernel landed in Verus
 - per-entry audit-chain verification guard landed in Verus
 - Merkle append/init/proof-shape fail-closed guards landed in Verus
+- cross-rotation manifest linkage/path-safety guards landed in Verus
 - Merkle root/proof consistency and explicit filesystem assumptions are still
   outside the Verus boundary
 

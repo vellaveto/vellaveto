@@ -3,10 +3,11 @@
 Deductive verification of Vellaveto's core verdict computation, constraint
 evaluation fail-closed control flow, audit append/recovery counter transitions,
 audit-chain verification guards, Merkle append/init/proof-shape guards,
-capability attenuation arithmetic, capability grant attenuation, capability
-literal matching fast paths, capability pattern attenuation, fixed-point
-entropy alert gating, cross-call DLP tracker gating, DLP buffer arithmetic,
-and path normalization using
+cross-rotation manifest linkage/path-safety guards, capability attenuation
+arithmetic, capability grant attenuation, capability literal matching fast
+paths, capability pattern attenuation, fixed-point entropy alert gating,
+cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization
+using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -153,6 +154,33 @@ Verification result: **21 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_bounded_sibling_count_accepted` | A Merkle proof with at most 64 siblings satisfies the depth guard |
 | `lemma_hash_len_32_accepted` | A 32-byte decoded sibling hash satisfies the width guard |
 | `lemma_hash_len_non_32_rejected` | Any decoded sibling hash whose length is not 32 bytes is rejected |
+
+### Rotation Manifest Guards (`verified_rotation_manifest.rs`) — 14 verified items, ROT-MAN-1–ROT-MAN-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| ROT-MAN-1 | Start-hash linkage fail-closed | A non-empty manifest `start_hash` may pass only when there is no previous tail hash or it matches the previous tail exactly |
+| ROT-MAN-2 | Rotated filename safety | A rotated-file reference may pass only when it is non-empty, non-absolute, traversal-free, and a bare filename |
+| ROT-MAN-3 | Missing-file prune boundary | Missing rotated files are allowed only before any existing rotated segment has been checked |
+
+Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_empty_start_hash_always_valid` | An empty `start_hash` always satisfies the linkage guard |
+| `lemma_first_segment_without_previous_tail_is_valid` | The first segment is allowed to carry a non-empty `start_hash` when there is no previous tail |
+| `lemma_matching_previous_tail_is_valid` | A `start_hash` equal to the previous tail is accepted |
+| `lemma_mismatching_nonempty_start_hash_is_rejected` | A non-empty mismatching `start_hash` is fail-closed |
+| `lemma_safe_rotated_file_reference_is_valid` | A bare non-empty relative filename is accepted |
+| `lemma_traversal_reference_is_rejected` | A path traversal reference is always rejected |
+| `lemma_absolute_reference_is_rejected` | An absolute rotated-file reference is always rejected |
+| `lemma_non_bare_reference_is_rejected` | A non-bare rotated-file reference is always rejected |
+| `lemma_empty_reference_is_rejected` | An empty rotated-file reference is always rejected |
+| `lemma_only_prefix_missing_files_are_allowed` | Missing rotated files are permitted only in the all-missing prefix before any existing segment |
 
 ### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 11 verified items, CAP-ATT-1–CAP-ATT-4
 
@@ -360,6 +388,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_audit_append.rs` | `vellaveto-audit/src/verified_audit_append.rs` | `logger.rs` routes rotation reset and counter updates through the verified append kernel, while `rotation.rs` routes restart recovery through the verified next-sequence helper |
 | `formal/verus/verified_audit_chain.rs` | `vellaveto-audit/src/verified_audit_chain.rs` | `verification.rs` routes timestamp, sequence, hash-presence, and hashed-step validation through the verified audit-chain kernel |
 | `formal/verus/verified_merkle.rs` | `vellaveto-audit/src/verified_merkle.rs` | `merkle.rs` routes append capacity, initialization replay bounds, and proof shape validation through the verified Merkle kernel |
+| `formal/verus/verified_rotation_manifest.rs` | `vellaveto-audit/src/verified_rotation_manifest.rs` | `rotation.rs` routes cross-rotation start-hash linkage, rotated filename safety, and the missing-file prune boundary through the verified manifest kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
@@ -392,6 +421,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_aud
 
 # Merkle append/init/proof-shape fail-closed guards (21 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
+
+# Cross-rotation manifest linkage/path-safety guards (14 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs
 
 # Capability attenuation depth/expiry kernel (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
@@ -430,6 +462,7 @@ cargo build --release
 verus formal/verus/verified_audit_append.rs
 verus formal/verus/verified_audit_chain.rs
 verus formal/verus/verified_merkle.rs
+verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
@@ -446,6 +479,7 @@ Expected output:
 - `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
+- `verified_rotation_manifest.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`

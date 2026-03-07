@@ -2282,6 +2282,39 @@ async fn test_rotation_verification_detects_missing_file() {
 }
 
 #[tokio::test]
+async fn test_rotation_verification_detects_missing_file_gap_after_existing_segment() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.log");
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+    let mut i = 0u64;
+    while logger.list_rotated_files().unwrap().len() < 2 {
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+            .await
+            .unwrap();
+        i = i.saturating_add(1);
+    }
+
+    let rotated = logger.list_rotated_files().unwrap();
+    let newest = rotated.last().unwrap();
+    std::fs::remove_file(newest).unwrap();
+
+    let result = logger.verify_across_rotations().await.unwrap();
+    assert!(!result.valid, "Missing non-prefix rotated file should fail");
+    assert!(
+        result
+            .first_failure
+            .as_ref()
+            .unwrap()
+            .contains("gap in sequence"),
+        "Failure should mention the prune-boundary gap: {:?}",
+        result.first_failure
+    );
+}
+
+#[tokio::test]
 async fn test_rotation_verification_detects_tampered_file() {
     let dir = tempfile::TempDir::new().unwrap();
     let log_path = dir.path().join("audit.log");
@@ -2463,6 +2496,60 @@ async fn test_rotation_manifest_path_traversal_rejected() {
             result.first_failure.as_ref().unwrap()
         );
     }
+}
+
+#[tokio::test]
+async fn test_rotation_manifest_start_hash_mismatch_rejected() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.log");
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(100);
+
+    let mut i = 0u64;
+    let manifest_path = dir.path().join("audit.rotation-manifest.jsonl");
+    while std::fs::read_to_string(&manifest_path)
+        .map(|content| {
+            content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0)
+        < 2
+    {
+        let action = Action::new("tool", format!("func_{i}"), json!({}));
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({"i": i}))
+            .await
+            .unwrap();
+        i = i.saturating_add(1);
+    }
+
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap();
+    let mut lines: Vec<String> = manifest.lines().map(ToString::to_string).collect();
+    assert!(lines.len() >= 2, "Need at least two manifest entries");
+
+    let mut second: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
+    second["start_hash"] = serde_json::Value::String("forged-start-hash".to_string());
+    lines[1] = serde_json::to_string(&second).unwrap();
+
+    let mut tampered = lines.join("\n");
+    tampered.push('\n');
+    std::fs::write(&manifest_path, tampered).unwrap();
+
+    let result = logger.verify_across_rotations().await.unwrap();
+    assert!(
+        !result.valid,
+        "Mismatched start_hash should fail verification"
+    );
+    assert!(
+        result
+            .first_failure
+            .as_ref()
+            .unwrap()
+            .contains("Cross-rotation linkage broken"),
+        "Failure should mention cross-rotation linkage: {:?}",
+        result.first_failure
+    );
 }
 
 // SECURITY (R14-AUDIT-2): Valid rotated filenames are accepted
