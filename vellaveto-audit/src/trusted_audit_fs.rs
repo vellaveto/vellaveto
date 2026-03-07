@@ -273,7 +273,10 @@ mod tests {
         let result = append_bytes_sync(path, b"x", Durability::FlushOnly, "test");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("path traversal"), "expected traversal rejection, got: {err}");
+        assert!(
+            err.contains("path traversal"),
+            "expected traversal rejection, got: {err}"
+        );
     }
 
     #[test]
