@@ -10792,3 +10792,140 @@ fn test_nhi_delegation_link_validate_reason_none_valid() {
     };
     assert!(link.validate().is_ok());
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// R243-TYP-1: TaskResumeRequest validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_task_resume_request_validate_ok() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "task-123".to_string(),
+        resume_token: "abcdef".to_string(),
+        nonce: "nonce-1".to_string(),
+        agent_id: Some("agent-a".to_string()),
+    };
+    assert!(req.validate().is_ok());
+}
+
+#[test]
+fn test_task_resume_request_validate_empty_task_id() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "".to_string(),
+        resume_token: "tok".to_string(),
+        nonce: "n".to_string(),
+        agent_id: None,
+    };
+    let err = req.validate().unwrap_err();
+    assert!(err.contains("task_id"), "Error: {err}");
+}
+
+#[test]
+fn test_task_resume_request_validate_oversized_task_id() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "x".repeat(257),
+        resume_token: "tok".to_string(),
+        nonce: "n".to_string(),
+        agent_id: None,
+    };
+    assert!(req.validate().is_err());
+}
+
+#[test]
+fn test_task_resume_request_validate_dangerous_chars_task_id() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "task\x00id".to_string(),
+        resume_token: "tok".to_string(),
+        nonce: "n".to_string(),
+        agent_id: None,
+    };
+    let err = req.validate().unwrap_err();
+    assert!(err.contains("control or format"), "Error: {err}");
+}
+
+#[test]
+fn test_task_resume_request_validate_empty_resume_token() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "t".to_string(),
+        resume_token: "".to_string(),
+        nonce: "n".to_string(),
+        agent_id: None,
+    };
+    assert!(req.validate().is_err());
+}
+
+#[test]
+fn test_task_resume_request_validate_dangerous_chars_nonce() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "t".to_string(),
+        resume_token: "tok".to_string(),
+        nonce: "nonce\u{200B}val".to_string(),
+        agent_id: None,
+    };
+    let err = req.validate().unwrap_err();
+    assert!(err.contains("nonce"), "Error: {err}");
+}
+
+#[test]
+fn test_task_resume_request_validate_oversized_agent_id() {
+    let req = crate::task::TaskResumeRequest {
+        task_id: "t".to_string(),
+        resume_token: "tok".to_string(),
+        nonce: "n".to_string(),
+        agent_id: Some("a".repeat(257)),
+    };
+    assert!(req.validate().is_err());
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// R243-TYP-2: TaskStatus::Failed reason validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_task_status_validate_pending_ok() {
+    assert!(crate::task::TaskStatus::Pending.validate().is_ok());
+}
+
+#[test]
+fn test_task_status_validate_failed_ok() {
+    let status = crate::task::TaskStatus::Failed {
+        reason: "timeout".to_string(),
+    };
+    assert!(status.validate().is_ok());
+}
+
+#[test]
+fn test_task_status_validate_failed_oversized_reason() {
+    let status = crate::task::TaskStatus::Failed {
+        reason: "x".repeat(4097),
+    };
+    let err = status.validate().unwrap_err();
+    assert!(err.contains("reason length"), "Error: {err}");
+}
+
+#[test]
+fn test_task_status_validate_failed_dangerous_chars() {
+    let status = crate::task::TaskStatus::Failed {
+        reason: "error\nnewline".to_string(),
+    };
+    let err = status.validate().unwrap_err();
+    assert!(err.contains("control or format"), "Error: {err}");
+}
+
+#[test]
+fn test_tracked_task_validate_rejects_bad_status_reason() {
+    let task = crate::task::TrackedTask {
+        task_id: "t1".to_string(),
+        tool: "test".to_string(),
+        function: "fn1".to_string(),
+        status: crate::task::TaskStatus::Failed {
+            reason: "evil\x00reason".to_string(),
+        },
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        expires_at: None,
+        created_by: None,
+        session_id: None,
+    };
+    let err = task.validate().unwrap_err();
+    assert!(err.contains("status"), "Error should mention status: {err}");
+}

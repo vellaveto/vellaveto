@@ -158,6 +158,34 @@ pub enum TaskStatus {
     Expired,
 }
 
+impl TaskStatus {
+    /// Maximum length for the `reason` field in `Failed` variant.
+    const MAX_REASON_LEN: usize = 4096;
+
+    /// Validate structural bounds on variant fields.
+    ///
+    /// SECURITY (R243-TYP-2): The `Failed { reason }` string flows through
+    /// `Display` into audit logs and API responses. Without validation,
+    /// control characters or oversized strings can corrupt log output.
+    pub fn validate(&self) -> Result<(), String> {
+        if let TaskStatus::Failed { reason } = self {
+            if reason.len() > Self::MAX_REASON_LEN {
+                return Err(format!(
+                    "TaskStatus::Failed reason length {} exceeds max {}",
+                    reason.len(),
+                    Self::MAX_REASON_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(reason) {
+                return Err(
+                    "TaskStatus::Failed reason contains control or format characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
 impl fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -247,6 +275,8 @@ impl TrackedTask {
         if crate::core::has_dangerous_chars(&self.task_id) {
             return Err("TrackedTask task_id contains control or format characters".to_string());
         }
+        // SECURITY (R243-TYP-2): Validate nested TaskStatus (Failed reason).
+        self.status.validate().map_err(|e| format!("TrackedTask status: {e}"))?;
         if self.tool.is_empty() {
             return Err("TrackedTask tool must not be empty".to_string());
         }
@@ -752,6 +782,87 @@ pub struct TaskResumeRequest {
     /// Agent ID requesting the resume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+}
+
+impl TaskResumeRequest {
+    /// Maximum length for `task_id` (bytes).
+    const MAX_TASK_ID_LEN: usize = 256;
+    /// Maximum length for `resume_token` (bytes).
+    const MAX_RESUME_TOKEN_LEN: usize = 512;
+    /// Maximum length for `nonce` (bytes).
+    const MAX_NONCE_LEN: usize = 256;
+    /// Maximum length for `agent_id` (bytes).
+    const MAX_AGENT_ID_LEN: usize = 256;
+
+    /// Validate structural bounds on all fields.
+    ///
+    /// SECURITY (R243-TYP-1): `task_id` is used as a HashMap key in
+    /// `SecureTaskManager`, `nonce` is stored in `seen_nonces`, and
+    /// `resume_token` is compared in constant-time. Without validation,
+    /// oversized or control-character-laden strings cause memory exhaustion
+    /// and log injection.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.task_id.is_empty() {
+            return Err("TaskResumeRequest task_id must not be empty".to_string());
+        }
+        if self.task_id.len() > Self::MAX_TASK_ID_LEN {
+            return Err(format!(
+                "TaskResumeRequest task_id length {} exceeds max {}",
+                self.task_id.len(),
+                Self::MAX_TASK_ID_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.task_id) {
+            return Err(
+                "TaskResumeRequest task_id contains control or format characters".to_string(),
+            );
+        }
+        if self.resume_token.is_empty() {
+            return Err("TaskResumeRequest resume_token must not be empty".to_string());
+        }
+        if self.resume_token.len() > Self::MAX_RESUME_TOKEN_LEN {
+            return Err(format!(
+                "TaskResumeRequest resume_token length {} exceeds max {}",
+                self.resume_token.len(),
+                Self::MAX_RESUME_TOKEN_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.resume_token) {
+            return Err(
+                "TaskResumeRequest resume_token contains control or format characters".to_string(),
+            );
+        }
+        if self.nonce.is_empty() {
+            return Err("TaskResumeRequest nonce must not be empty".to_string());
+        }
+        if self.nonce.len() > Self::MAX_NONCE_LEN {
+            return Err(format!(
+                "TaskResumeRequest nonce length {} exceeds max {}",
+                self.nonce.len(),
+                Self::MAX_NONCE_LEN,
+            ));
+        }
+        if crate::core::has_dangerous_chars(&self.nonce) {
+            return Err(
+                "TaskResumeRequest nonce contains control or format characters".to_string(),
+            );
+        }
+        if let Some(ref aid) = self.agent_id {
+            if aid.len() > Self::MAX_AGENT_ID_LEN {
+                return Err(format!(
+                    "TaskResumeRequest agent_id length {} exceeds max {}",
+                    aid.len(),
+                    Self::MAX_AGENT_ID_LEN,
+                ));
+            }
+            if crate::core::has_dangerous_chars(aid) {
+                return Err(
+                    "TaskResumeRequest agent_id contains control or format characters".to_string(),
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for TaskResumeRequest {

@@ -96,6 +96,8 @@ pub enum TaskSecurityError {
     InvalidKey(String),
     #[error("Checkpoint verification failed: {0}")]
     CheckpointVerificationFailed(String),
+    #[error("Validation failed: {0}")]
+    ValidationFailed(String),
 }
 
 /// Secure task manager with encryption, integrity, and authentication.
@@ -293,6 +295,12 @@ impl SecureTaskManager {
         &self,
         request: &TaskResumeRequest,
     ) -> Result<TaskResumeResult, TaskSecurityError> {
+        // SECURITY (R243-TYP-1): Validate request fields before using them
+        // as HashMap keys or storing in seen_nonces.
+        request
+            .validate()
+            .map_err(TaskSecurityError::ValidationFailed)?;
+
         // SECURITY (FIND-R155-005): SeqCst for parity with replay_blocked and
         // integrity_violations counters in this same struct (Trap 8).
         self.resume_attempts.fetch_add(1, Ordering::SeqCst);
