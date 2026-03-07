@@ -160,7 +160,10 @@ impl AnthropicBackend {
 
         let allow = parsed["allow"].as_bool().unwrap_or(false);
         // SECURITY (FIND-R111-001): Default missing confidence to 0.0 (fail-closed).
-        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0);
+        // SECURITY (R245-DLP-3): Clamp confidence to [0.0, 1.0] to prevent
+        // a malicious LLM proxy from returning confidence > 1.0 which would
+        // bypass min_confidence threshold checks.
+        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0);
         let explanation = parsed["explanation"].as_str().map(String::from);
         let intent_str = parsed["intent"].as_str().unwrap_or("unknown");
 
@@ -321,7 +324,8 @@ impl LlmEvaluator for AnthropicBackend {
 
         let is_jailbreak = parsed["is_jailbreak"].as_bool().unwrap_or(false);
         // SECURITY (FIND-R111-001): Default to 0.0 for missing confidence (fail-closed).
-        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0);
+        // SECURITY (R245-DLP-3): Clamp confidence to [0.0, 1.0].
+        let confidence = parsed["confidence"].as_f64().unwrap_or(0.0).clamp(0.0, 1.0);
         let jailbreak_type = parsed["jailbreak_type"].as_str().map(String::from);
 
         Ok(JailbreakDetection {
@@ -398,5 +402,22 @@ mod tests {
         };
         let backend = AnthropicBackend::new(config).unwrap();
         assert_eq!(backend.endpoint(), "https://custom.api.com/v1");
+    }
+
+    #[test]
+    fn test_parse_evaluation_response_clamps_confidence() {
+        let config = AnthropicConfig {
+            api_key: "test-key".to_string(),
+            ..Default::default()
+        };
+        let backend = AnthropicBackend::new(config).unwrap();
+
+        let eval = backend
+            .parse_evaluation_response(
+                r#"{"allow":true,"confidence":1.5,"explanation":"ok","intent":"data_read"}"#,
+            )
+            .unwrap();
+
+        assert_eq!(eval.confidence, 1.0);
     }
 }

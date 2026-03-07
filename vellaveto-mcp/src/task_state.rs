@@ -347,7 +347,12 @@ impl TaskStateManager {
     ///
     /// Returns the number of tasks removed.
     pub async fn cleanup_old_tasks(&self, retention_secs: u64) -> usize {
-        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(retention_secs as i64);
+        // SECURITY (R245-TASK-1): Clamp retention_secs to prevent u64→i64 overflow.
+        // Values > i64::MAX wrap negative, producing a future cutoff that disables cleanup.
+        // Matches the clamping in SecureTaskManager::cleanup_old_tasks.
+        const MAX_RETENTION_SECS: u64 = 365 * 24 * 3600; // 1 year
+        let clamped = retention_secs.min(MAX_RETENTION_SECS);
+        let cutoff = chrono::Utc::now() - chrono::Duration::seconds(clamped as i64);
         let mut tasks = self.tasks.write().await;
 
         let old_len = tasks.len();
@@ -359,7 +364,9 @@ impl TaskStateManager {
             if let Ok(created) = chrono::DateTime::parse_from_rfc3339(&task.created_at) {
                 created > cutoff
             } else {
-                true // Keep if we can't parse the timestamp
+                // SECURITY (R245-TASK-2): Fail-closed — remove terminal tasks
+                // with unparseable timestamps since they can never be cleaned up.
+                false
             }
         });
 
@@ -611,5 +618,33 @@ mod tests {
         let result = manager.register_task(task).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_tasks_clamps_huge_retention() {
+        let manager = TaskStateManager::new(10, 0);
+
+        let mut task = make_task("task-1", Some("agent-1"), None);
+        task.status = TaskStatus::Completed;
+        task.created_at = (chrono::Utc::now() - chrono::Duration::days(800)).to_rfc3339();
+        manager.register_task(task).await.unwrap();
+
+        let removed = manager.cleanup_old_tasks(u64::MAX).await;
+        assert_eq!(removed, 1);
+        assert!(manager.get_task("task-1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_tasks_removes_terminal_task_with_invalid_timestamp() {
+        let manager = TaskStateManager::new(10, 0);
+
+        let mut task = make_task("task-1", Some("agent-1"), None);
+        task.status = TaskStatus::Completed;
+        task.created_at = "not-a-timestamp".to_string();
+        manager.register_task(task).await.unwrap();
+
+        let removed = manager.cleanup_old_tasks(0).await;
+        assert_eq!(removed, 1);
+        assert!(manager.get_task("task-1").await.is_none());
     }
 }

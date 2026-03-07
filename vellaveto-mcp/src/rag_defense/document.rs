@@ -262,10 +262,16 @@ impl DocumentVerifier {
             score += 0.2;
         }
 
-        // Signature verified: +0.2
-        if doc.signature.is_some() {
-            factors.push(TrustFactor::SignatureVerified(0.2));
-            score += 0.2;
+        // SECURITY (R245-DLP-2): Only award trust bonus for non-empty signatures.
+        // Previously is_some() gave +0.2 for any signature including garbage.
+        // Full Ed25519 verification requires a public key registry (future work),
+        // but rejecting empty/trivially-short signatures is defense-in-depth.
+        if let Some(ref sig) = doc.signature {
+            if sig.len() >= 64 {
+                // Ed25519 signatures are 64 bytes; only award for plausible length
+                factors.push(TrustFactor::SignatureVerified(0.2));
+                score += 0.2;
+            }
         }
 
         // Version stability: +0.1 if no recent changes
@@ -491,6 +497,22 @@ mod tests {
             .factors
             .iter()
             .any(|f| matches!(f, TrustFactor::SignatureVerified(_))));
+    }
+
+    #[test]
+    fn test_trust_score_short_signature_gets_no_bonus() {
+        let config = DocumentVerificationConfig::default();
+        let verifier = DocumentVerifier::new(config);
+
+        let doc = DocumentMetadata::new("doc1", "abc123", "source").with_signature("short");
+        let score = verifier.compute_trust_score(&doc);
+
+        assert!(
+            !score
+                .factors
+                .iter()
+                .any(|f| matches!(f, TrustFactor::SignatureVerified(_)))
+        );
     }
 
     #[test]
