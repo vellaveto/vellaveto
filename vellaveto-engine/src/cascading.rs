@@ -160,11 +160,16 @@ impl std::fmt::Display for CascadingError {
             }
             CascadingError::PipelineBroken {
                 pipeline_id,
-                error_rate,
+                error_rate: _,
             } => {
+                // SECURITY (R245-ENG-12): Do not expose error_rate in Display.
+                // The exact percentage leaks internal pipeline health metrics to
+                // callers, which may be untrusted. The field is retained in the
+                // enum for internal logging/metrics.
                 write!(
                     f,
-                    "pipeline '{pipeline_id}' circuit broken (error rate: {error_rate:.1}%)"
+                    "Pipeline '{}' circuit is broken — requests blocked until recovery",
+                    pipeline_id
                 )
             }
         }
@@ -503,7 +508,7 @@ impl CascadingBreaker {
                     }
                 }
 
-                let error_rate = self.compute_error_rate_inner(state);
+                let error_rate = self.compute_error_rate_inner(state, now);
                 return Err(CascadingError::PipelineBroken {
                     pipeline_id: pipeline_id.to_string(),
                     error_rate: error_rate * 100.0,
@@ -539,14 +544,15 @@ impl CascadingBreaker {
 
         if let Some(state) = pipelines.get_mut(pipeline_id) {
             if !state.is_broken {
-                let error_rate = self.compute_error_rate_inner(state);
+                let now = Self::now_secs();
+                let error_rate = self.compute_error_rate_inner(state, now);
                 let total_events = state.events.len();
 
                 if total_events >= self.config.min_window_events as usize
                     && error_rate >= self.config.error_rate_threshold
                 {
                     state.is_broken = true;
-                    state.broken_at = Some(Self::now_secs());
+                    state.broken_at = Some(now);
                     state.break_count = state.break_count.saturating_add(1);
 
                     metrics::counter!(
@@ -625,7 +631,7 @@ impl CascadingBreaker {
             if let Some(broken_at) = state.broken_at {
                 if now >= broken_at.saturating_add(self.config.break_duration_secs) {
                     // Check if error rate has recovered.
-                    let error_rate = self.compute_error_rate_inner(state);
+                    let error_rate = self.compute_error_rate_inner(state, now);
                     if error_rate < self.config.error_rate_threshold {
                         state.is_broken = false;
                         state.broken_at = None;
@@ -649,12 +655,14 @@ impl CascadingBreaker {
         Ok(())
     }
 
-    /// Compute the error rate for a pipeline state.
-    fn compute_error_rate_inner(&self, state: &PipelineState) -> f64 {
+    /// Compute the error rate for a pipeline state using the given timestamp.
+    /// SECURITY (R245-ENG-9): Accepts `now` parameter to ensure consistent
+    /// time reference with the caller, preventing TOCTOU between event
+    /// recording and error rate computation.
+    fn compute_error_rate_inner(&self, state: &PipelineState, now: u64) -> f64 {
         if state.events.is_empty() {
             return 0.0;
         }
-        let now = Self::now_secs();
         let cutoff = now.saturating_sub(self.config.window_secs);
 
         let mut total = 0u64;
@@ -692,7 +700,7 @@ impl CascadingBreaker {
             .map_err(|_| CascadingError::LockPoisoned("pipelines read lock".to_string()))?;
 
         if let Some(state) = pipelines.get(pipeline_id) {
-            Ok(self.compute_error_rate_inner(state))
+            Ok(self.compute_error_rate_inner(state, Self::now_secs()))
         } else {
             Ok(0.0)
         }
@@ -1170,5 +1178,18 @@ mod tests {
         let msg = format!("{err:?}");
         assert!(msg.contains("ChainDepthExceeded"));
         assert!(msg.contains("10000"));
+    }
+
+    #[test]
+    fn test_r245_pipeline_broken_display_redacts_error_rate() {
+        let err = CascadingError::PipelineBroken {
+            pipeline_id: "pipe-1".to_string(),
+            error_rate: 87.5,
+        };
+
+        let msg = format!("{err}");
+        assert!(msg.contains("pipe-1"));
+        assert!(!msg.contains("87.5"));
+        assert!(!msg.contains('%'));
     }
 }

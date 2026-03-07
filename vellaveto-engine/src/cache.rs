@@ -61,6 +61,10 @@ struct CacheKey {
     /// a different IP resolution of the same domain.
     resolved_ips_hash: u64,
     identity_hash: u64,
+    /// SECURITY (R245-ENG-2): Include parameters hash in cache key to prevent
+    /// verdict poisoning. Without this, a cached Allow for safe parameters
+    /// would be served for a request with malicious parameters (same tool/paths).
+    parameters_hash: u64,
 }
 
 /// A single cached verdict with insertion metadata.
@@ -392,6 +396,11 @@ impl DecisionCache {
             domains_hash: Self::hash_sorted_normalized_strs(&action.target_domains),
             resolved_ips_hash: Self::hash_sorted_strs(&action.resolved_ips),
             identity_hash: Self::hash_identity(context),
+            // SECURITY (R245-ENG-2): Include parameters in cache key to prevent
+            // verdict poisoning. Without this, a cached Allow for benign parameters
+            // is served for a request with malicious parameters (same tool/paths),
+            // bypassing DLP/injection detection.
+            parameters_hash: Self::hash_parameters(&action.parameters),
         }
     }
 
@@ -432,6 +441,25 @@ impl DecisionCache {
         normalized.len().hash(&mut hasher);
         for s in &normalized {
             s.hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    /// Hash the parameters field of an action.
+    ///
+    /// SECURITY (R245-ENG-2): Parameters must be part of the cache key because
+    /// DLP inspection, injection detection, and ABAC constraints may produce
+    /// different verdicts based on parameter content. Without this, a cached
+    /// Allow for `{"path": "/tmp/safe"}` would be served for
+    /// `{"path": "/tmp/safe", "inject": "<script>alert(1)</script>"}`.
+    fn hash_parameters(params: &serde_json::Value) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        // Use canonical JSON serialization for consistent hashing.
+        // On serialization failure, hash a sentinel to avoid collapsing
+        // different parameters to the same hash (fail-closed).
+        match serde_json::to_string(params) {
+            Ok(json) => json.hash(&mut hasher),
+            Err(_) => 255u8.hash(&mut hasher),
         }
         hasher.finish()
     }
@@ -1070,5 +1098,51 @@ mod tests {
         cache.insert(&action, None, &Verdict::Allow);
         assert_eq!(cache.len(), 1);
         assert!(cache.get(&action, None).is_some());
+    }
+
+    /// R245-ENG-2: Different parameters must produce different cache keys.
+    /// Without this, a cached Allow for benign parameters would be served
+    /// for a request with malicious parameters (same tool/paths), bypassing
+    /// DLP and injection detection.
+    #[test]
+    fn test_r245_parameters_in_cache_key() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+
+        let action_safe = Action::new(
+            "read_file",
+            "exec",
+            serde_json::json!({"path": "/tmp/safe"}),
+        );
+        let action_malicious = Action::new(
+            "read_file",
+            "exec",
+            serde_json::json!({"path": "/tmp/safe", "inject": "<script>alert(1)</script>"}),
+        );
+
+        // Cache Allow for safe parameters
+        cache.insert(&action_safe, None, &Verdict::Allow);
+        assert_eq!(cache.len(), 1);
+
+        // Same tool/function but different parameters must be a cache miss
+        let result = cache.get(&action_malicious, None);
+        assert!(
+            result.is_none(),
+            "Different parameters must produce a cache miss (verdict poisoning defense)"
+        );
+    }
+
+    /// R245-ENG-2: Same parameters produce a cache hit.
+    #[test]
+    fn test_r245_same_parameters_cache_hit() {
+        let cache = DecisionCache::new(100, Duration::from_secs(60));
+
+        let action1 = Action::new("tool", "fn", serde_json::json!({"key": "value"}));
+        let action2 = Action::new("tool", "fn", serde_json::json!({"key": "value"}));
+
+        cache.insert(&action1, None, &Verdict::Allow);
+        assert!(
+            cache.get(&action2, None).is_some(),
+            "Identical parameters must produce a cache hit"
+        );
     }
 }
