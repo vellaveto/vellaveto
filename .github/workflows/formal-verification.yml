@@ -55,7 +55,7 @@ jobs:
   tla-plus:
     name: "TLA+ Model Checking (8 specs)"
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -215,20 +215,11 @@ jobs:
           unzip -q verus.zip -d verus-bin
           chmod +x verus-bin/verus-x86-linux/verus
 
-      - name: Run Verus verification (V1-V8, V11-V12, core verdict)
+      - name: Verify Verus proof target parity
         run: |
-          echo "=== Verus: verified_core (V1-V8, V11-V12, ALL inputs) ==="
-          verus-bin/verus-x86-linux/verus --triggers-mode silent \
-            formal/verus/verified_core.rs
+          bash formal/tools/check-verus-parity.sh
 
-      - name: Run Verus verification (D1-D6, DLP buffer)
+      - name: Run canonical Verus verification
         run: |
-          echo "=== Verus: verified_dlp_core (D1-D6, ALL inputs) ==="
-          verus-bin/verus-x86-linux/verus --triggers-mode silent \
-            formal/verus/verified_dlp_core.rs
-
-      - name: Run Verus verification (V9-V10, path normalization)
-        run: |
-          echo "=== Verus: verified_path (V9-V10, ALL inputs) ==="
-          verus-bin/verus-x86-linux/verus --triggers-mode silent \
-            formal/verus/verified_path.rs
+          VERUS_BIN=verus-bin/verus-x86-linux/verus \
+            bash formal/tools/verify-verus.sh

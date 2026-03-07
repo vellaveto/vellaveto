@@ -37,22 +37,29 @@ will be proven by a Kani harness (K19) in Phase 3.
 | `lemma_network_block_is_deny` | Network/IP block -> rule_override_deny -> Deny (V12) |
 | `lemma_any_rule_override_is_deny` | Any rule type setting rule_override_deny -> Deny |
 
-### Path Normalization (`verified_path.rs`) — 2 proofs, V9-V10
+### Path Normalization (`verified_path.rs`) — 30 verified items; V9-V10 fully proved
 
-Properties proven for ALL possible inputs:
+Current status for ALL possible inputs:
 
 | ID | Property | Meaning |
 |----|----------|---------|
-| V9 | Idempotent normalization | `normalize(normalize(x)) == normalize(x)` for all byte inputs |
-| V10 | No traversal in output | Normalized output never contains `..` component |
+| V9 | Idempotence | Fully proved: `normalize(normalize(x)) = normalize(x)` |
+| V10 | No traversal in output | Fully proved: normalized output never contains `..` component |
 
-Verification result: **2 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **30 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
-#### Proof Lemmas
+#### Discharged Helper Lemmas
 
 | Lemma | What It Proves |
 |-------|---------------|
-| `lemma_normalize_idempotent` | Second normalization pass produces identical output (V9) |
+| `lemma_component_has_no_dotdot` | A normal component cannot be `..` at component boundaries |
+| `lemma_join_prefix_step_has_no_dotdot` | Reconstructing output from normal components preserves V10 |
+| `lemma_normalize_idempotent` | The spec-normalized path is a fixed point of normalization (V9) |
+
+Path idempotence is also independently proved elsewhere in the suite:
+- Lean: `formal/lean/Vellaveto/PathNormalization.lean`
+- Coq: `formal/coq/Vellaveto/PathNormalization.v`
+- Kani: `proof_path_normalize_idempotent` in `formal/kani/src/proofs.rs`
 
 ### DLP Buffer Arithmetic (`verified_dlp_core.rs`) — 14 proofs, D1-D6
 
@@ -85,7 +92,7 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
-| `formal/verus/verified_path.rs` | `vellaveto-engine/src/path.rs` | Byte-level equivalent of `normalize_path_for_grant` |
+| `formal/verus/verified_path.rs` | `vellaveto-mcp/src/capability_token.rs` | Byte-level equivalent of `normalize_path_for_grant` |
 
 The executable logic is semantically equivalent — Verus annotations (`ensures`,
 `requires`, `invariant`, `decreases`, `proof fn`) are erased during normal
@@ -108,7 +115,7 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cor
 # DLP buffer arithmetic (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization (2 verified)
+# Path normalization no-traversal (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 
 # Option 2: From source
@@ -123,7 +130,7 @@ verus formal/verus/verified_path.rs
 Expected output:
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_path.rs`: `verification results:: 2 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 30 verified, 0 errors`
 
 ## Trust Boundary
 

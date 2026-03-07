@@ -23,16 +23,35 @@ Import ListNotations.
 
 (** ** Grant Subset Relation *)
 
-(** Abstract grant subset: every permission in [g] is covered by [pg]. *)
-Parameter grant_subset : Grant -> Grant -> Prop.
+(** Reduced grant subset model used by the Coq proofs.
+    This is an exact-pattern preorder plus monotone depth attenuation, not the
+    full runtime glob/path/domain containment check. *)
+Definition grant_subset (g pg : Grant) : Prop :=
+  grant_tool_pattern g = grant_tool_pattern pg /\
+  grant_function_pattern g = grant_function_pattern pg /\
+  grant_depth_allowed g <= grant_depth_allowed pg.
 
 (** [grant_subset] is reflexive. *)
-Axiom grant_subset_refl : forall g, grant_subset g g.
+Lemma grant_subset_refl : forall g, grant_subset g g.
+Proof.
+  intro g.
+  unfold grant_subset.
+  repeat split; try reflexivity; lia.
+Qed.
 
 (** [grant_subset] is transitive. *)
-Axiom grant_subset_trans :
+Lemma grant_subset_trans :
   forall g1 g2 g3,
     grant_subset g1 g2 -> grant_subset g2 g3 -> grant_subset g1 g3.
+Proof.
+  intros g1 g2 g3 [Htool12 [Hfunc12 Hdepth12]] [Htool23 [Hfunc23 Hdepth23]].
+  unfold grant_subset.
+  split.
+  - rewrite Htool12. exact Htool23.
+  - split.
+    + rewrite Hfunc12. exact Hfunc23.
+    + lia.
+Qed.
 
 (** ** Attenuation *)
 
@@ -206,4 +225,3 @@ Proof.
   intros child parent Hwf.
   inversion Hwf. assumption.
 Qed.
-

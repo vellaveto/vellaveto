@@ -38,16 +38,26 @@ structure CapToken where
 
 /-! ## Grant Subset Relation -/
 
-/-- Abstract grant subset: every permission in `g` is covered by `pg`.
-    Axiomatized because the concrete coverage check involves glob matching. -/
-axiom grantSubset : Grant -> Grant -> Prop
+/-- Reduced grant subset model used by the Lean proofs.
+    This is an exact-pattern preorder plus monotone depth attenuation, not the
+    full runtime glob/path/domain containment check. -/
+def grantSubset (g pg : Grant) : Prop :=
+  g.toolPattern = pg.toolPattern
+  ∧ g.funcPattern = pg.funcPattern
+  ∧ g.depthAllowed ≤ pg.depthAllowed
 
 /-- `grantSubset` is reflexive. -/
-axiom grantSubset_refl : ∀ g, grantSubset g g
+theorem grantSubset_refl : ∀ g, grantSubset g g := by
+  intro g
+  exact ⟨rfl, rfl, Nat.le_refl _⟩
 
 /-- `grantSubset` is transitive. -/
-axiom grantSubset_trans :
-  ∀ g1 g2 g3, grantSubset g1 g2 -> grantSubset g2 g3 -> grantSubset g1 g3
+theorem grantSubset_trans :
+  ∀ g1 g2 g3, grantSubset g1 g2 -> grantSubset g2 g3 -> grantSubset g1 g3 := by
+  intro g1 g2 g3 h12 h23
+  rcases h12 with ⟨ht12, hf12, hd12⟩
+  rcases h23 with ⟨ht23, hf23, hd23⟩
+  exact ⟨ht12.trans ht23, hf12.trans hf23, Nat.le_trans hd12 hd23⟩
 
 /-! ## Attenuation -/
 

@@ -115,7 +115,7 @@ theorem s7_forbid_dominance
 theorem s8_forbid_ignores_priority
     (policies : List AbacPolicy) (bp : Option String)
     (pf pp : AbacPolicy)
-    (hf_in : pf ∈ policies) (hp_in : pp ∈ policies)
+    (hf_in : pf ∈ policies) (_hp_in : pp ∈ policies)
     (hf_match : policyMatches pf = true) (hf_eff : pf.effect = AbacEffect.forbid)
     (_hp_match : policyMatches pp = true) (_hp_eff : pp.effect = AbacEffect.permit) :
     ∃ pid, abacEval policyMatches policies bp = AbacDecision.deny pid :=

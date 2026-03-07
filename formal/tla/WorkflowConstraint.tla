@@ -162,4 +162,8 @@ ReachableFrom(tool, visited) ==
 InvariantS9_AcyclicDAG ==
     \A t \in GovernedTools : t \notin ReachableFrom(t, {})
 
+ModelInvariant ==
+    /\ TypeOK
+    /\ InvariantS9_AcyclicDAG
+
 =============================================================================

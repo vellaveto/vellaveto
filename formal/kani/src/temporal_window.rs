@@ -35,18 +35,61 @@ pub struct WindowEvent {
     pub is_error: bool,
 }
 
+/// Count the expired prefix of an ordered event slice.
+///
+/// Events with `timestamp < cutoff` are expired. The returned count is the
+/// number of consecutive expired events from the front of the slice.
+pub fn expired_prefix_len(events: &[WindowEvent], now: u64, window_secs: u64) -> usize {
+    let cutoff = now.saturating_sub(window_secs);
+    let mut idx = 0usize;
+    while idx < events.len() {
+        if events[idx].timestamp < cutoff {
+            idx += 1;
+        } else {
+            break;
+        }
+    }
+    idx
+}
+
+/// Count events within the window using a plain slice walk.
+pub fn count_in_window_slice(events: &[WindowEvent], now: u64, window_secs: u64) -> (u64, u64) {
+    let cutoff = now.saturating_sub(window_secs);
+    let mut total = 0u64;
+    let mut errors = 0u64;
+    let mut idx = 0usize;
+
+    while idx < events.len() {
+        let event = &events[idx];
+        if event.timestamp >= cutoff {
+            total = total.saturating_add(1);
+            if event.is_error {
+                errors = errors.saturating_add(1);
+            }
+        }
+        idx += 1;
+    }
+
+    (total, errors)
+}
+
 /// Expire events outside the window.
 ///
 /// Extracted from cascading.rs:588-596.
 /// Events with `timestamp < cutoff` are removed from the front of the deque.
 pub fn expire_events(events: &mut VecDeque<WindowEvent>, now: u64, window_secs: u64) {
-    let cutoff = now.saturating_sub(window_secs);
-    while let Some(front) = events.front() {
-        if front.timestamp < cutoff {
-            events.pop_front();
-        } else {
-            break;
-        }
+    let (front, back) = events.as_slices();
+    let front_expired = expired_prefix_len(front, now, window_secs);
+    let expired = if front_expired < front.len() {
+        front_expired
+    } else {
+        front.len() + expired_prefix_len(back, now, window_secs)
+    };
+
+    let mut removed = 0usize;
+    while removed < expired {
+        events.pop_front();
+        removed += 1;
     }
 }
 
@@ -55,18 +98,13 @@ pub fn expire_events(events: &mut VecDeque<WindowEvent>, now: u64, window_secs: 
 /// Extracted from collusion.rs and cascading.rs error rate computation.
 /// Events with `timestamp >= cutoff` are counted.
 pub fn count_in_window(events: &VecDeque<WindowEvent>, now: u64, window_secs: u64) -> (u64, u64) {
-    let cutoff = now.saturating_sub(window_secs);
-    let mut total = 0u64;
-    let mut errors = 0u64;
-    for event in events {
-        if event.timestamp >= cutoff {
-            total = total.saturating_add(1);
-            if event.is_error {
-                errors = errors.saturating_add(1);
-            }
-        }
-    }
-    (total, errors)
+    let (front, back) = events.as_slices();
+    let (front_total, front_errors) = count_in_window_slice(front, now, window_secs);
+    let (back_total, back_errors) = count_in_window_slice(back, now, window_secs);
+    (
+        front_total.saturating_add(back_total),
+        front_errors.saturating_add(back_errors),
+    )
 }
 
 /// Add an event with bounded capacity.
@@ -137,7 +175,10 @@ mod tests {
 
         // cutoff = 120 - 60 = 60. Event at exactly 60 has timestamp >= cutoff.
         let (total, _) = count_in_window(&events, 120, 60);
-        assert_eq!(total, 1, "Event at exactly cutoff boundary should be included");
+        assert_eq!(
+            total, 1,
+            "Event at exactly cutoff boundary should be included"
+        );
     }
 
     #[test]
@@ -185,6 +226,9 @@ mod tests {
         // now=5, window=100 → cutoff = 5.saturating_sub(100) = 0
         // Event at 0 >= 0, so included
         let (total, _) = count_in_window(&events, 5, 100);
-        assert_eq!(total, 1, "Event at 0 with saturating_sub cutoff=0 should be included");
+        assert_eq!(
+            total, 1,
+            "Event at 0 with saturating_sub cutoff=0 should be included"
+        );
     }
 }

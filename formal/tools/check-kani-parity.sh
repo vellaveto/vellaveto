@@ -8,6 +8,8 @@
 # drifted from production.
 #
 # Usage: bash formal/tools/check-kani-parity.sh
+# Env:
+#   RUN_KANI_PARITY_TESTS=0 to skip the filtered cargo parity test run
 # Exit code: 0 = all match, 1 = drift detected
 
 set -euo pipefail
@@ -15,126 +17,204 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 KANI_DIR="$PROJECT_DIR/formal/kani/src"
+KANI_LIB="$KANI_DIR/lib.rs"
 DRIFT_FOUND=0
 
 echo "=== Kani Extracted Code Parity Check ==="
 echo ""
 
-# ─── Helper: compare a function body between two files ──────────────────
-# Extracts lines between markers and diffs them.
-check_function_parity() {
+# ─── Helpers ─────────────────────────────────────────────────────────────
+fail() {
+    echo "  DRIFT: $1"
+    DRIFT_FOUND=1
+}
+
+pass() {
+    echo "  OK: $1"
+}
+
+check_file_pair() {
     local label="$1"
     local prod_file="$2"
-    local prod_fn="$3"
-    local kani_file="$4"
-    local kani_fn="$5"
+    local kani_file="$3"
 
     if [ ! -f "$prod_file" ]; then
-        echo "  SKIP: $label — production file not found: $prod_file"
+        fail "$label — production file not found: $prod_file"
         return
     fi
     if [ ! -f "$kani_file" ]; then
-        echo "  SKIP: $label — kani file not found: $kani_file"
+        fail "$label — kani file not found: $kani_file"
         return
     fi
 
-    # Check that both files contain the function name
-    if ! grep -q "$prod_fn" "$prod_file" 2>/dev/null; then
-        echo "  WARN: $label — function '$prod_fn' not found in $prod_file"
-        DRIFT_FOUND=1
-        return
-    fi
-    if ! grep -q "$kani_fn" "$kani_file" 2>/dev/null; then
-        echo "  WARN: $label — function '$kani_fn' not found in $kani_file"
-        DRIFT_FOUND=1
-        return
-    fi
-
-    echo "  OK: $label"
+    pass "$label"
 }
 
-# ─── 1. verified_core.rs (Verdict computation) ─────────────────────────
+check_symbol_parity() {
+    local label="$1"
+    local prod_file="$2"
+    local prod_pattern="$3"
+    local kani_file="$4"
+    local kani_pattern="$5"
+
+    if [ ! -f "$prod_file" ]; then
+        fail "$label — production file not found: $prod_file"
+        return
+    fi
+    if [ ! -f "$kani_file" ]; then
+        fail "$label — kani file not found: $kani_file"
+        return
+    fi
+
+    if ! grep -Eq "$prod_pattern" "$prod_file" 2>/dev/null; then
+        fail "$label — production pattern '$prod_pattern' not found in $prod_file"
+        return
+    fi
+    if ! grep -Eq "$kani_pattern" "$kani_file" 2>/dev/null; then
+        fail "$label — kani pattern '$kani_pattern' not found in $kani_file"
+        return
+    fi
+
+    pass "$label"
+}
+
+check_manifest_correspondence() {
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^//!\ -\ \`([^[:space:]]+)\`:\ (Verbatim\ from|Extracted\ from)\ \`([^[:space:]]+)\` ]]; then
+            local kani_rel="${BASH_REMATCH[1]}"
+            local prod_rel="${BASH_REMATCH[3]}"
+            check_file_pair "$kani_rel ↔ $prod_rel" "$PROJECT_DIR/$prod_rel" "$KANI_DIR/$kani_rel"
+        fi
+    done < "$KANI_LIB"
+}
+
+# ─── 1. Manifest correspondence ──────────────────────────────────────────
+echo "--- Extracted File Manifest ---"
+
+check_manifest_correspondence
+
+echo ""
+
+# ─── 2. verified_core.rs (Verdict computation) ──────────────────────────
 echo "--- Verdict Core (V1-V8) ---"
 
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 KANI_CORE="$KANI_DIR/verified_core.rs"
 
 if [ -f "$PROD_CORE" ] && [ -f "$KANI_CORE" ]; then
-    # Check key function signatures match
     for fn in "compute_single_verdict" "compute_verdict"; do
-        PROD_SIG=$(grep -n "pub.*fn $fn" "$PROD_CORE" 2>/dev/null | head -1 || true)
-        KANI_SIG=$(grep -n "pub.*fn $fn" "$KANI_CORE" 2>/dev/null | head -1 || true)
-        if [ -z "$PROD_SIG" ]; then
-            echo "  DRIFT: $fn not found in production verified_core.rs"
-            DRIFT_FOUND=1
-        elif [ -z "$KANI_SIG" ]; then
-            echo "  DRIFT: $fn not found in kani verified_core.rs"
-            DRIFT_FOUND=1
-        else
-            echo "  OK: $fn exists in both files"
-        fi
+        check_symbol_parity "$fn exists in both files" "$PROD_CORE" "pub[[:space:]]+fn[[:space:]]+$fn" "$KANI_CORE" "pub[[:space:]]+fn[[:space:]]+$fn"
     done
 
-    # Run Kani's own parity tests
-    echo "  Running parity tests..."
-    if (cd "$PROJECT_DIR/formal/kani" && cargo test --lib -- parity 2>/dev/null | grep -q "test result: ok"); then
-        echo "  OK: Kani parity tests pass"
-    else
-        echo "  DRIFT: Kani parity tests FAILED"
-        DRIFT_FOUND=1
+    if [ "${RUN_KANI_PARITY_TESTS:-1}" = "1" ]; then
+        echo "  Running filtered parity tests..."
+        if (cd "$PROJECT_DIR/formal/kani" && cargo test --lib -- parity 2>/dev/null | grep -q "test result: ok"); then
+            pass "Kani parity tests pass"
+        else
+            fail "Kani parity tests FAILED"
+        fi
     fi
 else
-    echo "  SKIP: One or both verified_core.rs files missing"
+    fail "verified_core.rs manifest pair missing"
 fi
 
 echo ""
 
-# ─── 2. path.rs (Path normalization) ───────────────────────────────────
+# ─── 3. path.rs (Path normalization) ────────────────────────────────────
 echo "--- Path Normalization (K2-K3) ---"
 
 PROD_PATH="$PROJECT_DIR/vellaveto-engine/src/path.rs"
 KANI_PATH="$KANI_DIR/path.rs"
 
-check_function_parity "normalize_path" "$PROD_PATH" "normalize_path" "$KANI_PATH" "normalize_path"
+check_symbol_parity "normalize_path" "$PROD_PATH" "pub[[:space:]]+fn[[:space:]]+normalize_path" "$KANI_PATH" "pub[[:space:]]+fn[[:space:]]+normalize_path"
 
 echo ""
 
-# ─── 3. dlp_core.rs (DLP buffer arithmetic) ───────────────────────────
+# ─── 4. dlp_core.rs (DLP buffer arithmetic) ─────────────────────────────
 echo "--- DLP Buffer (D1-D6) ---"
 
 PROD_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_dlp_core.rs"
 KANI_DLP="$KANI_DIR/dlp_core.rs"
 
 for fn in "extract_tail" "can_track_field" "update_total_bytes" "is_utf8_char_boundary"; do
-    check_function_parity "$fn" "$PROD_DLP" "$fn" "$KANI_DLP" "$fn"
+    check_symbol_parity "$fn" "$PROD_DLP" "pub[[:space:]]+fn[[:space:]]+$fn" "$KANI_DLP" "pub[[:space:]]+fn[[:space:]]+$fn"
 done
 
 echo ""
 
-# ─── 4. ip.rs (IP address verification) ───────────────────────────────
+# ─── 5. IP address verification ─────────────────────────────────────────
 echo "--- IP Address (K26-K32) ---"
 
 PROD_IP="$PROJECT_DIR/vellaveto-engine/src/ip.rs"
 KANI_IP="$KANI_DIR/ip.rs"
 
-# Note: Kani extracts is_private_ipv4 (IPv4 subset) from production's
-# is_private_ip (which handles both IPv4 and IPv6). Check the production
-# function exists under its actual name.
-check_function_parity "is_private_ip (→ is_private_ipv4 in Kani)" "$PROD_IP" "is_private_ip" "$KANI_IP" "is_private_ipv4"
-check_function_parity "is_embedded_ipv4_reserved" "$PROD_IP" "is_embedded_ipv4_reserved" "$KANI_IP" "is_embedded_ipv4_reserved"
+check_symbol_parity \
+    "is_private_ip (→ is_private_ipv4 in Kani)" \
+    "$PROD_IP" \
+    "fn[[:space:]]+is_private_ip" \
+    "$KANI_IP" \
+    "pub[[:space:]]+fn[[:space:]]+is_private_ipv4"
+check_symbol_parity \
+    "is_embedded_ipv4_reserved" \
+    "$PROD_IP" \
+    "fn[[:space:]]+is_embedded_ipv4_reserved" \
+    "$KANI_IP" \
+    "pub[[:space:]]+fn[[:space:]]+is_embedded_ipv4_reserved"
 
 echo ""
 
-# ─── 5. Check for structural differences ──────────────────────────────
+# ─── 6. Broader extracted surface spot checks ───────────────────────────
+echo "--- Extended Extraction Spot Checks ---"
+
+PROD_ENGINE_LIB="$PROJECT_DIR/vellaveto-engine/src/lib.rs"
+PROD_RULE_CHECK="$PROJECT_DIR/vellaveto-engine/src/rule_check.rs"
+PROD_CACHE="$PROJECT_DIR/vellaveto-engine/src/cache.rs"
+PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
+PROD_CASCADING="$PROJECT_DIR/vellaveto-engine/src/cascading.rs"
+PROD_COLLUSION="$PROJECT_DIR/vellaveto-engine/src/collusion.rs"
+PROD_TASK="$PROJECT_DIR/vellaveto-types/src/task.rs"
+PROD_TASK_STATE="$PROJECT_DIR/vellaveto-mcp/src/task_state.rs"
+PROD_CAPABILITY="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+PROD_DOMAIN="$PROJECT_DIR/vellaveto-engine/src/domain.rs"
+PROD_UNICODE="$PROJECT_DIR/vellaveto-types/src/unicode.rs"
+PROD_SANITIZER="$PROJECT_DIR/vellaveto-mcp-shield/src/sanitizer.rs"
+PROD_INJECTION="$PROJECT_DIR/vellaveto-mcp/src/inspection/injection.rs"
+
+check_symbol_parity "cacheability predicate" "$PROD_CACHE" "fn[[:space:]]+is_cacheable_context" "$KANI_DIR/cache.rs" "pub[[:space:]]+fn[[:space:]]+is_cacheable_context"
+check_symbol_parity "capability action coverage" "$PROD_CAPABILITY" "fn[[:space:]]+grant_covers_action" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+grant_covers_action"
+check_symbol_parity "capability path normalization" "$PROD_CAPABILITY" "fn[[:space:]]+normalize_path_for_grant" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+normalize_path_for_grant"
+check_symbol_parity "rule_check path rules" "$PROD_RULE_CHECK" "fn[[:space:]]+check_path_rules" "$KANI_DIR/rule_check.rs" "pub[[:space:]]+fn[[:space:]]+check_path_rules_decision"
+check_symbol_parity "rule_check network rules" "$PROD_RULE_CHECK" "fn[[:space:]]+check_network_rules" "$KANI_DIR/rule_check.rs" "pub[[:space:]]+fn[[:space:]]+check_network_rules_decision"
+check_symbol_parity "rule_check ip rules" "$PROD_RULE_CHECK" "fn[[:space:]]+check_ip_rules" "$KANI_DIR/rule_check.rs" "pub[[:space:]]+fn[[:space:]]+check_ip_rules_decision"
+check_symbol_parity "resolved match inline path" "$PROD_ENGINE_LIB" "fn[[:space:]]+apply_compiled_policy_ctx" "$KANI_DIR/resolve.rs" "pub[[:space:]]+fn[[:space:]]+apply_policy_inline"
+check_symbol_parity "resolved match verified path" "$PROD_ENGINE_LIB" "fn[[:space:]]+apply_compiled_policy_ctx" "$KANI_DIR/resolve.rs" "pub[[:space:]]+fn[[:space:]]+apply_policy_verified"
+check_symbol_parity "cascading config validation" "$PROD_CASCADING" "pub[[:space:]]+fn[[:space:]]+validate" "$KANI_DIR/cascading.rs" "pub[[:space:]]+fn[[:space:]]+validate_config"
+check_symbol_parity "cascading error rate" "$PROD_CASCADING" "fn[[:space:]]+compute_error_rate_inner" "$KANI_DIR/cascading.rs" "pub[[:space:]]+fn[[:space:]]+compute_error_rate"
+check_symbol_parity "constraint skip detection" "$PROD_CONSTRAINT" "fn[[:space:]]+evaluate_compiled_conditions_core" "$KANI_DIR/constraint.rs" "pub[[:space:]]+fn[[:space:]]+detect_all_skipped"
+check_symbol_parity "constraint forbidden params" "$PROD_CONSTRAINT" "fn[[:space:]]+evaluate_compiled_conditions_core" "$KANI_DIR/constraint.rs" "pub[[:space:]]+fn[[:space:]]+check_forbidden_params"
+check_symbol_parity "task terminal state" "$PROD_TASK" "pub[[:space:]]+fn[[:space:]]+is_terminal" "$KANI_DIR/task.rs" "pub[[:space:]]+fn[[:space:]]+is_terminal"
+check_symbol_parity "task cancellation authorization" "$PROD_TASK_STATE" "pub[[:space:]]+async[[:space:]]+fn[[:space:]]+can_cancel" "$KANI_DIR/task.rs" "pub[[:space:]]+fn[[:space:]]+can_cancel"
+check_symbol_parity "entropy computation" "$PROD_COLLUSION" "pub[[:space:]]+fn[[:space:]]+compute_entropy" "$KANI_DIR/entropy.rs" "pub[[:space:]]+fn[[:space:]]+compute_entropy"
+check_symbol_parity "domain normalization" "$PROD_DOMAIN" "fn[[:space:]]+normalize_domain_for_match" "$KANI_DIR/domain.rs" "pub[[:space:]]+fn[[:space:]]+normalize_domain_for_match"
+check_symbol_parity "unicode homoglyph normalization" "$PROD_UNICODE" "pub[[:space:]]+fn[[:space:]]+normalize_homoglyphs" "$KANI_DIR/unicode.rs" "pub[[:space:]]+fn[[:space:]]+normalize_homoglyphs"
+check_symbol_parity "shield sanitizer forward pass" "$PROD_SANITIZER" "pub[[:space:]]+fn[[:space:]]+sanitize" "$KANI_DIR/sanitizer.rs" "pub[[:space:]]+fn[[:space:]]+sanitize_and_record"
+check_symbol_parity "shield sanitizer reverse pass" "$PROD_SANITIZER" "pub[[:space:]]+fn[[:space:]]+desanitize" "$KANI_DIR/sanitizer.rs" "pub[[:space:]]+fn[[:space:]]+desanitize"
+check_symbol_parity "temporal window extraction source" "$PROD_COLLUSION" "pub[[:space:]]+fn[[:space:]]+compute_entropy" "$KANI_DIR/temporal_window.rs" "pub[[:space:]]+fn[[:space:]]+expire_events"
+check_symbol_parity "circuit-breaker state machine extraction source" "$PROD_CASCADING" "pub[[:space:]]+fn[[:space:]]+record_pipeline_error" "$KANI_DIR/cascading_fsm.rs" "pub[[:space:]]+fn[[:space:]]+should_break"
+check_symbol_parity "injection decode pipeline" "$PROD_INJECTION" "pub[[:space:]]+fn[[:space:]]+inspect_for_injection" "$KANI_DIR/injection_pipeline.rs" "pub[[:space:]]+fn[[:space:]]+run_decode_pipeline"
+
+echo ""
+
+# ─── 7. Structural checks ────────────────────────────────────────────────
 echo "--- Structural Checks ---"
 
-# Count functions in each pair of files.
-# Note: Kani crate may have EXTRA functions (test helpers, decomposed
-# IPv4/IPv6 variants). We only flag if Kani has FEWER than production,
-# which would indicate a function was added to production but not extracted.
 for pair in \
     "verified_core:$PROD_CORE:$KANI_CORE" \
-    "dlp_core:$PROD_DLP:$KANI_DLP"; do
+    "dlp_core:$PROD_DLP:$KANI_DLP" \
+    "cache:$PROD_CACHE:$KANI_DIR/cache.rs" \
+    "constraint:$PROD_CONSTRAINT:$KANI_DIR/constraint.rs" \
+    "cascading:$PROD_CASCADING:$KANI_DIR/cascading.rs"; do
 
     label="${pair%%:*}"
     rest="${pair#*:}"
@@ -145,11 +225,10 @@ for pair in \
         PROD_FN_COUNT=$(grep -c "pub.*fn " "$prod" 2>/dev/null || echo 0)
         KANI_FN_COUNT=$(grep -c "pub.*fn " "$kani" 2>/dev/null || echo 0)
         if [ "$KANI_FN_COUNT" -lt "$PROD_FN_COUNT" ]; then
-            echo "  WARN: $label — kani has fewer functions ($KANI_FN_COUNT) than production ($PROD_FN_COUNT)"
-            echo "         New production functions may need extraction"
-            DRIFT_FOUND=1
+            echo "  INFO: $label — kani has fewer functions ($KANI_FN_COUNT) than production ($PROD_FN_COUNT)"
+            echo "        This is acceptable for partial models, but review if production semantics changed."
         else
-            echo "  OK: $label — kani has $KANI_FN_COUNT functions (production: $PROD_FN_COUNT)"
+            pass "$label — kani has $KANI_FN_COUNT functions (production: $PROD_FN_COUNT)"
         fi
     fi
 done

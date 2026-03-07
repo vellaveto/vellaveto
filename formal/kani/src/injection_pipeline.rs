@@ -104,27 +104,56 @@ pub fn html_entity_decode(input: &str) -> String {
 }
 
 /// Known injection patterns that MUST be detected.
-/// Subset of the production Aho-Corasick pattern set.
+/// Subset of the production Aho-Corasick pattern set, stored in lowercase
+/// canonical form so the extracted checker can stay ASCII-only and tractable.
 pub const CRITICAL_PATTERNS: [&str; 12] = [
+    "<script>",
+    "<override>",
+    "[system]",
+    "javascript:",
     "ignore previous instructions",
     "ignore all previous",
     "disregard your instructions",
     "system prompt",
     "you are now",
-    "<script>",
-    "javascript:",
     "data:text/html",
-    "<override>",
     "<system_prompt>",
-    "[SYSTEM]",
-    "IMPORTANT: ",
+    "important: ",
 ];
 
-/// Check if any critical pattern is present in the (decoded) input.
+fn ascii_contains_ignore_case(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > haystack.len() {
+        return false;
+    }
+
+    let mut start = 0;
+    while start + needle.len() <= haystack.len() {
+        let mut idx = 0;
+        let mut matched = true;
+        while idx < needle.len() {
+            if haystack[start + idx].to_ascii_lowercase() != needle[idx] {
+                matched = false;
+                break;
+            }
+            idx += 1;
+        }
+        if matched {
+            return true;
+        }
+        start += 1;
+    }
+
+    false
+}
+
+/// Check if any critical ASCII pattern is present in the decoded input.
 pub fn contains_critical_pattern(decoded: &str) -> bool {
-    let lower = decoded.to_lowercase();
+    let haystack = decoded.as_bytes();
     for pattern in &CRITICAL_PATTERNS {
-        if lower.contains(&pattern.to_lowercase()) {
+        if ascii_contains_ignore_case(haystack, pattern.as_bytes()) {
             return true;
         }
     }
@@ -147,7 +176,7 @@ pub fn run_decode_pipeline(input: &str) -> (String, Vec<DecodeStage>, bool) {
 
     // Stage 2: Base64 is complex, skip for Kani (tested by unit tests)
     // Stage 3: ROT13
-    let decoded = rot13_decode(&text);
+    let _decoded = rot13_decode(&text);
     stages_applied.push(DecodeStage::Rot13Decode);
     // Only use ROT13 if it reveals something meaningful
     // (in production, ROT13 is checked if enough stop words appear)

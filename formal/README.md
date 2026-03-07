@@ -25,7 +25,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CapabilityDelegation.lean` | Lean 4 | S11–S16 | Capability delegation attenuation proofs |
 | `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
-| `verus/verified_path.rs` | Verus | V9–V10 | Path normalization idempotency + no-traversal (ALL inputs, actual Rust) |
+| `verus/verified_path.rs` | Verus | V9-V10 | Path normalization idempotence + no-traversal on actual Rust |
 | `kani/src/proofs.rs` | Kani | K1–K77 | Bounded model checking of actual Rust (77 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
@@ -35,8 +35,8 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-**251 verification instances** across 7 tools:
-- **Verus:** 28 verified functions on actual Rust code (ALL inputs, deductive) — V1-V12, D1-D6
+Current formal suite across 7 tools:
+- **Verus:** 3 verified files on actual Rust code; current local outputs are 12 verified (`verified_core.rs`), 14 verified (`verified_dlp_core.rs`), and 30 verified (`verified_path.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -79,7 +79,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | **D5: No arithmetic underflow** | — | — | — | — | D5 | K13 |
 | **D6: Overlap completeness** | — | — | — | — | D6 | K21, K22 |
 | **Path idempotence** | — | — | idem | idem | — | K2 |
-| **No traversal** | — | — | no_dot | no_dot | — | K3 |
+| **No traversal** | — | — | no_dot | no_dot | V10 | K3 |
 | **Determinism** | — | — | det | det | — | K8 |
 | **Counter monotonicity** | — | — | — | — | — | K4 |
 | **Domain norm idempotent** (simplified) | — | — | — | — | — | K9 |
@@ -159,13 +159,13 @@ formal/
     README.md                        ← Verus setup and verification guide
     verified_core.rs                 ← Core verdict logic (V1-V8, V11-V12)
     verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
-    verified_path.rs                 ← Path normalization (V9-V10)
+    verified_path.rs                 ← Path normalization idempotence + no-traversal (30 verified)
   kani/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K68 property catalog)
-      proofs.rs                      ← Proof harnesses (68 properties)
+      lib.rs                         ← Crate root (K1-K77 property catalog)
+      proofs.rs                      ← Proof harnesses (77 harnesses)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
@@ -356,20 +356,20 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cor
 # DLP buffer arithmetic (D1-D6, 14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization (V9-V10)
+# Path normalization no-traversal (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 ```
 
 Expected output:
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_path.rs`: `verification results:: 3 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 30 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K68)
+### Kani Proof Harnesses (K1–K77)
 
 ```bash
 cd formal/kani
-# Install Kani: cargo install --locked kani-verifier && cargo kani setup
+# Install Kani: cargo install --locked kani-verifier --version 0.67.0 && cargo kani setup
 
 # Run parity tests first (fast, no Kani needed)
 cargo test --lib
@@ -385,9 +385,10 @@ cargo kani --harness proof_terminal_state_immutable            # K56
 cargo kani --harness proof_idna_failure_non_ascii_fail_closed  # K61
 cargo kani --harness proof_normalize_homoglyphs_idempotent     # K64
 cargo kani --harness proof_all_lock_poison_handlers_safe       # K68
+cargo kani --harness proof_injection_known_patterns_detected   # K77
 ```
 
-Expected output: all 68 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 77 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -497,7 +498,7 @@ Source: `formal/verus/verified_core.rs` (12 verified, 0 errors)
 
 Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K68, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K77, bounded model checking on actual Rust)
 
 | ID | Property | Bridge |
 |----|----------|--------|
@@ -703,11 +704,24 @@ verification layer.
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
 | Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,972 Rust unit tests |
-| Grant subset axiomatized in Lean/Coq | Cannot verify concrete grant coverage | Verified by Alloy bounded model checking |
+| Lean/Coq grant subset uses exact-pattern + depth preorder | Simpler than Rust glob/path/domain coverage, so it does not prove full runtime containment | Alloy + Kani + Rust tests cover the broader delegation surface |
 | K9 simplified IDNA (lowercase + trim only) | Cannot detect full IDNA normalization bugs | Full IDNA tested by 200+ unit tests and fuzz targets |
 | Kani sort omits production's 3rd ID tiebreaker | Sort order may differ when priority and type are equal | Does not affect V6/V7 safety; determinism tested by unit tests |
 | V6/V7 compositional (not individually postconditioned) | Relies on K18 + Verus composition, not a single end-to-end proof | Both halves independently verified |
 | D6 requires `split_point <= overlap_size` | Secrets with first fragment larger than overlap buffer are not covered | By design: overlap buffer bounds what can be reconstructed |
+
+### Refinement Artifact
+
+The protocol-to-implementation correspondence is documented explicitly in
+[`refinement/MCPPolicyEngine.md`](/home/paolo/.vella-workspace/sentinel/formal/refinement/MCPPolicyEngine.md).
+This artifact defines:
+
+- the concrete-to-abstract projection from traced Rust evaluation to TLA state
+- named simulation obligations (`R-MCP-*`) instead of an implicit correspondence story
+- executable witness coverage in [`vellaveto-engine/tests/refinement_trace.rs`](/home/paolo/.vella-workspace/sentinel/vellaveto-engine/tests/refinement_trace.rs)
+
+It is a refinement map with executable witnesses, not a machine-checked
+forward simulation proof.
 
 ## Relation to Existing Test Suite
 
@@ -716,7 +730,7 @@ verification layer.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **29 verified functions (V1-V12, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **56 verified items (V1-V12, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |

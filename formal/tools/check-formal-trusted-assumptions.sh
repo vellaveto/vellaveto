@@ -3,7 +3,7 @@
 # check-formal-trusted-assumptions.sh — Keep non-discharged formal assumptions explicit
 #
 # The formal suite currently contains a small number of intentional trusted
-# assumptions (Verus `assume`, Lean `axiom`, Coq `Axiom`/`Parameter`).
+# assumptions (Verus escape hatches, Lean `axiom`, Coq `Axiom`/`Parameter`).
 # This script enforces that every such assumption is listed in the allowlist
 # and that stale allowlist entries are removed when proofs are discharged.
 #
@@ -79,35 +79,72 @@ report_inventory() {
     echo "  $label: $count"
 }
 
+report_mismatches() {
+    local label="$1"
+    local -n source_ref="$2"
+    local key
+
+    while IFS= read -r key; do
+        [ -z "$key" ] && continue
+        echo "$label: $key"
+    done < <(printf '%s\n' "${!source_ref[@]}" 2>/dev/null | sort)
+}
+
 load_allowlist
 
-scan_hits "verus" "$PROJECT_DIR/formal/verus" "*.rs" '(assume|admit)[[:space:]]*\('
-scan_hits "lean" "$PROJECT_DIR/formal/lean" "*.lean" '^[[:space:]]*axiom[[:space:]]'
-scan_hits "coq" "$PROJECT_DIR/formal/coq" "*.v" '^[[:space:]]*(Axiom|Parameter)[[:space:]]'
+scan_hits "verus-assume" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])(assume|admit)[[:space:]]*\('
+scan_hits "verus-axiom" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])axiom([^[:alnum:]_]|$)'
+scan_hits "verus-external-body" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_body[[:space:]]*\]'
+scan_hits "verus-external-fn-spec" "$PROJECT_DIR/formal/verus" "*.rs" '#\[[[:space:]]*verifier::external_fn_specification([^[:alnum:]_]|$)'
+scan_hits "verus-trusted-marker" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])TRUSTED([^[:alnum:]_]|$)'
+scan_hits "lean-axiom" "$PROJECT_DIR/formal/lean" "*.lean" '^[[:space:]]*axiom[[:space:]]'
+scan_hits "coq-axiom" "$PROJECT_DIR/formal/coq" "*.v" '^[[:space:]]*(Axiom|Parameter)[[:space:]]'
 
 echo "=== Formal Trusted Assumption Inventory ==="
 echo "Expected entries: ${#allowed[@]}"
 echo "Observed entries: ${#actual[@]}"
-report_inventory "Verus assumptions" "verus"
-report_inventory "Lean axioms" "lean"
-report_inventory "Coq axioms/parameters" "coq"
+report_inventory "Verus assume/admit" "verus-assume"
+report_inventory "Verus axioms" "verus-axiom"
+report_inventory "Verus external bodies" "verus-external-body"
+report_inventory "Verus external fn specs" "verus-external-fn-spec"
+report_inventory "Verus trusted markers" "verus-trusted-marker"
+report_inventory "Lean axioms" "lean-axiom"
+report_inventory "Coq axioms/parameters" "coq-axiom"
 echo ""
 
 for key in "${!actual[@]}"; do
     if [ -z "${allowed[$key]+set}" ]; then
-        echo "UNEXPECTED: $key"
         unexpected=1
     fi
 done
 
 for key in "${!allowed[@]}"; do
     if [ -z "${actual[$key]+set}" ]; then
-        echo "STALE: $key"
         stale=1
     fi
 done
 
 if [ "$unexpected" -ne 0 ] || [ "$stale" -ne 0 ]; then
+    if [ "$unexpected" -ne 0 ]; then
+        declare -A unexpected_keys=()
+        for key in "${!actual[@]}"; do
+            if [ -z "${allowed[$key]+set}" ]; then
+                unexpected_keys["$key"]=1
+            fi
+        done
+        report_mismatches "UNEXPECTED" unexpected_keys
+    fi
+
+    if [ "$stale" -ne 0 ]; then
+        declare -A stale_keys=()
+        for key in "${!allowed[@]}"; do
+            if [ -z "${actual[$key]+set}" ]; then
+                stale_keys["$key"]=1
+            fi
+        done
+        report_mismatches "STALE" stale_keys
+    fi
+
     echo ""
     echo "FAIL: trusted assumption inventory drifted from formal/trusted-assumptions.allowlist"
     exit 1

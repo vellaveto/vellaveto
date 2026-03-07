@@ -108,7 +108,7 @@
 //! - `ip.rs`: Extracted from `vellaveto-engine/src/ip.rs`
 //! - `cache.rs`: Extracted from `vellaveto-engine/src/cache.rs`
 //! - `capability.rs`: Extracted from `vellaveto-mcp/src/capability_token.rs`
-//! - `rule_check.rs`: Extracted from `vellaveto-engine/src/lib.rs` (rule checking)
+//! - `rule_check.rs`: Extracted from `vellaveto-engine/src/rule_check.rs`
 //! - `resolve.rs`: Extracted from `vellaveto-engine/src/lib.rs` (ResolvedMatch construction)
 //! - `cascading.rs`: Extracted from `vellaveto-engine/src/cascading.rs`
 //! - `constraint.rs`: Extracted from `vellaveto-engine/src/constraint_eval.rs`

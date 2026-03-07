@@ -1,10 +1,8 @@
 # kind<TAB>relative-path<TAB>trimmed source line
 # Keep this inventory explicit and minimal. Remove entries when proofs are discharged.
-verus	formal/verus/verified_path.rs	assume(
-verus	formal/verus/verified_path.rs	assume(false); // V9 idempotency: admitted pending full spec-level proof
-lean	formal/lean/Vellaveto/CapabilityDelegation.lean	axiom grantSubset : Grant -> Grant -> Prop
-lean	formal/lean/Vellaveto/CapabilityDelegation.lean	axiom grantSubset_refl : ∀ g, grantSubset g g
-lean	formal/lean/Vellaveto/CapabilityDelegation.lean	axiom grantSubset_trans :
-coq	formal/coq/Vellaveto/CapabilityDelegation.v	Parameter grant_subset : Grant -> Grant -> Prop.
-coq	formal/coq/Vellaveto/CapabilityDelegation.v	Axiom grant_subset_refl : forall g, grant_subset g g.
-coq	formal/coq/Vellaveto/CapabilityDelegation.v	Axiom grant_subset_trans :
+# Verus kinds currently enforced:
+#   verus-assume
+#   verus-axiom
+#   verus-external-body
+#   verus-external-fn-spec
+#   verus-trusted-marker

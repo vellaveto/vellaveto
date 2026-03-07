@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Rule checking fail-closed verification extracted from
-//! `vellaveto-engine/src/lib.rs` (check_path_rules, check_network_rules, check_ip_rules).
+//! `vellaveto-engine/src/rule_check.rs`.
 //!
 //! Decision predicates abstracted to pure boolean functions. Pattern matching
 //! is abstracted to boolean parameters (`matches: bool`) since glob/regex
@@ -24,9 +24,9 @@
 //!
 //! # Production Correspondence
 //!
-//! - `check_path_rules_decision` ↔ `vellaveto-engine/src/lib.rs` check_path_rules
-//! - `check_network_rules_decision` ↔ `vellaveto-engine/src/lib.rs` check_network_rules
-//! - `check_ip_rules_decision` ↔ `vellaveto-engine/src/lib.rs` check_ip_rules
+//! - `check_path_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_path_rules
+//! - `check_network_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_network_rules
+//! - `check_ip_rules_decision` ↔ `vellaveto-engine/src/rule_check.rs` check_ip_rules
 
 /// Path rule decision predicate.
 ///

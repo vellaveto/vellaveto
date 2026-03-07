@@ -75,7 +75,10 @@ pub fn normalize_domain_for_match(
             if wildcard_prefix.is_empty() {
                 Some(ascii)
             } else {
-                Some(format!("{wildcard_prefix}{ascii}"))
+                let mut normalized = String::with_capacity(wildcard_prefix.len() + ascii.len());
+                normalized.push_str(wildcard_prefix);
+                normalized.push_str(&ascii);
+                Some(normalized)
             }
         }
         Err(()) => {
@@ -85,7 +88,11 @@ pub fn normalize_domain_for_match(
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
                 {
-                    let lowered = format!("{}{}", wildcard_prefix, idna_input.to_ascii_lowercase());
+                    let lowered_ascii = idna_input.to_ascii_lowercase();
+                    let mut lowered =
+                        String::with_capacity(wildcard_prefix.len() + lowered_ascii.len());
+                    lowered.push_str(wildcard_prefix);
+                    lowered.push_str(&lowered_ascii);
                     Some(lowered)
                 } else {
                     None
