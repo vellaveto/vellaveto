@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_capability_pattern.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -108,6 +111,12 @@ pub proof fn lemma_accepted_child_glob_requires_wildcard_or_equality(
         spec_pattern_subset_guard(parent_is_wildcard, parent_equals_child_ignore_ascii_case, true)
             ==> parent_is_wildcard || parent_equals_child_ignore_ascii_case,
 {
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::capability_pattern_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

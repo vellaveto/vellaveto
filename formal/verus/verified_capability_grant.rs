@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_capability_grant.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -199,6 +202,12 @@ pub proof fn lemma_unlimited_parent_leaves_only_shape_checks(
         child_has_allowed_domains,
     ),
 {
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::capability_grant_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

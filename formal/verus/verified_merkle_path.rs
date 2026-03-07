@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_merkle_path.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -118,6 +121,12 @@ pub proof fn lemma_parent_index_halves_child(node_index: nat)
 pub proof fn lemma_verifier_direction_is_identity(step_is_left: bool)
     ensures spec_proof_step_places_sibling_left(step_is_left) == step_is_left,
 {
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::merkle_path_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

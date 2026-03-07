@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_entropy_gate.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -163,6 +166,12 @@ pub proof fn lemma_high_severity_threshold_alerts_high(min_entropy_observations:
         spec_high_severity_entropy_threshold(min_entropy_observations),
         min_entropy_observations,
     ) == EntropyAlertLevel::High);
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::entropy_gate_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

@@ -197,7 +197,15 @@ Must have:
 Current status:
 - inventory enforcement exists
 - canonical assumptions registry landed in `formal/ASSUMPTION_REGISTRY.md`
-- proof layers still do not share a single Verus assumptions module
+- shared Verus assumptions module landed in `formal/verus/assumptions.rs`
+- kernel-specific assumption bindings are now enforced per standalone Verus file
+  by `formal/tools/check-formal-trusted-assumptions.sh`
+- explicit proof-facing Merkle boundary axioms landed in
+  `formal/verus/merkle_boundary_axioms.rs`
+- explicit proof-facing audit filesystem axioms landed in
+  `formal/verus/audit_fs_boundary_axioms.rs`
+- the remaining gap is discharging or replacing those trusted axiom modules,
+  not merely naming the boundary
 
 ### Phase 7: Artifact and CI hardening
 

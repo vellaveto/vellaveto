@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_audit_chain.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -223,6 +226,12 @@ pub proof fn lemma_seen_hashed_latches_true(entry_has_hash: bool)
 pub proof fn lemma_next_prev_sequence_preserves_legacy_zero(prev_sequence: nat)
     ensures spec_next_prev_sequence(prev_sequence, 0) == prev_sequence,
 {
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::audit_chain_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

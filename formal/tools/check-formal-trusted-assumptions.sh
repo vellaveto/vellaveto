@@ -26,10 +26,75 @@ normalize_text() {
     printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+check_verus_kernel_assumption_bindings() {
+    local failed=0
+    local file predicate
+    declare -A expected_bindings=(
+        ["formal/verus/verified_audit_append.rs"]="audit_append_kernel_assumptions_registered"
+        ["formal/verus/verified_audit_chain.rs"]="audit_chain_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_attenuation.rs"]="capability_attenuation_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_grant.rs"]="capability_grant_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_literal.rs"]="capability_literal_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_pattern.rs"]="capability_pattern_kernel_assumptions_registered"
+        ["formal/verus/verified_constraint_eval.rs"]="constraint_eval_kernel_assumptions_registered"
+        ["formal/verus/verified_core.rs"]="engine_core_kernel_assumptions_registered"
+        ["formal/verus/verified_cross_call_dlp.rs"]="cross_call_dlp_kernel_assumptions_registered"
+        ["formal/verus/verified_dlp_core.rs"]="dlp_core_kernel_assumptions_registered"
+        ["formal/verus/verified_entropy_gate.rs"]="entropy_gate_kernel_assumptions_registered"
+        ["formal/verus/verified_merkle.rs"]="merkle_guard_kernel_assumptions_registered"
+        ["formal/verus/verified_merkle_fold.rs"]="merkle_fold_kernel_assumptions_registered"
+        ["formal/verus/verified_merkle_path.rs"]="merkle_path_kernel_assumptions_registered"
+        ["formal/verus/verified_path.rs"]="path_kernel_assumptions_registered"
+        ["formal/verus/verified_rotation_manifest.rs"]="rotation_manifest_kernel_assumptions_registered"
+    )
+
+    while IFS= read -r file; do
+        file="${file#$PROJECT_DIR/}"
+        if [ -z "${expected_bindings[$file]+set}" ]; then
+            echo "UNMAPPED-KERNEL-ASSUMPTION: $file"
+            failed=1
+        fi
+    done < <(find "$PROJECT_DIR/formal/verus" -maxdepth 1 -type f -name 'verified_*.rs' | sort)
+
+    for file in "${!expected_bindings[@]}"; do
+        predicate="${expected_bindings[$file]}"
+
+        if [ ! -f "$PROJECT_DIR/$file" ]; then
+            echo "MISSING-KERNEL-ASSUMPTION-FILE: $file"
+            failed=1
+            continue
+        fi
+
+        if ! grep -Fq "pub open spec fn ${predicate}()" "$PROJECT_DIR/formal/verus/assumptions.rs"; then
+            echo "MISSING-KERNEL-ASSUMPTION-PREDICATE: assumptions::$predicate"
+            failed=1
+        fi
+
+        if ! grep -Fq "ensures assumptions::${predicate}()," "$PROJECT_DIR/$file"; then
+            echo "MISSING-KERNEL-ASSUMPTION-BINDING: $file -> assumptions::$predicate"
+            failed=1
+        fi
+
+        if grep -Fq "ensures assumptions::shared_formal_assumptions_registered()," "$PROJECT_DIR/$file"; then
+            echo "TOO-BROAD-KERNEL-ASSUMPTION-BINDING: $file"
+            failed=1
+        fi
+    done
+
+    if [ "$failed" -ne 0 ]; then
+        echo ""
+        echo "FAIL: Verus kernels are not bound to the expected assumption contracts"
+        exit 1
+    fi
+}
+
 check_registry() {
     local missing=0
     local required_entries=(
         "formal/trusted-assumptions.allowlist"
+        "formal/verus/assumptions.rs"
+        "formal/verus/merkle_boundary_axioms.rs"
+        "formal/verus/audit_fs_boundary_axioms.rs"
         "formal/MERKLE_TRUST_BOUNDARY.md"
         "formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md"
         'VERUS-ESCAPE-1'
@@ -40,6 +105,18 @@ check_registry() {
 
     if [ ! -f "$REGISTRY" ]; then
         echo "FAIL: canonical assumption registry missing: $REGISTRY"
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_DIR/formal/verus/assumptions.rs" ]; then
+        echo "FAIL: shared Verus assumptions module missing: $PROJECT_DIR/formal/verus/assumptions.rs"
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_DIR/formal/verus/merkle_boundary_axioms.rs" ]; then
+        echo "FAIL: shared Verus Merkle boundary module missing: $PROJECT_DIR/formal/verus/merkle_boundary_axioms.rs"
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_DIR/formal/verus/audit_fs_boundary_axioms.rs" ]; then
+        echo "FAIL: shared Verus audit filesystem boundary module missing: $PROJECT_DIR/formal/verus/audit_fs_boundary_axioms.rs"
         exit 1
     fi
 
@@ -123,6 +200,7 @@ report_mismatches() {
 }
 
 check_registry
+check_verus_kernel_assumption_bindings
 load_allowlist
 
 scan_hits "verus-assume" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])(assume|admit)[[:space:]]*\('

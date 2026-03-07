@@ -7,3 +7,16 @@
 #   verus-external-body
 #   verus-external-fn-spec
 #   verus-trusted-marker
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_append_targets_intended_file(
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_metadata_matches_state(contents: Seq<u8>)
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_read_matches_state(contents: Seq<u8>)
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_truncate_preserves_prefix(contents: Seq<u8>, len: nat)
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_rename_preserves_contents(contents: Seq<u8>)
+verus-axiom	formal/verus/audit_fs_boundary_axioms.rs	pub broadcast axiom fn axiom_fs_durability_contract(sync_data: bool, contents: Seq<u8>)
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_leaf_hash_len(data: Seq<u8>)
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_internal_hash_len(left: Seq<u8>, right: Seq<u8>)
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_rfc6962_domain_separation(
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_leaf_second_preimage_resistance(
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_internal_second_preimage_resistance(
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_codec_roundtrip(hash: Seq<u8>)
+verus-axiom	formal/verus/merkle_boundary_axioms.rs	pub broadcast axiom fn axiom_merkle_codec_decoded_hash_len(

@@ -50,7 +50,11 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
 Current formal suite across 6 tools:
-- **Verus:** 16 verified files / 224 verified items on actual Rust code; current local outputs are 17 verified (`verified_audit_append.rs`), 17 verified (`verified_audit_chain.rs`), 21 verified (`verified_merkle.rs`), 15 verified (`verified_merkle_fold.rs`), 13 verified (`verified_merkle_path.rs`), 14 verified (`verified_rotation_manifest.rs`), 11 verified (`verified_capability_attenuation.rs`), 8 verified (`verified_capability_grant.rs`), 9 verified (`verified_capability_literal.rs`), 10 verified (`verified_capability_pattern.rs`), 12 verified (`verified_constraint_eval.rs`), 9 verified (`verified_cross_call_dlp.rs`), 12 verified (`verified_core.rs`), 11 verified (`verified_entropy_gate.rs`), 14 verified (`verified_dlp_core.rs`), and 31 verified (`verified_path.rs`)
+- all standalone Verus kernels now bind to a checker-enforced kernel-scoped
+  assumption contract through `formal/verus/assumptions.rs`
+- the Merkle and audit-filesystem trust boundaries now also exist as explicit
+  Verus axiom modules under `formal/verus/`
+- **Verus:** 16 verified files / 256 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 16 verified (`verified_dlp_core.rs`), and 33 verified (`verified_path.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -171,22 +175,25 @@ formal/
       TaskLifecycle.v                ← Task lifecycle T1-T3 (10 theorems)
   verus/
     README.md                        ← Verus setup and verification guide
+    assumptions.rs                   ← Shared Verus-facing kernel-assumption registry mirror
+    merkle_boundary_axioms.rs        ← Trusted Merkle hash/codec axiom surface
+    audit_fs_boundary_axioms.rs      ← Trusted audit-filesystem axiom surface
     verified_core.rs                 ← Core verdict logic (V1-V8, V11-V12)
     verified_constraint_eval.rs      ← Constraint evaluation fail-closed kernel (ENG-CON-1–ENG-CON-4)
-    verified_audit_append.rs         ← Audit append/recovery counter transitions (17 verified)
-    verified_audit_chain.rs          ← Audit-chain verification guard (17 verified)
-    verified_merkle.rs               ← Merkle append/init/proof-shape fail-closed guards (21 verified)
-    verified_merkle_fold.rs          ← Merkle next-level/proof-fold/peak-fold structure (15 verified)
-    verified_merkle_path.rs          ← Merkle proof sibling/orientation/parent structure (13 verified)
-    verified_rotation_manifest.rs    ← Cross-rotation manifest linkage/path-safety guards (14 verified)
-    verified_capability_attenuation.rs ← Capability delegation depth/expiry attenuation (11 verified)
-    verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (8 verified)
-    verified_capability_literal.rs   ← Capability literal matching/subset fast paths (9 verified)
-    verified_capability_pattern.rs   ← Capability child-glob rejection guard (10 verified)
-    verified_entropy_gate.rs         ← Fixed-point entropy alert gate (11 verified)
-    verified_cross_call_dlp.rs       ← Cross-call tracker field-capacity/update gate (9 verified)
-    verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
-    verified_path.rs                 ← Engine path normalization idempotence + no-traversal (31 verified)
+    verified_audit_append.rs         ← Audit append/recovery counter transitions (19 verified)
+    verified_audit_chain.rs          ← Audit-chain verification guard (19 verified)
+    verified_merkle.rs               ← Merkle append/init/proof-shape fail-closed guards (23 verified)
+    verified_merkle_fold.rs          ← Merkle next-level/proof-fold/peak-fold structure (17 verified)
+    verified_merkle_path.rs          ← Merkle proof sibling/orientation/parent structure (15 verified)
+    verified_rotation_manifest.rs    ← Cross-rotation manifest linkage/path-safety guards (16 verified)
+    verified_capability_attenuation.rs ← Capability delegation depth/expiry attenuation (13 verified)
+    verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (10 verified)
+    verified_capability_literal.rs   ← Capability literal matching/subset fast paths (11 verified)
+    verified_capability_pattern.rs   ← Capability child-glob rejection guard (12 verified)
+    verified_entropy_gate.rs         ← Fixed-point entropy alert gate (13 verified)
+    verified_cross_call_dlp.rs       ← Cross-call tracker field-capacity/update gate (11 verified)
+    verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 16 verified)
+    verified_path.rs                 ← Engine path normalization idempotence + no-traversal (33 verified)
   kani/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
@@ -377,72 +384,72 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
-# Audit append/recovery counter transitions (17 verified)
+# Audit append/recovery counter transitions (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_append.rs
 
-# Audit-chain verification guard (17 verified)
+# Audit-chain verification guard (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_chain.rs
 
-# Merkle append/init/proof-shape fail-closed guards (21 verified)
+# Merkle append/init/proof-shape fail-closed guards (23 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
 
-# Merkle next-level/proof-fold/peak-fold structure (15 verified)
+# Merkle next-level/proof-fold/peak-fold structure (17 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_fold.rs
 
-# Merkle proof sibling/orientation/parent structure (13 verified)
+# Merkle proof sibling/orientation/parent structure (15 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_path.rs
 
-# Cross-rotation manifest linkage/path-safety guards (14 verified)
+# Cross-rotation manifest linkage/path-safety guards (16 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs
 
-# Capability attenuation depth/expiry kernel (11 verified)
+# Capability attenuation depth/expiry kernel (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
 
-# Capability grant restriction/invocation kernel (8 verified)
+# Capability grant restriction/invocation kernel (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
-# Capability literal fast paths (9 verified)
+# Capability literal fast paths (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_literal.rs
 
-# Capability child-glob rejection guard (10 verified)
+# Capability child-glob rejection guard (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
 
-# Constraint evaluation fail-closed control flow (ENG-CON-1–ENG-CON-4, 12 verified)
+# Constraint evaluation fail-closed control flow (ENG-CON-1–ENG-CON-4, 14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
 
-# Core verdict + rule override (V1-V8, V11-V12)
+# Core verdict + rule override (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
-# Fixed-point entropy alert gate (11 verified)
+# Fixed-point entropy alert gate (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_entropy_gate.rs
 
-# Cross-call DLP tracker gate (9 verified)
+# Cross-call DLP tracker gate (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cross_call_dlp.rs
 
-# DLP buffer arithmetic (D1-D6, 14 verified)
+# DLP buffer arithmetic (D1-D6, 16 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization no-traversal (31 verified)
+# Path normalization no-traversal (33 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 ```
 
 Expected output:
-- `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
-- `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
-- `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
-- `verified_merkle_fold.rs`: `verification results:: 15 verified, 0 errors`
-- `verified_merkle_path.rs`: `verification results:: 13 verified, 0 errors`
-- `verified_rotation_manifest.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
-- `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`
-- `verified_capability_pattern.rs`: `verification results:: 10 verified, 0 errors`
-- `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
-- `verified_cross_call_dlp.rs`: `verification results:: 9 verified, 0 errors`
-- `verified_core.rs`: `verification results:: 12 verified, 0 errors`
-- `verified_entropy_gate.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_path.rs`: `verification results:: 31 verified, 0 errors`
+- `verified_audit_append.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_audit_chain.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_merkle.rs`: `verification results:: 23 verified, 0 errors`
+- `verified_merkle_fold.rs`: `verification results:: 17 verified, 0 errors`
+- `verified_merkle_path.rs`: `verification results:: 15 verified, 0 errors`
+- `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
+- `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_capability_grant.rs`: `verification results:: 10 verified, 0 errors`
+- `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_constraint_eval.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_cross_call_dlp.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_core.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_entropy_gate.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_dlp_core.rs`: `verification results:: 16 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 33 verified, 0 errors`
 
 ### Kani Proof Harnesses (K1–K77)
 
@@ -562,7 +569,7 @@ Expected output: all 77 harnesses report VERIFICATION:- SUCCESSFUL.
 | V7 | **Deny-dominance at equal priority** | Deny beats Allow (requires `is_sorted`). Compositional*: same as V6. |
 | V8 | **Conditional pass-through** | Unfired condition → evaluation continues |
 
-Source: `formal/verus/verified_core.rs` (12 verified, 0 errors)
+Source: `formal/verus/verified_core.rs` (14 verified, 0 errors)
 
 ### Verus Cross-Call DLP (D1–D6, proven for ALL inputs on actual Rust)
 
@@ -575,7 +582,7 @@ Source: `formal/verus/verified_core.rs` (12 verified, 0 errors)
 | D5 | **No arithmetic underflow** | Saturating subtraction prevents wrapping |
 | D6 | **Overlap completeness** | Secret ≤ 2 × overlap split at `split_point ≤ overlap_size` fully covered (first fragment must fit in tail buffer) |
 
-Source: `formal/verus/verified_dlp_core.rs` (14 verified, 0 errors)
+Source: `formal/verus/verified_dlp_core.rs` (16 verified, 0 errors)
 
 ### Kani Proof Harnesses (K1–K77, bounded model checking on actual Rust)
 
@@ -809,7 +816,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **224 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **256 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |

@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_cross_call_dlp.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -181,6 +184,12 @@ pub proof fn lemma_capacity_finding_implies_update_blocked(
     if spec_should_emit_capacity_exhausted_finding(false, tracked_fields, max_fields) {
         assert(tracked_fields >= max_fields);
     }
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::cross_call_dlp_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

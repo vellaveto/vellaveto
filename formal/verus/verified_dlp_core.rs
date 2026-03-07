@@ -31,6 +31,9 @@
 //! These proofs cover the pure arithmetic. The HashMap wrapper in
 //! `cross_call_dlp.rs` is NOT verified — it is a lookup table.
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -285,6 +288,12 @@ pub proof fn lemma_ascii_all_boundaries(value: &[u8])
         assert(b < 0x80u8);
         lemma_non_continuation_is_boundary(b);
     };
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::dlp_core_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

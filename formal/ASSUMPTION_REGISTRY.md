@@ -34,12 +34,19 @@ it is considered part of the reviewed proof surface.
 | Artifact | Role | Status |
 |----------|------|--------|
 | `formal/trusted-assumptions.allowlist` | machine-checked inventory of proof escape hatches | active |
+| `formal/verus/assumptions.rs` | shared Verus-facing kernel-assumption map that binds standalone kernels to the named trusted boundary | active |
+| `formal/verus/merkle_boundary_axioms.rs` | proof-facing trusted Merkle hash/codec axioms mirroring `MERKLE-HASH-*` and `MERKLE-CODEC-1` | active |
+| `formal/verus/audit_fs_boundary_axioms.rs` | proof-facing trusted filesystem axioms mirroring `AUDIT-FS-*` | active |
 | `formal/MERKLE_TRUST_BOUNDARY.md` | concrete Merkle hash and codec assumptions | active |
 | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` | audit append/rotation/Merkle filesystem assumptions | active |
 
 ## Current Gap
 
-This registry is canonical for local assumption tracking, but the proof layers
-still do not share a single Verus `assumptions` module. That remains the next
-step if we want the assumptions to become part of the machine-checked proof
-surface rather than a reviewed local contract.
+The Verus suite now shares `formal/verus/assumptions.rs`, and
+`formal/tools/check-formal-trusted-assumptions.sh` enforces that each
+standalone kernel binds itself to the expected named assumption contract rather
+than the whole shared boundary. The Merkle and audit-filesystem trust
+boundaries are now also mirrored as explicit proof-facing Verus axiom modules.
+The remaining gap is no longer naming the boundary; it is eventually
+discharging or further refining those trusted axioms against concrete exec/codec
+semantics if we want to shrink the trusted base further.

@@ -32,6 +32,9 @@
 //! The production function uses `str::split('/')` — we use an equivalent
 //! byte-level split.
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -1017,6 +1020,12 @@ pub fn normalize_path_bytes(path: &Vec<u8>) -> (result: (bool, Vec<u8>))
     }
 
     (true, out)
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::path_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

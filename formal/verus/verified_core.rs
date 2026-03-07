@@ -26,6 +26,9 @@
 //! actions is not verified here — it is verified by Kani (bounded) and
 //! tested by 10,000+ unit tests.
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -404,6 +407,12 @@ pub proof fn lemma_any_rule_override_is_deny(
         spec_compute_verdict(resolved) == VerdictKind::Deny,
 {
     lemma_first_match_override_is_deny(resolved, idx);
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::engine_core_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

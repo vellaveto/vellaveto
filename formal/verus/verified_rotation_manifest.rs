@@ -13,6 +13,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -125,6 +128,12 @@ pub proof fn lemma_empty_reference_is_rejected(has_traversal: bool, is_absolute:
 pub proof fn lemma_only_prefix_missing_files_are_allowed(files_checked: nat)
     ensures spec_missing_rotated_file_allowed(files_checked) == (files_checked == 0),
 {
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::rotation_manifest_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}

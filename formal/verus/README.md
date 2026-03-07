@@ -10,9 +10,16 @@ capability pattern attenuation, fixed-point entropy alert gating,
 cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
+All standalone kernels now share `formal/verus/assumptions.rs`, a
+Verus-facing mirror of the canonical local assumption registry.
+Each standalone kernel now binds itself to a checker-enforced kernel-scoped
+assumption contract rather than the whole shared boundary.
+The Merkle and audit-filesystem trust boundaries are also mirrored as explicit
+Verus axiom modules under `formal/verus/`.
+
 ## What Is Verified
 
-### Core Verdict Logic (`verified_core.rs`) — 12 proofs, V1-V8, V11-V12
+### Core Verdict Logic (`verified_core.rs`) — 14 proofs, V1-V8, V11-V12
 
 Properties proven for ALL possible inputs (not bounded):
 
@@ -28,7 +35,7 @@ Properties proven for ALL possible inputs (not bounded):
 | V11 | Path block -> Deny | Path block sets rule_override_deny -> final verdict is Deny |
 | V12 | Network block -> Deny | Network/IP block sets rule_override_deny -> final verdict is Deny |
 
-Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 Priority-dependent properties (V6, V7) require a sortedness precondition that
 will be proven by a Kani harness (K19) in Phase 3.
@@ -44,7 +51,7 @@ will be proven by a Kani harness (K19) in Phase 3.
 | `lemma_network_block_is_deny` | Network/IP block -> rule_override_deny -> Deny (V12) |
 | `lemma_any_rule_override_is_deny` | Any rule type setting rule_override_deny -> Deny |
 
-### Constraint Evaluation Kernel (`verified_constraint_eval.rs`) — 12 verified items, ENG-CON-1–ENG-CON-4
+### Constraint Evaluation Kernel (`verified_constraint_eval.rs`) — 14 verified items, ENG-CON-1–ENG-CON-4
 
 Properties proven for ALL possible inputs:
 
@@ -55,7 +62,7 @@ Properties proven for ALL possible inputs:
 | ENG-CON-3 | Require-approval precedence | `require_approval` forces `RequireApproval` unless already denied |
 | ENG-CON-4 | No-match handling | `on_no_match_continue` only yields `Continue` on the no-match path |
 
-Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -65,7 +72,7 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_forbidden_precedes_approval` | Forbidden parameter presence overrides `require_approval` and yields `Deny` |
 | `lemma_no_match_continue_is_only_continue` | `Continue` is reachable only on the explicit no-match path |
 
-### Audit Append/Recovery Counters (`verified_audit_append.rs`) — 17 verified items, AUD-APP-1–AUD-APP-5
+### Audit Append/Recovery Counters (`verified_audit_append.rs`) — 19 verified items, AUD-APP-1–AUD-APP-5
 
 Properties proven for ALL possible inputs:
 
@@ -77,7 +84,7 @@ Properties proven for ALL possible inputs:
 | AUD-APP-4 | Global sequence saturates monotonically | Each successful append increments `global_sequence`, saturating at `u64::MAX` |
 | AUD-APP-5 | Recovery resumes at one past the highest observed sequence | Restart recovery sets the next `global_sequence` to `max_observed_sequence + 1`, saturating at `u64::MAX` |
 
-Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -94,7 +101,7 @@ Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_recovery_sequence_advances_when_not_saturated` | Recovery advances one past the highest observed sequence when unsaturated |
 | `lemma_recovery_sequence_saturates_at_u64_max` | Recovery stays pinned at `u64::MAX` when the observed maximum is saturated |
 
-### Audit-Chain Verification Guard (`verified_audit_chain.rs`) — 17 verified items, AUD-CHAIN-1–AUD-CHAIN-5
+### Audit-Chain Verification Guard (`verified_audit_chain.rs`) — 19 verified items, AUD-CHAIN-1–AUD-CHAIN-5
 
 Properties proven for ALL possible inputs:
 
@@ -106,7 +113,7 @@ Properties proven for ALL possible inputs:
 | AUD-CHAIN-4 | Hashed-step linkage and self-hash | A hashed entry can pass only if both `prev_hash` linkage and recomputed `entry_hash` checks match |
 | AUD-CHAIN-5 | Verifier state monotonicity | `seen_hashed_entry` latches true and legacy zero-sequence entries preserve the tracked non-zero sequence |
 
-Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -123,7 +130,7 @@ Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_seen_hashed_latches_true` | Once the verifier has seen a hashed entry, the state remains latched |
 | `lemma_next_prev_sequence_preserves_legacy_zero` | A zero-sequence legacy entry cannot overwrite the tracked non-zero sequence |
 
-### Merkle Fail-Closed Guards (`verified_merkle.rs`) — 21 verified items, MERKLE-1–MERKLE-6
+### Merkle Fail-Closed Guards (`verified_merkle.rs`) — 23 verified items, MERKLE-1–MERKLE-6
 
 Properties proven for ALL possible inputs:
 
@@ -136,7 +143,7 @@ Properties proven for ALL possible inputs:
 | MERKLE-5 | Proof depth bound | Merkle proof verification rejects sibling vectors longer than 64 steps |
 | MERKLE-6 | Sibling hash width check | Merkle proof verification rejects decoded sibling hashes whose length is not 32 bytes |
 
-Verification result: **21 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **23 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -155,7 +162,7 @@ Verification result: **21 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_hash_len_32_accepted` | A 32-byte decoded sibling hash satisfies the width guard |
 | `lemma_hash_len_non_32_rejected` | Any decoded sibling hash whose length is not 32 bytes is rejected |
 
-### Merkle Fold Kernel (`verified_merkle_fold.rs`) — 15 verified items, MERKLE-FOLD-1–MERKLE-FOLD-7
+### Merkle Fold Kernel (`verified_merkle_fold.rs`) — 17 verified items, MERKLE-FOLD-1–MERKLE-FOLD-7
 
 Properties proven for ALL possible inputs:
 
@@ -169,7 +176,7 @@ Properties proven for ALL possible inputs:
 | MERKLE-FOLD-6 | Peak fold direction | Root folding always places the higher peak on the left of the accumulator |
 | MERKLE-FOLD-7 | Abstract proof/root reconstruction | The recursively generated proof steps reconstruct the same abstract root as repeated next-level folding |
 
-Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -185,7 +192,7 @@ Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_proof_reconstructs_root_with_fuel` | Any proof path reconstructs the same abstract root when given sufficient recursion fuel |
 | `lemma_proof_reconstructs_root` | The canonical proof path for any valid index reconstructs the abstract tree root |
 
-### Merkle Proof-Path Kernel (`verified_merkle_path.rs`) — 13 verified items, MERKLE-PATH-1–MERKLE-PATH-5
+### Merkle Proof-Path Kernel (`verified_merkle_path.rs`) — 15 verified items, MERKLE-PATH-1–MERKLE-PATH-5
 
 Properties proven for ALL possible inputs:
 
@@ -197,7 +204,7 @@ Properties proven for ALL possible inputs:
 | MERKLE-PATH-4 | Parent ascent | Advancing one proof level always maps `node_index` to `node_index / 2` |
 | MERKLE-PATH-5 | Verifier direction preservation | Proof verification interprets the encoded `is_left` bit without inversion |
 
-Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -211,7 +218,7 @@ Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_parent_index_halves_child` | Each ascent step computes the parent index by integer division by two |
 | `lemma_verifier_direction_is_identity` | The verifier preserves the encoded left/right direction bit exactly |
 
-### Rotation Manifest Guards (`verified_rotation_manifest.rs`) — 14 verified items, ROT-MAN-1–ROT-MAN-3
+### Rotation Manifest Guards (`verified_rotation_manifest.rs`) — 16 verified items, ROT-MAN-1–ROT-MAN-3
 
 Properties proven for ALL possible inputs:
 
@@ -221,7 +228,7 @@ Properties proven for ALL possible inputs:
 | ROT-MAN-2 | Rotated filename safety | A rotated-file reference may pass only when it is non-empty, non-absolute, traversal-free, and a bare filename |
 | ROT-MAN-3 | Missing-file prune boundary | Missing rotated files are allowed only before any existing rotated segment has been checked |
 
-Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **16 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -238,7 +245,7 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_empty_reference_is_rejected` | An empty rotated-file reference is always rejected |
 | `lemma_only_prefix_missing_files_are_allowed` | Missing rotated files are permitted only in the all-missing prefix before any existing segment |
 
-### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 11 verified items, CAP-ATT-1–CAP-ATT-4
+### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 13 verified items, CAP-ATT-1–CAP-ATT-4
 
 Properties proven for ALL possible inputs:
 
@@ -249,7 +256,7 @@ Properties proven for ALL possible inputs:
 | CAP-ATT-3 | Expiry clamp | Child expiry is always at or before the parent expiry and at or before `now + ttl` |
 | CAP-ATT-4 | Transitive non-increase | Repeated attenuation keeps both depth and expiry monotonically decreasing |
 
-Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -263,7 +270,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_ttl_limit_is_fail_closed` | A TTL above policy cannot produce a child expiry |
 | `lemma_expiry_transitive_nonincreasing` | A second attenuation step cannot increase expiry past the first or root parent |
 
-### Capability Grant Attenuation (`verified_capability_grant.rs`) — 8 verified items, CAP-GRANT-1–CAP-GRANT-4
+### Capability Grant Attenuation (`verified_capability_grant.rs`) — 10 verified items, CAP-GRANT-1–CAP-GRANT-4
 
 Properties proven for ALL possible inputs:
 
@@ -274,7 +281,7 @@ Properties proven for ALL possible inputs:
 | CAP-GRANT-3 | Invocation bound attenuation | A limited parent rejects unlimited or larger child `max_invocations` |
 | CAP-GRANT-4 | Unlimited-parent shape equivalence | When the parent is unlimited, only the restriction-shape checks remain |
 
-Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -287,7 +294,7 @@ Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_limited_parent_accepts_smaller_child_limit` | A smaller positive child bound is accepted when restriction shapes are preserved |
 | `lemma_unlimited_parent_leaves_only_shape_checks` | With unlimited parent invocations, attenuation reduces to the shape-preservation checks |
 
-### Capability Literal Fast Paths (`verified_capability_literal.rs`) — 9 verified items, CAP-LIT-1–CAP-LIT-4
+### Capability Literal Fast Paths (`verified_capability_literal.rs`) — 11 verified items, CAP-LIT-1–CAP-LIT-4
 
 Properties proven for ALL possible inputs:
 
@@ -298,7 +305,7 @@ Properties proven for ALL possible inputs:
 | CAP-LIT-3 | Literal-child subset acceptance | A literal child is accepted by the subset fast path iff the parent runtime matcher accepts the literal child |
 | CAP-LIT-4 | Child-glob exclusion | Child patterns containing `*` or `?` can never use the literal-child subset branch |
 
-Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -311,7 +318,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_mismatching_literal_child_is_denied` | A mismatching literal child is rejected by the subset fast path |
 | `lemma_child_glob_cannot_use_literal_subset_branch` | A child glob can never be accepted by the literal-child subset branch |
 
-### Capability Pattern Attenuation (`verified_capability_pattern.rs`) — 10 verified items, CAP-PAT-1–CAP-PAT-4
+### Capability Pattern Attenuation (`verified_capability_pattern.rs`) — 12 verified items, CAP-PAT-1–CAP-PAT-4
 
 Properties proven for ALL possible inputs:
 
@@ -322,7 +329,7 @@ Properties proven for ALL possible inputs:
 | CAP-PAT-3 | Wildcard/equality fast path | Wildcard parents and identical patterns always pass the guard |
 | CAP-PAT-4 | Literal-child fallthrough | Literal children always fall through to the runtime matcher instead of being rejected by the guard |
 
-Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -334,7 +341,7 @@ Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_literal_child_falls_through` | Literal child patterns are not rejected by the guard |
 | `lemma_accepted_child_glob_requires_wildcard_or_equality` | An accepted child glob must be justified by wildcard parent or equality |
 
-### Entropy Alert Gate (`verified_entropy_gate.rs`) — 11 verified items, ENT-GATE-1–ENT-GATE-5
+### Entropy Alert Gate (`verified_entropy_gate.rs`) — 13 verified items, ENT-GATE-1–ENT-GATE-5
 
 Properties proven for ALL possible inputs:
 
@@ -346,7 +353,7 @@ Properties proven for ALL possible inputs:
 | ENT-GATE-4 | Severity tier mapping | Counts at or above the doubled threshold map to `High`, otherwise `Medium` |
 | ENT-GATE-5 | Optional alert severity | `entropy_alert_severity` returns `None` below threshold and `Some(level)` otherwise |
 
-Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -356,7 +363,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_threshold_alerts_medium` | In the non-saturating range, hitting the exact threshold yields `Medium` severity |
 | `lemma_high_severity_threshold_alerts_high` | Hitting the saturated high-severity threshold always yields `High` |
 
-### Path Normalization (`verified_path.rs`) — 31 verified items; V9-V10 fully proved
+### Path Normalization (`verified_path.rs`) — 33 verified items; V9-V10 fully proved
 
 Current status for ALL possible inputs:
 
@@ -365,7 +372,7 @@ Current status for ALL possible inputs:
 | V9 | Idempotence | Fully proved: `normalize(normalize(x)) = normalize(x)` |
 | V10 | No traversal in output | Fully proved: normalized output never contains `..` component |
 
-Verification result: **31 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **33 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Discharged Helper Lemmas
 
@@ -386,7 +393,7 @@ Path idempotence is also independently proved elsewhere in the suite:
 - Coq: `formal/coq/Vellaveto/PathNormalization.v`
 - Kani: `proof_path_normalize_idempotent` in `formal/kani/src/proofs.rs`
 
-### DLP Buffer Arithmetic (`verified_dlp_core.rs`) — 14 proofs, D1-D6
+### DLP Buffer Arithmetic (`verified_dlp_core.rs`) — 16 proofs, D1-D6
 
 Properties proven for ALL possible inputs:
 
@@ -399,7 +406,7 @@ Properties proven for ALL possible inputs:
 | D5 | No arithmetic underflow | Saturating subtraction prevents wrapping |
 | D6 | Overlap completeness | Secret <= 2 * overlap split at `split_point <= overlap_size` fully covered (first fragment must fit in tail buffer) |
 
-Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **16 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -411,7 +418,7 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_capacity_fail_closed` | At max_fields, can_track_field is always false |
 | `lemma_ascii_all_boundaries` | For ASCII input, all bytes are char boundaries |
 
-### Cross-Call DLP Tracker Gate (`verified_cross_call_dlp.rs`) — 9 verified items, CC-DLP-1–CC-DLP-5
+### Cross-Call DLP Tracker Gate (`verified_cross_call_dlp.rs`) — 11 verified items, CC-DLP-1–CC-DLP-5
 
 Properties proven for ALL possible inputs:
 
@@ -423,7 +430,7 @@ Properties proven for ALL possible inputs:
 | CC-DLP-4 | New field below capacity with budget updates | A new field is admitted only when both field-count and byte-budget gates pass |
 | CC-DLP-5 | Capacity finding implies update blocked | For new fields, the synthetic fail-closed finding and update denial stay aligned |
 
-Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -455,6 +462,9 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
 | `formal/verus/verified_path.rs` | `vellaveto-engine/src/path.rs` | Byte-level equivalent of `normalize_decoded_path`, called by `normalize_path_bounded()` after decode/backslash normalization |
+| `formal/verus/assumptions.rs` | `formal/ASSUMPTION_REGISTRY.md` | Shared Verus-facing kernel-assumption map for the canonical trust-boundary registry |
+| `formal/verus/merkle_boundary_axioms.rs` | `formal/MERKLE_TRUST_BOUNDARY.md` and `vellaveto-audit/src/trusted_merkle_hash.rs` | Trusted proof-facing Merkle hash/codec axiom surface used by the shared assumptions layer |
+| `formal/verus/audit_fs_boundary_axioms.rs` | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` and `vellaveto-audit/src/trusted_audit_fs.rs` | Trusted proof-facing audit-filesystem axiom surface used by the shared assumptions layer |
 
 The executable logic is semantically equivalent — Verus annotations (`ensures`,
 `requires`, `invariant`, `decreases`, `proof fn`) are erased during normal
@@ -471,52 +481,52 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
-# Audit append/recovery counter transitions (17 verified)
+# Audit append/recovery counter transitions (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_append.rs
 
-# Audit-chain verification guard (17 verified)
+# Audit-chain verification guard (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_chain.rs
 
-# Merkle append/init/proof-shape fail-closed guards (21 verified)
+# Merkle append/init/proof-shape fail-closed guards (23 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
 
-# Merkle next-level/proof-fold/peak-fold structure (15 verified)
+# Merkle next-level/proof-fold/peak-fold structure (17 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_fold.rs
 
-# Merkle proof sibling/orientation/parent structure (13 verified)
+# Merkle proof sibling/orientation/parent structure (15 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle_path.rs
 
-# Cross-rotation manifest linkage/path-safety guards (14 verified)
+# Cross-rotation manifest linkage/path-safety guards (16 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rotation_manifest.rs
 
-# Capability attenuation depth/expiry kernel (11 verified)
+# Capability attenuation depth/expiry kernel (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
 
-# Capability grant restriction/invocation kernel (8 verified)
+# Capability grant restriction/invocation kernel (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
-# Capability literal fast paths (9 verified)
+# Capability literal fast paths (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_literal.rs
 
-# Capability child-glob rejection guard (10 verified)
+# Capability child-glob rejection guard (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
 
-# Constraint evaluation fail-closed control flow (12 verified)
+# Constraint evaluation fail-closed control flow (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
 
-# Core verdict + rule override (12 verified)
+# Core verdict + rule override (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
-# Fixed-point entropy alert gate (11 verified)
+# Fixed-point entropy alert gate (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_entropy_gate.rs
 
-# Cross-call DLP tracker gate (9 verified)
+# Cross-call DLP tracker gate (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cross_call_dlp.rs
 
-# DLP buffer arithmetic (14 verified)
+# DLP buffer arithmetic (16 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization no-traversal (31 verified)
+# Path normalization no-traversal (33 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 
 # Option 2: From source
@@ -542,22 +552,22 @@ verus formal/verus/verified_path.rs
 ```
 
 Expected output:
-- `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
-- `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
-- `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
-- `verified_merkle_fold.rs`: `verification results:: 15 verified, 0 errors`
-- `verified_merkle_path.rs`: `verification results:: 13 verified, 0 errors`
-- `verified_rotation_manifest.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
-- `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`
-- `verified_capability_pattern.rs`: `verification results:: 10 verified, 0 errors`
-- `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
-- `verified_core.rs`: `verification results:: 12 verified, 0 errors`
-- `verified_entropy_gate.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_cross_call_dlp.rs`: `verification results:: 9 verified, 0 errors`
-- `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
-- `verified_path.rs`: `verification results:: 31 verified, 0 errors`
+- `verified_audit_append.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_audit_chain.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_merkle.rs`: `verification results:: 23 verified, 0 errors`
+- `verified_merkle_fold.rs`: `verification results:: 17 verified, 0 errors`
+- `verified_merkle_path.rs`: `verification results:: 15 verified, 0 errors`
+- `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
+- `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_capability_grant.rs`: `verification results:: 10 verified, 0 errors`
+- `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_constraint_eval.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_core.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_entropy_gate.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_cross_call_dlp.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_dlp_core.rs`: `verification results:: 16 verified, 0 errors`
+- `verified_path.rs`: `verification results:: 33 verified, 0 errors`
 
 ## Trust Boundary
 

@@ -19,6 +19,9 @@
 //! To verify:
 //!   `verus --triggers-mode silent formal/verus/verified_merkle_fold.rs`
 
+#[path = "assumptions.rs"]
+mod assumptions;
+
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
@@ -370,6 +373,12 @@ pub proof fn lemma_proof_reconstructs_root(level: Seq<Seq<int>>, node_index: nat
             == root_from_level(level),
 {
     lemma_proof_reconstructs_root_with_fuel(level, node_index, level.len() as nat);
+}
+
+pub proof fn lemma_named_assumptions_registered_for_this_kernel()
+    ensures assumptions::merkle_fold_kernel_assumptions_registered(),
+{
+    assumptions::lemma_shared_formal_assumptions_registered();
 }
 
 fn main() {}
