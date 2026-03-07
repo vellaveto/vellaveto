@@ -120,8 +120,42 @@ impl SecurityPostureScore {
         if self.generated_at.len() > MAX_POSTURE_STRING_LEN {
             return Err("generated_at too long".to_string());
         }
+        // SECURITY (R243-TYP-3): Validate string content — these flow into
+        // API responses, dashboards, and audit trails.
+        if crate::core::has_dangerous_chars(&self.generated_at) {
+            return Err("generated_at contains control or format characters".to_string());
+        }
         if self.tier.len() > MAX_POSTURE_STRING_LEN {
             return Err("tier too long".to_string());
+        }
+        if crate::core::has_dangerous_chars(&self.tier) {
+            return Err("tier contains control or format characters".to_string());
+        }
+        if self.scope.kind.len() > MAX_POSTURE_STRING_LEN
+            || crate::core::has_dangerous_chars(&self.scope.kind)
+        {
+            return Err("scope.kind invalid".to_string());
+        }
+        if let Some(ref tenant) = self.scope.tenant {
+            if tenant.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(tenant)
+            {
+                return Err("scope.tenant invalid".to_string());
+            }
+        }
+        for c in &self.categories {
+            if c.name.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(&c.name)
+            {
+                return Err("category name invalid".to_string());
+            }
+        }
+        for f in &self.frameworks {
+            if f.name.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(&f.name)
+            {
+                return Err("framework name invalid".to_string());
+            }
         }
         Ok(())
     }
@@ -157,6 +191,47 @@ impl PostureGapReport {
                 self.high_priority_focus_areas.len()
             ));
         }
+        // SECURITY (R243-TYP-3): Validate string content.
+        if self.generated_at.len() > MAX_POSTURE_STRING_LEN
+            || crate::core::has_dangerous_chars(&self.generated_at)
+        {
+            return Err("generated_at invalid".to_string());
+        }
+        if let Some(ref tenant) = self.scope.tenant {
+            if tenant.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(tenant)
+            {
+                return Err("scope.tenant invalid".to_string());
+            }
+        }
+        for gap in &self.critical_gaps {
+            for (name, val) in [
+                ("framework", &gap.framework),
+                ("item_id", &gap.item_id),
+                ("severity", &gap.severity),
+                ("description", &gap.description),
+            ] {
+                if val.len() > MAX_POSTURE_STRING_LEN
+                    || crate::core::has_dangerous_chars(val)
+                {
+                    return Err(format!("critical_gap {name} invalid"));
+                }
+            }
+        }
+        for (i, rec) in self.recommendations.iter().enumerate() {
+            if rec.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(rec)
+            {
+                return Err(format!("recommendations[{i}] invalid"));
+            }
+        }
+        for (i, area) in self.high_priority_focus_areas.iter().enumerate() {
+            if area.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(area)
+            {
+                return Err(format!("high_priority_focus_areas[{i}] invalid"));
+            }
+        }
         Ok(())
     }
 }
@@ -189,6 +264,67 @@ pub struct ControlCoverageMatrix {
     pub frameworks: Vec<ControlCoverageSummary>,
     /// Short operator-facing notes that explain how to interpret the matrix.
     pub highlights: Vec<String>,
+}
+
+impl ControlCoverageMatrix {
+    /// SECURITY (R243-TYP-3): Validate coverage matrix for NaN/Infinity, bounds, and string content.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.overall_coverage_percent.is_finite()
+            || !(0.0..=100.0).contains(&self.overall_coverage_percent)
+        {
+            return Err(format!(
+                "overall_coverage_percent {} is not in [0.0, 100.0]",
+                self.overall_coverage_percent
+            ));
+        }
+        if self.frameworks.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "frameworks count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.frameworks.len()
+            ));
+        }
+        if self.highlights.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "highlights count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.highlights.len()
+            ));
+        }
+        if self.generated_at.len() > MAX_POSTURE_STRING_LEN
+            || crate::core::has_dangerous_chars(&self.generated_at)
+        {
+            return Err("generated_at invalid".to_string());
+        }
+        if let Some(ref tenant) = self.scope.tenant {
+            if tenant.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(tenant)
+            {
+                return Err("scope.tenant invalid".to_string());
+            }
+        }
+        for f in &self.frameworks {
+            if !f.coverage_percent.is_finite()
+                || !(0.0..=100.0).contains(&f.coverage_percent)
+            {
+                return Err(format!(
+                    "framework coverage_percent {} is not in [0.0, 100.0]",
+                    f.coverage_percent
+                ));
+            }
+            if f.framework.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(&f.framework)
+            {
+                return Err("framework name invalid".to_string());
+            }
+        }
+        for (i, h) in self.highlights.iter().enumerate() {
+            if h.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(h)
+            {
+                return Err(format!("highlights[{i}] invalid"));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// A normalized remediation gap in the posture API.
@@ -240,4 +376,42 @@ pub struct PostureEvidencePackExport {
     pub high_priority_focus_areas: Vec<String>,
     /// Framework-specific evidence pack payload.
     pub evidence_pack: serde_json::Value,
+}
+
+impl PostureEvidencePackExport {
+    /// SECURITY (R243-TYP-3): Validate evidence pack export.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.generated_at.len() > MAX_POSTURE_STRING_LEN
+            || crate::core::has_dangerous_chars(&self.generated_at)
+        {
+            return Err("generated_at invalid".to_string());
+        }
+        if self.framework.len() > MAX_POSTURE_STRING_LEN
+            || crate::core::has_dangerous_chars(&self.framework)
+        {
+            return Err("framework invalid".to_string());
+        }
+        if let Some(ref tenant) = self.scope.tenant {
+            if tenant.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(tenant)
+            {
+                return Err("scope.tenant invalid".to_string());
+            }
+        }
+        self.posture.validate()?;
+        if self.high_priority_focus_areas.len() > MAX_POSTURE_ITEMS {
+            return Err(format!(
+                "high_priority_focus_areas count {} exceeds max {MAX_POSTURE_ITEMS}",
+                self.high_priority_focus_areas.len()
+            ));
+        }
+        for (i, area) in self.high_priority_focus_areas.iter().enumerate() {
+            if area.len() > MAX_POSTURE_STRING_LEN
+                || crate::core::has_dangerous_chars(area)
+            {
+                return Err(format!("high_priority_focus_areas[{i}] invalid"));
+            }
+        }
+        Ok(())
+    }
 }

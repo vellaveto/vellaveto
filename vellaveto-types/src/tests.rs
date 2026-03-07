@@ -10929,3 +10929,130 @@ fn test_tracked_task_validate_rejects_bad_status_reason() {
     let err = task.validate().unwrap_err();
     assert!(err.contains("status"), "Error should mention status: {err}");
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// R243-TYP-3: Posture types string content validation
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_security_posture_score_validate_dangerous_generated_at() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-01-01T00:00:00Z\x00".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: 85.0,
+        tier: "good".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    let err = score.validate().unwrap_err();
+    assert!(err.contains("generated_at"), "Error: {err}");
+}
+
+#[test]
+fn test_security_posture_score_validate_dangerous_tier() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: 85.0,
+        tier: "good\nnewline".to_string(),
+        categories: vec![],
+        frameworks: vec![],
+    };
+    let err = score.validate().unwrap_err();
+    assert!(err.contains("tier"), "Error: {err}");
+}
+
+#[test]
+fn test_security_posture_score_validate_dangerous_category_name() {
+    let score = crate::posture::SecurityPostureScore {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_score_percent: 85.0,
+        tier: "good".to_string(),
+        categories: vec![crate::posture::PostureCategoryScore {
+            name: "cat\u{200B}name".to_string(),
+            score_percent: 90.0,
+            inputs: 5,
+        }],
+        frameworks: vec![],
+    };
+    let err = score.validate().unwrap_err();
+    assert!(err.contains("category name"), "Error: {err}");
+}
+
+#[test]
+fn test_posture_gap_report_validate_dangerous_gap_description() {
+    let report = crate::posture::PostureGapReport {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_coverage_percent: 70.0,
+        critical_gaps: vec![crate::posture::PostureGap {
+            framework: "SOC2".to_string(),
+            item_id: "CC6.1".to_string(),
+            severity: "High".to_string(),
+            description: "desc\x00ription".to_string(),
+        }],
+        recommendations: vec![],
+        high_priority_focus_areas: vec![],
+    };
+    let err = report.validate().unwrap_err();
+    assert!(err.contains("description"), "Error: {err}");
+}
+
+#[test]
+fn test_control_coverage_matrix_validate_ok() {
+    let matrix = crate::posture::ControlCoverageMatrix {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_coverage_percent: 80.0,
+        frameworks: vec![],
+        highlights: vec!["All good".to_string()],
+    };
+    assert!(matrix.validate().is_ok());
+}
+
+#[test]
+fn test_control_coverage_matrix_validate_nan_coverage() {
+    let matrix = crate::posture::ControlCoverageMatrix {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_coverage_percent: f32::NAN,
+        frameworks: vec![],
+        highlights: vec![],
+    };
+    assert!(matrix.validate().is_err());
+}
+
+#[test]
+fn test_control_coverage_matrix_validate_dangerous_highlight() {
+    let matrix = crate::posture::ControlCoverageMatrix {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        overall_coverage_percent: 80.0,
+        frameworks: vec![],
+        highlights: vec!["note\nnewline".to_string()],
+    };
+    let err = matrix.validate().unwrap_err();
+    assert!(err.contains("highlights"), "Error: {err}");
+}
+
+#[test]
+fn test_posture_evidence_pack_validate_dangerous_framework() {
+    let export = crate::posture::PostureEvidencePackExport {
+        generated_at: "2026-01-01T00:00:00Z".to_string(),
+        framework: "SOC2\x00".to_string(),
+        scope: crate::posture::PostureScope::global(),
+        posture: crate::posture::SecurityPostureScore {
+            generated_at: "2026-01-01T00:00:00Z".to_string(),
+            scope: crate::posture::PostureScope::global(),
+            overall_score_percent: 85.0,
+            tier: "good".to_string(),
+            categories: vec![],
+            frameworks: vec![],
+        },
+        high_priority_focus_areas: vec![],
+        evidence_pack: serde_json::json!({}),
+    };
+    let err = export.validate().unwrap_err();
+    assert!(err.contains("framework"), "Error: {err}");
+}
