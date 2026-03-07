@@ -74,8 +74,10 @@ PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
+PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
+VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
 PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
 VERUS_ENTROPY="$PROJECT_DIR/formal/verus/verified_entropy_gate.rs"
@@ -155,6 +157,25 @@ check_symbol_parity \
     'verified_capability_attenuation::attenuated_expiry_epoch' \
     "$VERUS_CAPABILITY_ATTENUATION" \
     'pub[[:space:]]+fn[[:space:]]+attenuated_expiry_epoch'
+echo ""
+
+echo "--- Capability Grant Kernel ---"
+check_file_pair \
+    "verified_capability_grant.rs ↔ vellaveto-mcp/src/verified_capability_grant.rs" \
+    "$PROD_CAPABILITY_GRANT" \
+    "$VERUS_CAPABILITY_GRANT"
+check_symbol_parity \
+    "grant_restrictions_attenuated exists in production and Verus" \
+    "$PROD_CAPABILITY_GRANT" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated' \
+    "$VERUS_CAPABILITY_GRANT" \
+    'pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated'
+check_symbol_parity \
+    "capability grant subset uses verified restriction gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_grant::grant_restrictions_attenuated' \
+    "$VERUS_CAPABILITY_GRANT" \
+    'pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated'
 echo ""
 
 echo "--- Entropy Alert Gate ---"

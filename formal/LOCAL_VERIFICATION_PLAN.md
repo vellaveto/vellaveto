@@ -32,6 +32,8 @@ Completed now:
   - constraint evaluation fail-closed control flow
   - capability attenuation arithmetic in
     `vellaveto-mcp/src/verified_capability_attenuation.rs`
+  - capability grant restriction/invocation attenuation in
+    `vellaveto-mcp/src/verified_capability_grant.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
   - cross-call tracker field-capacity/update gate in
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
@@ -127,6 +129,7 @@ Must have:
 Current status:
 - arithmetic attenuation kernel landed for remaining-depth decrement and expiry
   clamping
+- grant restriction-shape and `max_invocations` attenuation kernel landed
 - grant subset semantics, holder/issuer chain semantics, and revocation are
   still outside the Verus boundary
 

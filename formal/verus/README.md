@@ -2,8 +2,8 @@
 
 Deductive verification of Vellaveto's core verdict computation, constraint
 evaluation fail-closed control flow, capability attenuation arithmetic,
-fixed-point entropy alert gating, cross-call DLP tracker gating, DLP buffer
-arithmetic, and path normalization using
+capability grant attenuation, fixed-point entropy alert gating, cross-call DLP
+tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -85,6 +85,30 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_parent_expiry_is_fail_closed` | An already expired parent cannot produce a child expiry |
 | `lemma_ttl_limit_is_fail_closed` | A TTL above policy cannot produce a child expiry |
 | `lemma_expiry_transitive_nonincreasing` | A second attenuation step cannot increase expiry past the first or root parent |
+
+### Capability Grant Attenuation (`verified_capability_grant.rs`) — 8 verified items, CAP-GRANT-1–CAP-GRANT-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-GRANT-1 | Path restriction preservation | A child cannot drop required path restrictions when the parent has them |
+| CAP-GRANT-2 | Domain restriction preservation | A child cannot drop required domain restrictions when the parent has them |
+| CAP-GRANT-3 | Invocation bound attenuation | A limited parent rejects unlimited or larger child `max_invocations` |
+| CAP-GRANT-4 | Unlimited-parent shape equivalence | When the parent is unlimited, only the restriction-shape checks remain |
+
+Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_path_restrictions_cannot_be_dropped` | A parent path restriction cannot be erased by the child |
+| `lemma_domain_restrictions_cannot_be_dropped` | A parent domain restriction cannot be erased by the child |
+| `lemma_limited_parent_rejects_unlimited_child` | A limited parent cannot delegate an unlimited child |
+| `lemma_limited_parent_rejects_larger_child_limit` | A child invocation bound cannot exceed the parent's limit |
+| `lemma_limited_parent_accepts_smaller_child_limit` | A smaller positive child bound is accepted when restriction shapes are preserved |
+| `lemma_unlimited_parent_leaves_only_shape_checks` | With unlimited parent invocations, attenuation reduces to the shape-preservation checks |
 
 ### Entropy Alert Gate (`verified_entropy_gate.rs`) — 11 verified items, ENT-GATE-1–ENT-GATE-5
 
@@ -194,6 +218,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
+| `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
@@ -216,6 +241,9 @@ rustup install 1.93.1-x86_64-unknown-linux-gnu
 
 # Capability attenuation depth/expiry kernel (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
+
+# Capability grant restriction/invocation kernel (8 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
 # Constraint evaluation fail-closed control flow (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
@@ -240,6 +268,7 @@ git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
 verus formal/verus/verified_capability_attenuation.rs
+verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_entropy_gate.rs
@@ -250,6 +279,7 @@ verus formal/verus/verified_path.rs
 
 Expected output:
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_entropy_gate.rs`: `verification results:: 11 verified, 0 errors`
@@ -268,6 +298,7 @@ Verus trusts:
 
 Verus does NOT verify:
 - The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
+- Full pattern-language containment in `capability_token.rs` (glob/path/domain matching still relies on runtime checks and tests)
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 

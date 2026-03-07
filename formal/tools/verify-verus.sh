@@ -16,6 +16,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 FILES=(
     "formal/verus/verified_capability_attenuation.rs"
+    "formal/verus/verified_capability_grant.rs"
     "formal/verus/verified_constraint_eval.rs"
     "formal/verus/verified_cross_call_dlp.rs"
     "formal/verus/verified_core.rs"

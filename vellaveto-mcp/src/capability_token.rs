@@ -31,6 +31,7 @@ use vellaveto_types::{
 };
 
 use crate::verified_capability_attenuation;
+use crate::verified_capability_grant;
 
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
@@ -651,14 +652,21 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     if !pattern_is_subset(&parent_grant.function_pattern, &new_grant.function_pattern) {
         return false;
     }
+    if !verified_capability_grant::grant_restrictions_attenuated(
+        !parent_grant.allowed_paths.is_empty(),
+        !new_grant.allowed_paths.is_empty(),
+        !parent_grant.allowed_domains.is_empty(),
+        !new_grant.allowed_domains.is_empty(),
+        parent_grant.max_invocations,
+        new_grant.max_invocations,
+    ) {
+        return false;
+    }
     // SECURITY (FIND-FV46-001): If parent has path restrictions, child MUST also
     // have non-empty path restrictions. An empty child `allowed_paths` means
     // "unrestricted", which is strictly more permissive than the parent's
     // restrictions — violating monotonic attenuation.
     if !parent_grant.allowed_paths.is_empty() {
-        if new_grant.allowed_paths.is_empty() {
-            return false; // Child drops parent's path restrictions — escalation
-        }
         for path in &new_grant.allowed_paths {
             // SECURITY (FIND-R46-004): Normalize path patterns in the child grant
             // before checking subset containment. Without normalization, a child
@@ -684,9 +692,6 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     // SECURITY (FIND-FV46-001): Same check for domains — child must not drop
     // parent's domain restrictions.
     if !parent_grant.allowed_domains.is_empty() {
-        if new_grant.allowed_domains.is_empty() {
-            return false; // Child drops parent's domain restrictions — escalation
-        }
         for domain in &new_grant.allowed_domains {
             let covered = parent_grant
                 .allowed_domains
@@ -696,15 +701,6 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
                 return false;
             }
         }
-    }
-    // SECURITY (FIND-FV46-002): max_invocations must be monotonically attenuated.
-    // If parent limits invocations (> 0), child must also limit and not exceed.
-    // A value of 0 means "unlimited" — child cannot be unlimited if parent limits.
-    if parent_grant.max_invocations > 0
-        && (new_grant.max_invocations == 0
-            || new_grant.max_invocations > parent_grant.max_invocations)
-    {
-        return false;
     }
     true
 }
