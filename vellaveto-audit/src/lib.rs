@@ -35,7 +35,9 @@ mod redaction;
 mod rotation;
 mod types;
 mod verification;
+pub(crate) mod verified_audit_append;
 pub(crate) mod verified_audit_chain;
+pub(crate) mod verified_merkle;
 
 // ── Phase 19: Immutable audit log archive ────────────────────────────────────
 #[cfg(feature = "archive")]

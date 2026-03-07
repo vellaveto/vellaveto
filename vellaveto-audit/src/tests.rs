@@ -9,6 +9,7 @@ use super::*;
 use ed25519_dalek::Signer;
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use tempfile::TempDir;
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
@@ -1019,6 +1020,74 @@ async fn test_rotation_starts_fresh_hash_chain() {
 
     let verification = logger.verify_chain().await.unwrap();
     assert!(verification.valid);
+}
+
+#[tokio::test]
+async fn test_rotation_preserves_unique_monotonic_global_sequences() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone()).with_max_file_size(200);
+
+    let action = test_action();
+    let total_entries = 20u64;
+
+    for _ in 0..total_entries {
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+    }
+
+    let mut all_entries = Vec::new();
+    let mut rotated = logger.list_rotated_files().unwrap();
+    rotated.sort();
+
+    for rotated_path in rotated {
+        let rotated_logger = AuditLogger::new(rotated_path).with_max_file_size(0);
+        all_entries.extend(rotated_logger.load_entries().await.unwrap());
+    }
+    let active_entries = logger.load_entries().await.unwrap();
+    all_entries.extend(active_entries.iter().cloned());
+
+    assert_eq!(all_entries.len() as u64, total_entries);
+
+    let mut sequences: Vec<u64> = all_entries.iter().map(|entry| entry.sequence).collect();
+    sequences.sort_unstable();
+    assert_eq!(sequences, (0..total_entries).collect::<Vec<_>>());
+    assert_eq!(logger.global_sequence.load(Ordering::SeqCst), total_entries);
+    assert_eq!(
+        logger.entry_count.load(Ordering::SeqCst),
+        active_entries.len() as u64
+    );
+}
+
+#[tokio::test]
+async fn test_initialize_chain_recovers_next_global_sequence() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+    let action = test_action();
+
+    for _ in 0..3 {
+        logger
+            .log_entry(&action, &Verdict::Allow, json!({}))
+            .await
+            .unwrap();
+    }
+
+    let recovered = AuditLogger::new(log_path);
+    recovered.initialize_chain().await.unwrap();
+
+    assert_eq!(recovered.global_sequence.load(Ordering::SeqCst), 3);
+
+    recovered
+        .log_entry(&action, &Verdict::Allow, json!({}))
+        .await
+        .unwrap();
+
+    let entries = recovered.load_entries().await.unwrap();
+    assert_eq!(entries.len(), 4);
+    assert_eq!(entries.last().unwrap().sequence, 3);
 }
 
 #[tokio::test]

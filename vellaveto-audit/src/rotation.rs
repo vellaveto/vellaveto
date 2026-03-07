@@ -7,6 +7,7 @@
 
 use crate::logger::AuditLogger;
 use crate::types::{AuditEntry, AuditError, RotationVerification};
+use crate::verified_audit_append;
 use chrono::Utc;
 use ed25519_dalek::{Signer, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
@@ -64,8 +65,10 @@ impl AuditLogger {
         // If no entries exist or none have a sequence field, start from 0.
         let max_sequence = entries.iter().map(|e| e.sequence).max().unwrap_or(0);
         // Start the next sequence one past the highest observed value.
-        self.global_sequence
-            .store(max_sequence.saturating_add(1), Ordering::SeqCst);
+        self.global_sequence.store(
+            verified_audit_append::next_sequence_after_recovery(max_sequence),
+            Ordering::SeqCst,
+        );
 
         // Initialize Merkle tree from existing leaf file (if enabled)
         if let Some(ref merkle) = self.merkle_tree {

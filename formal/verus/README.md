@@ -1,7 +1,8 @@
 # Verus Formal Verification
 
 Deductive verification of Vellaveto's core verdict computation, constraint
-evaluation fail-closed control flow, audit-chain verification guards,
+evaluation fail-closed control flow, audit append/recovery counter transitions,
+audit-chain verification guards, Merkle append/init/proof-shape guards,
 capability attenuation arithmetic, capability grant attenuation, capability
 literal matching fast paths, capability pattern attenuation, fixed-point
 entropy alert gating, cross-call DLP tracker gating, DLP buffer arithmetic,
@@ -63,6 +64,35 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_forbidden_precedes_approval` | Forbidden parameter presence overrides `require_approval` and yields `Deny` |
 | `lemma_no_match_continue_is_only_continue` | `Continue` is reachable only on the explicit no-match path |
 
+### Audit Append/Recovery Counters (`verified_audit_append.rs`) — 17 verified items, AUD-APP-1–AUD-APP-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| AUD-APP-1 | Rotation resets per-file count | A rotation reset always sets `entry_count` to `0` before the next append |
+| AUD-APP-2 | Per-file append count saturates monotonically | Each successful append increments the per-file `entry_count`, saturating at `u64::MAX` |
+| AUD-APP-3 | Assigned sequence is the pre-append snapshot | The sequence written into a new entry is exactly the current `global_sequence` value before increment |
+| AUD-APP-4 | Global sequence saturates monotonically | Each successful append increments `global_sequence`, saturating at `u64::MAX` |
+| AUD-APP-5 | Recovery resumes at one past the highest observed sequence | Restart recovery sets the next `global_sequence` to `max_observed_sequence + 1`, saturating at `u64::MAX` |
+
+Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_rotation_resets_entry_count` | A rotation reset always yields per-file count `0` |
+| `lemma_rotation_then_append_yields_one` | Resetting on rotation and then appending yields per-file count `1` |
+| `lemma_assigned_sequence_is_identity` | The assigned sequence is exactly the pre-append `global_sequence` |
+| `lemma_entry_count_increments_when_not_saturated` | A non-saturated per-file counter increases by exactly one |
+| `lemma_entry_count_saturates_at_u64_max` | A saturated per-file counter stays pinned at `u64::MAX` |
+| `lemma_global_sequence_increments_when_not_saturated` | A non-saturated global sequence increases by exactly one |
+| `lemma_global_sequence_saturates_at_u64_max` | A saturated global sequence stays pinned at `u64::MAX` |
+| `lemma_assigned_sequence_precedes_next_global_sequence` | The assigned sequence can never exceed the post-append global sequence |
+| `lemma_recovery_sequence_advances_when_not_saturated` | Recovery advances one past the highest observed sequence when unsaturated |
+| `lemma_recovery_sequence_saturates_at_u64_max` | Recovery stays pinned at `u64::MAX` when the observed maximum is saturated |
+
 ### Audit-Chain Verification Guard (`verified_audit_chain.rs`) — 17 verified items, AUD-CHAIN-1–AUD-CHAIN-5
 
 Properties proven for ALL possible inputs:
@@ -91,6 +121,38 @@ Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_unhashed_step_ignores_hash_booleans` | Unhashed legacy steps depend only on the timestamp/sequence/hash-presence guards |
 | `lemma_seen_hashed_latches_true` | Once the verifier has seen a hashed entry, the state remains latched |
 | `lemma_next_prev_sequence_preserves_legacy_zero` | A zero-sequence legacy entry cannot overwrite the tracked non-zero sequence |
+
+### Merkle Fail-Closed Guards (`verified_merkle.rs`) — 21 verified items, MERKLE-1–MERKLE-6
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| MERKLE-1 | Append capacity fail-closed | An append is accepted iff `leaf_count < max_leaf_count` |
+| MERKLE-2 | Stored leaf-count replay bound | Initialization accepts persisted state iff `leaf_count <= max_leaf_count` |
+| MERKLE-3 | Non-zero proof tree size | Merkle proof verification rejects `tree_size = 0` |
+| MERKLE-4 | Leaf index range check | Merkle proof verification rejects `leaf_index >= tree_size` |
+| MERKLE-5 | Proof depth bound | Merkle proof verification rejects sibling vectors longer than 64 steps |
+| MERKLE-6 | Sibling hash width check | Merkle proof verification rejects decoded sibling hashes whose length is not 32 bytes |
+
+Verification result: **21 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_append_rejects_at_limit` | An append at exactly the configured leaf limit is fail-closed |
+| `lemma_append_accepts_below_limit` | An append strictly below the configured leaf limit is accepted |
+| `lemma_stored_leaf_count_accepts_equal_limit` | Replaying persisted state exactly at the configured leaf limit is accepted |
+| `lemma_stored_leaf_count_rejects_over_limit` | Replaying persisted state above the configured leaf limit is rejected |
+| `lemma_zero_tree_size_rejected` | A Merkle proof claiming `tree_size = 0` can never pass the guard |
+| `lemma_positive_tree_size_accepted` | A positive Merkle `tree_size` satisfies the tree-size guard |
+| `lemma_leaf_index_out_of_range_rejected` | A proof leaf index at or above `tree_size` is rejected |
+| `lemma_leaf_index_in_range_accepted` | A proof leaf index strictly below `tree_size` satisfies the range guard |
+| `lemma_too_many_siblings_rejected` | A Merkle proof with more than 64 siblings is rejected |
+| `lemma_bounded_sibling_count_accepted` | A Merkle proof with at most 64 siblings satisfies the depth guard |
+| `lemma_hash_len_32_accepted` | A 32-byte decoded sibling hash satisfies the width guard |
+| `lemma_hash_len_non_32_rejected` | Any decoded sibling hash whose length is not 32 bytes is rejected |
 
 ### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 11 verified items, CAP-ATT-1–CAP-ATT-4
 
@@ -295,7 +357,9 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
+| `formal/verus/verified_audit_append.rs` | `vellaveto-audit/src/verified_audit_append.rs` | `logger.rs` routes rotation reset and counter updates through the verified append kernel, while `rotation.rs` routes restart recovery through the verified next-sequence helper |
 | `formal/verus/verified_audit_chain.rs` | `vellaveto-audit/src/verified_audit_chain.rs` | `verification.rs` routes timestamp, sequence, hash-presence, and hashed-step validation through the verified audit-chain kernel |
+| `formal/verus/verified_merkle.rs` | `vellaveto-audit/src/verified_merkle.rs` | `merkle.rs` routes append capacity, initialization replay bounds, and proof shape validation through the verified Merkle kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
@@ -320,8 +384,14 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
+# Audit append/recovery counter transitions (17 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_append.rs
+
 # Audit-chain verification guard (17 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_chain.rs
+
+# Merkle append/init/proof-shape fail-closed guards (21 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_merkle.rs
 
 # Capability attenuation depth/expiry kernel (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
@@ -357,7 +427,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_pat
 git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
+verus formal/verus/verified_audit_append.rs
 verus formal/verus/verified_audit_chain.rs
+verus formal/verus/verified_merkle.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
@@ -371,7 +443,9 @@ verus formal/verus/verified_path.rs
 ```
 
 Expected output:
+- `verified_audit_append.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
+- `verified_merkle.rs`: `verification results:: 21 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`
@@ -393,7 +467,7 @@ Verus trusts:
 - rustc codegen (LLVM)
 
 Verus does NOT verify:
-- Cryptographic collision resistance or filesystem append/durability semantics for the audit chain / Merkle layers
+- Cryptographic collision resistance, full Merkle root/proof correctness, or filesystem append/durability semantics for the audit chain / Merkle layers
 - The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
 - Full pattern-language containment in `capability_token.rs` (literal/glob matching and path/domain coverage still rely on runtime checks and tests)
 - String operations, glob/regex matching, Unicode normalization

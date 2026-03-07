@@ -26,6 +26,7 @@ use vellaveto_types::{Action, Verdict};
 
 use crate::pii::CustomPiiPattern;
 use crate::rotation::DEFAULT_MAX_FILE_SIZE;
+use crate::verified_audit_append;
 
 /// Append-only audit logger for policy evaluation decisions.
 ///
@@ -478,10 +479,13 @@ impl AuditLogger {
             *last_hash_guard = None; // New file = new hash chain
                                      // SECURITY (FIND-R52-AUDIT-002): Use SeqCst for sequence counter to prevent
                                      // reordering that could cause duplicate sequence numbers under concurrent access.
-            self.entry_count.store(0, Ordering::SeqCst); // Reset per-file counter for new file
-                                                         // SECURITY (FIND-R111-007): global_sequence is intentionally NOT reset here.
-                                                         // It must increase monotonically across rotations to prevent duplicate
-                                                         // sequence numbers across log files.
+            self.entry_count.store(
+                verified_audit_append::entry_count_after_rotation(),
+                Ordering::SeqCst,
+            ); // Reset per-file counter for new file
+               // SECURITY (FIND-R111-007): global_sequence is intentionally NOT reset here.
+               // It must increase monotonically across rotations to prevent duplicate
+               // sequence numbers across log files.
         }
 
         // SECURITY (R33-001): Assign monotonic sequence number BEFORE creating entry.
@@ -492,7 +496,8 @@ impl AuditLogger {
         // SECURITY (FIND-R111-007): Use global_sequence (never reset on rotation)
         // rather than entry_count (reset to 0 on each rotation) to prevent duplicate
         // sequence numbers across rotated log files.
-        let sequence = self.global_sequence.load(Ordering::SeqCst);
+        let sequence =
+            verified_audit_append::assigned_sequence(self.global_sequence.load(Ordering::SeqCst));
 
         // Phase 44: Extract tenant_id from metadata for per-tenant audit scoping.
         // The tenant_id is injected into metadata by build_evaluate_audit_metadata(),
@@ -636,14 +641,14 @@ impl AuditLogger {
         let _ = self
             .entry_count
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                Some(v.saturating_add(1))
+                Some(verified_audit_append::next_entry_count(v))
             });
         // SECURITY (FIND-R111-007): Also increment the global sequence counter that
         // is never reset on rotation, ensuring cross-rotation sequence uniqueness.
         let _ = self
             .global_sequence
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
-                Some(v.saturating_add(1))
+                Some(verified_audit_append::next_global_sequence(v))
             });
 
         // Phase 43: Dual-write to external sink (if configured).

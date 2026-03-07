@@ -73,14 +73,21 @@ VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
+PROD_AUDIT_APPEND="$PROJECT_DIR/vellaveto-audit/src/verified_audit_append.rs"
 PROD_AUDIT_CHAIN="$PROJECT_DIR/vellaveto-audit/src/verified_audit_chain.rs"
+PROD_AUDIT_APPEND_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/logger.rs"
 PROD_AUDIT_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/verification.rs"
+PROD_AUDIT_RECOVERY_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/rotation.rs"
+PROD_MERKLE="$PROJECT_DIR/vellaveto-audit/src/verified_merkle.rs"
+PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
+VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
+VERUS_MERKLE="$PROJECT_DIR/formal/verus/verified_merkle.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
@@ -139,6 +146,51 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
 echo ""
 
+echo "--- Audit Append Kernel ---"
+check_file_pair \
+    "verified_audit_append.rs ↔ vellaveto-audit/src/verified_audit_append.rs" \
+    "$PROD_AUDIT_APPEND" \
+    "$VERUS_AUDIT_APPEND"
+for fn in entry_count_after_rotation assigned_sequence next_entry_count next_global_sequence next_sequence_after_recovery; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_AUDIT_APPEND" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_AUDIT_APPEND" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "audit logger uses verified rotation reset" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'verified_audit_append::entry_count_after_rotation' \
+    "$VERUS_AUDIT_APPEND" \
+    'pub[[:space:]]+fn[[:space:]]+entry_count_after_rotation'
+check_symbol_parity \
+    "audit logger uses verified assigned sequence snapshot" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'verified_audit_append::assigned_sequence' \
+    "$VERUS_AUDIT_APPEND" \
+    'pub[[:space:]]+fn[[:space:]]+assigned_sequence'
+check_symbol_parity \
+    "audit logger uses verified per-file counter increment" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'verified_audit_append::next_entry_count' \
+    "$VERUS_AUDIT_APPEND" \
+    'pub[[:space:]]+fn[[:space:]]+next_entry_count'
+check_symbol_parity \
+    "audit logger uses verified global sequence increment" \
+    "$PROD_AUDIT_APPEND_WRAPPER" \
+    'verified_audit_append::next_global_sequence' \
+    "$VERUS_AUDIT_APPEND" \
+    'pub[[:space:]]+fn[[:space:]]+next_global_sequence'
+check_symbol_parity \
+    "audit recovery uses verified next sequence after restart" \
+    "$PROD_AUDIT_RECOVERY_WRAPPER" \
+    'verified_audit_append::next_sequence_after_recovery' \
+    "$VERUS_AUDIT_APPEND" \
+    'pub[[:space:]]+fn[[:space:]]+next_sequence_after_recovery'
+echo ""
+
 echo "--- Audit Chain Kernel ---"
 check_file_pair \
     "verified_audit_chain.rs ↔ vellaveto-audit/src/verified_audit_chain.rs" \
@@ -176,6 +228,57 @@ check_symbol_parity \
     'verified_audit_chain::audit_chain_step_valid' \
     "$VERUS_AUDIT_CHAIN" \
     'pub[[:space:]]+fn[[:space:]]+audit_chain_step_valid'
+echo ""
+
+echo "--- Merkle Kernel ---"
+check_file_pair \
+    "verified_merkle.rs ↔ vellaveto-audit/src/verified_merkle.rs" \
+    "$PROD_MERKLE" \
+    "$VERUS_MERKLE"
+for fn in append_allowed stored_leaf_count_valid proof_tree_size_valid proof_leaf_index_valid proof_sibling_count_valid sibling_hash_len_valid; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_MERKLE" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_MERKLE" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "merkle append uses verified capacity gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::append_allowed' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+append_allowed'
+check_symbol_parity \
+    "merkle initialize uses verified stored-count gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::stored_leaf_count_valid' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+stored_leaf_count_valid'
+check_symbol_parity \
+    "merkle proof verification uses verified sibling-count gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::proof_sibling_count_valid' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+proof_sibling_count_valid'
+check_symbol_parity \
+    "merkle proof verification uses verified tree-size gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::proof_tree_size_valid' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+proof_tree_size_valid'
+check_symbol_parity \
+    "merkle proof verification uses verified leaf-index gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::proof_leaf_index_valid' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+proof_leaf_index_valid'
+check_symbol_parity \
+    "merkle proof verification uses verified sibling hash-length gate" \
+    "$PROD_MERKLE_WRAPPER" \
+    'verified_merkle::sibling_hash_len_valid' \
+    "$VERUS_MERKLE" \
+    'pub[[:space:]]+fn[[:space:]]+sibling_hash_len_valid'
 echo ""
 
 echo "--- Capability Attenuation Kernel ---"

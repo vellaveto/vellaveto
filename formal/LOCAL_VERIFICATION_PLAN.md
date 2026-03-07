@@ -40,6 +40,10 @@ Completed now:
     `vellaveto-mcp/src/verified_capability_pattern.rs`
   - audit-chain verification guard in
     `vellaveto-audit/src/verified_audit_chain.rs`
+  - audit append/recovery counter kernel in
+    `vellaveto-audit/src/verified_audit_append.rs`
+  - Merkle append/init/proof-shape fail-closed guards in
+    `vellaveto-audit/src/verified_merkle.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
   - cross-call tracker field-capacity/update gate in
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
@@ -53,7 +57,8 @@ Known gaps against the March 6 plan:
 
 - No `formal/verus/Cargo.toml` or `cargo verus` entrypoint yet.
 - No Verus kernels yet for broader entropy math, split-detection/pattern
-  completeness, full capability delegation semantics, or Merkle proofs.
+  completeness, full capability delegation semantics, or broader Merkle
+  correctness proofs.
 - Refinement exists only as a documented map plus executable witnesses, not a
   machine-checked forward simulation.
 - Public-facing formal counts and paper text are still stale in places outside
@@ -143,12 +148,15 @@ Current status:
 ### Phase 4: Audit integrity kernel
 
 Must have:
-- `verified_audit_chain.rs`
-- `verified_merkle.rs`
-- explicit filesystem assumptions kept outside the proof boundary
+ - `verified_audit_append.rs`
+ - `verified_audit_chain.rs`
+ - `verified_merkle.rs`
+ - explicit filesystem assumptions kept outside the proof boundary
 
 Current status:
+- append/recovery counter kernel landed in Verus
 - per-entry audit-chain verification guard landed in Verus
+- Merkle append/init/proof-shape fail-closed guards landed in Verus
 - Merkle root/proof consistency and explicit filesystem assumptions are still
   outside the Verus boundary
 
@@ -193,8 +201,8 @@ Current status:
 2. Decide whether Phase 2 needs a real per-entry expiry model in
    `CrossCallDlpTracker` or whether the stale-entry invariant should move to the
    session-lifecycle boundary instead.
-3. Then expand into remaining capability containment, Merkle, and refinement
-   kernels.
+3. Then expand into remaining capability containment, broader Merkle
+   correctness, and refinement kernels.
 
 ## Working Rule
 

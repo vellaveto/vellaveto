@@ -19,6 +19,7 @@
 //! crash recovery and proof generation without replaying the full log.
 
 use crate::types::AuditError;
+use crate::verified_merkle;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
@@ -142,7 +143,7 @@ impl MerkleTree {
     /// peaks are updated. This is O(log n) amortized.
     pub fn append(&mut self, leaf_hash: [u8; 32]) -> Result<(), AuditError> {
         // SECURITY (FIND-R46-001): Reject appends that would exceed the max leaf count.
-        if self.leaf_count >= self.max_leaf_count {
+        if !verified_merkle::append_allowed(self.leaf_count, self.max_leaf_count) {
             return Err(AuditError::Validation(format!(
                 "Merkle tree leaf count limit reached ({} >= {})",
                 self.leaf_count, self.max_leaf_count
@@ -305,7 +306,7 @@ impl MerkleTree {
 
         // SECURITY (FIND-R46-001): Check leaf count before replaying.
         let leaf_count = (valid_len / HASH_SIZE) as u64;
-        if leaf_count > self.max_leaf_count {
+        if !verified_merkle::stored_leaf_count_valid(leaf_count, self.max_leaf_count) {
             return Err(AuditError::Validation(format!(
                 "Merkle leaf file contains too many leaves ({} > {})",
                 leaf_count, self.max_leaf_count
@@ -499,23 +500,22 @@ impl MerkleTree {
         // SECURITY (FIND-R52-AUDIT-003): Bound proof siblings to 64. A tree with
         // 2^64 leaves is physically impossible, so any proof claiming more siblings
         // is malicious or corrupt. This prevents CPU waste iterating forged proofs.
-        const MAX_PROOF_SIBLINGS: usize = 64;
-        if proof.siblings.len() > MAX_PROOF_SIBLINGS {
+        if !verified_merkle::proof_sibling_count_valid(proof.siblings.len()) {
             return Err(AuditError::Validation(format!(
                 "Proof has too many siblings ({}, max {})",
                 proof.siblings.len(),
-                MAX_PROOF_SIBLINGS
+                verified_merkle::MAX_PROOF_SIBLINGS
             )));
         }
 
-        if proof.tree_size == 0 {
+        if !verified_merkle::proof_tree_size_valid(proof.tree_size) {
             return Ok(MerkleVerification {
                 valid: false,
                 failure_reason: Some("Proof has zero tree size".to_string()),
             });
         }
 
-        if proof.leaf_index >= proof.tree_size {
+        if !verified_merkle::proof_leaf_index_valid(proof.leaf_index, proof.tree_size) {
             return Ok(MerkleVerification {
                 valid: false,
                 failure_reason: Some(format!(
@@ -529,7 +529,7 @@ impl MerkleTree {
         for step in &proof.siblings {
             let sibling = hex::decode(&step.hash)
                 .map_err(|e| AuditError::Validation(format!("Invalid sibling hash hex: {e}")))?;
-            if sibling.len() != HASH_SIZE {
+            if !verified_merkle::sibling_hash_len_valid(sibling.len()) {
                 return Ok(MerkleVerification {
                     valid: false,
                     failure_reason: Some(format!(
