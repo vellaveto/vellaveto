@@ -19,7 +19,10 @@
 //! crash recovery and proof generation without replaying the full log.
 
 use crate::types::AuditError;
-use crate::{trusted_merkle_hash, verified_merkle, verified_merkle_fold, verified_merkle_path};
+use crate::{
+    trusted_audit_fs, trusted_merkle_hash, verified_merkle, verified_merkle_fold,
+    verified_merkle_path,
+};
 use std::path::PathBuf;
 /// Size of a SHA-256 hash in bytes.
 const HASH_SIZE: usize = 32;
@@ -137,47 +140,13 @@ impl MerkleTree {
             )));
         }
 
-        // Persist the leaf hash to the binary file
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.leaf_file_path)
-            .inspect_err(|_| {
-                if let Some(parent) = self.leaf_file_path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-            })
-            .or_else(|_| {
-                if let Some(parent) = self.leaf_file_path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&self.leaf_file_path)
-            })?;
-        file.write_all(&leaf_hash)?;
-        file.flush()?;
-        // SECURITY (FIND-R46-010): fsync leaf file to ensure crash durability.
-        file.sync_data()?;
-
-        // SECURITY (FIND-R170-001): Restrict Merkle leaf file permissions to
-        // owner-only (0o600), matching audit log (logger.rs:460) and checkpoint
-        // (checkpoints.rs:103) permission policies.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(e) = std::fs::set_permissions(
-                &self.leaf_file_path,
-                std::fs::Permissions::from_mode(0o600),
-            ) {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to set Merkle leaf file permissions to 0o600"
-                );
-            }
-        }
+        // Persist the leaf hash to the binary file.
+        trusted_audit_fs::append_bytes_sync(
+            &self.leaf_file_path,
+            &leaf_hash,
+            trusted_audit_fs::Durability::SyncData,
+            "Merkle leaf file",
+        )?;
 
         // Update peaks: carry-merge like binary addition
         let mut carry = leaf_hash;
@@ -252,8 +221,8 @@ impl MerkleTree {
         self.peaks.clear();
 
         // SECURITY (FIND-R46-001/002): Check file size before reading to prevent OOM.
-        match std::fs::metadata(&self.leaf_file_path) {
-            Ok(meta) => {
+        match trusted_audit_fs::metadata_if_exists_sync(&self.leaf_file_path)? {
+            Some(meta) => {
                 // SECURITY (R239-AUD-1): Use saturating_mul to prevent overflow.
                 let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
                 if meta.len() > max_file_size {
@@ -265,14 +234,12 @@ impl MerkleTree {
                     )));
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(AuditError::Io(e)),
+            None => return Ok(()),
         }
 
-        let data = match std::fs::read(&self.leaf_file_path) {
-            Ok(d) => d,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(e) => return Err(AuditError::Io(e)),
+        let data = match trusted_audit_fs::read_if_exists_sync(&self.leaf_file_path)? {
+            Some(data) => data,
+            None => return Ok(()),
         };
 
         // Truncate partial writes
@@ -285,10 +252,7 @@ impl MerkleTree {
                 "Merkle leaf file has partial write, truncating to last complete hash"
             );
             // Truncate the file to remove partial write
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .open(&self.leaf_file_path)?;
-            file.set_len(valid_len as u64)?;
+            trusted_audit_fs::truncate_file_sync(&self.leaf_file_path, valid_len as u64)?;
         }
 
         // SECURITY (FIND-R46-001): Check leaf count before replaying.
@@ -353,7 +317,7 @@ impl MerkleTree {
         })?;
 
         // SECURITY (FIND-R46-004): Check file size before reading to prevent OOM.
-        let file_meta = std::fs::metadata(&self.leaf_file_path)?;
+        let file_meta = trusted_audit_fs::metadata_required_sync(&self.leaf_file_path)?;
         // SECURITY (R239-AUD-1): Use saturating_mul to prevent overflow.
         let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
         if file_meta.len() > max_file_size {
@@ -365,7 +329,7 @@ impl MerkleTree {
         }
 
         // Read all leaf hashes from the file
-        let data = std::fs::read(&self.leaf_file_path)?;
+        let data = trusted_audit_fs::read_required_sync(&self.leaf_file_path)?;
         // SECURITY (R235-AUD-3): Use try_from instead of `as usize` to prevent
         // silent truncation on 32-bit platforms.
         let n = usize::try_from(self.leaf_count).map_err(|_| {

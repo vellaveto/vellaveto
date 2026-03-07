@@ -168,6 +168,9 @@ Current status:
 - explicit concrete Merkle hash/codec boundary documented in
   `formal/MERKLE_TRUST_BOUNDARY.md` and anchored to
   `vellaveto-audit/src/trusted_merkle_hash.rs`
+- explicit audit filesystem boundary documented in
+  `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` and anchored to
+  `vellaveto-audit/src/trusted_audit_fs.rs`
 - cross-rotation manifest linkage/path-safety guards landed in Verus
 - abstract Merkle root/proof induction landed in Verus
 - concrete hash-function assumptions and explicit filesystem assumptions are

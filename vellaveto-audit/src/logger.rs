@@ -18,15 +18,13 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::fs::OpenOptions;
-use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 use vellaveto_types::{Action, Verdict};
 
 use crate::pii::CustomPiiPattern;
 use crate::rotation::DEFAULT_MAX_FILE_SIZE;
-use crate::verified_audit_append;
+use crate::{trusted_audit_fs, verified_audit_append};
 
 /// Append-only audit logger for policy evaluation decisions.
 ///
@@ -555,53 +553,15 @@ impl AuditLogger {
         let mut line_bytes = serde_json::to_vec(&entry)?;
         line_bytes.push(b'\n');
 
-        // Open file with append mode, creating parent dirs if needed
-        let mut file = match OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)
-            .await
-        {
-            Ok(f) => f,
-            Err(_) => {
-                if let Some(parent) = self.log_path.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
-                }
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&self.log_path)
-                    .await?
-            }
+        // Fix #35: For Deny verdicts, require sync_data() so the entry survives
+        // power loss. Other verdicts may remain flush-only.
+        let durability = if matches!(verdict, Verdict::Deny { .. }) {
+            trusted_audit_fs::Durability::SyncData
+        } else {
+            trusted_audit_fs::Durability::FlushOnly
         };
-
-        file.write_all(&line_bytes).await?;
-        file.flush().await?;
-
-        // SECURITY (R16-AUDIT-4): Restrict audit log file permissions on Unix (0o600).
-        // Parity with checkpoint file permissions — prevents other users from
-        // reading action parameters or modifying the hash chain.
-        // SECURITY (FIND-065): Log warning on permission failure instead of silently ignoring.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(e) =
-                tokio::fs::set_permissions(&self.log_path, std::fs::Permissions::from_mode(0o600))
-                    .await
-            {
-                tracing::warn!(
-                    path = %self.log_path.display(),
-                    error = %e,
-                    "Failed to set audit log file permissions to 0o600"
-                );
-            }
-        }
-
-        // Fix #35: For Deny verdicts, call sync_data() to ensure the entry
-        // survives power loss. Allow/RequireApproval can remain buffered.
-        if matches!(verdict, Verdict::Deny { .. }) {
-            file.sync_data().await?;
-        }
+        trusted_audit_fs::append_bytes(&self.log_path, &line_bytes, durability, "audit log file")
+            .await?;
 
         // Update chain head ONLY after successful file write.
         // If the write fails, the in-memory hash must not advance,

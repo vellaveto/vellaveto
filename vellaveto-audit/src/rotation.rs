@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::logger::AuditLogger;
+use crate::trusted_audit_fs;
 use crate::types::{AuditEntry, AuditError, RotationVerification};
 use crate::verified_audit_append;
 use crate::verified_rotation_manifest;
@@ -14,8 +15,6 @@ use ed25519_dalek::{Signer, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use tokio::fs::OpenOptions;
-use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 /// Default max file size before rotation: 100 MB.
@@ -115,10 +114,9 @@ impl AuditLogger {
             return Ok(false);
         }
 
-        let metadata = match tokio::fs::metadata(&self.log_path).await {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(AuditError::Io(e)),
+        let metadata = match trusted_audit_fs::metadata_if_exists(&self.log_path).await? {
+            Some(metadata) => metadata,
+            None => return Ok(false),
         };
 
         if metadata.len() < self.max_file_size {
@@ -163,7 +161,7 @@ impl AuditLogger {
         let entry_count = entries.len();
 
         let rotated_path = self.rotated_path();
-        tokio::fs::rename(&self.log_path, &rotated_path).await?;
+        trusted_audit_fs::rename_required(&self.log_path, &rotated_path).await?;
 
         // Rename the Merkle leaf file alongside the rotated log, then reset the tree
         if let Some(ref merkle) = self.merkle_tree {
@@ -178,9 +176,9 @@ impl AuditLogger {
                 let rotated_parent = rotated_path.parent().unwrap_or(std::path::Path::new("."));
                 rotated_parent.join(format!("{rotated_stem}.merkle-leaves"))
             };
-            match tokio::fs::rename(&leaf_path, &rotated_leaf_path).await {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            match trusted_audit_fs::rename_if_exists(&leaf_path, &rotated_leaf_path).await {
+                Ok(true) => {}
+                Ok(false) => {
                     // No leaf file to rename — expected if Merkle was not used
                 }
                 Err(e) => {
@@ -224,8 +222,9 @@ impl AuditLogger {
         // entry to its predecessor. This detects deletion, reordering, or
         // replacement of individual manifest entries.
         let manifest_path = self.rotation_manifest_path();
-        let previous_hash = match tokio::fs::read_to_string(&manifest_path).await {
-            Ok(content) => {
+        let previous_hash = match trusted_audit_fs::read_to_string_if_exists(&manifest_path).await?
+        {
+            Some(content) => {
                 // Find the last non-empty line
                 match content.lines().rev().find(|l| !l.trim().is_empty()) {
                     Some(last_line) => {
@@ -236,8 +235,7 @@ impl AuditLogger {
                     None => "genesis".to_string(),
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "genesis".to_string(),
-            Err(e) => return Err(AuditError::Io(e)),
+            None => "genesis".to_string(),
         };
 
         let mut manifest_entry = serde_json::json!({
@@ -284,30 +282,13 @@ impl AuditLogger {
             serde_json::to_string(&manifest_entry).map_err(AuditError::Serialization)?;
         manifest_line.push('\n');
 
-        let mut manifest_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&manifest_path)
-            .await?;
-        manifest_file.write_all(manifest_line.as_bytes()).await?;
-        manifest_file.sync_data().await?;
-
-        // SECURITY (FIND-R170-002): Restrict rotation manifest file permissions
-        // to owner-only (0o600), matching audit log (logger.rs:460) and checkpoint
-        // (checkpoints.rs:103) permission policies.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Err(e) =
-                tokio::fs::set_permissions(&manifest_path, std::fs::Permissions::from_mode(0o600))
-                    .await
-            {
-                tracing::warn!(
-                    error = %e,
-                    "Failed to set rotation manifest file permissions to 0o600"
-                );
-            }
-        }
+        trusted_audit_fs::append_bytes(
+            &manifest_path,
+            manifest_line.as_bytes(),
+            trusted_audit_fs::Durability::SyncData,
+            "rotation manifest file",
+        )
+        .await?;
 
         tracing::info!(
             "Rotated audit log {} -> {} ({} bytes, {} entries, tail_hash={})",
@@ -340,8 +321,8 @@ impl AuditLogger {
         // SECURITY (R33-SUP-5): Check manifest file size before reading to prevent
         // OOM from a corrupted or adversarially large manifest file.
         const MAX_MANIFEST_SIZE: u64 = 10 * 1024 * 1024; // 10MB
-        match tokio::fs::metadata(&manifest_path).await {
-            Ok(meta) => {
+        match trusted_audit_fs::metadata_if_exists(&manifest_path).await? {
+            Some(meta) => {
                 if meta.len() > MAX_MANIFEST_SIZE {
                     return Err(AuditError::Io(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -353,26 +334,25 @@ impl AuditLogger {
                     )));
                 }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            None => {
                 return Ok(RotationVerification {
                     valid: true,
                     files_checked: 0,
                     first_failure: None,
                 });
             }
-            Err(e) => return Err(AuditError::Io(e)),
         }
-        let manifest_content = match tokio::fs::read_to_string(&manifest_path).await {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(RotationVerification {
-                    valid: true,
-                    files_checked: 0,
-                    first_failure: None,
-                });
-            }
-            Err(e) => return Err(AuditError::Io(e)),
-        };
+        let manifest_content =
+            match trusted_audit_fs::read_to_string_if_exists(&manifest_path).await? {
+                Some(content) => content,
+                None => {
+                    return Ok(RotationVerification {
+                        valid: true,
+                        files_checked: 0,
+                        first_failure: None,
+                    });
+                }
+            };
 
         let mut files_checked = 0;
         // SECURITY (FIND-R46-ROT-003): Track previous manifest line for hash-chain verification.
@@ -762,7 +742,7 @@ impl AuditLogger {
 
             // SECURITY (R38-SUP-1): Check rotated file size before reading
             // to prevent OOM from an adversarially large replacement file.
-            let rotated_meta = tokio::fs::metadata(&rotated_path).await?;
+            let rotated_meta = trusted_audit_fs::metadata_required(&rotated_path).await?;
             if rotated_meta.len() > Self::MAX_AUDIT_LOG_SIZE {
                 return Ok(RotationVerification {
                     valid: false,
@@ -777,7 +757,7 @@ impl AuditLogger {
             }
 
             // Load and verify the rotated file's chain
-            let content = tokio::fs::read_to_string(&rotated_path).await?;
+            let content = trusted_audit_fs::read_to_string_required(&rotated_path).await?;
             let mut entries = Vec::new();
             for file_line in content.lines() {
                 if file_line.trim().is_empty() {
@@ -980,12 +960,8 @@ impl AuditLogger {
         // Fall back to epoch on metadata errors so those files sort first and
         // get pruned preferentially.
         rotated.sort_by(|a, b| {
-            let time_a = std::fs::metadata(a)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            let time_b = std::fs::metadata(b)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let time_a = trusted_audit_fs::modified_time_or_epoch_sync(a);
+            let time_b = trusted_audit_fs::modified_time_or_epoch_sync(b);
             time_a.cmp(&time_b)
         });
 

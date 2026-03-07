@@ -13,6 +13,7 @@ The remaining trust boundary is intentionally narrow and anchored to code in:
 
 - `vellaveto-audit/src/trusted_merkle_hash.rs`
 - `vellaveto-audit/src/merkle.rs`
+- `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` (for filesystem semantics)
 
 ## Named Assumptions
 
@@ -45,24 +46,11 @@ cryptanalytically.
 without mutation. The verified proof-shape guard still checks decoded length
 fail-closed in `merkle.rs`.
 
-### MERKLE-FS-1: Leaf-file append/truncate/read semantics
+### MERKLE-FS-1: Audit filesystem semantics are trusted separately
 
-The Merkle proofs assume the operating system and filesystem honor the
-behavior of:
-
-- append writes to the leaf file
-- `flush()` / `sync_data()`
-- `metadata()` length reporting
-- `read()`
-- `set_len()` truncation during partial-write recovery
-
-These semantics stay outside Verus.
-
-### MERKLE-FS-2: Rotation and rename continuity
-
-Cross-rotation continuity still depends on the runtime/OS preserving expected
-rename and file-presence semantics for rotated audit segments and Merkle leaf
-files.
+The filesystem assumptions for leaf-file persistence, partial-write recovery,
+and rotation continuity are now centralized in
+`formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md`.
 
 ## Current State
 
@@ -76,7 +64,8 @@ What remains outside Verus:
 
 - the concrete SHA-256 primitive
 - the concrete hex codec
-- filesystem durability and rename semantics
+- filesystem durability and rename semantics described in
+  `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md`
 
 ## Next Step
 
