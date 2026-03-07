@@ -29,6 +29,52 @@
 //! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/capability_token.rs:459-482`
 //! - `grant_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:598-696`
 
+/// Return true when the pattern contains capability delegation metacharacters.
+pub fn has_glob_metacharacters(pattern: &str) -> bool {
+    pattern.as_bytes().iter().any(|b| *b == b'*' || *b == b'?')
+}
+
+/// Literal-only fast path from production `pattern_matches`.
+pub fn literal_pattern_matches(
+    pattern_has_metacharacters: bool,
+    pattern_equals_value_ignore_ascii_case: bool,
+) -> bool {
+    !pattern_has_metacharacters && pattern_equals_value_ignore_ascii_case
+}
+
+/// Conservative child-glob guard from production `grant_is_subset`.
+pub fn pattern_subset_guard(
+    parent_is_wildcard: bool,
+    parent_equals_child_ignore_ascii_case: bool,
+    child_has_metacharacters: bool,
+) -> bool {
+    parent_is_wildcard || parent_equals_child_ignore_ascii_case || !child_has_metacharacters
+}
+
+/// Literal-child subset fast path from production `grant_is_subset`.
+pub fn literal_child_pattern_subset(
+    child_has_metacharacters: bool,
+    parent_matches_child_literal: bool,
+) -> bool {
+    !child_has_metacharacters && parent_matches_child_literal
+}
+
+/// Restriction-shape and invocation attenuation gate from production
+/// `grant_is_subset`.
+pub fn grant_restrictions_attenuated(
+    parent_has_allowed_paths: bool,
+    child_has_allowed_paths: bool,
+    parent_has_allowed_domains: bool,
+    child_has_allowed_domains: bool,
+    parent_max_invocations: u32,
+    child_max_invocations: u32,
+) -> bool {
+    (!parent_has_allowed_paths || child_has_allowed_paths)
+        && (!parent_has_allowed_domains || child_has_allowed_domains)
+        && (parent_max_invocations == 0
+            || (child_max_invocations > 0 && child_max_invocations <= parent_max_invocations))
+}
+
 /// Glob match on byte slices. Case-insensitive, supports `*` and `?`.
 ///
 /// Verbatim from production `glob_match`.
@@ -68,28 +114,39 @@ pub fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
 ///
 /// Verbatim from production `pattern_is_subset`.
 pub fn pattern_is_subset(parent: &str, child: &str) -> bool {
-    if parent == "*" {
-        return true;
-    }
-    if parent.eq_ignore_ascii_case(child) {
-        return true;
-    }
-    // Glob-to-glob comparisons rejected for safety (could be broader).
-    if child.contains('*') || child.contains('?') {
+    let parent_is_wildcard = parent == "*";
+    let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
+    let child_has_metacharacters = has_glob_metacharacters(child);
+
+    if !pattern_subset_guard(
+        parent_is_wildcard,
+        parent_equals_child_ignore_ascii_case,
+        child_has_metacharacters,
+    ) {
         return false;
     }
-    // Child is literal — safe to check against parent glob.
-    pattern_matches(parent, child)
+
+    if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+        return true;
+    }
+
+    literal_child_pattern_subset(child_has_metacharacters, pattern_matches(parent, child))
 }
 
 /// Pattern matching helper (delegates to glob_match for glob patterns,
 /// otherwise case-insensitive equality).
 fn pattern_matches(pattern: &str, value: &str) -> bool {
-    if pattern.contains('*') || pattern.contains('?') {
-        glob_match(pattern.as_bytes(), value.as_bytes())
-    } else {
-        pattern.eq_ignore_ascii_case(value)
+    if pattern == "*" {
+        return true;
     }
+    let pattern_has_metacharacters = has_glob_metacharacters(pattern);
+    if literal_pattern_matches(pattern_has_metacharacters, pattern.eq_ignore_ascii_case(value)) {
+        return true;
+    }
+    if !pattern_has_metacharacters {
+        return false;
+    }
+    glob_match(pattern.as_bytes(), value.as_bytes())
 }
 
 /// Normalize a path for grant comparison. Returns None on malformed input
@@ -140,11 +197,19 @@ pub fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGra
     if !pattern_is_subset(&parent_grant.function_pattern, &new_grant.function_pattern) {
         return false;
     }
+    if !grant_restrictions_attenuated(
+        !parent_grant.allowed_paths.is_empty(),
+        !new_grant.allowed_paths.is_empty(),
+        !parent_grant.allowed_domains.is_empty(),
+        !new_grant.allowed_domains.is_empty(),
+        parent_grant.max_invocations,
+        new_grant.max_invocations,
+    ) {
+        return false;
+    }
+
     // If parent has path restrictions, child MUST also have non-empty path restrictions.
     if !parent_grant.allowed_paths.is_empty() {
-        if new_grant.allowed_paths.is_empty() {
-            return false;
-        }
         for path in &new_grant.allowed_paths {
             let normalized = match normalize_path_for_grant(path) {
                 Some(n) => n,
@@ -167,9 +232,6 @@ pub fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGra
     }
     // Same check for domains.
     if !parent_grant.allowed_domains.is_empty() {
-        if new_grant.allowed_domains.is_empty() {
-            return false;
-        }
         for domain in &new_grant.allowed_domains {
             let covered = parent_grant
                 .allowed_domains
@@ -179,13 +241,6 @@ pub fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGra
                 return false;
             }
         }
-    }
-    // max_invocations must be monotonically attenuated.
-    if parent_grant.max_invocations > 0
-        && (new_grant.max_invocations == 0
-            || new_grant.max_invocations > parent_grant.max_invocations)
-    {
-        return false;
     }
     true
 }
@@ -280,6 +335,28 @@ mod tests {
         assert!(pattern_is_subset("fi*", "file"));
         assert!(!pattern_is_subset("fi*", "f*")); // child is glob, rejected
         assert!(pattern_is_subset("file", "file"));
+    }
+
+    #[test]
+    fn test_literal_pattern_fast_path() {
+        assert!(literal_pattern_matches(false, true));
+        assert!(!literal_pattern_matches(false, false));
+        assert!(!literal_pattern_matches(true, true));
+    }
+
+    #[test]
+    fn test_pattern_subset_guard() {
+        assert!(pattern_subset_guard(true, false, true));
+        assert!(pattern_subset_guard(false, true, true));
+        assert!(pattern_subset_guard(false, false, false));
+        assert!(!pattern_subset_guard(false, false, true));
+    }
+
+    #[test]
+    fn test_literal_child_pattern_subset() {
+        assert!(literal_child_pattern_subset(false, true));
+        assert!(!literal_child_pattern_subset(false, false));
+        assert!(!literal_child_pattern_subset(true, true));
     }
 
     #[test]
