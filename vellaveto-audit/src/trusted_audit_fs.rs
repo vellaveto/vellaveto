@@ -13,9 +13,26 @@
 //! centralizes those concrete filesystem calls behind a narrow surface.
 
 use crate::types::AuditError;
-use std::path::Path;
+use std::path::{Component, Path};
 use tokio::fs::OpenOptions;
 use tokio::io::AsyncWriteExt;
+
+/// Validate that a path does not contain traversal components (`..`).
+///
+/// This is the single trust boundary for all filesystem operations in this
+/// module.  CodeQL flags paths derived from configuration as "user-provided";
+/// this check satisfies the sanitisation requirement.
+fn validate_safe_path(path: &Path) -> Result<(), AuditError> {
+    for component in path.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err(AuditError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "path traversal (..) rejected in audit filesystem operation",
+            )));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Durability {
@@ -111,6 +128,7 @@ pub(crate) async fn append_bytes(
     durability: Durability,
     permissions_label: &str,
 ) -> Result<(), AuditError> {
+    validate_safe_path(path)?;
     let mut file = open_append_create_parent(path).await?;
     file.write_all(bytes).await?;
     file.flush().await?;
@@ -129,6 +147,7 @@ pub(crate) fn append_bytes_sync(
 ) -> Result<(), AuditError> {
     use std::io::Write;
 
+    validate_safe_path(path)?;
     let mut file = open_append_create_parent_sync(path)?;
     file.write_all(bytes)?;
     file.flush()?;
@@ -140,12 +159,14 @@ pub(crate) fn append_bytes_sync(
 }
 
 pub(crate) async fn metadata_required(path: &Path) -> Result<std::fs::Metadata, AuditError> {
+    validate_safe_path(path)?;
     tokio::fs::metadata(path).await.map_err(AuditError::from)
 }
 
 pub(crate) async fn metadata_if_exists(
     path: &Path,
 ) -> Result<Option<std::fs::Metadata>, AuditError> {
+    validate_safe_path(path)?;
     match tokio::fs::metadata(path).await {
         Ok(metadata) => Ok(Some(metadata)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -154,12 +175,14 @@ pub(crate) async fn metadata_if_exists(
 }
 
 pub(crate) fn metadata_required_sync(path: &Path) -> Result<std::fs::Metadata, AuditError> {
+    validate_safe_path(path)?;
     std::fs::metadata(path).map_err(AuditError::from)
 }
 
 pub(crate) fn metadata_if_exists_sync(
     path: &Path,
 ) -> Result<Option<std::fs::Metadata>, AuditError> {
+    validate_safe_path(path)?;
     match std::fs::metadata(path) {
         Ok(metadata) => Ok(Some(metadata)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -168,12 +191,14 @@ pub(crate) fn metadata_if_exists_sync(
 }
 
 pub(crate) async fn read_to_string_required(path: &Path) -> Result<String, AuditError> {
+    validate_safe_path(path)?;
     tokio::fs::read_to_string(path)
         .await
         .map_err(AuditError::from)
 }
 
 pub(crate) async fn read_to_string_if_exists(path: &Path) -> Result<Option<String>, AuditError> {
+    validate_safe_path(path)?;
     match tokio::fs::read_to_string(path).await {
         Ok(content) => Ok(Some(content)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -182,10 +207,12 @@ pub(crate) async fn read_to_string_if_exists(path: &Path) -> Result<Option<Strin
 }
 
 pub(crate) fn read_required_sync(path: &Path) -> Result<Vec<u8>, AuditError> {
+    validate_safe_path(path)?;
     std::fs::read(path).map_err(AuditError::from)
 }
 
 pub(crate) fn read_if_exists_sync(path: &Path) -> Result<Option<Vec<u8>>, AuditError> {
+    validate_safe_path(path)?;
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -194,6 +221,7 @@ pub(crate) fn read_if_exists_sync(path: &Path) -> Result<Option<Vec<u8>>, AuditE
 }
 
 pub(crate) fn truncate_file_sync(path: &Path, len: u64) -> Result<(), AuditError> {
+    validate_safe_path(path)?;
     let file = std::fs::OpenOptions::new().write(true).open(path)?;
     file.set_len(len)?;
     Ok(())
@@ -207,10 +235,14 @@ pub(crate) fn modified_time_or_epoch_sync(path: &Path) -> std::time::SystemTime 
 }
 
 pub(crate) async fn rename_required(from: &Path, to: &Path) -> Result<(), AuditError> {
+    validate_safe_path(from)?;
+    validate_safe_path(to)?;
     tokio::fs::rename(from, to).await.map_err(AuditError::from)
 }
 
 pub(crate) async fn rename_if_exists(from: &Path, to: &Path) -> Result<bool, AuditError> {
+    validate_safe_path(from)?;
+    validate_safe_path(to)?;
     match tokio::fs::rename(from, to).await {
         Ok(()) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -233,6 +265,15 @@ mod tests {
 
         let bytes = std::fs::read(&path).expect("read appended file");
         assert_eq!(bytes, b"entry\n");
+    }
+
+    #[test]
+    fn test_path_traversal_rejected() {
+        let path = Path::new("/tmp/../etc/passwd");
+        let result = append_bytes_sync(path, b"x", Durability::FlushOnly, "test");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("path traversal"), "expected traversal rejection, got: {err}");
     }
 
     #[test]
