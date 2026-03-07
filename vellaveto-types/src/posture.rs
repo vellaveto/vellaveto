@@ -93,7 +93,7 @@ impl SecurityPostureScore {
     /// SECURITY (R239-TYP-1): Validate posture score for NaN/Infinity and bounds.
     pub fn validate(&self) -> Result<(), String> {
         fn check_percent(name: &str, v: f32) -> Result<(), String> {
-            if !v.is_finite() || v < 0.0 || v > 100.0 {
+            if !v.is_finite() || !(0.0..=100.0).contains(&v) {
                 return Err(format!("{name} {v} is not in [0.0, 100.0]"));
             }
             Ok(())

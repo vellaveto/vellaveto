@@ -499,9 +499,8 @@ impl DpopVerifier {
         })?;
 
         // SECURITY (R242-SRV-1): Validate header fields before use.
-        header.validate().map_err(|e| {
+        header.validate().inspect_err(|_e| {
             self.increment_failures();
-            e
         })?;
 
         // Verify typ
