@@ -110,6 +110,31 @@ fn test_guard_unknown_with_suggestion() {
 }
 
 #[test]
+fn test_guard_unknown_limits_available_tools() {
+    let guard = TopologyGuard::new();
+    let topology = TopologyGraph::from_static(vec![StaticServerDecl {
+        name: "fs".to_string(),
+        tools: (0..8)
+            .map(|i| StaticToolDecl {
+                name: format!("tool_{i}"),
+                description: format!("Tool {i}"),
+                input_schema: serde_json::json!({}),
+            })
+            .collect(),
+        resources: vec![],
+    }])
+    .unwrap();
+    guard.load(topology);
+
+    match guard.check("missing_tool") {
+        TopologyVerdict::Unknown { available_tools, .. } => {
+            assert_eq!(available_tools.len(), 5);
+        }
+        other => panic!("Expected Unknown, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_guard_ambiguous() {
     let guard = TopologyGuard::new();
     guard.load(make_test_topology());

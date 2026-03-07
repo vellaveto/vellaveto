@@ -360,15 +360,23 @@ impl TopologyGraph {
                         tool_decl.name, server_decl.name
                     )));
                 }
-                // SECURITY (R241-DISC-2): Bound input_schema serialized size to prevent
-                // memory exhaustion from oversized JSON schemas.
-                if let Ok(schema_json) = serde_json::to_string(&tool_decl.input_schema) {
-                    if schema_json.len() > MAX_INPUT_SCHEMA_SIZE {
+                // SECURITY (R245-DISC-1): Fail-closed on schema serialization failure.
+                // Previously used `if let Ok(...)` which silently skipped size validation.
+                match serde_json::to_string(&tool_decl.input_schema) {
+                    Ok(schema_json) => {
+                        if schema_json.len() > MAX_INPUT_SCHEMA_SIZE {
+                            return Err(DiscoveryError::ValidationError(format!(
+                                "Tool '{}' input_schema size {} exceeds max {}",
+                                tool_decl.name,
+                                schema_json.len(),
+                                MAX_INPUT_SCHEMA_SIZE
+                            )));
+                        }
+                    }
+                    Err(e) => {
                         return Err(DiscoveryError::ValidationError(format!(
-                            "Tool '{}' input_schema size {} exceeds max {}",
-                            tool_decl.name,
-                            schema_json.len(),
-                            MAX_INPUT_SCHEMA_SIZE
+                            "Tool '{}' input_schema serialization failed: {}",
+                            tool_decl.name, e
                         )));
                     }
                 }

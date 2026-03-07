@@ -234,6 +234,7 @@ impl ServiceDiscovery for DnsServiceDiscovery {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
         let dns_name = self.dns_name.clone();
         let interval = self.refresh_interval;
+        let use_tls = self.use_tls;
 
         // Capture initial snapshot.
         let initial = self.resolve().await?;
@@ -250,13 +251,17 @@ impl ServiceDiscovery for DnsServiceDiscovery {
 
             // FIND-R56-CLUSTER-003: Construct the resolver once before the loop
             // instead of recreating it on every tick.
-            let resolver = match DnsServiceDiscovery::new(dns_name, interval) {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::error!("Invalid DNS discovery configuration: {}", e);
-                    return;
-                }
-            };
+            // SECURITY (R245-CLUST-4): Propagate use_tls to the inner resolver.
+            // Previously the spawned task constructed a new resolver without .with_tls(),
+            // causing all dynamically discovered endpoints to use HTTP instead of HTTPS.
+            let resolver =
+                match DnsServiceDiscovery::new(dns_name, interval).map(|r| r.with_tls(use_tls)) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("Invalid DNS discovery configuration: {}", e);
+                        return;
+                    }
+                };
 
             loop {
                 tick.tick().await;

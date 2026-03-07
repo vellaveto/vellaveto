@@ -124,7 +124,15 @@ impl TopologyGuard {
                     crate::topology::TopologyNode::Tool { server, name, .. } => {
                         (server.clone(), name.clone())
                     }
-                    _ => return TopologyVerdict::Bypassed,
+                    _ => {
+                        // SECURITY (R245-DISC-2): Non-tool node match must return Unknown
+                        // (fail-closed), not Bypassed (which skips policy enforcement).
+                        return TopologyVerdict::Unknown {
+                            requested_tool: vellaveto_types::sanitize_for_log(tool_name, 256),
+                            suggestion: None,
+                            available_tools: Vec::new(),
+                        };
+                    }
                 };
                 let downstream = topology.downstream(tool_name);
                 return TopologyVerdict::Known {
@@ -141,8 +149,11 @@ impl TopologyGuard {
         match matches.len() {
             0 => {
                 // Not found — generate suggestion via simple string distance
-                let available = topology.tool_names();
+                let mut available = topology.tool_names();
                 let suggestion = find_closest_match(tool_name, &available);
+                // SECURITY (R245-DISC-3): Limit available_tools to prevent
+                // full tool inventory disclosure to unauthenticated probers.
+                available.truncate(5);
                 // SECURITY (R238-DISC-1): Sanitize echoed tool name to prevent
                 // log injection via control/bidi chars in attacker-supplied names.
                 TopologyVerdict::Unknown {
@@ -157,7 +168,15 @@ impl TopologyGuard {
                     crate::topology::TopologyNode::Tool { server, name, .. } => {
                         (server.clone(), name.clone())
                     }
-                    _ => return TopologyVerdict::Bypassed,
+                    _ => {
+                        // SECURITY (R245-DISC-2): Non-tool node match must return Unknown
+                        // (fail-closed), not Bypassed (which skips policy enforcement).
+                        return TopologyVerdict::Unknown {
+                            requested_tool: vellaveto_types::sanitize_for_log(tool_name, 256),
+                            suggestion: None,
+                            available_tools: Vec::new(),
+                        };
+                    }
                 };
                 let downstream = topology.downstream(qualified);
                 TopologyVerdict::Known {
