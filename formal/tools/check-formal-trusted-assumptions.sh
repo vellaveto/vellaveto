@@ -15,6 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ALLOWLIST="$PROJECT_DIR/formal/trusted-assumptions.allowlist"
+REGISTRY="$PROJECT_DIR/formal/ASSUMPTION_REGISTRY.md"
 
 declare -A allowed=()
 declare -A actual=()
@@ -23,6 +24,37 @@ stale=0
 
 normalize_text() {
     printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+check_registry() {
+    local missing=0
+    local required_entries=(
+        "formal/trusted-assumptions.allowlist"
+        "formal/MERKLE_TRUST_BOUNDARY.md"
+        "formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md"
+        'VERUS-ESCAPE-1'
+        'MERKLE-HASH-1'
+        'AUDIT-FS-1'
+    )
+    local entry
+
+    if [ ! -f "$REGISTRY" ]; then
+        echo "FAIL: canonical assumption registry missing: $REGISTRY"
+        exit 1
+    fi
+
+    for entry in "${required_entries[@]}"; do
+        if ! grep -Fq "$entry" "$REGISTRY"; then
+            echo "MISSING-REGISTRY-ENTRY: $entry"
+            missing=1
+        fi
+    done
+
+    if [ "$missing" -ne 0 ]; then
+        echo ""
+        echo "FAIL: canonical assumption registry is missing required entries"
+        exit 1
+    fi
 }
 
 load_allowlist() {
@@ -90,6 +122,7 @@ report_mismatches() {
     done < <(printf '%s\n' "${!source_ref[@]}" 2>/dev/null | sort)
 }
 
+check_registry
 load_allowlist
 
 scan_hits "verus-assume" "$PROJECT_DIR/formal/verus" "*.rs" '(^|[^[:alnum:]_])(assume|admit)[[:space:]]*\('
@@ -101,6 +134,7 @@ scan_hits "lean-axiom" "$PROJECT_DIR/formal/lean" "*.lean" '^[[:space:]]*axiom[[
 scan_hits "coq-axiom" "$PROJECT_DIR/formal/coq" "*.v" '^[[:space:]]*(Axiom|Parameter)[[:space:]]'
 
 echo "=== Formal Trusted Assumption Inventory ==="
+echo "Canonical registry: $REGISTRY"
 echo "Expected entries: ${#allowed[@]}"
 echo "Observed entries: ${#actual[@]}"
 report_inventory "Verus assume/admit" "verus-assume"

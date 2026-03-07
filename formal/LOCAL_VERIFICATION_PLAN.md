@@ -196,7 +196,8 @@ Must have:
 
 Current status:
 - inventory enforcement exists
-- canonical assumptions module does not
+- canonical assumptions registry landed in `formal/ASSUMPTION_REGISTRY.md`
+- proof layers still do not share a single Verus assumptions module
 
 ### Phase 7: Artifact and CI hardening
 

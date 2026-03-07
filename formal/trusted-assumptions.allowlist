@@ -1,5 +1,6 @@
 # kind<TAB>relative-path<TAB>trimmed source line
 # Keep this inventory explicit and minimal. Remove entries when proofs are discharged.
+# Canonical registry: formal/ASSUMPTION_REGISTRY.md
 # Verus kinds currently enforced:
 #   verus-assume
 #   verus-axiom

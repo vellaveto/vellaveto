@@ -3,6 +3,8 @@
 Last updated: 2026-03-07
 
 This file names the remaining non-Verus assumptions for the audit Merkle layer.
+Canonical registry: `formal/ASSUMPTION_REGISTRY.md`
+
 The structural proof surface now covers:
 
 - append/init/proof-shape guards

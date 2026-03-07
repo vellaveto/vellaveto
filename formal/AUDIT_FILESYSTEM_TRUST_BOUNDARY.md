@@ -4,6 +4,7 @@ Last updated: 2026-03-07
 
 This file names the remaining non-Verus filesystem assumptions for the audit
 integrity layer. The concrete OS-dependent calls are centralized in:
+Canonical registry: `formal/ASSUMPTION_REGISTRY.md`
 
 - `vellaveto-audit/src/trusted_audit_fs.rs`
 
