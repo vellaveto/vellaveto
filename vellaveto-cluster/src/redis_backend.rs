@@ -642,10 +642,11 @@ impl ClusterBackend for RedisBackend {
             let req_final = normalize_homoglyphs(&req_lower);
             let app_final = normalize_homoglyphs(&app_lower);
             if !req_final.is_empty() && req_final != "anonymous" && req_final == app_final {
-                return Err(ClusterError::Validation(format!(
-                    "Self-approval denied: requester '{}' cannot approve their own request",
-                    requester_base
-                )));
+                // SECURITY (R245-APPR-2): Genericize self-approval error to prevent
+                // requester identity enumeration. Previously leaked the requester identity.
+                return Err(ClusterError::Validation(
+                    "Self-approval denied: resolver cannot approve their own request".to_string(),
+                ));
             }
         }
 
@@ -716,10 +717,11 @@ impl ClusterBackend for RedisBackend {
             let req_final = normalize_homoglyphs(&req_lower);
             let den_final = normalize_homoglyphs(&den_lower);
             if !req_final.is_empty() && req_final != "anonymous" && req_final == den_final {
-                return Err(ClusterError::Validation(format!(
-                    "Self-denial denied: requester '{}' cannot deny their own request",
-                    requester_base
-                )));
+                // SECURITY (R245-APPR-2): Genericize self-denial error to prevent
+                // requester identity enumeration. Previously leaked the requester identity.
+                return Err(ClusterError::Validation(
+                    "Self-denial denied: resolver cannot deny their own request".to_string(),
+                ));
             }
         }
 

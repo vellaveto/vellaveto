@@ -647,9 +647,11 @@ impl ApprovalStore {
             let req_final = normalize_homoglyphs(&req_lower);
             let app_final = normalize_homoglyphs(&app_lower);
             if !req_final.is_empty() && req_final != "anonymous" && req_final == app_final {
-                return Err(ApprovalError::Validation(format!(
-                    "Self-approval denied: requester '{requester_base}' cannot approve their own request"
-                )));
+                // SECURITY (R245-APPR-2): Genericize self-approval error to prevent
+                // requester identity enumeration. Previously leaked the requester identity.
+                return Err(ApprovalError::Validation(
+                    "Self-approval denied: resolver cannot approve their own request".to_string(),
+                ));
             }
         }
 
@@ -793,9 +795,11 @@ impl ApprovalStore {
             let req_final = normalize_homoglyphs(&req_lower);
             let den_final = normalize_homoglyphs(&den_lower);
             if !req_final.is_empty() && req_final != "anonymous" && req_final == den_final {
-                return Err(ApprovalError::Validation(format!(
-                    "Self-denial denied: requester '{requester_base}' cannot deny their own request"
-                )));
+                // SECURITY (R245-APPR-2): Genericize self-denial error to prevent
+                // requester identity enumeration. Previously leaked the requester identity.
+                return Err(ApprovalError::Validation(
+                    "Self-denial denied: resolver cannot deny their own request".to_string(),
+                ));
             }
         }
 
