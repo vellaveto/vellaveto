@@ -1336,7 +1336,7 @@ mod tests {
             "expired_tool".to_string(),
             GlobalFlaggedToolEntry {
                 flagged_at: Instant::now() - Duration::from_secs(25 * 60 * 60), // 25h ago
-                ttl: GLOBAL_FLAGGED_TOOL_TTL, // 24h TTL
+                ttl: GLOBAL_FLAGGED_TOOL_TTL,                                   // 24h TTL
             },
         );
 

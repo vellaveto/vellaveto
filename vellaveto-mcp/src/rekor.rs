@@ -147,7 +147,11 @@ impl RekorEntry {
         }
 
         check_field("log_id", &self.log_id, Self::MAX_LOG_ID_LEN)?;
-        check_field("api_version", &self.body.api_version, Self::MAX_API_VERSION_LEN)?;
+        check_field(
+            "api_version",
+            &self.body.api_version,
+            Self::MAX_API_VERSION_LEN,
+        )?;
         check_field("kind", &self.body.kind, Self::MAX_KIND_LEN)?;
         check_field(
             "signature.content",
@@ -180,11 +184,7 @@ impl RekorEntry {
                 )));
             }
             for (i, hash) in proof.hashes.iter().enumerate() {
-                check_field(
-                    &format!("proof hash[{i}]"),
-                    hash,
-                    Self::MAX_HASH_VALUE_LEN,
-                )?;
+                check_field(&format!("proof hash[{i}]"), hash, Self::MAX_HASH_VALUE_LEN)?;
             }
         }
         Ok(())

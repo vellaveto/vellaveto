@@ -856,10 +856,7 @@ mod tests {
         let result = registry.register("good_tool", source);
         assert!(result.is_err());
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("definition_hash"),
+            result.unwrap_err().to_string().contains("definition_hash"),
             "Should mention definition_hash"
         );
     }

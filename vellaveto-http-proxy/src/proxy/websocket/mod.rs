@@ -1591,7 +1591,9 @@ async fn relay_client_to_upstream(
                                 .sessions
                                 .get_mut(&session_id)
                                 .map(|s| s.flagged_tools.contains(uri.as_str()))
-                                .unwrap_or_else(|| state.sessions.is_tool_globally_flagged(uri.as_str()));
+                                .unwrap_or_else(|| {
+                                    state.sessions.is_tool_globally_flagged(uri.as_str())
+                                });
                             if is_flagged {
                                 let action = extractor::extract_resource_action(uri);
                                 let verdict = Verdict::Deny {

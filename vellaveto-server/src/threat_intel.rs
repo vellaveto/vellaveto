@@ -161,7 +161,10 @@ impl ThreatIndicator {
             }
         }
         // SECURITY (R242-SRV-2): Validate timestamp fields — parsed and logged.
-        for (name, ts_opt) in [("first_seen", &self.first_seen), ("last_seen", &self.last_seen)] {
+        for (name, ts_opt) in [
+            ("first_seen", &self.first_seen),
+            ("last_seen", &self.last_seen),
+        ] {
             if let Some(ref ts) = ts_opt {
                 if ts.len() > MAX_TIMESTAMP_LEN {
                     return Err(ThreatIntelError::InvalidResponse(format!(

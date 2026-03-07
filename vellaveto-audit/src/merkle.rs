@@ -367,7 +367,7 @@ impl MerkleTree {
         // SECURITY (FIND-R46-004): Check file size before reading to prevent OOM.
         let file_meta = std::fs::metadata(&self.leaf_file_path)?;
         // SECURITY (R239-AUD-1): Use saturating_mul to prevent overflow.
-                let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
+        let max_file_size = self.max_leaf_count.saturating_mul(HASH_SIZE as u64);
         if file_meta.len() > max_file_size {
             return Err(AuditError::Validation(format!(
                 "Merkle leaf file too large for proof generation ({} bytes, max {} bytes)",
