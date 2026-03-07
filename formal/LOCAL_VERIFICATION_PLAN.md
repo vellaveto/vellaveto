@@ -165,6 +165,9 @@ Current status:
 - Merkle append/init/proof-shape fail-closed guards landed in Verus
 - Merkle next-level/proof-fold/peak-fold kernel landed in Verus
 - Merkle proof sibling/orientation/parent-step kernel landed in Verus
+- explicit concrete Merkle hash/codec boundary documented in
+  `formal/MERKLE_TRUST_BOUNDARY.md` and anchored to
+  `vellaveto-audit/src/trusted_merkle_hash.rs`
 - cross-rotation manifest linkage/path-safety guards landed in Verus
 - abstract Merkle root/proof induction landed in Verus
 - concrete hash-function assumptions and explicit filesystem assumptions are

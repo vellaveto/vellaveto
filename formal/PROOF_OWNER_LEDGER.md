@@ -40,6 +40,7 @@ Current primary owner for all entries below: `Paolo Vella`
 | Artifact | Owner | Enforcement |
 |----------|-------|-------------|
 | [`formal/trusted-assumptions.allowlist`](/home/paolo/.vella-workspace/sentinel/formal/trusted-assumptions.allowlist) | Paolo Vella | checked by [`formal/tools/check-formal-trusted-assumptions.sh`](/home/paolo/.vella-workspace/sentinel/formal/tools/check-formal-trusted-assumptions.sh) |
+| [`formal/MERKLE_TRUST_BOUNDARY.md`](/home/paolo/.vella-workspace/sentinel/formal/MERKLE_TRUST_BOUNDARY.md) and [`trusted_merkle_hash.rs`](/home/paolo/.vella-workspace/sentinel/vellaveto-audit/src/trusted_merkle_hash.rs) | Paolo Vella | explicit local trust-boundary artifact for concrete Merkle hash, hex codec, and filesystem assumptions |
 
 ## Refinement
 

@@ -33,6 +33,7 @@ pub mod logger;
 pub mod merkle;
 mod redaction;
 mod rotation;
+pub(crate) mod trusted_merkle_hash;
 mod types;
 mod verification;
 pub(crate) mod verified_audit_append;

@@ -19,14 +19,8 @@
 //! crash recovery and proof generation without replaying the full log.
 
 use crate::types::AuditError;
-use crate::{verified_merkle, verified_merkle_fold, verified_merkle_path};
-use sha2::{Digest, Sha256};
+use crate::{trusted_merkle_hash, verified_merkle, verified_merkle_fold, verified_merkle_path};
 use std::path::PathBuf;
-
-/// Domain separation byte for leaf hashes (RFC 6962).
-const LEAF_PREFIX: u8 = 0x00;
-/// Domain separation byte for internal node hashes (RFC 6962).
-const INTERNAL_PREFIX: u8 = 0x01;
 /// Size of a SHA-256 hash in bytes.
 const HASH_SIZE: usize = 32;
 
@@ -90,10 +84,7 @@ pub struct MerkleVerification {
 ///
 /// `hash_leaf(data) = SHA-256(0x00 || data)`
 pub fn hash_leaf(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update([LEAF_PREFIX]);
-    hasher.update(data);
-    hasher.finalize().into()
+    trusted_merkle_hash::hash_leaf_rfc6962(data)
 }
 
 /// Compute an internal node hash with RFC 6962 domain separation.
@@ -107,11 +98,7 @@ pub fn hash_leaf(data: &[u8]) -> [u8; 32] {
 /// This function is public so that external verifiers can reconstruct
 /// Merkle proofs independently using the same domain-separated hash.
 pub fn hash_internal(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update([INTERNAL_PREFIX]);
-    hasher.update(left);
-    hasher.update(right);
-    hasher.finalize().into()
+    trusted_merkle_hash::hash_internal_rfc6962(left, right)
 }
 
 impl MerkleTree {
@@ -243,7 +230,7 @@ impl MerkleTree {
 
     /// Return the current root hash as a hex string, or `None` if empty.
     pub fn root_hex(&self) -> Option<String> {
-        self.root().map(hex::encode)
+        self.root().map(trusted_merkle_hash::encode_hash_hex)
     }
 
     /// Reset the tree state for log rotation.
@@ -414,7 +401,7 @@ impl MerkleTree {
             leaf_index: index,
             tree_size: self.leaf_count,
             siblings,
-            root_hash: hex::encode(root),
+            root_hash: trusted_merkle_hash::encode_hash_hex(root),
         })
     }
 
@@ -457,7 +444,7 @@ impl MerkleTree {
             if verified_merkle_path::proof_level_has_sibling(idx, level.len()) {
                 let sibling_idx = verified_merkle_path::proof_sibling_index(idx);
                 siblings.push(ProofStep {
-                    hash: hex::encode(level[sibling_idx]),
+                    hash: trusted_merkle_hash::encode_hash_hex(level[sibling_idx]),
                     is_left: verified_merkle_path::proof_step_is_left(idx),
                 });
             }
@@ -513,8 +500,7 @@ impl MerkleTree {
 
         let mut current = leaf_hash;
         for step in &proof.siblings {
-            let sibling = hex::decode(&step.hash)
-                .map_err(|e| AuditError::Validation(format!("Invalid sibling hash hex: {e}")))?;
+            let sibling = trusted_merkle_hash::decode_hash_hex(&step.hash)?;
             if !verified_merkle::sibling_hash_len_valid(sibling.len()) {
                 return Ok(MerkleVerification {
                     valid: false,
@@ -535,13 +521,13 @@ impl MerkleTree {
             );
         }
 
-        let computed_root = hex::encode(current);
-        if computed_root == trusted_root {
+        if trusted_merkle_hash::hash_matches_trusted_root(current, trusted_root) {
             Ok(MerkleVerification {
                 valid: true,
                 failure_reason: None,
             })
         } else {
+            let computed_root = trusted_merkle_hash::encode_hash_hex(current);
             Ok(MerkleVerification {
                 valid: false,
                 failure_reason: Some(format!(
@@ -607,6 +593,26 @@ mod tests {
         let h1 = hash_internal(&a, &b);
         let h2 = hash_internal(&b, &a);
         assert_ne!(h1, h2, "hash_internal(a,b) != hash_internal(b,a)");
+    }
+
+    #[test]
+    fn test_verify_proof_invalid_sibling_hex_rejected() {
+        let proof = MerkleProof {
+            leaf_index: 0,
+            tree_size: 1,
+            siblings: vec![ProofStep {
+                hash: "zz".to_string(),
+                is_left: false,
+            }],
+            root_hash: "0".repeat(64),
+        };
+
+        let err = MerkleTree::verify_proof([0u8; 32], &proof, &"0".repeat(64))
+            .expect_err("invalid sibling hex");
+        match err {
+            AuditError::Validation(msg) => assert!(msg.contains("Invalid sibling hash hex")),
+            other => panic!("expected validation error, got {other:?}"),
+        }
     }
 
     // ── Basic tree operations ───────────────────────────────────────
