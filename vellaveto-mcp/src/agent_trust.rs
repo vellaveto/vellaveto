@@ -50,6 +50,9 @@ const MAX_TRUST_TARGETS_PER_AGENT: usize = 1_000;
 /// to prevent unbounded memory allocation from large transitive graphs.
 const MAX_CLOSURE_SIZE: usize = 10_000;
 
+/// SECURITY (R242-MCP-1): Maximum length for agent/session/action identifiers.
+const MAX_CHAIN_FIELD_LEN: usize = 512;
+
 /// Privilege level assigned to an agent.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
@@ -77,7 +80,9 @@ impl PrivilegeLevel {
 }
 
 /// Entry in the request chain tracking who requested what from whom.
+// SECURITY (R242-MCP-1): deny_unknown_fields per project hardening policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequestChainEntry {
     /// Agent that made the request
     pub from_agent: String,
@@ -92,7 +97,9 @@ pub struct RequestChainEntry {
 }
 
 /// Alert generated when privilege escalation is detected.
+// SECURITY (R242-MCP-1): deny_unknown_fields per project hardening policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EscalationAlert {
     /// Type of escalation detected
     pub alert_type: EscalationAlertType,
@@ -165,6 +172,14 @@ impl AgentTrustGraph {
 
     /// Register an agent with a privilege level.
     pub fn register_agent(&self, agent_id: &str, level: PrivilegeLevel) {
+        // SECURITY (R242-MCP-1): Validate agent_id — stored as HashMap key and logged.
+        if agent_id.len() > MAX_CHAIN_FIELD_LEN || vellaveto_types::has_dangerous_chars(agent_id) {
+            tracing::warn!(
+                target: "vellaveto::security",
+                "register_agent rejected: agent_id too long or contains dangerous characters"
+            );
+            return;
+        }
         let mut levels = match self.privilege_levels.write() {
             Ok(g) => g,
             Err(_) => {
@@ -205,6 +220,17 @@ impl AgentTrustGraph {
 
     /// Add a trust relationship: `from_agent` trusts `to_agent`.
     pub fn add_trust(&self, from_agent: &str, to_agent: &str) {
+        // SECURITY (R242-MCP-1): Validate agent IDs — stored as HashMap keys.
+        for (name, val) in [("from_agent", from_agent), ("to_agent", to_agent)] {
+            if val.len() > MAX_CHAIN_FIELD_LEN || vellaveto_types::has_dangerous_chars(val) {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    field = name,
+                    "add_trust rejected: field too long or contains dangerous characters"
+                );
+                return;
+            }
+        }
         let mut edges = match self.trust_edges.write() {
             Ok(g) => g,
             Err(_) => {
@@ -328,6 +354,24 @@ impl AgentTrustGraph {
 
     /// Record an inter-agent request.
     pub fn record_request(&self, session_id: &str, from_agent: &str, to_agent: &str, action: &str) {
+        // SECURITY (R242-MCP-1): Validate inputs — these flow into format!() in
+        // escalation alerts and into audit log entries. Control/format characters
+        // in agent IDs could corrupt logs or exploit downstream consumers.
+        for (name, val) in [
+            ("session_id", session_id),
+            ("from_agent", from_agent),
+            ("to_agent", to_agent),
+            ("action", action),
+        ] {
+            if val.len() > MAX_CHAIN_FIELD_LEN || vellaveto_types::has_dangerous_chars(val) {
+                tracing::warn!(
+                    target: "vellaveto::security",
+                    field = name,
+                    "record_request rejected: field too long or contains dangerous characters"
+                );
+                return;
+            }
+        }
         let entry = RequestChainEntry {
             from_agent: from_agent.to_string(),
             to_agent: to_agent.to_string(),
@@ -740,7 +784,9 @@ impl Default for AgentTrustGraph {
 }
 
 /// Statistics about the trust graph.
+// SECURITY (R242-MCP-1): deny_unknown_fields per project hardening policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TrustGraphStats {
     pub registered_agents: usize,
     pub trusted_agents: usize,
@@ -1025,5 +1071,69 @@ mod tests {
             graph.is_registered("agent_0"),
             "Re-registering existing agent must succeed at capacity"
         );
+    }
+
+    // ── R242-MCP-1: Input validation + deny_unknown_fields ──────────
+
+    #[test]
+    fn test_record_request_rejects_dangerous_chars_in_from_agent() {
+        let graph = AgentTrustGraph::new();
+        graph.record_request("s1", "agent\u{200B}a", "b", "tool:fn");
+        // Chain should be empty — request was rejected
+        assert!(graph.get_chain("s1").is_empty());
+    }
+
+    #[test]
+    fn test_record_request_rejects_dangerous_chars_in_action() {
+        let graph = AgentTrustGraph::new();
+        graph.record_request("s1", "a", "b", "tool\x00fn");
+        assert!(graph.get_chain("s1").is_empty());
+    }
+
+    #[test]
+    fn test_record_request_rejects_too_long_session_id() {
+        let graph = AgentTrustGraph::new();
+        let long_id = "x".repeat(MAX_CHAIN_FIELD_LEN + 1);
+        graph.record_request(&long_id, "a", "b", "tool:fn");
+        assert!(graph.get_chain(&long_id).is_empty());
+    }
+
+    #[test]
+    fn test_register_agent_rejects_dangerous_chars() {
+        let graph = AgentTrustGraph::new();
+        graph.register_agent("agent\x1b[31m", PrivilegeLevel::Admin);
+        assert!(!graph.is_registered("agent\x1b[31m"));
+    }
+
+    #[test]
+    fn test_add_trust_rejects_dangerous_chars() {
+        let graph = AgentTrustGraph::new();
+        graph.register_agent("a", PrivilegeLevel::Admin);
+        graph.register_agent("b", PrivilegeLevel::Basic);
+        graph.add_trust("a\u{200B}", "b");
+        // Trust edge should not exist — closure from injected key should be empty
+        let closure = graph.trust_closure("a\u{200B}");
+        assert!(closure.is_empty());
+    }
+
+    #[test]
+    fn test_request_chain_entry_deny_unknown_fields() {
+        let json = r#"{"from_agent":"a","to_agent":"b","action":"tool:fn","timestamp":0,"session_id":"s1","extra":"bad"}"#;
+        let result: Result<RequestChainEntry, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Unknown field 'extra' should be rejected");
+    }
+
+    #[test]
+    fn test_escalation_alert_deny_unknown_fields() {
+        let json = r#"{"alert_type":"ChainDepthExceeded","source_agent":"a","target_agent":null,"chain":[],"description":"test","severity":1,"extra":"bad"}"#;
+        let result: Result<EscalationAlert, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Unknown field 'extra' should be rejected");
+    }
+
+    #[test]
+    fn test_trust_graph_stats_deny_unknown_fields() {
+        let json = r#"{"registered_agents":0,"trusted_agents":0,"total_trust_edges":0,"active_sessions":0,"max_chain_depth":10,"extra":"bad"}"#;
+        let result: Result<TrustGraphStats, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "Unknown field 'extra' should be rejected");
     }
 }
