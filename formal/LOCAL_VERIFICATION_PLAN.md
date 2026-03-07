@@ -34,6 +34,8 @@ Completed now:
     `vellaveto-mcp/src/verified_capability_attenuation.rs`
   - capability grant restriction/invocation attenuation in
     `vellaveto-mcp/src/verified_capability_grant.rs`
+  - capability child-glob rejection guard in
+    `vellaveto-mcp/src/verified_capability_pattern.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
   - cross-call tracker field-capacity/update gate in
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
@@ -130,6 +132,7 @@ Current status:
 - arithmetic attenuation kernel landed for remaining-depth decrement and expiry
   clamping
 - grant restriction-shape and `max_invocations` attenuation kernel landed
+- child-glob rejection guard landed for the conservative subset rule
 - grant subset semantics, holder/issuer chain semantics, and revocation are
   still outside the Verus boundary
 

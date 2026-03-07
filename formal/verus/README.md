@@ -2,8 +2,9 @@
 
 Deductive verification of Vellaveto's core verdict computation, constraint
 evaluation fail-closed control flow, capability attenuation arithmetic,
-capability grant attenuation, fixed-point entropy alert gating, cross-call DLP
-tracker gating, DLP buffer arithmetic, and path normalization using
+capability grant attenuation, capability pattern attenuation, fixed-point
+entropy alert gating, cross-call DLP tracker gating, DLP buffer arithmetic,
+and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -109,6 +110,29 @@ Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_limited_parent_rejects_larger_child_limit` | A child invocation bound cannot exceed the parent's limit |
 | `lemma_limited_parent_accepts_smaller_child_limit` | A smaller positive child bound is accepted when restriction shapes are preserved |
 | `lemma_unlimited_parent_leaves_only_shape_checks` | With unlimited parent invocations, attenuation reduces to the shape-preservation checks |
+
+### Capability Pattern Attenuation (`verified_capability_pattern.rs`) — 10 verified items, CAP-PAT-1–CAP-PAT-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-PAT-1 | Metacharacter detection | `has_glob_metacharacters` precisely detects `*` and `?` bytes |
+| CAP-PAT-2 | Non-identical child glob rejection | A child pattern with `*` or `?` is rejected unless the parent is wildcard or the patterns are equal ignoring ASCII case |
+| CAP-PAT-3 | Wildcard/equality fast path | Wildcard parents and identical patterns always pass the guard |
+| CAP-PAT-4 | Literal-child fallthrough | Literal children always fall through to the runtime matcher instead of being rejected by the guard |
+
+Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_non_identical_child_glob_rejected` | A differing child glob is fail-closed |
+| `lemma_wildcard_parent_allows_child_glob` | A wildcard parent cannot be blocked by the guard |
+| `lemma_identical_child_glob_allowed` | Exact equality bypasses the child-glob rejection |
+| `lemma_literal_child_falls_through` | Literal child patterns are not rejected by the guard |
+| `lemma_accepted_child_glob_requires_wildcard_or_equality` | An accepted child glob must be justified by wildcard parent or equality |
 
 ### Entropy Alert Gate (`verified_entropy_gate.rs`) — 11 verified items, ENT-GATE-1–ENT-GATE-5
 
@@ -219,6 +243,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
+| `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes child-glob metacharacter rejection through the verified pattern guard |
 | `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
@@ -245,6 +270,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Capability grant restriction/invocation kernel (8 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
+# Capability child-glob rejection guard (10 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
+
 # Constraint evaluation fail-closed control flow (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
 
@@ -269,6 +297,7 @@ cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
+verus formal/verus/verified_capability_pattern.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_entropy_gate.rs
@@ -280,6 +309,7 @@ verus formal/verus/verified_path.rs
 Expected output:
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
+- `verified_capability_pattern.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_entropy_gate.rs`: `verification results:: 11 verified, 0 errors`
@@ -298,7 +328,7 @@ Verus trusts:
 
 Verus does NOT verify:
 - The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
-- Full pattern-language containment in `capability_token.rs` (glob/path/domain matching still relies on runtime checks and tests)
+- Full pattern-language containment in `capability_token.rs` (literal/glob matching and path/domain coverage still rely on runtime checks and tests)
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 

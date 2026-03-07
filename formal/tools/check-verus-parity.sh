@@ -75,9 +75,11 @@ PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
+PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
+VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
 PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
 VERUS_ENTROPY="$PROJECT_DIR/formal/verus/verified_entropy_gate.rs"
@@ -176,6 +178,33 @@ check_symbol_parity \
     'verified_capability_grant::grant_restrictions_attenuated' \
     "$VERUS_CAPABILITY_GRANT" \
     'pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated'
+echo ""
+
+echo "--- Capability Pattern Kernel ---"
+check_file_pair \
+    "verified_capability_pattern.rs ↔ vellaveto-mcp/src/verified_capability_pattern.rs" \
+    "$PROD_CAPABILITY_PATTERN" \
+    "$VERUS_CAPABILITY_PATTERN"
+for fn in has_glob_metacharacters pattern_subset_guard; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_PATTERN" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_PATTERN" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability pattern subset uses verified guard" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_pattern::pattern_subset_guard' \
+    "$VERUS_CAPABILITY_PATTERN" \
+    'pub[[:space:]]+fn[[:space:]]+pattern_subset_guard'
+check_symbol_parity \
+    "capability pattern subset uses verified metacharacter detector" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_pattern::has_glob_metacharacters' \
+    "$VERUS_CAPABILITY_PATTERN" \
+    'pub[[:space:]]+fn[[:space:]]+has_glob_metacharacters'
 echo ""
 
 echo "--- Entropy Alert Gate ---"

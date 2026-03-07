@@ -32,6 +32,7 @@ use vellaveto_types::{
 
 use crate::verified_capability_attenuation;
 use crate::verified_capability_grant;
+use crate::verified_capability_pattern;
 
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
@@ -623,23 +624,22 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     // 3. child has metacharacters AND differs from parent → reject (potential escalation)
     // 4. child has no metacharacters → use pattern_matches (literal child under parent glob)
     fn pattern_is_subset(parent: &str, child: &str) -> bool {
-        if parent == "*" {
-            return true;
-        }
-        if parent.eq_ignore_ascii_case(child) {
-            return true;
-        }
-        // If child contains glob metacharacters and differs from parent,
-        // we cannot safely determine subset relationship via simple glob matching.
-        // Reject to prevent escalation (e.g., parent "fi?" child "fi*").
-        if child.contains('*') || child.contains('?') {
-            // Child is a glob pattern different from parent — could be broader.
-            // Only allow if child is strictly a longer prefix match:
-            // parent "file_*" child "file_read_*" — child is more specific.
-            // But this requires proper language containment checking.
-            // For safety, reject all non-equal glob-to-glob comparisons.
+        let parent_is_wildcard = parent == "*";
+        let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
+        let child_has_metacharacters = verified_capability_pattern::has_glob_metacharacters(child);
+
+        if !verified_capability_pattern::pattern_subset_guard(
+            parent_is_wildcard,
+            parent_equals_child_ignore_ascii_case,
+            child_has_metacharacters,
+        ) {
             return false;
         }
+
+        if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+            return true;
+        }
+
         // Child is a literal value — safe to check against parent glob.
         pattern_matches(parent, child)
     }

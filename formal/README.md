@@ -28,6 +28,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_constraint_eval.rs` | Verus | ENG-CON-1–ENG-CON-4 | Constraint evaluation fail-closed control flow (ALL inputs, actual Rust) |
 | `verus/verified_capability_attenuation.rs` | Verus | CAP-ATT-1–CAP-ATT-4 | Capability delegation depth/expiry attenuation on actual Rust |
 | `verus/verified_capability_grant.rs` | Verus | CAP-GRANT-1–CAP-GRANT-4 | Capability grant restriction-shape and invocation attenuation on actual Rust |
+| `verus/verified_capability_pattern.rs` | Verus | CAP-PAT-1–CAP-PAT-4 | Capability child-glob rejection guard on actual Rust |
 | `verus/verified_entropy_gate.rs` | Verus | ENT-GATE-1–ENT-GATE-5 | Fixed-point entropy alert gate on actual Rust |
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
@@ -42,7 +43,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
 Current formal suite across 6 tools:
-- **Verus:** 8 verified files on actual Rust code; current local outputs are 11 verified (`verified_capability_attenuation.rs`), 8 verified (`verified_capability_grant.rs`), 12 verified (`verified_constraint_eval.rs`), 9 verified (`verified_cross_call_dlp.rs`), 12 verified (`verified_core.rs`), 11 verified (`verified_entropy_gate.rs`), 14 verified (`verified_dlp_core.rs`), and 31 verified (`verified_path.rs`)
+- **Verus:** 9 verified files on actual Rust code; current local outputs are 11 verified (`verified_capability_attenuation.rs`), 8 verified (`verified_capability_grant.rs`), 10 verified (`verified_capability_pattern.rs`), 12 verified (`verified_constraint_eval.rs`), 9 verified (`verified_cross_call_dlp.rs`), 12 verified (`verified_core.rs`), 11 verified (`verified_entropy_gate.rs`), 14 verified (`verified_dlp_core.rs`), and 31 verified (`verified_path.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -167,6 +168,7 @@ formal/
     verified_constraint_eval.rs      ← Constraint evaluation fail-closed kernel (ENG-CON-1–ENG-CON-4)
     verified_capability_attenuation.rs ← Capability delegation depth/expiry attenuation (11 verified)
     verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (8 verified)
+    verified_capability_pattern.rs   ← Capability child-glob rejection guard (10 verified)
     verified_entropy_gate.rs         ← Fixed-point entropy alert gate (11 verified)
     verified_cross_call_dlp.rs       ← Cross-call tracker field-capacity/update gate (9 verified)
     verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
@@ -367,6 +369,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Capability grant restriction/invocation kernel (8 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
+# Capability child-glob rejection guard (10 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
+
 # Constraint evaluation fail-closed control flow (ENG-CON-1–ENG-CON-4, 12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
 
@@ -389,6 +394,7 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_pat
 Expected output:
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
+- `verified_capability_pattern.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_cross_call_dlp.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
@@ -761,7 +767,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **108 verified items (CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **118 verified items (CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
