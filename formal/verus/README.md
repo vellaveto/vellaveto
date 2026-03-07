@@ -1,7 +1,8 @@
 # Verus Formal Verification
 
-Deductive verification of Vellaveto's core verdict computation, DLP buffer
-arithmetic, and path normalization using [Verus](https://github.com/verus-lang/verus).
+Deductive verification of Vellaveto's core verdict computation, constraint
+evaluation fail-closed control flow, DLP buffer arithmetic, and path
+normalization using [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
 
@@ -36,6 +37,27 @@ will be proven by a Kani harness (K19) in Phase 3.
 | `lemma_path_block_is_deny` | Path block -> rule_override_deny -> Deny (V11) |
 | `lemma_network_block_is_deny` | Network/IP block -> rule_override_deny -> Deny (V12) |
 | `lemma_any_rule_override_is_deny` | Any rule type setting rule_override_deny -> Deny |
+
+### Constraint Evaluation Kernel (`verified_constraint_eval.rs`) — 12 verified items, ENG-CON-1–ENG-CON-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| ENG-CON-1 | All-skipped detection | `total_constraints > 0 && !any_evaluated` iff every configured constraint was skipped |
+| ENG-CON-2 | Forbidden precedence | Any forbidden parameter presence forces `Deny` |
+| ENG-CON-3 | Require-approval precedence | `require_approval` forces `RequireApproval` unless already denied |
+| ENG-CON-4 | No-match handling | `on_no_match_continue` only yields `Continue` on the no-match path |
+
+Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_all_skipped_is_fail_closed` | A non-empty all-skipped constraint set is fail-closed |
+| `lemma_forbidden_precedes_approval` | Forbidden parameter presence overrides `require_approval` and yields `Deny` |
+| `lemma_no_match_continue_is_only_continue` | `Continue` is reachable only on the explicit no-match path |
 
 ### Path Normalization (`verified_path.rs`) — 30 verified items; V9-V10 fully proved
 
@@ -91,6 +113,7 @@ Verification result: **14 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | Verus File | Production File | Wiring |
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
+| `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
 | `formal/verus/verified_path.rs` | `vellaveto-mcp/src/capability_token.rs` | Byte-level equivalent of `normalize_path_for_grant` |
 
@@ -109,25 +132,30 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
+# Constraint evaluation fail-closed control flow (12 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
+
 # Core verdict + rule override (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
 # DLP buffer arithmetic (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization no-traversal (14 verified)
+# Path normalization no-traversal (30 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 
 # Option 2: From source
 git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
+verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_dlp_core.rs
 verus formal/verus/verified_path.rs
 ```
 
 Expected output:
+- `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 30 verified, 0 errors`

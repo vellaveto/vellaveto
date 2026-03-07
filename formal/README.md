@@ -1,6 +1,7 @@
 # Formal Verification — Vellaveto MCP Policy Engine
 
-Formal specifications of Vellaveto's core security properties using TLA+, Alloy, Lean 4, Coq, and Kani.
+Formal specifications of Vellaveto's core security properties using TLA+, Alloy,
+Lean 4, Coq, Verus, and Kani.
 
 This is the first formal model of MCP policy enforcement in any framework,
 addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
@@ -24,6 +25,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `AbacForbidOverride.lean` | Lean 4 | S7–S10 | ABAC forbid-overrides (first forbid wins) |
 | `CapabilityDelegation.lean` | Lean 4 | S11–S16 | Capability delegation attenuation proofs |
 | `verus/verified_core.rs` | Verus | V1–V8, V11–V12 | Core verdict computation + rule override proofs (ALL inputs, actual Rust) |
+| `verus/verified_constraint_eval.rs` | Verus | ENG-CON-1–ENG-CON-4 | Constraint evaluation fail-closed control flow (ALL inputs, actual Rust) |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9-V10 | Path normalization idempotence + no-traversal on actual Rust |
 | `kani/src/proofs.rs` | Kani | K1–K77 | Bounded model checking of actual Rust (77 harnesses) |
@@ -35,8 +37,8 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CircuitBreaker.v` | Coq | C1–C5 | Circuit breaker state machine properties |
 | `TaskLifecycle.v` | Coq | T1–T3 | MCP Task lifecycle terminal absorbing, valid transitions |
 
-Current formal suite across 7 tools:
-- **Verus:** 3 verified files on actual Rust code; current local outputs are 12 verified (`verified_core.rs`), 14 verified (`verified_dlp_core.rs`), and 30 verified (`verified_path.rs`)
+Current formal suite across 6 tools:
+- **Verus:** 4 verified files on actual Rust code; current local outputs are 12 verified (`verified_constraint_eval.rs`), 12 verified (`verified_core.rs`), 14 verified (`verified_dlp_core.rs`), and 30 verified (`verified_path.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -158,6 +160,7 @@ formal/
   verus/
     README.md                        ← Verus setup and verification guide
     verified_core.rs                 ← Core verdict logic (V1-V8, V11-V12)
+    verified_constraint_eval.rs      ← Constraint evaluation fail-closed kernel (ENG-CON-1–ENG-CON-4)
     verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 14 verified)
     verified_path.rs                 ← Path normalization idempotence + no-traversal (30 verified)
   kani/
@@ -340,7 +343,7 @@ make
 Expected output: all 8 `.v` files compile cleanly with no `Admitted` markers.
 Verify: `grep -r "Admitted\|admit" Vellaveto/*.v` returns no matches.
 
-### Verus Proofs (V1–V12, D1–D6)
+### Verus Proofs (V1–V12, ENG-CON-1–ENG-CON-4, D1–D6)
 
 ```bash
 # Option 1: Binary release (recommended)
@@ -350,17 +353,21 @@ curl -sSL -o verus.zip \
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
 
+# Constraint evaluation fail-closed control flow (ENG-CON-1–ENG-CON-4, 12 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
+
 # Core verdict + rule override (V1-V8, V11-V12)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_core.rs
 
 # DLP buffer arithmetic (D1-D6, 14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dlp_core.rs
 
-# Path normalization no-traversal (14 verified)
+# Path normalization no-traversal (30 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_path.rs
 ```
 
 Expected output:
+- `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_dlp_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 30 verified, 0 errors`
@@ -692,9 +699,9 @@ For TLA+, Lean, Coq, Alloy, and Kani: the model bounds are finite (bounded
 model checking), not unbounded proofs. However, the properties are structural
 and do not depend on the specific bound values.
 
-For Verus: properties V1-V8 and D1-D6 are proven for ALL possible inputs on
-the actual Rust code. No bounds, no sampling. The Verus core is the strongest
-verification layer.
+For Verus: properties V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, and D1-D6 are
+proven for ALL possible inputs on the actual Rust code. No bounds, no sampling.
+The Verus core is the strongest verification layer.
 
 ### Known Abstraction Gaps
 
@@ -730,7 +737,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **56 verified items (V1-V12, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **68 verified items (V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, D1-D6)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
