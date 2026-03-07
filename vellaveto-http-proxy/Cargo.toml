@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-http-proxy"
-version = "6.0.1"
+version = "6.0.2"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -26,13 +26,13 @@ name = "vellaveto-http-proxy"
 path = "src/main.rs"
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.1" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.1" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.1" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.1" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.1" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.1" }
-vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.1" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.2" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.2" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.2" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.2" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.2" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.2" }
+vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.2" }
 tokio-rustls = "0.26"
 
 serde = { workspace = true }
