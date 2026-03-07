@@ -1,0 +1,159 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
+
+//! Verified audit-chain verification kernel.
+//!
+//! This module extracts the pure fail-closed guards from
+//! `verification.rs::verify_chain()`. It does not prove cryptographic hash
+//! soundness or filesystem semantics; it formalizes the control-flow boundary
+//! that decides when audit verification must reject an entry.
+
+/// Return true when the timestamp guard passes:
+/// - the timestamp is in UTC form
+/// - the timestamp is non-decreasing relative to the previous entry
+#[inline]
+#[must_use = "audit verification decisions must not be discarded"]
+pub(crate) const fn timestamp_guard(is_utc: bool, timestamps_nondecreasing: bool) -> bool {
+    is_utc && timestamps_nondecreasing
+}
+
+/// Return true when the sequence monotonicity rule passes.
+///
+/// `has_prev_sequence` indicates whether `prev_sequence` is meaningful. A
+/// current sequence of `0` is accepted as a legacy entry and does not
+/// participate in monotonicity tracking.
+#[inline]
+#[must_use = "audit verification decisions must not be discarded"]
+pub(crate) const fn sequence_monotonic(
+    has_prev_sequence: bool,
+    prev_sequence: u64,
+    current_sequence: u64,
+) -> bool {
+    current_sequence == 0 || !has_prev_sequence || current_sequence > prev_sequence
+}
+
+/// Return true when the hash-presence transition is allowed.
+///
+/// Legacy entries without hashes are only permitted before the first hashed
+/// entry. Once a hashed entry has been seen, all subsequent entries must also
+/// carry hashes.
+#[inline]
+#[must_use = "audit verification decisions must not be discarded"]
+pub(crate) const fn hash_presence_valid(seen_hashed_entry: bool, entry_has_hash: bool) -> bool {
+    entry_has_hash || !seen_hashed_entry
+}
+
+/// Return true when the full per-entry chain-verification step passes.
+///
+/// If the entry has no hash, the link/hash booleans are ignored and only the
+/// timestamp, sequence, and hash-presence guards matter. If the entry has a
+/// hash, both the `prev_hash` link and the recomputed `entry_hash` must match.
+#[inline]
+#[must_use = "audit verification decisions must not be discarded"]
+pub(crate) const fn audit_chain_step_valid(
+    timestamp_guard_ok: bool,
+    sequence_guard_ok: bool,
+    hash_presence_guard_ok: bool,
+    entry_has_hash: bool,
+    prev_hash_matches: bool,
+    entry_hash_matches: bool,
+) -> bool {
+    timestamp_guard_ok
+        && sequence_guard_ok
+        && hash_presence_guard_ok
+        && (!entry_has_hash || (prev_hash_matches && entry_hash_matches))
+}
+
+/// Return the next `seen_hashed_entry` state after processing one entry.
+#[inline]
+#[must_use = "audit verifier state updates must not be discarded"]
+pub(crate) const fn next_seen_hashed_entry(seen_hashed_entry: bool, entry_has_hash: bool) -> bool {
+    seen_hashed_entry || entry_has_hash
+}
+
+/// Return the next tracked non-zero sequence value.
+///
+/// Legacy zero-sequence entries leave the tracked value unchanged.
+#[inline]
+#[must_use = "audit verifier state updates must not be discarded"]
+pub(crate) const fn next_prev_sequence(prev_sequence: u64, current_sequence: u64) -> u64 {
+    if current_sequence > 0 {
+        current_sequence
+    } else {
+        prev_sequence
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timestamp_guard_rejects_non_utc() {
+        assert!(!timestamp_guard(false, true));
+    }
+
+    #[test]
+    fn test_timestamp_guard_rejects_regression() {
+        assert!(!timestamp_guard(true, false));
+    }
+
+    #[test]
+    fn test_timestamp_guard_accepts_utc_nondecreasing() {
+        assert!(timestamp_guard(true, true));
+    }
+
+    #[test]
+    fn test_sequence_monotonic_accepts_legacy_zero() {
+        assert!(sequence_monotonic(true, 10, 0));
+    }
+
+    #[test]
+    fn test_sequence_monotonic_rejects_regression() {
+        assert!(!sequence_monotonic(true, 10, 10));
+        assert!(!sequence_monotonic(true, 10, 9));
+    }
+
+    #[test]
+    fn test_hash_presence_valid_rejects_unhashed_after_hashed() {
+        assert!(!hash_presence_valid(true, false));
+    }
+
+    #[test]
+    fn test_hash_presence_valid_accepts_legacy_prefix() {
+        assert!(hash_presence_valid(false, false));
+    }
+
+    #[test]
+    fn test_audit_chain_step_valid_rejects_hashed_link_mismatch() {
+        assert!(!audit_chain_step_valid(true, true, true, true, false, true));
+    }
+
+    #[test]
+    fn test_audit_chain_step_valid_rejects_hashed_self_hash_mismatch() {
+        assert!(!audit_chain_step_valid(true, true, true, true, true, false));
+    }
+
+    #[test]
+    fn test_audit_chain_step_valid_accepts_unhashed_legacy_entry() {
+        assert!(audit_chain_step_valid(
+            true, true, true, false, false, false
+        ));
+    }
+
+    #[test]
+    fn test_next_seen_hashed_entry_latches_true() {
+        assert!(next_seen_hashed_entry(false, true));
+        assert!(next_seen_hashed_entry(true, false));
+    }
+
+    #[test]
+    fn test_next_prev_sequence_preserves_legacy_zero() {
+        assert_eq!(next_prev_sequence(7, 0), 7);
+        assert_eq!(next_prev_sequence(7, 8), 8);
+    }
+}

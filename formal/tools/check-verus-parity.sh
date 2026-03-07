@@ -73,11 +73,14 @@ VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
+PROD_AUDIT_CHAIN="$PROJECT_DIR/vellaveto-audit/src/verified_audit_chain.rs"
+PROD_AUDIT_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/verification.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
@@ -134,6 +137,45 @@ check_symbol_parity \
     'verified_constraint_eval::no_match_verdict' \
     "$VERUS_CONSTRAINT" \
     'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
+echo ""
+
+echo "--- Audit Chain Kernel ---"
+check_file_pair \
+    "verified_audit_chain.rs ↔ vellaveto-audit/src/verified_audit_chain.rs" \
+    "$PROD_AUDIT_CHAIN" \
+    "$VERUS_AUDIT_CHAIN"
+for fn in timestamp_guard sequence_monotonic hash_presence_valid audit_chain_step_valid next_seen_hashed_entry next_prev_sequence; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_AUDIT_CHAIN" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_AUDIT_CHAIN" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "audit verification uses verified timestamp guard" \
+    "$PROD_AUDIT_WRAPPER" \
+    'verified_audit_chain::timestamp_guard' \
+    "$VERUS_AUDIT_CHAIN" \
+    'pub[[:space:]]+fn[[:space:]]+timestamp_guard'
+check_symbol_parity \
+    "audit verification uses verified sequence gate" \
+    "$PROD_AUDIT_WRAPPER" \
+    'verified_audit_chain::sequence_monotonic' \
+    "$VERUS_AUDIT_CHAIN" \
+    'pub[[:space:]]+fn[[:space:]]+sequence_monotonic'
+check_symbol_parity \
+    "audit verification uses verified hash-presence gate" \
+    "$PROD_AUDIT_WRAPPER" \
+    'verified_audit_chain::hash_presence_valid' \
+    "$VERUS_AUDIT_CHAIN" \
+    'pub[[:space:]]+fn[[:space:]]+hash_presence_valid'
+check_symbol_parity \
+    "audit verification uses verified step gate" \
+    "$PROD_AUDIT_WRAPPER" \
+    'verified_audit_chain::audit_chain_step_valid' \
+    "$VERUS_AUDIT_CHAIN" \
+    'pub[[:space:]]+fn[[:space:]]+audit_chain_step_valid'
 echo ""
 
 echo "--- Capability Attenuation Kernel ---"

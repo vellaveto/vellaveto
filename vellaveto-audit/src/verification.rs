@@ -7,6 +7,7 @@
 
 use crate::logger::AuditLogger;
 use crate::types::{AuditEntry, AuditError, AuditReport, ChainVerification};
+use crate::verified_audit_chain;
 use tokio::io::AsyncBufReadExt;
 use vellaveto_types::Verdict;
 
@@ -262,7 +263,20 @@ impl AuditLogger {
             let is_utc = entry.timestamp.ends_with('Z')
                 || entry.timestamp.ends_with('z')
                 || entry.timestamp.ends_with("+00:00");
-            if !is_utc {
+            let timestamps_nondecreasing = if let Some(prev_ts) = prev_timestamp {
+                // SECURITY (R228-AUD-1): Normalize UTC suffixes before comparison.
+                // A mix of 'Z' and '+00:00' suffixes in the same log breaks
+                // lexicographic ordering because '+' (0x2B) < 'Z' (0x5A) in ASCII.
+                // Stripping the suffix allows correct date-time prefix comparison.
+                let curr_norm = strip_utc_suffix(&entry.timestamp);
+                let prev_norm = strip_utc_suffix(prev_ts);
+                curr_norm >= prev_norm
+            } else {
+                true
+            };
+            let timestamp_guard_ok =
+                verified_audit_chain::timestamp_guard(is_utc, timestamps_nondecreasing);
+            if !timestamp_guard_ok {
                 tracing::warn!(
                     entry_index = i,
                     timestamp = %entry.timestamp,
@@ -274,84 +288,95 @@ impl AuditLogger {
                     first_broken_at: Some(i),
                 });
             }
-            if let Some(prev_ts) = prev_timestamp {
-                // SECURITY (R228-AUD-1): Normalize UTC suffixes before comparison.
-                // A mix of 'Z' and '+00:00' suffixes in the same log breaks
-                // lexicographic ordering because '+' (0x2B) < 'Z' (0x5A) in ASCII.
-                // Stripping the suffix allows correct date-time prefix comparison.
-                let curr_norm = strip_utc_suffix(&entry.timestamp);
-                let prev_norm = strip_utc_suffix(prev_ts);
-                if curr_norm < prev_norm {
-                    tracing::warn!(
-                        entry_index = i,
-                        prev_ts = prev_ts,
-                        curr_ts = %entry.timestamp,
-                        "Audit chain timestamp regression detected"
-                    );
-                    return Ok(ChainVerification {
-                        valid: false,
-                        entries_checked: i + 1,
-                        first_broken_at: Some(i),
-                    });
-                }
+            if !timestamps_nondecreasing {
+                let prev_ts = prev_timestamp.expect("regression requires previous timestamp");
+                tracing::warn!(
+                    entry_index = i,
+                    prev_ts = prev_ts,
+                    curr_ts = %entry.timestamp,
+                    "Audit chain timestamp regression detected"
+                );
+                return Ok(ChainVerification {
+                    valid: false,
+                    entries_checked: i + 1,
+                    first_broken_at: Some(i),
+                });
             }
             prev_timestamp = Some(&entry.timestamp);
 
             // R230-AUD-1: Verify sequence monotonicity.
             // sequence=0 is valid for legacy entries (pre-R33), so only check
             // when the current entry has a non-zero sequence.
+            let prev_sequence_value = prev_sequence.unwrap_or(0);
+            let sequence_guard_ok = verified_audit_chain::sequence_monotonic(
+                prev_sequence.is_some(),
+                prev_sequence_value,
+                entry.sequence,
+            );
+            if !sequence_guard_ok {
+                tracing::warn!(
+                    entry_index = i,
+                    prev_seq = prev_sequence_value,
+                    curr_seq = entry.sequence,
+                    "Audit chain sequence regression detected"
+                );
+                return Ok(ChainVerification {
+                    valid: false,
+                    entries_checked: i + 1,
+                    first_broken_at: Some(i),
+                });
+            }
             if entry.sequence > 0 {
-                if let Some(prev_seq) = prev_sequence {
-                    if entry.sequence <= prev_seq {
-                        tracing::warn!(
-                            entry_index = i,
-                            prev_seq = prev_seq,
-                            curr_seq = entry.sequence,
-                            "Audit chain sequence regression detected"
-                        );
-                        return Ok(ChainVerification {
-                            valid: false,
-                            entries_checked: i + 1,
-                            first_broken_at: Some(i),
-                        });
-                    }
-                }
-                prev_sequence = Some(entry.sequence);
+                prev_sequence = Some(verified_audit_chain::next_prev_sequence(
+                    prev_sequence_value,
+                    entry.sequence,
+                ));
             }
 
-            if entry.entry_hash.is_none() {
+            let entry_has_hash = entry.entry_hash.is_some();
+            let hash_presence_guard_ok =
+                verified_audit_chain::hash_presence_valid(seen_hashed_entry, entry_has_hash);
+            if !hash_presence_guard_ok {
                 // Legacy entries are only allowed before the first hashed entry.
                 // Once a hashed entry appears, all subsequent entries MUST have hashes.
-                if seen_hashed_entry {
-                    return Ok(ChainVerification {
-                        valid: false,
-                        entries_checked: i + 1,
-                        first_broken_at: Some(i),
-                    });
-                }
+                return Ok(ChainVerification {
+                    valid: false,
+                    entries_checked: i + 1,
+                    first_broken_at: Some(i),
+                });
+            }
+
+            let (prev_hash_matches, entry_hash_matches) = if entry_has_hash {
+                let computed = Self::compute_entry_hash(entry)?;
+                (
+                    entry.prev_hash == prev_hash,
+                    entry.entry_hash.as_deref() == Some(&computed),
+                )
+            } else {
+                (true, true)
+            };
+
+            if !verified_audit_chain::audit_chain_step_valid(
+                timestamp_guard_ok,
+                sequence_guard_ok,
+                hash_presence_guard_ok,
+                entry_has_hash,
+                prev_hash_matches,
+                entry_hash_matches,
+            ) {
+                return Ok(ChainVerification {
+                    valid: false,
+                    entries_checked: i + 1,
+                    first_broken_at: Some(i),
+                });
+            }
+
+            seen_hashed_entry =
+                verified_audit_chain::next_seen_hashed_entry(seen_hashed_entry, entry_has_hash);
+
+            if !entry_has_hash {
                 prev_hash = None;
                 continue;
-            }
-
-            seen_hashed_entry = true;
-
-            // Verify prev_hash links to the previous entry
-            if entry.prev_hash != prev_hash {
-                return Ok(ChainVerification {
-                    valid: false,
-                    entries_checked: i + 1,
-                    first_broken_at: Some(i),
-                });
-            }
-
-            // Verify the entry's own hash
-            let computed = Self::compute_entry_hash(entry)?;
-            if entry.entry_hash.as_deref() != Some(&computed) {
-                return Ok(ChainVerification {
-                    valid: false,
-                    entries_checked: i + 1,
-                    first_broken_at: Some(i),
-                });
             }
 
             prev_hash = entry.entry_hash.clone();
@@ -806,6 +831,80 @@ mod tests {
 
         let result = logger.verify_chain().await.expect("verify");
         assert!(!result.valid, "Non-UTC timestamps should be rejected");
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_detects_sequence_regression() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        for idx in 0..3 {
+            logger
+                .log_entry(
+                    &Action::new("tool", format!("fn{idx}"), serde_json::json!({})),
+                    &Verdict::Allow,
+                    serde_json::json!({}),
+                )
+                .await
+                .expect("entry");
+        }
+
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 3 {
+            let mut entry: AuditEntry = serde_json::from_str(&lines[2]).expect("parse entry");
+            entry.sequence = 1;
+            lines[2] = serde_json::to_string(&entry).expect("serialize");
+            tokio::fs::write(&log_path, lines.join("\n") + "\n")
+                .await
+                .expect("write");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(!result.valid, "Sequence regression should be detected");
+    }
+
+    #[tokio::test]
+    async fn test_verify_chain_rejects_unhashed_entry_after_hashed_entry() {
+        let tmp = TempDir::new().expect("temp dir");
+        let log_path = tmp.path().join("audit.log");
+        let logger = AuditLogger::new(log_path.clone());
+
+        logger
+            .log_entry(
+                &Action::new("tool", "fn0", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 0");
+        logger
+            .log_entry(
+                &Action::new("tool", "fn1", serde_json::json!({})),
+                &Verdict::Allow,
+                serde_json::json!({}),
+            )
+            .await
+            .expect("entry 1");
+
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+        if lines.len() >= 2 {
+            let mut entry: AuditEntry = serde_json::from_str(&lines[1]).expect("parse entry");
+            entry.entry_hash = None;
+            entry.prev_hash = None;
+            lines[1] = serde_json::to_string(&entry).expect("serialize");
+            tokio::fs::write(&log_path, lines.join("\n") + "\n")
+                .await
+                .expect("write");
+        }
+
+        let result = logger.verify_chain().await.expect("verify");
+        assert!(
+            !result.valid,
+            "Unhashed entry after hashed entry must be rejected"
+        );
     }
 
     // ── detect_duplicate_ids tests ──────────────────────────────────

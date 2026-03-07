@@ -1,10 +1,11 @@
 # Verus Formal Verification
 
 Deductive verification of Vellaveto's core verdict computation, constraint
-evaluation fail-closed control flow, capability attenuation arithmetic,
-capability grant attenuation, capability literal matching fast paths,
-capability pattern attenuation, fixed-point entropy alert gating, cross-call
-DLP tracker gating, DLP buffer arithmetic, and path normalization using
+evaluation fail-closed control flow, audit-chain verification guards,
+capability attenuation arithmetic, capability grant attenuation, capability
+literal matching fast paths, capability pattern attenuation, fixed-point
+entropy alert gating, cross-call DLP tracker gating, DLP buffer arithmetic,
+and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -61,6 +62,35 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_all_skipped_is_fail_closed` | A non-empty all-skipped constraint set is fail-closed |
 | `lemma_forbidden_precedes_approval` | Forbidden parameter presence overrides `require_approval` and yields `Deny` |
 | `lemma_no_match_continue_is_only_continue` | `Continue` is reachable only on the explicit no-match path |
+
+### Audit-Chain Verification Guard (`verified_audit_chain.rs`) — 17 verified items, AUD-CHAIN-1–AUD-CHAIN-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| AUD-CHAIN-1 | Timestamp guard fail-closed | Only UTC timestamps with non-decreasing normalized order can pass the timestamp guard |
+| AUD-CHAIN-2 | Sequence monotonicity | Legacy `sequence = 0` entries are accepted, while tracked non-zero sequences must strictly increase |
+| AUD-CHAIN-3 | Hash presence monotonicity | Once a hashed entry appears, all subsequent entries must also carry hashes |
+| AUD-CHAIN-4 | Hashed-step linkage and self-hash | A hashed entry can pass only if both `prev_hash` linkage and recomputed `entry_hash` checks match |
+| AUD-CHAIN-5 | Verifier state monotonicity | `seen_hashed_entry` latches true and legacy zero-sequence entries preserve the tracked non-zero sequence |
+
+Verification result: **17 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_non_utc_timestamp_rejected` | A non-UTC timestamp can never pass the timestamp guard |
+| `lemma_timestamp_regression_rejected` | A timestamp regression can never pass the timestamp guard |
+| `lemma_legacy_zero_sequence_is_accepted` | Legacy zero-sequence entries always satisfy the monotonicity predicate |
+| `lemma_sequence_regression_rejected` | A non-zero sequence that does not strictly increase is rejected |
+| `lemma_unhashed_after_hashed_rejected` | An unhashed entry after a hashed prefix is fail-closed |
+| `lemma_legacy_prefix_unhashed_allowed` | Unhashed legacy entries are allowed only before any hashed entry |
+| `lemma_hashed_step_requires_link_and_hash` | A hashed step that passes must have both matching `prev_hash` and matching recomputed hash |
+| `lemma_unhashed_step_ignores_hash_booleans` | Unhashed legacy steps depend only on the timestamp/sequence/hash-presence guards |
+| `lemma_seen_hashed_latches_true` | Once the verifier has seen a hashed entry, the state remains latched |
+| `lemma_next_prev_sequence_preserves_legacy_zero` | A zero-sequence legacy entry cannot overwrite the tracked non-zero sequence |
 
 ### Capability Attenuation Arithmetic (`verified_capability_attenuation.rs`) — 11 verified items, CAP-ATT-1–CAP-ATT-4
 
@@ -265,6 +295,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-----------|----------------|--------|
 | `formal/verus/verified_core.rs` | `vellaveto-engine/src/verified_core.rs` | `debug_assert` at 7 decision points |
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
+| `formal/verus/verified_audit_chain.rs` | `vellaveto-audit/src/verified_audit_chain.rs` | `verification.rs` routes timestamp, sequence, hash-presence, and hashed-step validation through the verified audit-chain kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
@@ -288,6 +319,9 @@ curl -sSL -o verus.zip \
   "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
+
+# Audit-chain verification guard (17 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_chain.rs
 
 # Capability attenuation depth/expiry kernel (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
@@ -323,6 +357,7 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_pat
 git clone https://github.com/verus-lang/verus
 cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
+verus formal/verus/verified_audit_chain.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
@@ -336,6 +371,7 @@ verus formal/verus/verified_path.rs
 ```
 
 Expected output:
+- `verified_audit_chain.rs`: `verification results:: 17 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`
@@ -357,6 +393,7 @@ Verus trusts:
 - rustc codegen (LLVM)
 
 Verus does NOT verify:
+- Cryptographic collision resistance or filesystem append/durability semantics for the audit chain / Merkle layers
 - The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
 - Full pattern-language containment in `capability_token.rs` (literal/glob matching and path/domain coverage still rely on runtime checks and tests)
 - String operations, glob/regex matching, Unicode normalization

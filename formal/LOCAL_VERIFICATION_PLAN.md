@@ -38,6 +38,8 @@ Completed now:
     `vellaveto-mcp/src/verified_capability_literal.rs`
   - capability child-glob rejection guard in
     `vellaveto-mcp/src/verified_capability_pattern.rs`
+  - audit-chain verification guard in
+    `vellaveto-audit/src/verified_audit_chain.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
   - cross-call tracker field-capacity/update gate in
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
@@ -51,8 +53,7 @@ Known gaps against the March 6 plan:
 
 - No `formal/verus/Cargo.toml` or `cargo verus` entrypoint yet.
 - No Verus kernels yet for broader entropy math, split-detection/pattern
-  completeness, full capability delegation semantics, audit chain, or Merkle
-  proofs.
+  completeness, full capability delegation semantics, or Merkle proofs.
 - Refinement exists only as a documented map plus executable witnesses, not a
   machine-checked forward simulation.
 - Public-facing formal counts and paper text are still stale in places outside
@@ -146,6 +147,11 @@ Must have:
 - `verified_merkle.rs`
 - explicit filesystem assumptions kept outside the proof boundary
 
+Current status:
+- per-entry audit-chain verification guard landed in Verus
+- Merkle root/proof consistency and explicit filesystem assumptions are still
+  outside the Verus boundary
+
 ### Phase 5: Refinement in Verus
 
 Must have:
@@ -187,7 +193,8 @@ Current status:
 2. Decide whether Phase 2 needs a real per-entry expiry model in
    `CrossCallDlpTracker` or whether the stale-entry invariant should move to the
    session-lifecycle boundary instead.
-3. Then expand into capability, audit, and refinement kernels.
+3. Then expand into remaining capability containment, Merkle, and refinement
+   kernels.
 
 ## Working Rule
 
