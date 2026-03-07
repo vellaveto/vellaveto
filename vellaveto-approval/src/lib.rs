@@ -406,10 +406,10 @@ impl ApprovalStore {
         requested_by: Option<String>,
     ) -> Result<String, ApprovalError> {
         // SECURITY (FIND-R46-011): Validate reason length at the store level.
+        // SECURITY (R246-APPR-1): Don't expose actual length in error message.
         if reason.len() > MAX_REASON_LEN {
             return Err(ApprovalError::Validation(format!(
-                "reason exceeds maximum length of {MAX_REASON_LEN} bytes ({} bytes)",
-                reason.len()
+                "reason exceeds maximum length of {MAX_REASON_LEN} bytes"
             )));
         }
         // SECURITY (FIND-R116-CA-001): Validate reason content for control characters

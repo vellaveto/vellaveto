@@ -265,7 +265,9 @@ impl TopologyCrawler {
         .await
         .map_err(|_| DiscoveryError::ServerTimeout {
             server: server_id.to_string(),
-            timeout_ms: self.config.server_timeout.as_millis() as u64,
+            // SECURITY (R246-ENG-1): Safe cast — as_millis() returns u128.
+            timeout_ms: u64::try_from(self.config.server_timeout.as_millis())
+                .unwrap_or(u64::MAX),
         })??;
 
         Ok(ServerCrawlResult {

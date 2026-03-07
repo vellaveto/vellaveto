@@ -396,11 +396,11 @@ impl ClusterBackend for RedisBackend {
         // SECURITY (FIND-R111-001): Validate reason length — mirrors vellaveto-approval
         // store-level check. Without this, an attacker can store arbitrarily large strings
         // in Redis, causing OOM across all cluster nodes.
+        // SECURITY (R246-APPR-1): Don't expose actual length in error message.
         if reason.len() > vellaveto_approval::MAX_REASON_LEN {
             return Err(ClusterError::Validation(format!(
-                "reason exceeds maximum length of {} bytes ({} bytes)",
-                vellaveto_approval::MAX_REASON_LEN,
-                reason.len()
+                "reason exceeds maximum length of {} bytes",
+                vellaveto_approval::MAX_REASON_LEN
             )));
         }
         // Validate identity length (mirrors vellaveto-approval store-level check)
@@ -447,7 +447,13 @@ impl ClusterBackend for RedisBackend {
         let dedup_hash = Self::compute_dedup_hash(&action, &reason, requested_by.as_deref())?;
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
-        let ttl = chrono::Duration::seconds(self.default_ttl_secs as i64);
+        // SECURITY (R246-CLUST-1): Use try_from for defense-in-depth. The
+        // with_ttl_secs() validation caps at 30 days, but the cast should be
+        // safe independently in case validation is ever relaxed.
+        let ttl_secs = i64::try_from(self.default_ttl_secs).map_err(|_| {
+            ClusterError::Validation("approval TTL overflows i64".to_string())
+        })?;
+        let ttl = chrono::Duration::seconds(ttl_secs);
         let expires_at = now + ttl;
 
         let approval = PendingApproval {
@@ -852,7 +858,11 @@ impl ClusterBackend for RedisBackend {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| ClusterError::Backend(format!("System time error: {}", e)))?
-            .as_millis() as u64;
+            .as_millis();
+        // SECURITY (R246-ENG-1): Safe cast — as_millis() returns u128.
+        let now_ms = u64::try_from(now_ms).map_err(|_| {
+            ClusterError::Backend("System time milliseconds overflow u64".to_string())
+        })?;
 
         let request_id = format!("{}:{}", now_ms, uuid::Uuid::new_v4());
 

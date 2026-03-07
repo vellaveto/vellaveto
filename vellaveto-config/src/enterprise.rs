@@ -168,6 +168,16 @@ impl TlsConfig {
         if self.mode == TlsMode::Mtls && self.client_ca_path.is_none() {
             return Err("tls.mode = mtls requires tls.client_ca_path to be set".to_string());
         }
+        // SECURITY (R246-TLS-1): mTLS mode semantically requires mandatory client
+        // certificates. Allowing require_client_cert=false with mode=Mtls creates
+        // optional client auth, defeating the purpose of mutual TLS and allowing
+        // unauthenticated clients to connect.
+        if self.mode == TlsMode::Mtls && !self.require_client_cert {
+            return Err(
+                "tls.require_client_cert must be true when tls.mode = mtls (mutual TLS requires mandatory client certificates)"
+                    .to_string(),
+            );
+        }
         if self.mode != TlsMode::None && self.cert_path.is_none() {
             return Err("tls.cert_path required when TLS is enabled".to_string());
         }
@@ -297,7 +307,14 @@ impl SpiffeConfig {
                 MAX_SPIFFE_ROLE_MAPPINGS
             ));
         }
-        for sid in &self.allowed_spiffe_ids {
+        for (i, sid) in self.allowed_spiffe_ids.iter().enumerate() {
+            // SECURITY (R246-SPIFFE-1): Reject empty SPIFFE IDs. An empty string
+            // bypasses identity matching checks since it matches no valid SPIFFE URI.
+            if sid.is_empty() {
+                return Err(format!(
+                    "spiffe.allowed_spiffe_ids[{i}] must not be empty"
+                ));
+            }
             if vellaveto_types::has_dangerous_chars(sid) {
                 return Err(
                     "spiffe.allowed_spiffe_ids contains control or format characters".to_string(),
@@ -1073,6 +1090,35 @@ mod tests {
         );
     }
 
+    // SECURITY (R246-TLS-1): mTLS mode must require client certificates.
+    #[test]
+    fn test_r246_tls_mtls_without_require_client_cert_rejected() {
+        let mut config = TlsConfig::default();
+        config.mode = TlsMode::Mtls;
+        config.cert_path = Some("/cert.pem".to_string());
+        config.key_path = Some("/key.pem".to_string());
+        config.client_ca_path = Some("/ca.pem".to_string());
+        config.require_client_cert = false;
+        config.verify_client_cert = false;
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("require_client_cert must be true"),
+            "expected mTLS require_client_cert error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r246_tls_mtls_with_require_client_cert_ok() {
+        let mut config = TlsConfig::default();
+        config.mode = TlsMode::Mtls;
+        config.cert_path = Some("/cert.pem".to_string());
+        config.key_path = Some("/key.pem".to_string());
+        config.client_ca_path = Some("/ca.pem".to_string());
+        config.require_client_cert = true;
+        config.verify_client_cert = true;
+        assert!(config.validate().is_ok());
+    }
+
     #[test]
     fn test_r237_cfg1_tls_cert_path_length_rejected() {
         let mut config = TlsConfig::default();
@@ -1209,6 +1255,18 @@ mod tests {
         config.trust_domain = Some("example\x01.org".to_string());
         let err = config.validate().unwrap_err();
         assert!(err.contains("trust_domain contains control"));
+    }
+
+    // SECURITY (R246-SPIFFE-1): Reject empty SPIFFE IDs.
+    #[test]
+    fn test_r246_spiffe_empty_id_rejected() {
+        let mut config = SpiffeConfig::default();
+        config.allowed_spiffe_ids = vec!["spiffe://example.org/valid".to_string(), "".to_string()];
+        let err = config.validate().unwrap_err();
+        assert!(
+            err.contains("must not be empty"),
+            "expected empty SPIFFE ID error, got: {err}"
+        );
     }
 
     #[test]
