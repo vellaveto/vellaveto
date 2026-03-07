@@ -16,7 +16,7 @@
 #[inline]
 #[must_use = "Merkle proof-path decisions must not be discarded"]
 pub(crate) const fn proof_sibling_index(node_index: usize) -> usize {
-    if node_index % 2 == 0 {
+    if node_index.is_multiple_of(2) {
         node_index + 1
     } else {
         node_index - 1
