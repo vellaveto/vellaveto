@@ -40,6 +40,7 @@ mod path;
 mod policy_compile;
 mod rule_check;
 mod traced;
+pub mod verified_constraint_eval;
 pub mod verified_core;
 pub mod wasm_plugin;
 

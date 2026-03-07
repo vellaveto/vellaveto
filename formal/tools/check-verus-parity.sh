@@ -70,6 +70,9 @@ echo ""
 
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
+PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
+PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
+VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
 PROD_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_dlp_core.rs"
 VERUS_DLP="$PROJECT_DIR/formal/verus/verified_dlp_core.rs"
 PROD_CAP="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
@@ -89,6 +92,33 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+compute_verdict' \
     "$VERUS_CORE" \
     'pub[[:space:]]+fn[[:space:]]+compute_verdict'
+echo ""
+
+echo "--- Constraint Evaluation Kernel ---"
+check_file_pair \
+    "verified_constraint_eval.rs ↔ vellaveto-engine/src/verified_constraint_eval.rs" \
+    "$PROD_CONSTRAINT" \
+    "$VERUS_CONSTRAINT"
+for fn in all_constraints_skipped has_forbidden_parameter conditional_verdict; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CONSTRAINT" \
+        "pub[[:space:]]+(const[[:space:]]+)?fn[[:space:]]+$fn" \
+        "$VERUS_CONSTRAINT" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "constraint wrapper uses verified all-skipped kernel" \
+    "$PROD_CONSTRAINT_WRAPPER" \
+    'verified_constraint_eval::all_constraints_skipped' \
+    "$VERUS_CONSTRAINT" \
+    'pub[[:space:]]+fn[[:space:]]+all_constraints_skipped'
+check_symbol_parity \
+    "constraint wrapper uses verified no-match kernel" \
+    "$PROD_CONSTRAINT_WRAPPER" \
+    'verified_constraint_eval::no_match_verdict' \
+    "$VERUS_CONSTRAINT" \
+    'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
 echo ""
 
 echo "--- DLP Buffer Core ---"

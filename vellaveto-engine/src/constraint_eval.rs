@@ -16,6 +16,7 @@
 
 use crate::compiled::{CompiledConstraint, CompiledPolicy};
 use crate::error::EngineError;
+use crate::verified_constraint_eval;
 use crate::PolicyEngine;
 use vellaveto_types::{Action, ConstraintResult, Policy, Verdict};
 
@@ -147,8 +148,13 @@ impl PolicyEngine {
         // a positive allow signal — it means the action didn't provide enough
         // information for evaluation.
         // Exception: when on_no_match="continue", skip to next policy instead.
-        if total_constraints > 0 && !any_evaluated {
-            if cp.on_no_match_continue {
+        let all_constraints_skipped =
+            verified_constraint_eval::all_constraints_skipped(total_constraints, any_evaluated);
+
+        if all_constraints_skipped {
+            if verified_constraint_eval::skipped_constraints_verdict(cp.on_no_match_continue)
+                == verified_constraint_eval::ConstraintVerdict::Continue
+            {
                 return Ok(None);
             }
             if let Some(results) = trace.as_mut() {
@@ -175,7 +181,9 @@ impl PolicyEngine {
         // 2. Return Some(Allow) otherwise (no constraints fired = pass)
         // 3. Return Deny when all constraints are skipped (fail-closed)
         // See test_on_no_match_continue_equivalence_compiled_vs_legacy in engine_tests.rs.
-        if cp.on_no_match_continue {
+        if verified_constraint_eval::no_match_verdict(cp.on_no_match_continue)
+            == verified_constraint_eval::ConstraintVerdict::Continue
+        {
             Ok(None)
         } else {
             Ok(Some(Verdict::Allow))
