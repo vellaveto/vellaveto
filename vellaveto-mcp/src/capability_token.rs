@@ -32,6 +32,7 @@ use vellaveto_types::{
 
 use crate::verified_capability_attenuation;
 use crate::verified_capability_grant;
+use crate::verified_capability_literal;
 use crate::verified_capability_pattern;
 
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
@@ -557,8 +558,15 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
     if pattern == "*" {
         return true;
     }
-    if !pattern.contains('*') && !pattern.contains('?') {
-        return pattern.eq_ignore_ascii_case(value);
+    let pattern_has_metacharacters = verified_capability_pattern::has_glob_metacharacters(pattern);
+    if verified_capability_literal::literal_pattern_matches(
+        pattern_has_metacharacters,
+        pattern.eq_ignore_ascii_case(value),
+    ) {
+        return true;
+    }
+    if !pattern_has_metacharacters {
+        return false;
     }
     // Simple glob matching
     glob_match(pattern.as_bytes(), value.as_bytes())
@@ -641,7 +649,10 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
         }
 
         // Child is a literal value — safe to check against parent glob.
-        pattern_matches(parent, child)
+        verified_capability_literal::literal_child_pattern_subset(
+            child_has_metacharacters,
+            pattern_matches(parent, child),
+        )
     }
 
     // Tool pattern must be subset of parent

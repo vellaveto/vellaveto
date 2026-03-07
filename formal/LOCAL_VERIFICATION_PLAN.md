@@ -34,6 +34,8 @@ Completed now:
     `vellaveto-mcp/src/verified_capability_attenuation.rs`
   - capability grant restriction/invocation attenuation in
     `vellaveto-mcp/src/verified_capability_grant.rs`
+  - capability literal matching/subset fast paths in
+    `vellaveto-mcp/src/verified_capability_literal.rs`
   - capability child-glob rejection guard in
     `vellaveto-mcp/src/verified_capability_pattern.rs`
   - fixed-point entropy alert gate in `vellaveto-engine/src/verified_entropy_gate.rs`
@@ -132,9 +134,10 @@ Current status:
 - arithmetic attenuation kernel landed for remaining-depth decrement and expiry
   clamping
 - grant restriction-shape and `max_invocations` attenuation kernel landed
+- literal-only matching and literal-child subset fast paths landed
 - child-glob rejection guard landed for the conservative subset rule
-- grant subset semantics, holder/issuer chain semantics, and revocation are
-  still outside the Verus boundary
+- broader parent-glob containment semantics, holder/issuer chain semantics, and
+  revocation are still outside the Verus boundary
 
 ### Phase 4: Audit integrity kernel
 

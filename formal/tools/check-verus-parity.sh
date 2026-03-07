@@ -75,10 +75,12 @@ PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
+PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
+VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
 PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
@@ -178,6 +180,33 @@ check_symbol_parity \
     'verified_capability_grant::grant_restrictions_attenuated' \
     "$VERUS_CAPABILITY_GRANT" \
     'pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated'
+echo ""
+
+echo "--- Capability Literal Kernel ---"
+check_file_pair \
+    "verified_capability_literal.rs ↔ vellaveto-mcp/src/verified_capability_literal.rs" \
+    "$PROD_CAPABILITY_LITERAL" \
+    "$VERUS_CAPABILITY_LITERAL"
+for fn in literal_pattern_matches literal_child_pattern_subset; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_LITERAL" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_LITERAL" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability literal matcher uses verified literal fast path" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_literal::literal_pattern_matches' \
+    "$VERUS_CAPABILITY_LITERAL" \
+    'pub[[:space:]]+fn[[:space:]]+literal_pattern_matches'
+check_symbol_parity \
+    "capability subset uses verified literal child branch" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_literal::literal_child_pattern_subset' \
+    "$VERUS_CAPABILITY_LITERAL" \
+    'pub[[:space:]]+fn[[:space:]]+literal_child_pattern_subset'
 echo ""
 
 echo "--- Capability Pattern Kernel ---"

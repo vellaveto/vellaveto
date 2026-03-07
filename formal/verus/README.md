@@ -2,9 +2,9 @@
 
 Deductive verification of Vellaveto's core verdict computation, constraint
 evaluation fail-closed control flow, capability attenuation arithmetic,
-capability grant attenuation, capability pattern attenuation, fixed-point
-entropy alert gating, cross-call DLP tracker gating, DLP buffer arithmetic,
-and path normalization using
+capability grant attenuation, capability literal matching fast paths,
+capability pattern attenuation, fixed-point entropy alert gating, cross-call
+DLP tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
 ## What Is Verified
@@ -110,6 +110,30 @@ Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_limited_parent_rejects_larger_child_limit` | A child invocation bound cannot exceed the parent's limit |
 | `lemma_limited_parent_accepts_smaller_child_limit` | A smaller positive child bound is accepted when restriction shapes are preserved |
 | `lemma_unlimited_parent_leaves_only_shape_checks` | With unlimited parent invocations, attenuation reduces to the shape-preservation checks |
+
+### Capability Literal Fast Paths (`verified_capability_literal.rs`) — 9 verified items, CAP-LIT-1–CAP-LIT-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-LIT-1 | Literal match acceptance | A pattern with no metacharacters matches iff the case-insensitive equality bit is true |
+| CAP-LIT-2 | Metacharacter exclusion | Patterns containing `*` or `?` can never use the literal fast path |
+| CAP-LIT-3 | Literal-child subset acceptance | A literal child is accepted by the subset fast path iff the parent runtime matcher accepts the literal child |
+| CAP-LIT-4 | Child-glob exclusion | Child patterns containing `*` or `?` can never use the literal-child subset branch |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_equal_literal_pattern_matches` | A literal pattern on an equal value is accepted by the literal fast path |
+| `lemma_mismatching_literal_pattern_is_denied` | A literal pattern mismatch cannot be accepted by the literal fast path |
+| `lemma_metacharacter_pattern_skips_literal_fast_path` | A metacharacter-bearing pattern always bypasses the literal fast path |
+| `lemma_matching_literal_child_is_subset` | A literal child accepted by the parent matcher is accepted by the subset fast path |
+| `lemma_mismatching_literal_child_is_denied` | A mismatching literal child is rejected by the subset fast path |
+| `lemma_child_glob_cannot_use_literal_subset_branch` | A child glob can never be accepted by the literal-child subset branch |
 
 ### Capability Pattern Attenuation (`verified_capability_pattern.rs`) — 10 verified items, CAP-PAT-1–CAP-PAT-4
 
@@ -243,6 +267,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_constraint_eval.rs` | `vellaveto-engine/src/verified_constraint_eval.rs` | `constraint_eval.rs` calls the verified `all_constraints_skipped` and `no_match_verdict` helpers |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
+| `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
 | `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes child-glob metacharacter rejection through the verified pattern guard |
 | `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
@@ -269,6 +294,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 
 # Capability grant restriction/invocation kernel (8 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
+
+# Capability literal fast paths (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_literal.rs
 
 # Capability child-glob rejection guard (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
@@ -297,6 +325,7 @@ cd verus && ./tools/get-z3.sh && source ./tools/activate
 cargo build --release
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_grant.rs
+verus formal/verus/verified_capability_literal.rs
 verus formal/verus/verified_capability_pattern.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
@@ -309,6 +338,7 @@ verus formal/verus/verified_path.rs
 Expected output:
 - `verified_capability_attenuation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 8 verified, 0 errors`
+- `verified_capability_literal.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 12 verified, 0 errors`
