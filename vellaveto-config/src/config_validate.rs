@@ -1265,6 +1265,30 @@ impl PolicyConfig {
                         "opa.require_https=true requires opa.endpoint to use https://".to_string(),
                     );
                 }
+                // SECURITY (R245-CFG-1): Reject cloud metadata endpoints in OPA URL.
+                // OPA is typically a sidecar on localhost, so we cannot use the full
+                // validate_url_no_ssrf() which rejects loopback. Instead, specifically
+                // block cloud metadata IPs that could leak credentials.
+                let opa_host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+                let opa_host_clean = opa_host.trim_end_matches('.');
+                let metadata_hosts = [
+                    "169.254.169.254",
+                    "metadata.google.internal",
+                    "metadata.google.internal.",
+                ];
+                if metadata_hosts.contains(&opa_host_clean) {
+                    return Err(format!(
+                        "opa.endpoint must not target cloud metadata service, got '{opa_host}'"
+                    ));
+                }
+                // Also reject link-local range (169.254.0.0/16) used by all cloud providers.
+                if let Ok(ip) = opa_host_clean.parse::<std::net::Ipv4Addr>() {
+                    if ip.is_link_local() {
+                        return Err(format!(
+                            "opa.endpoint must not target link-local addresses, got '{opa_host}'"
+                        ));
+                    }
+                }
             }
             if self.opa.timeout_ms == 0 {
                 return Err("opa.timeout_ms must be > 0".to_string());

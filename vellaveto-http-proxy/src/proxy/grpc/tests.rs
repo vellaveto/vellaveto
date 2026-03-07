@@ -72,6 +72,54 @@ fn test_grpc_config_serde_roundtrip() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// R245: GrpcConfig validation tests
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r245_grpc_config_validate_default_ok() {
+    assert!(GrpcConfig::default().validate().is_ok());
+}
+
+#[test]
+fn test_r245_grpc_config_validate_zero_message_size_rejected() {
+    let config = GrpcConfig {
+        max_message_size: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_message_size"));
+}
+
+#[test]
+fn test_r245_grpc_config_validate_excessive_message_size_rejected() {
+    let config = GrpcConfig {
+        max_message_size: 512 * 1024 * 1024, // 512 MB > 256 MB limit
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("max_message_size"));
+}
+
+#[test]
+fn test_r245_grpc_config_validate_dangerous_chars_in_url_rejected() {
+    let config = GrpcConfig {
+        upstream_grpc_url: Some("http://upstream\x00:50051".to_string()),
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("control or format"));
+}
+
+#[test]
+fn test_r245_grpc_config_validate_clean_url_accepted() {
+    let config = GrpcConfig {
+        upstream_grpc_url: Some("http://upstream.example.com:50051".to_string()),
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Proto ↔ JSON conversion: proto_request_to_json
 // ═══════════════════════════════════════════════════════════════════════
 

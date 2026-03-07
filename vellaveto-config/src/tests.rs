@@ -1414,6 +1414,49 @@ fn test_validate_rejects_opa_endpoint_without_host() {
     assert!(err.contains("must be a valid URL"), "got: {err}");
 }
 
+// SECURITY (R245-CFG-1): OPA endpoint must not target cloud metadata
+#[test]
+fn test_validate_rejects_opa_endpoint_cloud_metadata_ipv4() {
+    let mut config = minimal_config();
+    config.opa.enabled = true;
+    config.opa.endpoint = Some("http://169.254.169.254/latest/meta-data/".to_string());
+    config.opa.require_https = false;
+
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("metadata") || err.contains("link-local"),
+        "Should reject cloud metadata IP, got: {err}"
+    );
+}
+
+#[test]
+fn test_validate_rejects_opa_endpoint_cloud_metadata_gcp() {
+    let mut config = minimal_config();
+    config.opa.enabled = true;
+    config.opa.endpoint = Some("http://metadata.google.internal/computeMetadata/".to_string());
+    config.opa.require_https = false;
+
+    let err = config.validate().unwrap_err();
+    assert!(
+        err.contains("metadata"),
+        "Should reject GCP metadata hostname, got: {err}"
+    );
+}
+
+#[test]
+fn test_validate_accepts_opa_endpoint_localhost() {
+    let mut config = minimal_config();
+    config.opa.enabled = true;
+    config.opa.endpoint = Some("http://localhost:8181".to_string());
+    config.opa.require_https = false;
+
+    // localhost is valid for OPA sidecar deployment
+    assert!(
+        config.validate().is_ok(),
+        "localhost should be allowed for OPA sidecar"
+    );
+}
+
 // SECURITY (R43-OPA-1): fail_open requires explicit acknowledgment
 #[test]
 fn test_validate_rejects_opa_fail_open_without_acknowledgment() {

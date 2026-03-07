@@ -101,6 +101,38 @@ impl Default for GrpcConfig {
     }
 }
 
+/// Maximum allowed gRPC message size (256 MB).
+const MAX_GRPC_MESSAGE_SIZE: usize = 256 * 1024 * 1024;
+
+impl GrpcConfig {
+    /// Validate the gRPC configuration for security constraints.
+    ///
+    /// SECURITY (R245-GRPC-1): Runtime GrpcConfig was constructed from CLI args
+    /// without validation, bypassing config-level bounds. This method enforces:
+    /// - max_message_size in [1, 256 MB]
+    /// - upstream_grpc_url free of dangerous chars + SSRF-safe
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_message_size == 0 || self.max_message_size > MAX_GRPC_MESSAGE_SIZE {
+            return Err(format!(
+                "grpc max_message_size must be in [1, {}], got {}",
+                MAX_GRPC_MESSAGE_SIZE, self.max_message_size
+            ));
+        }
+        if let Some(ref url) = self.upstream_grpc_url {
+            if vellaveto_types::has_dangerous_chars(url) {
+                return Err(
+                    "grpc upstream_grpc_url contains control or format characters".to_string(),
+                );
+            }
+            if !url.trim().is_empty() {
+                vellaveto_types::validate_url_no_ssrf(url.trim())
+                    .map_err(|e| format!("grpc upstream_grpc_url {e}"))?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Start the gRPC server with the given proxy state and configuration.
 ///
 /// The server runs until the `shutdown` token is cancelled. It shares
@@ -114,6 +146,14 @@ pub async fn start_grpc_server(
     use interceptors::{AuthInterceptor, CombinedInterceptor, RateLimitInterceptor};
     use proto::mcp_service_server::McpServiceServer;
     use service::McpGrpcService;
+
+    // SECURITY (R245-GRPC-1): Validate config before use.
+    config
+        .validate()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+            tracing::error!(error = %e, "gRPC config validation failed");
+            e.into()
+        })?;
 
     let state = Arc::new(state);
     let svc = McpGrpcService::new(state.clone(), config.stream_message_rate_limit);
