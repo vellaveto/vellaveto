@@ -5441,3 +5441,97 @@ async fn test_log_entry_with_acis_persists_dedicated_envelope() {
     assert_eq!(entry["acis_envelope"]["origin"], "policy_engine");
     assert_eq!(entry["acis_envelope"]["tenant_id"], "tenant-123");
 }
+
+/// SECURITY (R244-ACIS-1): Malformed ACIS envelopes must be rejected before
+/// they are persisted to the audit log. An empty tool name or dangerous chars
+/// in the decision_id should fail validation.
+#[tokio::test]
+async fn test_log_entry_with_acis_rejects_invalid_envelope() {
+    use vellaveto_types::acis::{DecisionKind, DecisionOrigin};
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    let action = test_action();
+    let verdict = Verdict::Allow;
+
+    // Envelope with empty tool name — violates acis validation
+    let bad_envelope = vellaveto_types::AcisDecisionEnvelope {
+        decision_id: "a".repeat(32),
+        timestamp: "2026-03-08T00:00:00.000Z".to_string(),
+        session_id: None,
+        tenant_id: None,
+        agent_identity: None,
+        agent_id: None,
+        action_summary: vellaveto_types::AcisActionSummary {
+            tool: String::new(), // ← empty, must fail validation
+            function: "read_file".to_string(),
+            target_path_count: 0,
+            target_domain_count: 0,
+        },
+        action_fingerprint: "abcd1234".repeat(8),
+        decision: DecisionKind::Allow,
+        origin: DecisionOrigin::PolicyEngine,
+        reason: String::new(),
+        matched_policy_id: None,
+        transport: "http".to_string(),
+        findings: vec![],
+        evaluation_us: None,
+        call_chain_depth: 0,
+    };
+
+    let result = logger
+        .log_entry_with_acis(&action, &verdict, json!({}), bad_envelope)
+        .await;
+    assert!(result.is_err(), "should reject envelope with empty tool name");
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("ACIS envelope validation failed"),
+        "error should mention envelope validation: {err_msg}"
+    );
+}
+
+/// SECURITY (R244-ACIS-1): Envelope with dangerous chars in decision_id
+/// must be rejected.
+#[tokio::test]
+async fn test_log_entry_with_acis_rejects_dangerous_chars_in_decision_id() {
+    use vellaveto_types::acis::{DecisionKind, DecisionOrigin};
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    let action = test_action();
+    let verdict = Verdict::Allow;
+
+    let bad_envelope = vellaveto_types::AcisDecisionEnvelope {
+        decision_id: "abc\x00def".to_string(), // ← null byte
+        timestamp: "2026-03-08T00:00:00.000Z".to_string(),
+        session_id: None,
+        tenant_id: None,
+        agent_identity: None,
+        agent_id: None,
+        action_summary: vellaveto_types::AcisActionSummary {
+            tool: "file_system".to_string(),
+            function: "read_file".to_string(),
+            target_path_count: 0,
+            target_domain_count: 0,
+        },
+        action_fingerprint: "abcd1234".repeat(8),
+        decision: DecisionKind::Allow,
+        origin: DecisionOrigin::PolicyEngine,
+        reason: String::new(),
+        matched_policy_id: None,
+        transport: "http".to_string(),
+        findings: vec![],
+        evaluation_us: None,
+        call_chain_depth: 0,
+    };
+
+    let result = logger
+        .log_entry_with_acis(&action, &verdict, json!({}), bad_envelope)
+        .await;
+    assert!(
+        result.is_err(),
+        "should reject envelope with dangerous chars"
+    );
+}

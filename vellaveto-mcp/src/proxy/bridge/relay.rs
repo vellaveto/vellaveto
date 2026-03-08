@@ -1424,6 +1424,42 @@ impl ProxyBridge {
                         .await
                     {
                         Ok(Some(approval_id)) => {
+                            // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                            if let Err(()) = self
+                                .consume_presented_approval(
+                                    Some(approval_id.as_str()),
+                                    &action,
+                                )
+                                .await
+                            {
+                                let verdict = Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                };
+                                if let Err(e) = self
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "proxy",
+                                            "registry": "unknown_tool",
+                                            "tool": tool_name,
+                                            "event": "approval_consume_failed",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                }
+                                let response = make_denial_response(
+                                    &id,
+                                    INVALID_PRESENTED_APPROVAL_REASON,
+                                );
+                                write_message(agent_writer, &response)
+                                    .await
+                                    .map_err(ProxyError::Framing)?;
+                                return Ok(());
+                            }
                             matched_approval_id = Some(approval_id);
                         }
                         Err(()) => {
@@ -1516,6 +1552,42 @@ impl ProxyBridge {
                         .await
                     {
                         Ok(Some(approval_id)) => {
+                            // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                            if let Err(()) = self
+                                .consume_presented_approval(
+                                    Some(approval_id.as_str()),
+                                    &action,
+                                )
+                                .await
+                            {
+                                let verdict = Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                };
+                                if let Err(e) = self
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "proxy",
+                                            "registry": "untrusted_tool",
+                                            "tool": tool_name,
+                                            "event": "approval_consume_failed",
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                }
+                                let response = make_denial_response(
+                                    &id,
+                                    INVALID_PRESENTED_APPROVAL_REASON,
+                                );
+                                write_message(agent_writer, &response)
+                                    .await
+                                    .map_err(ProxyError::Framing)?;
+                                return Ok(());
+                            }
                             matched_approval_id = Some(approval_id);
                         }
                         Err(()) => {
@@ -1625,8 +1697,25 @@ impl ProxyBridge {
                 .await
             {
                 Ok(Some(approval_id)) => {
-                    matched_approval_id = Some(approval_id);
-                    ProxyDecision::Forward
+                    // SECURITY (R244-TOCTOU-1): Consume the approval atomically
+                    // after matching. Previously, consumption happened ~230 lines
+                    // later (after ABAC, shield, DLP), creating a TOCTOU window
+                    // where a concurrent request could see the same approval as
+                    // Approved and race to consume it.
+                    if let Err(()) = self
+                        .consume_presented_approval(Some(approval_id.as_str()), &action)
+                        .await
+                    {
+                        ProxyDecision::Block(
+                            make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                            Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            },
+                        )
+                    } else {
+                        matched_approval_id = Some(approval_id);
+                        ProxyDecision::Forward
+                    }
                 }
                 Err(()) => ProxyDecision::Block(
                     make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
@@ -1851,36 +1940,8 @@ impl ProxyBridge {
                     }
                 }
 
-                if let Err(()) = self
-                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
-                    .await
-                {
-                    let verdict = Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "tool_call_denied",
-                                "tool": tool_name,
-                                "approval_id": matched_approval_id.as_deref(),
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
-                    }
-                    let response =
-                        make_denial_response(&id, "Request blocked: security policy violation");
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
-                }
+                // NOTE (R244-TOCTOU-1): Approval consumption now happens atomically
+                // at the match site (above). No separate consume step needed here.
 
                 // SECURITY (FIND-R52-009): Audit allowed tool calls for full observability.
                 // Compliance frameworks (EU AI Act Art 50, SOC 2) require tracking all
@@ -2411,8 +2472,27 @@ impl ProxyBridge {
                         .await
                     {
                         Ok(Some(approval_id)) => {
-                            matched_approval_id = Some(approval_id);
-                            ProxyDecision::Forward
+                            // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                            if let Err(()) = self
+                                .consume_presented_approval(
+                                    Some(approval_id.as_str()),
+                                    &action,
+                                )
+                                .await
+                            {
+                                ProxyDecision::Block(
+                                    make_denial_response(
+                                        &id,
+                                        INVALID_PRESENTED_APPROVAL_REASON,
+                                    ),
+                                    Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    },
+                                )
+                            } else {
+                                matched_approval_id = Some(approval_id);
+                                ProxyDecision::Forward
+                            }
                         }
                         Err(()) => ProxyDecision::Block(
                             make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
@@ -2461,36 +2541,8 @@ impl ProxyBridge {
                     msg
                 };
 
-                if let Err(()) = self
-                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
-                    .await
-                {
-                    let verdict = Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "resource_read_denied",
-                                "resource_uri": uri,
-                                "approval_id": matched_approval_id.as_deref(),
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
-                    }
-                    let response =
-                        make_denial_response(&id, "Request blocked: security policy violation");
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
-                }
+                // NOTE (R244-TOCTOU-1): Approval consumption now happens atomically
+                // at the match site (above). No separate consume step needed here.
 
                 // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
                 let mut audit_meta = json!({"source": "proxy", "resource_uri": uri});
@@ -3912,8 +3964,21 @@ impl ProxyBridge {
                     .await
                 {
                     Ok(Some(approval_id)) => {
-                        matched_approval_id = Some(approval_id);
-                        Ok((Verdict::Allow, trace))
+                        // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                        if let Err(()) = self
+                            .consume_presented_approval(Some(approval_id.as_str()), &action)
+                            .await
+                        {
+                            Ok((
+                                Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                },
+                                trace,
+                            ))
+                        } else {
+                            matched_approval_id = Some(approval_id);
+                            Ok((Verdict::Allow, trace))
+                        }
                     }
                     Err(()) => Ok((
                         Verdict::Deny {
@@ -4021,37 +4086,8 @@ impl ProxyBridge {
                     }
                 }
 
-                if let Err(()) = self
-                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
-                    .await
-                {
-                    let verdict = Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "task_request_denied",
-                                "task_method": safe_task_method,
-                                "task_id": safe_task_id,
-                                "approval_id": matched_approval_id.as_deref(),
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
-                    }
-                    let response =
-                        make_denial_response(&id, "Request blocked: security policy violation");
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
-                }
+                // NOTE (R244-TOCTOU-1): Approval consumption now happens atomically
+                // at the match site (above). No separate consume step needed here.
 
                 if let Err(e) = self
                     .audit
@@ -4416,8 +4452,21 @@ impl ProxyBridge {
                     .await
                 {
                     Ok(Some(approval_id)) => {
-                        matched_approval_id = Some(approval_id);
-                        Ok((Verdict::Allow, trace))
+                        // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                        if let Err(()) = self
+                            .consume_presented_approval(Some(approval_id.as_str()), &action)
+                            .await
+                        {
+                            Ok((
+                                Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                },
+                                trace,
+                            ))
+                        } else {
+                            matched_approval_id = Some(approval_id);
+                            Ok((Verdict::Allow, trace))
+                        }
                     }
                     Err(()) => Ok((
                         Verdict::Deny {
@@ -4743,37 +4792,8 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
-                if let Err(()) = self
-                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
-                    .await
-                {
-                    let verdict = Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "extension_method_denied",
-                                "extension_id": safe_extension_id,
-                                "method": safe_ext_method,
-                                "approval_id": matched_approval_id.as_deref(),
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
-                    }
-                    let response =
-                        make_denial_response(&id, "Request blocked: security policy violation");
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
-                }
+                // NOTE (R244-TOCTOU-1): Approval consumption now happens atomically
+                // at the match site (above). No separate consume step needed here.
 
                 // SECURITY (FIND-R46-004): Fingerprint extension method parameters
                 // for future memory poisoning detection in downstream calls.

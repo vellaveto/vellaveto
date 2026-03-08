@@ -320,6 +320,10 @@ impl AuditLogger {
     }
 
     /// Log an action-verdict pair with a dedicated ACIS decision envelope.
+    ///
+    /// SECURITY (R244-ACIS-1): The envelope is validated before persistence to
+    /// prevent malformed envelopes (oversized fields, dangerous characters,
+    /// collection bound violations) from corrupting JSONL audit logs.
     pub async fn log_entry_with_acis(
         &self,
         action: &Action,
@@ -327,6 +331,11 @@ impl AuditLogger {
         metadata: serde_json::Value,
         acis_envelope: AcisDecisionEnvelope,
     ) -> Result<(), AuditError> {
+        if let Err(e) = acis_envelope.validate() {
+            return Err(AuditError::Validation(format!(
+                "ACIS envelope validation failed: {e}"
+            )));
+        }
         self.log_entry_inner(action, verdict, metadata, Some(acis_envelope))
             .await
     }
