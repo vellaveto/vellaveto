@@ -128,6 +128,16 @@ docs/FORMAL_VERIFICATION_PLAN.md
 docs/MCP_SECURITY_GAPS.md
 docs/RUST_EDITION_2024.md
 docs/SHOW_HN.md
+docs/ONBOARDING.md
+docs/BENCHMARK_REPORT.md
+docs/EVALUATION_TRACES.md
+docs/OPENSSF_GOLD.md
+docs/TCB.md
+docs/SECURITY_REVIEW.md
+perf/LOADTEST.md
+scripts/full-sweep-runbook.md
+security/osint/
+vellaveto_brandkit/
 
 # Paper drafts (work-in-progress)
 paper/
