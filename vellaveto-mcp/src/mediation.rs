@@ -558,4 +558,149 @@ mod tests {
         // But dlp_findings on the result struct should still be populated
         // for the caller's audit needs.
     }
+
+    // ── E2-6: Cross-transport determinism tests ──────────────────────────
+
+    /// All five transports must produce identical ACIS envelopes (except
+    /// transport label and timing) for the same action+engine+config.
+    #[test]
+    fn test_cross_transport_verdict_parity() {
+        let transports = ["stdio", "http", "websocket", "grpc", "sse"];
+        let policies = vec![Policy {
+            id: "*".into(),
+            name: "Allow all".into(),
+            policy_type: vellaveto_types::PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }];
+        let engine = PolicyEngine::with_policies(false, &policies).expect("test engine");
+        let action = test_action();
+        let config = MediationConfig::default();
+
+        let results: Vec<MediationResult> = transports
+            .iter()
+            .map(|t| mediate("parity-id", &action, &engine, None, t, &config, None, None))
+            .collect();
+
+        // Decision must be identical across all transports.
+        for r in &results {
+            assert_eq!(
+                r.envelope.decision, results[0].envelope.decision,
+                "transport {} diverged from stdio",
+                r.envelope.transport
+            );
+        }
+
+        // Fingerprint must be identical.
+        for r in &results {
+            assert_eq!(
+                r.envelope.action_fingerprint, results[0].envelope.action_fingerprint,
+                "fingerprint diverged on transport {}",
+                r.envelope.transport
+            );
+        }
+
+        // Origin must be identical.
+        for r in &results {
+            assert_eq!(
+                r.envelope.origin, results[0].envelope.origin,
+                "origin diverged on transport {}",
+                r.envelope.transport
+            );
+        }
+
+        // Reason must be identical.
+        for r in &results {
+            assert_eq!(
+                r.envelope.reason, results[0].envelope.reason,
+                "reason diverged on transport {}",
+                r.envelope.transport
+            );
+        }
+    }
+
+    /// Cross-transport DLP parity: all transports block on the same DLP finding.
+    #[test]
+    fn test_cross_transport_dlp_parity() {
+        let transports = ["stdio", "http", "websocket", "grpc", "sse"];
+        let engine = test_engine();
+        let action = Action {
+            tool: "exfil".into(),
+            function: "send".into(),
+            parameters: json!({"secret": "AKIAIOSFODNN7EXAMPLE"}),
+            target_paths: vec![],
+            target_domains: vec![],
+            resolved_ips: vec![],
+        };
+        let config = MediationConfig::default();
+
+        let results: Vec<MediationResult> = transports
+            .iter()
+            .map(|t| mediate("dlp-parity", &action, &engine, None, t, &config, None, None))
+            .collect();
+
+        for r in &results {
+            assert_eq!(
+                r.envelope.decision,
+                DecisionKind::Deny,
+                "transport {} should deny on DLP",
+                r.envelope.transport
+            );
+            assert_eq!(
+                r.envelope.origin,
+                DecisionOrigin::Dlp,
+                "transport {} should attribute to DLP",
+                r.envelope.transport
+            );
+            assert_eq!(
+                r.dlp_findings.len(),
+                results[0].dlp_findings.len(),
+                "transport {} DLP finding count diverged",
+                r.envelope.transport
+            );
+        }
+    }
+
+    /// Cross-transport strict-mode deny parity.
+    #[test]
+    fn test_cross_transport_strict_deny_parity() {
+        let transports = ["stdio", "http", "websocket", "grpc", "sse"];
+        let engine = test_engine(); // strict mode, no policies
+        let action = test_action();
+        let config = MediationConfig::default();
+
+        let results: Vec<MediationResult> = transports
+            .iter()
+            .map(|t| mediate("strict-parity", &action, &engine, None, t, &config, None, None))
+            .collect();
+
+        for r in &results {
+            assert_eq!(
+                r.envelope.decision,
+                DecisionKind::Deny,
+                "transport {} should deny in strict mode without policies",
+                r.envelope.transport
+            );
+        }
+    }
+
+    /// Envelope validation passes for every transport.
+    #[test]
+    fn test_cross_transport_envelope_validates() {
+        let transports = ["stdio", "http", "websocket", "grpc", "sse"];
+        let engine = test_engine();
+        let action = test_action();
+        let config = MediationConfig::default();
+
+        for t in &transports {
+            let r = mediate("validate-parity", &action, &engine, None, t, &config, None, None);
+            assert!(
+                r.envelope.validate().is_ok(),
+                "envelope failed validation on transport {}: {:?}",
+                t,
+                r.envelope.validate()
+            );
+        }
+    }
 }
