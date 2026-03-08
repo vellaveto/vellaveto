@@ -1477,6 +1477,7 @@ impl ProxyBridge {
                         .presented_approval_matches_action(
                             presented_approval_id.as_deref(),
                             &action,
+                            Some(state.session_id.as_str()),
                         )
                         .await
                     {
@@ -1486,6 +1487,7 @@ impl ProxyBridge {
                                 .consume_presented_approval(
                                     Some(approval_id.as_str()),
                                     &action,
+                                    Some(state.session_id.as_str()),
                                 )
                                 .await
                             {
@@ -1573,9 +1575,10 @@ impl ProxyBridge {
                                 .create(
                                     action,
                                     reason.clone(),
-                                    None,
-                                    // R244-SESSION-1: bind approval to session
+                                    // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                     state.agent_id.clone(),
+                                    // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
+                                    Some(state.session_id.clone()),
                                     Some(action_fingerprint),
                                 )
                                 .await
@@ -1606,6 +1609,7 @@ impl ProxyBridge {
                         .presented_approval_matches_action(
                             presented_approval_id.as_deref(),
                             &action,
+                            Some(state.session_id.as_str()),
                         )
                         .await
                     {
@@ -1615,6 +1619,7 @@ impl ProxyBridge {
                                 .consume_presented_approval(
                                     Some(approval_id.as_str()),
                                     &action,
+                                    Some(state.session_id.as_str()),
                                 )
                                 .await
                             {
@@ -1702,9 +1707,10 @@ impl ProxyBridge {
                                 .create(
                                     action,
                                     reason.clone(),
-                                    None,
-                                    // R244-SESSION-1: bind approval to session
+                                    // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                     state.agent_id.clone(),
+                                    // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
+                                    Some(state.session_id.clone()),
                                     Some(action_fingerprint),
                                 )
                                 .await
@@ -1752,7 +1758,7 @@ impl ProxyBridge {
             self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
         let decision = match decision {
             ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => match self
-                .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                .presented_approval_matches_action(presented_approval_id.as_deref(), &action, Some(state.session_id.as_str()))
                 .await
             {
                 Ok(Some(approval_id)) => {
@@ -1762,7 +1768,7 @@ impl ProxyBridge {
                     // where a concurrent request could see the same approval as
                     // Approved and race to consume it.
                     if let Err(()) = self
-                        .consume_presented_approval(Some(approval_id.as_str()), &action)
+                        .consume_presented_approval(Some(approval_id.as_str()), &action, Some(state.session_id.as_str()))
                         .await
                     {
                         ProxyDecision::Block(
@@ -2070,9 +2076,10 @@ impl ProxyBridge {
                             .create(
                                 action.clone(),
                                 reason.clone(),
-                                None,
-                                // R244-SESSION-1: bind approval to session
+                                // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                 state.agent_id.clone(),
+                                // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
+                                Some(state.session_id.clone()),
                                 Some(action_fingerprint),
                             )
                             .await
@@ -2570,6 +2577,7 @@ impl ProxyBridge {
                         .presented_approval_matches_action(
                             presented_approval_id.as_deref(),
                             &action,
+                            Some(state.session_id.as_str()),
                         )
                         .await
                     {
@@ -2579,6 +2587,7 @@ impl ProxyBridge {
                                 .consume_presented_approval(
                                     Some(approval_id.as_str()),
                                     &action,
+                                    Some(state.session_id.as_str()),
                                 )
                                 .await
                             {
@@ -2695,9 +2704,10 @@ impl ProxyBridge {
                             .create(
                                 action.clone(),
                                 reason.clone(),
-                                None,
-                                // R244-SESSION-1: bind approval to session
+                                // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                 state.agent_id.clone(),
+                                // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
+                                Some(state.session_id.clone()),
                                 Some(action_fingerprint),
                             )
                             .await
@@ -4188,13 +4198,13 @@ impl ProxyBridge {
         let eval_result = match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
                 match self
-                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action, Some(state.session_id.as_str()))
                     .await
                 {
                     Ok(Some(approval_id)) => {
                         // SECURITY (R244-TOCTOU-1): Consume atomically after match.
                         if let Err(()) = self
-                            .consume_presented_approval(Some(approval_id.as_str()), &action)
+                            .consume_presented_approval(Some(approval_id.as_str()), &action, Some(state.session_id.as_str()))
                             .await
                         {
                             Ok((
@@ -4402,6 +4412,7 @@ impl ProxyBridge {
                     .create_pending_approval(
                         &action,
                         &reason,
+                        Some(state.session_id.as_str()),
                         state.agent_id.as_deref(),
                     )
                     .await
@@ -4725,13 +4736,13 @@ impl ProxyBridge {
         let eval_result = match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
                 match self
-                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action, Some(state.session_id.as_str()))
                     .await
                 {
                     Ok(Some(approval_id)) => {
                         // SECURITY (R244-TOCTOU-1): Consume atomically after match.
                         if let Err(()) = self
-                            .consume_presented_approval(Some(approval_id.as_str()), &action)
+                            .consume_presented_approval(Some(approval_id.as_str()), &action, Some(state.session_id.as_str()))
                             .await
                         {
                             Ok((
@@ -5169,6 +5180,7 @@ impl ProxyBridge {
                     .create_pending_approval(
                         &action,
                         &reason,
+                        Some(state.session_id.as_str()),
                         state.agent_id.as_deref(),
                     )
                     .await
@@ -7122,7 +7134,7 @@ mod tests {
         store.approve(&approval_id, "reviewer").await.unwrap();
 
         let matched = bridge
-            .presented_approval_matches_action(Some(&approval_id), &action)
+            .presented_approval_matches_action(Some(&approval_id), &action, None)
             .await
             .unwrap();
         assert_eq!(matched.as_deref(), Some(approval_id.as_str()));
@@ -7155,7 +7167,7 @@ mod tests {
         store.approve(&approval_id, "reviewer").await.unwrap();
 
         assert!(bridge
-            .presented_approval_matches_action(Some(&approval_id), &action)
+            .presented_approval_matches_action(Some(&approval_id), &action, None)
             .await
             .is_err());
     }
@@ -7188,7 +7200,7 @@ mod tests {
 
         let mismatched_action = extract_action("read_file", &json!({"path": "/etc/passwd"}));
         assert!(bridge
-            .presented_approval_matches_action(Some(&approval_id), &mismatched_action)
+            .presented_approval_matches_action(Some(&approval_id), &mismatched_action, None)
             .await
             .is_err());
     }
@@ -7209,7 +7221,7 @@ mod tests {
         let action =
             extract_extension_action("x-custom", "x-custom/run", &json!({"path": "/tmp/test"}));
         let approval_id = bridge
-            .create_pending_approval(&action, "Approval required", None)
+            .create_pending_approval(&action, "Approval required", None, None)
             .await
             .unwrap();
         let approval = store.get(&approval_id).await.unwrap();
@@ -7247,17 +7259,174 @@ mod tests {
         store.approve(&approval_id, "reviewer").await.unwrap();
 
         bridge
-            .consume_presented_approval(Some(&approval_id), &action)
+            .consume_presented_approval(Some(&approval_id), &action, None)
             .await
             .unwrap();
         assert!(bridge
-            .consume_presented_approval(Some(&approval_id), &action)
+            .consume_presented_approval(Some(&approval_id), &action, None)
             .await
             .is_err());
         assert_eq!(
             store.get(&approval_id).await.unwrap().status,
             ApprovalStatus::Consumed
         );
+    }
+
+    /// SECURITY (R246-RELAY-1): Approval created with session_id is only consumable
+    /// by the same session — cross-session replay is blocked.
+    #[tokio::test]
+    async fn test_session_bound_approval_rejects_different_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("delete_file", &json!({"path": "/tmp/sensitive"}));
+        let session_a = "session-aaa";
+        let session_b = "session-bbb";
+
+        // Create approval bound to session A
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Destructive action".to_string(),
+                Some("agent-007".to_string()),
+                Some(session_a.to_string()),
+                Some(fingerprint_action(&action)),
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        // Session B cannot match the approval — scope_matches rejects mismatched session
+        let result = bridge
+            .presented_approval_matches_action(Some(&approval_id), &action, Some(session_b))
+            .await;
+        assert!(result.is_err(), "Cross-session approval replay must be rejected");
+
+        // Session A can match the approval
+        let result = bridge
+            .presented_approval_matches_action(Some(&approval_id), &action, Some(session_a))
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().as_deref(), Some(approval_id.as_str()));
+    }
+
+    /// SECURITY (R246-RELAY-2): Approval created with requested_by tracks identity,
+    /// enabling self-approval prevention in the approval store.
+    #[tokio::test]
+    async fn test_create_pending_approval_sets_requested_by() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("write_file", &json!({"path": "/tmp/out"}));
+        let approval_id = bridge
+            .create_pending_approval(
+                &action,
+                "Write requires approval",
+                Some("session-123"),
+                Some("agent-alpha"),
+            )
+            .await
+            .unwrap();
+
+        let approval = store.get(&approval_id).await.unwrap();
+        assert_eq!(approval.requested_by.as_deref(), Some("agent-alpha"));
+        assert_eq!(approval.session_id.as_deref(), Some("session-123"));
+    }
+
+    /// SECURITY (R246-RELAY-2): Self-approval is blocked when requested_by is set.
+    #[tokio::test]
+    async fn test_self_approval_blocked_when_requested_by_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+
+        let action = extract_action("delete_db", &json!({"table": "users"}));
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Destructive operation".to_string(),
+                Some("agent-alpha".to_string()),
+                Some("session-x".to_string()),
+                Some(fingerprint_action(&action)),
+            )
+            .await
+            .unwrap();
+
+        // Self-approval: same identity as requester → rejected
+        let result = store.approve(&approval_id, "agent-alpha").await;
+        assert!(result.is_err(), "Self-approval must be denied");
+    }
+
+    /// SECURITY (R246-RELAY-1): consume_presented_approval passes session_id
+    /// to the store, so session-scoped approvals are correctly enforced.
+    #[tokio::test]
+    async fn test_consume_with_session_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("read_file", &json!({"path": "/tmp/test"}));
+        let session = "session-bound-123";
+
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Approval required".to_string(),
+                Some("agent-x".to_string()),
+                Some(session.to_string()),
+                Some(fingerprint_action(&action)),
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        // Consume with correct session succeeds
+        let result = bridge
+            .consume_presented_approval(Some(&approval_id), &action, Some(session))
+            .await;
+        assert!(result.is_ok());
+
+        // Already consumed — replay rejected
+        let result = bridge
+            .consume_presented_approval(Some(&approval_id), &action, Some(session))
+            .await;
+        assert!(result.is_err());
+    }
+
+    /// SECURITY (R246-RELAY-1): RelayState generates a unique session_id per instance.
+    #[test]
+    fn test_relay_state_has_unique_session_id() {
+        let state1 = RelayState::new(HashSet::new());
+        let state2 = RelayState::new(HashSet::new());
+        assert_ne!(state1.session_id, state2.session_id, "Each relay must get a unique session_id");
+        assert!(!state1.session_id.is_empty());
+        // UUID v4 format: 8-4-4-4-12 = 36 chars
+        assert_eq!(state1.session_id.len(), 36);
     }
 
     #[test]
