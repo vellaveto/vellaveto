@@ -66,6 +66,13 @@ const MAX_FINDINGS: usize = 64;
 /// Maximum length of a single finding summary string.
 const MAX_FINDING_LEN: usize = 512;
 
+/// Maximum evaluation latency in microseconds (1 hour = 3,600,000,000 µs).
+/// Any value beyond this indicates a measurement error or crafted input.
+const MAX_EVALUATION_US: u64 = 3_600_000_000;
+
+/// Maximum call chain depth (matches existing chain depth limits).
+const MAX_CALL_CHAIN_DEPTH: u32 = 256;
+
 // ── Core types ───────────────────────────────────────────────────────────────
 
 /// The normalized decision kind — a simplified projection of [`Verdict`] for
@@ -356,6 +363,18 @@ impl AcisDecisionEnvelope {
             }
         }
 
+        // evaluation_us (R244-ACIS-7): reject absurdly large latency values
+        if let Some(us) = self.evaluation_us {
+            if us > MAX_EVALUATION_US {
+                return Err("acis: evaluation_us exceeds maximum (1 hour)".into());
+            }
+        }
+
+        // call_chain_depth (R244-ACIS-7): reject unreasonable depth
+        if self.call_chain_depth > MAX_CALL_CHAIN_DEPTH {
+            return Err("acis: call_chain_depth exceeds maximum (256)".into());
+        }
+
         Ok(())
     }
 }
@@ -639,5 +658,37 @@ mod tests {
         env.findings = vec!["injection: found \u{202E}override".into()];
         let err = env.validate().unwrap_err();
         assert!(err.contains("findings[0] contains dangerous"));
+    }
+
+    // ── R244-ACIS-7: numeric range bounds ────────────────────────────────
+
+    #[test]
+    fn test_r244_evaluation_us_max_rejected() {
+        let mut env = minimal_envelope();
+        env.evaluation_us = Some(3_600_000_001);
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("evaluation_us exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r244_evaluation_us_max_accepted() {
+        let mut env = minimal_envelope();
+        env.evaluation_us = Some(3_600_000_000);
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r244_call_chain_depth_max_rejected() {
+        let mut env = minimal_envelope();
+        env.call_chain_depth = 257;
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("call_chain_depth exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r244_call_chain_depth_max_accepted() {
+        let mut env = minimal_envelope();
+        env.call_chain_depth = 256;
+        assert!(env.validate().is_ok());
     }
 }

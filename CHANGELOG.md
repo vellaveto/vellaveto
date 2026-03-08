@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **R244 adversarial audit — ACIS + formal verification hardening (Mar 2026):**
+  19 findings (2 CRITICAL, 5 HIGH, 7 MEDIUM, 5 LOW) across ACIS envelope
+  validation, approval TOCTOU, formal proof completeness, and field bounds.
+  - **Sprint 1 (2 CRITICAL):**
+    R244-ACIS-1 — ACIS envelopes validated via `validate()` before audit
+    persistence in `log_entry_with_acis()` (rejects malformed fields, oversized
+    strings, dangerous characters). R244-TOCTOU-1 — approval consumption moved
+    atomically adjacent to match validation at all 6 relay sites (tool call ×2,
+    resource read, task request, sampling/elicitation, registry unknown/untrusted),
+    closing ~230-line TOCTOU window between match and consume. 2 new tests.
+  - **Sprint 2 (5 HIGH):**
+    R244-ACIS-3 — `MAX_TOOL_LEN` (256) and `MAX_FUNCTION_LEN` (256) constants
+    enforced in `AcisDecisionEnvelope::validate()`. R244-ACIS-4 — `agent_id`
+    validated for emptiness, length (512), and dangerous characters. R244-ACIS-5 —
+    `agent_identity` nested `validate()` delegated. R244-ACIS-8 —
+    `action_summary.function` empty-string check added. R244-ACIS-2 —
+    `EvaluationContext` now passed to all 4 relay `build_acis_envelope()` call
+    sites, populating `agent_identity` and `agent_id` in audit envelopes.
+    R244-FORMAL-1 — Verus `lemma_consumed_status_blocks_re_consumption()` proves
+    that non-Approved status (Consumed, Pending, Denied, Expired) universally
+    blocks consumption regardless of fingerprint or scope match. 6 new tests.
+  - **Sprint 3 (4 MEDIUM):**
+    R244-SESSION-1 — all 6 `create_pending_approval()` call sites in relay.rs
+    now pass `state.agent_id` as the session binding parameter, closing
+    cross-session approval isolation gap (task request, sampling/elicitation,
+    tool call, resource read, registry unknown/untrusted handlers).
+    R244-ACIS-7 — `evaluation_us` capped at 3,600,000,000 µs (1 hour) and
+    `call_chain_depth` capped at 256 in `AcisDecisionEnvelope::validate()`;
+    `build_result()` / `build_acis_envelope()` clamp depth to 256 at
+    construction time. R244-FORMAL-2 — confirmed `has_dangerous_chars` and
+    `is_unsafe_char` are semantically identical (both delegate to
+    `is_control() || is_unicode_format_char()`); no oracle mismatch.
+    R244-FINDINGS-1 — findings dedup confirmed non-issue: DLP findings use
+    `"DLP: "` prefix, injection findings use `"injection: "` prefix, making
+    collision impossible. 4 new tests.
+
 ### Added
 
 - **E1 — ACIS Contract and Boundary Inventory (Sprint 1, Mar 2026):**

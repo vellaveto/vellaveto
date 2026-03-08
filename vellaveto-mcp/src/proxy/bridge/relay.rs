@@ -1517,7 +1517,8 @@ impl ProxyBridge {
                                     action,
                                     reason.clone(),
                                     None,
-                                    None,
+                                    // R244-SESSION-1: bind approval to session
+                                    state.agent_id.clone(),
                                     Some(action_fingerprint),
                                 )
                                 .await
@@ -1645,7 +1646,8 @@ impl ProxyBridge {
                                     action,
                                     reason.clone(),
                                     None,
-                                    None,
+                                    // R244-SESSION-1: bind approval to session
+                                    state.agent_id.clone(),
                                     Some(action_fingerprint),
                                 )
                                 .await
@@ -1965,7 +1967,7 @@ impl ProxyBridge {
                     None,
                     state.agent_id.as_deref(),
                     None,
-                    None,
+                    Some(&eval_ctx),
                 );
                 if let Err(e) = self
                     .audit
@@ -2000,7 +2002,8 @@ impl ProxyBridge {
                                 action.clone(),
                                 reason.clone(),
                                 None,
-                                None,
+                                // R244-SESSION-1: bind approval to session
+                                state.agent_id.clone(),
                                 Some(action_fingerprint),
                             )
                             .await
@@ -2038,7 +2041,7 @@ impl ProxyBridge {
                     None,
                     state.agent_id.as_deref(),
                     None,
-                    None,
+                    Some(&eval_ctx),
                 );
                 if let Err(e) = self
                     .audit
@@ -2564,7 +2567,7 @@ impl ProxyBridge {
                     None,
                     state.agent_id.as_deref(),
                     None,
-                    None,
+                    Some(&eval_ctx),
                 );
                 if let Err(e) = self
                     .audit
@@ -2590,7 +2593,8 @@ impl ProxyBridge {
                                 action.clone(),
                                 reason.clone(),
                                 None,
-                                None,
+                                // R244-SESSION-1: bind approval to session
+                                state.agent_id.clone(),
                                 Some(action_fingerprint),
                             )
                             .await
@@ -2627,7 +2631,7 @@ impl ProxyBridge {
                     None,
                     state.agent_id.as_deref(),
                     None,
-                    None,
+                    Some(&eval_ctx),
                 );
                 if let Err(e) = self
                     .audit
@@ -4155,8 +4159,13 @@ impl ProxyBridge {
             Ok((Verdict::RequireApproval { reason }, _)) => {
                 let mut response =
                     make_approval_response(&id, "Request blocked: security policy violation");
-                if let Some(approval_id) =
-                    self.create_pending_approval(&action, &reason, None).await
+                if let Some(approval_id) = self
+                    .create_pending_approval(
+                        &action,
+                        &reason,
+                        state.agent_id.as_deref(),
+                    )
+                    .await
                 {
                     Self::inject_approval_id(&mut response, approval_id);
                 }
@@ -4859,8 +4868,13 @@ impl ProxyBridge {
             Ok((Verdict::RequireApproval { reason }, _)) => {
                 let mut response =
                     make_approval_response(&id, "Request blocked: security policy violation");
-                if let Some(approval_id) =
-                    self.create_pending_approval(&action, &reason, None).await
+                if let Some(approval_id) = self
+                    .create_pending_approval(
+                        &action,
+                        &reason,
+                        state.agent_id.as_deref(),
+                    )
+                    .await
                 {
                     Self::inject_approval_id(&mut response, approval_id);
                 }

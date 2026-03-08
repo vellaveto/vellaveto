@@ -105,6 +105,24 @@ pub proof fn lemma_consumption_requires_approved_bound_matching_scope()
 {
 }
 
+/// R244-FORMAL-1: Prove that Consumed status is terminal and blocks
+/// re-consumption.  In production, `approval.status == Approved` yields
+/// `false` once the status transitions to `Consumed`, which means the
+/// `approval_is_approved` boolean is false.  This lemma shows that *any*
+/// non-Approved status (Pending, Consumed, Denied, Expired, …) blocks
+/// consumption regardless of fingerprint or scope match.
+pub proof fn lemma_consumed_status_blocks_re_consumption()
+    ensures
+        // Once consumed, approval_is_approved is false → always denied
+        forall|has_fp: bool, scope_ok: bool|
+            !spec_approval_consumption_permitted(false, has_fp, scope_ok),
+        // Specifically: Consumed + matching fingerprint + matching scope → denied
+        !spec_approval_consumption_permitted(false, true, true),
+        // All non-Approved states share this Boolean → same guarantee
+        !spec_approval_status_allows_consumption(false),
+{
+}
+
 pub proof fn lemma_named_assumptions_registered_for_this_kernel()
     ensures assumptions::approval_consumption_kernel_assumptions_registered(),
 {

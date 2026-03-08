@@ -260,7 +260,11 @@ fn build_result(
     }
 
     let call_chain_depth = context
-        .map(|ctx| u32::try_from(ctx.call_chain.len()).unwrap_or(u32::MAX))
+        .map(|ctx| {
+            u32::try_from(ctx.call_chain.len())
+                .unwrap_or(u32::MAX)
+                .min(256)
+        })
         .unwrap_or(0);
 
     let envelope = AcisDecisionEnvelope {
@@ -335,7 +339,11 @@ pub fn build_acis_envelope(
     };
 
     let call_chain_depth = context
-        .map(|ctx| u32::try_from(ctx.call_chain.len()).unwrap_or(u32::MAX))
+        .map(|ctx| {
+            u32::try_from(ctx.call_chain.len())
+                .unwrap_or(u32::MAX)
+                .min(256)
+        })
         .unwrap_or(0);
 
     AcisDecisionEnvelope {
