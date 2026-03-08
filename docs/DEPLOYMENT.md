@@ -1,6 +1,6 @@
 # Vellaveto Deployment Guide
 
-This guide covers deploying the Vellaveto gateway and control plane in production environments using Docker, Kubernetes (Helm), or bare metal installations.
+This guide covers deploying the Vellaveto agent interaction firewall in production environments using Docker, Kubernetes (Helm), or bare metal installations.
 
 ## Table of Contents
 
