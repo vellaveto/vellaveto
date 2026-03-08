@@ -72,6 +72,12 @@ echo ""
 
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
+PROD_CAPABILITY_CONTEXT="$PROJECT_DIR/vellaveto-engine/src/verified_capability_context.rs"
+PROD_CONTEXT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/context_check.rs"
+VERUS_CAPABILITY_CONTEXT="$PROJECT_DIR/formal/verus/verified_capability_context.rs"
+PROD_BRIDGE_PRINCIPAL="$PROJECT_DIR/vellaveto-mcp/src/verified_bridge_principal.rs"
+PROD_RELAY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
+VERUS_BRIDGE_PRINCIPAL="$PROJECT_DIR/formal/verus/verified_bridge_principal.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
@@ -144,6 +150,8 @@ for module in \
     verified_merkle_path \
     verified_rotation_manifest \
     verified_capability_attenuation \
+    verified_bridge_principal \
+    verified_capability_context \
     verified_capability_glob \
     verified_capability_glob_subset \
     verified_capability_grant \
@@ -184,6 +192,72 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+compute_verdict' \
     "$VERUS_CORE" \
     'pub[[:space:]]+fn[[:space:]]+compute_verdict'
+echo ""
+
+echo "--- Capability Context Kernel ---"
+check_file_pair \
+    "verified_capability_context.rs ↔ vellaveto-engine/src/verified_capability_context.rs" \
+    "$PROD_CAPABILITY_CONTEXT" \
+    "$VERUS_CAPABILITY_CONTEXT"
+for fn in capability_holder_binding_valid capability_issuer_allowed capability_remaining_depth_sufficient; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_CONTEXT" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_CONTEXT" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "require_capability_token uses verified holder-binding guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_capability_context::capability_holder_binding_valid' \
+    "$VERUS_CAPABILITY_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+capability_holder_binding_valid'
+check_symbol_parity \
+    "require_capability_token uses verified issuer-allowlist guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_capability_context::capability_issuer_allowed' \
+    "$VERUS_CAPABILITY_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+capability_issuer_allowed'
+check_symbol_parity \
+    "require_capability_token uses verified depth-threshold guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_capability_context::capability_remaining_depth_sufficient' \
+    "$VERUS_CAPABILITY_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+capability_remaining_depth_sufficient'
+echo ""
+
+echo "--- Bridge Principal Kernel ---"
+check_file_pair \
+    "verified_bridge_principal.rs ↔ vellaveto-mcp/src/verified_bridge_principal.rs" \
+    "$PROD_BRIDGE_PRINCIPAL" \
+    "$VERUS_BRIDGE_PRINCIPAL"
+for fn in configured_claim_consistent deputy_principal_source evaluation_principal_source; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_BRIDGE_PRINCIPAL" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_BRIDGE_PRINCIPAL" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "relay uses verified configured-vs-claimed consistency guard" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_bridge_principal::configured_claim_consistent' \
+    "$VERUS_BRIDGE_PRINCIPAL" \
+    'pub[[:space:]]+fn[[:space:]]+configured_claim_consistent'
+check_symbol_parity \
+    "relay uses verified deputy principal-source selector" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_bridge_principal::deputy_principal_source' \
+    "$VERUS_BRIDGE_PRINCIPAL" \
+    'pub[[:space:]]+fn[[:space:]]+deputy_principal_source'
+check_symbol_parity \
+    "relay uses verified evaluation principal-source selector" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_bridge_principal::evaluation_principal_source' \
+    "$VERUS_BRIDGE_PRINCIPAL" \
+    'pub[[:space:]]+fn[[:space:]]+evaluation_principal_source'
 echo ""
 
 echo "--- Constraint Evaluation Kernel ---"

@@ -41,6 +41,7 @@ mod path;
 mod policy_compile;
 mod rule_check;
 mod traced;
+mod verified_capability_context;
 pub mod verified_constraint_eval;
 pub mod verified_core;
 mod verified_deputy;

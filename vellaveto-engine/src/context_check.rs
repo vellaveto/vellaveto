@@ -18,6 +18,7 @@
 use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
 use crate::normalize::normalize_full;
+use crate::verified_capability_context;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
 use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
@@ -772,8 +773,8 @@ impl PolicyEngine {
                             // SECURITY (FIND-R111-001): Fail-closed when agent_id is absent —
                             // a stolen capability token cannot be used by a caller that omits
                             // the agent_id field, which would otherwise bypass holder binding.
-                            match &context.agent_id {
-                                Some(ref agent_id) => {
+                            let holder_matches_agent =
+                                context.agent_id.as_ref().is_some_and(|agent_id| {
                                     // SECURITY (FIND-R213-001): Normalize homoglyphs on both
                                     // token.holder and agent_id before comparison. The previous
                                     // eq_ignore_ascii_case was insufficient — Cyrillic/Greek/
@@ -782,50 +783,59 @@ impl PolicyEngine {
                                     // agent with a homoglyph-variant name.
                                     let holder_norm = normalize_full(&token.holder);
                                     let agent_norm = normalize_full(agent_id);
-                                    if holder_norm != agent_norm {
-                                        // SECURITY (IMP-R218-007): Sanitize attacker-controlled
-                                        // holder and agent_id before embedding in denial reason.
-                                        let safe_holder =
-                                            sanitize_for_log(&token.holder, MAX_CLAIM_DISPLAY_LEN);
-                                        let safe_agent =
-                                            sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
-                                        return Some(Verdict::Deny {
-                                            reason: format!(
-                                                "{deny_reason} (token holder '{safe_holder}' does not match agent_id '{safe_agent}')"
-                                            ),
-                                        });
-                                    }
-                                }
-                                None => {
+                                    holder_norm == agent_norm
+                                });
+                            if !verified_capability_context::capability_holder_binding_valid(
+                                context.agent_id.is_some(),
+                                holder_matches_agent,
+                            ) {
+                                if let Some(agent_id) = &context.agent_id {
+                                    // SECURITY (IMP-R218-007): Sanitize attacker-controlled
+                                    // holder and agent_id before embedding in denial reason.
+                                    let safe_holder =
+                                        sanitize_for_log(&token.holder, MAX_CLAIM_DISPLAY_LEN);
+                                    let safe_agent =
+                                        sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{deny_reason} (no agent_id in context — cannot verify token holder binding)"
+                                            "{deny_reason} (token holder '{safe_holder}' does not match agent_id '{safe_agent}')"
                                         ),
                                     });
                                 }
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{deny_reason} (no agent_id in context — cannot verify token holder binding)"
+                                    ),
+                                });
                             }
 
                             // Check issuer allowlist
                             // SECURITY (IMP-R216-005): Apply homoglyph normalization
                             // for parity with agent_identity issuer checks.
                             // SECURITY (FIND-R218-001): Apply NFKC for circled/math letter coverage.
-                            if !required_issuers.is_empty() {
-                                let issuer_lower = normalize_full(&token.issuer);
-                                if !required_issuers.contains(&issuer_lower) {
-                                    // SECURITY (IMP-R218-007): Sanitize attacker-controlled
-                                    // issuer before embedding in denial reason.
-                                    let safe_issuer =
-                                        sanitize_for_log(&token.issuer, MAX_CLAIM_DISPLAY_LEN);
-                                    return Some(Verdict::Deny {
-                                        reason: format!(
-                                            "{deny_reason} (issuer '{safe_issuer}' not in allowed list)"
-                                        ),
-                                    });
-                                }
+                            let required_issuers_empty = required_issuers.is_empty();
+                            let issuer_lower = normalize_full(&token.issuer);
+                            let issuer_allowed = required_issuers.contains(&issuer_lower);
+                            if !verified_capability_context::capability_issuer_allowed(
+                                required_issuers_empty,
+                                issuer_allowed,
+                            ) {
+                                // SECURITY (IMP-R218-007): Sanitize attacker-controlled
+                                // issuer before embedding in denial reason.
+                                let safe_issuer =
+                                    sanitize_for_log(&token.issuer, MAX_CLAIM_DISPLAY_LEN);
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{deny_reason} (issuer '{safe_issuer}' not in allowed list)"
+                                    ),
+                                });
                             }
 
                             // Check remaining delegation depth
-                            if token.remaining_depth < *min_remaining_depth {
+                            if !verified_capability_context::capability_remaining_depth_sufficient(
+                                token.remaining_depth,
+                                *min_remaining_depth,
+                            ) {
                                 return Some(Verdict::Deny {
                                     reason: format!(
                                         "{} (remaining depth {} below required {})",

@@ -12,6 +12,8 @@ mod verified_merkle_path;
 mod verified_rotation_manifest;
 #[path = "../verified_capability_attenuation.rs"]
 mod verified_capability_attenuation;
+#[path = "../verified_bridge_principal.rs"]
+mod verified_bridge_principal;
 #[path = "../verified_capability_glob.rs"]
 mod verified_capability_glob;
 #[path = "../verified_capability_glob_subset.rs"]
@@ -30,6 +32,8 @@ mod verified_constraint_eval;
 mod verified_cross_call_dlp;
 #[path = "../verified_core.rs"]
 mod verified_core;
+#[path = "../verified_capability_context.rs"]
+mod verified_capability_context;
 #[path = "../verified_deputy.rs"]
 mod verified_deputy;
 #[path = "../verified_entropy_gate.rs"]

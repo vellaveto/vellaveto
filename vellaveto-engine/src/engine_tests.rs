@@ -8377,6 +8377,41 @@ fn test_require_capability_token_holder_mismatch_denied() {
 }
 
 #[test]
+fn test_require_capability_token_missing_agent_id_denied() {
+    let policy = make_context_policy(json!([{
+        "type": "require_capability_token"
+    }]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let token = vellaveto_types::CapabilityToken {
+        token_id: "tok-1".into(),
+        parent_token_id: None,
+        issuer: "root".into(),
+        holder: "agent-a".into(),
+        grants: vec![vellaveto_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth: 3,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "x".into(),
+        issuer_public_key: "y".into(),
+    };
+    let ctx = EvaluationContext::builder().capability_token(token).build();
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "Missing agent_id should deny: {v:?}"
+    );
+}
+
+#[test]
 fn test_require_capability_token_issuer_allowlist_denied() {
     let policy = make_context_policy(json!([{
         "type": "require_capability_token",

@@ -71,6 +71,7 @@ pub mod tool_namespace;
 pub mod tool_registry;
 pub mod transparency;
 pub(crate) mod util;
+pub(crate) mod verified_bridge_principal;
 pub(crate) mod verified_capability_attenuation;
 pub(crate) mod verified_capability_glob;
 pub(crate) mod verified_capability_glob_subset;

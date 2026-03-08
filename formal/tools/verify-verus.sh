@@ -22,6 +22,8 @@ FILES=(
     "formal/verus/verified_merkle_path.rs"
     "formal/verus/verified_rotation_manifest.rs"
     "formal/verus/verified_capability_attenuation.rs"
+    "formal/verus/verified_bridge_principal.rs"
+    "formal/verus/verified_capability_context.rs"
     "formal/verus/verified_capability_glob.rs"
     "formal/verus/verified_capability_glob_subset.rs"
     "formal/verus/verified_capability_grant.rs"

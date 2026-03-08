@@ -109,6 +109,14 @@ pub open spec fn deputy_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn capability_context_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn bridge_principal_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_attenuation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

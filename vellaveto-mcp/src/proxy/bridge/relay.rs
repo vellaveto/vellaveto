@@ -28,13 +28,18 @@ use crate::inspection::{
 };
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
+use crate::verified_bridge_principal;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
+use unicode_normalization::UnicodeNormalization;
 use vellaveto_config::ToolManifest;
-use vellaveto_types::{Action, EvaluationContext, EvaluationTrace, Verdict};
+use vellaveto_types::{
+    sanitize_for_log, unicode::normalize_homoglyphs, Action, EvaluationContext, EvaluationTrace,
+    Verdict,
+};
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
 ///
@@ -156,6 +161,17 @@ struct PendingRequest {
     tool_name: String,
     /// Evaluation trace (when tracing enabled), for Art 50(2) explanation injection.
     trace: Option<EvaluationTrace>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RequestPrincipalBinding {
+    deputy_principal: Option<String>,
+    evaluation_agent_id: Option<String>,
+}
+
+fn normalize_request_principal_id(principal: &str) -> String {
+    let nfkc: String = principal.nfkc().collect();
+    normalize_homoglyphs(&nfkc.to_lowercase())
 }
 
 /// Mutable session state for the relay loop.
@@ -325,11 +341,76 @@ impl RelayState {
         Ok(())
     }
 
+    /// Resolve the effective request principal for deputy validation and engine
+    /// evaluation.
+    ///
+    /// In stdio mode, `VELLAVETO_AGENT_ID` is the trusted session principal for
+    /// context-aware evaluation. Per-message `_meta.agent_id` remains useful for
+    /// deputy validation and shadow-agent detection, but it must match the
+    /// configured principal after normalization when both are present.
+    fn request_principal_binding(
+        &self,
+        claimed_agent_id: Option<String>,
+    ) -> Result<RequestPrincipalBinding, String> {
+        let configured_present = self.agent_id.is_some();
+        let claimed_present = claimed_agent_id.is_some();
+        let normalized_equal = match (self.agent_id.as_deref(), claimed_agent_id.as_deref()) {
+            (Some(configured), Some(claimed)) => {
+                normalize_request_principal_id(configured)
+                    == normalize_request_principal_id(claimed)
+            }
+            _ => false,
+        };
+
+        if !verified_bridge_principal::configured_claim_consistent(
+            configured_present,
+            claimed_present,
+            normalized_equal,
+        ) {
+            const MAX_ID_DISPLAY_LEN: usize = 128;
+            let safe_claimed = claimed_agent_id
+                .as_deref()
+                .map(|id| sanitize_for_log(id, MAX_ID_DISPLAY_LEN))
+                .unwrap_or_else(|| "unknown".to_string());
+            let safe_configured = self
+                .agent_id
+                .as_deref()
+                .map(|id| sanitize_for_log(id, MAX_ID_DISPLAY_LEN))
+                .unwrap_or_else(|| "unset".to_string());
+            return Err(format!(
+                "claimed agent_id '{safe_claimed}' does not match configured VELLAVETO_AGENT_ID '{safe_configured}'"
+            ));
+        }
+
+        let deputy_principal = match verified_bridge_principal::deputy_principal_source(
+            configured_present,
+            claimed_present,
+        ) {
+            verified_bridge_principal::RequestPrincipalSource::Configured => self.agent_id.clone(),
+            verified_bridge_principal::RequestPrincipalSource::Claimed => claimed_agent_id.clone(),
+            verified_bridge_principal::RequestPrincipalSource::None => None,
+        };
+
+        let evaluation_agent_id =
+            match verified_bridge_principal::evaluation_principal_source(configured_present) {
+                verified_bridge_principal::RequestPrincipalSource::Configured => {
+                    self.agent_id.clone()
+                }
+                verified_bridge_principal::RequestPrincipalSource::None
+                | verified_bridge_principal::RequestPrincipalSource::Claimed => None,
+            };
+
+        Ok(RequestPrincipalBinding {
+            deputy_principal,
+            evaluation_agent_id,
+        })
+    }
+
     /// Build an EvaluationContext from the current session state.
-    fn evaluation_context(&self) -> EvaluationContext {
+    fn evaluation_context(&self, request_agent_id: Option<String>) -> EvaluationContext {
         EvaluationContext {
             timestamp: None,
-            agent_id: self.agent_id.clone(),
+            agent_id: request_agent_id,
             agent_identity: None,
             call_counts: self.call_counts.clone(),
             previous_actions: self.action_history.iter().cloned().collect(),
@@ -833,15 +914,53 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding =
+            match state.request_principal_binding(Self::extract_agent_id(&msg)) {
+                Ok(binding) => binding,
+                Err(reason) => {
+                    tracing::warn!(
+                        "SECURITY: Request principal mismatch for '{}' -> '{}': {}",
+                        state.agent_id.as_deref().unwrap_or("unknown"),
+                        tool_name,
+                        reason
+                    );
+                    let action = extract_action(&tool_name, &arguments);
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "request_principal_mismatch",
+                                "session": "stdio-session",
+                                "tool": tool_name,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit principal mismatch: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            };
+
         // Phase 3.1: Deputy validation (OWASP ASI02)
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
-                if let Err(err) = deputy.validate_action(session_id, &tool_name, &claimed_id) {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
+                if let Err(err) = deputy.validate_action(session_id, &tool_name, principal) {
                     let reason = err.to_string();
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for '{}' -> '{}': {}",
-                        claimed_id,
+                        principal,
                         tool_name,
                         reason
                     );
@@ -858,7 +977,7 @@ impl ProxyBridge {
                                 "source": "proxy",
                                 "event": "deputy_validation_failed",
                                 "session": session_id,
-                                "principal": claimed_id,
+                                "principal": principal,
                                 "tool": tool_name,
                             }),
                         )
@@ -1202,7 +1321,8 @@ impl ProxyBridge {
         }
 
         let ann = state.known_tool_annotations.get(&tool_name);
-        let eval_ctx = state.evaluation_context();
+        let eval_ctx =
+            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
         let (decision, eval_trace) =
             self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
         match decision {
@@ -1567,12 +1687,47 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding =
+            match state.request_principal_binding(Self::extract_agent_id(&msg)) {
+                Ok(binding) => binding,
+                Err(reason) => {
+                    tracing::warn!(
+                        "SECURITY: Request principal mismatch for resources/read: {}",
+                        reason
+                    );
+                    let action = extract_resource_action(&uri);
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "request_principal_mismatch",
+                                "session": "stdio-session",
+                                "handler": "resources/read",
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit principal mismatch: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            };
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
-                if let Err(err) = deputy.validate_action(session_id, "resources/read", &claimed_id)
-                {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
+                if let Err(err) = deputy.validate_action(session_id, "resources/read", principal) {
                     let reason = err.to_string();
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for resources/read: {}",
@@ -1591,7 +1746,7 @@ impl ProxyBridge {
                                 "source": "proxy",
                                 "event": "deputy_validation_failed",
                                 "session": session_id,
-                                "principal": claimed_id,
+                                "principal": principal,
                                 "handler": "resources/read",
                             }),
                         )
@@ -1836,7 +1991,8 @@ impl ProxyBridge {
             resolve_domains(&mut action).await;
         }
 
-        let eval_ctx = state.evaluation_context();
+        let eval_ctx =
+            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
         match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
@@ -2015,18 +2171,51 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding = match state
+            .request_principal_binding(Self::extract_agent_id(msg))
+        {
+            Ok(binding) => binding,
+            Err(reason) => {
+                tracing::warn!(
+                    "SECURITY: Request principal mismatch for sampling/createMessage: {}",
+                    reason
+                );
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "sampling_principal_mismatch",
+                    json!({}),
+                );
+                let _ = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::Deny {
+                            reason: reason.clone(),
+                        },
+                        json!({"source": "proxy", "event": "request_principal_mismatch_sampling"}),
+                    )
+                    .await;
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        };
+
         // SECURITY (R240-MCP-1): Deputy validation — parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(msg) {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 if let Err(err) =
-                    deputy.validate_action(session_id, "sampling/createMessage", &claimed_id)
+                    deputy.validate_action(session_id, "sampling/createMessage", principal)
                 {
                     tracing::warn!("SECURITY: Deputy validation failed for sampling: {}", err);
                     let action = vellaveto_types::Action::new(
                         "vellaveto",
                         "sampling_deputy_validation_failed",
-                        json!({"principal": &claimed_id}),
+                        json!({"principal": principal}),
                     );
                     let _ = self
                         .audit
@@ -2442,12 +2631,45 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding = match state
+            .request_principal_binding(Self::extract_agent_id(msg))
+        {
+            Ok(binding) => binding,
+            Err(reason) => {
+                tracing::warn!(
+                    "SECURITY: Request principal mismatch for elicitation/create: {}",
+                    reason
+                );
+                let action = vellaveto_types::Action::new(
+                    "vellaveto",
+                    "elicitation_principal_mismatch",
+                    json!({}),
+                );
+                let _ = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &Verdict::Deny {
+                                reason: reason.clone(),
+                            },
+                            json!({"source": "proxy", "event": "request_principal_mismatch_elicitation"}),
+                        )
+                        .await;
+                let response =
+                    make_denial_response(&id, "Request blocked: security policy violation");
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+                return Ok(());
+            }
+        };
+
         // SECURITY (R240-MCP-1): Deputy validation — parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(msg) {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 if let Err(err) =
-                    deputy.validate_action(session_id, "elicitation/create", &claimed_id)
+                    deputy.validate_action(session_id, "elicitation/create", principal)
                 {
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for elicitation: {}",
@@ -2456,7 +2678,7 @@ impl ProxyBridge {
                     let action = vellaveto_types::Action::new(
                         "vellaveto",
                         "elicitation_deputy_validation_failed",
-                        json!({"principal": &claimed_id}),
+                        json!({"principal": principal}),
                     );
                     let _ = self
                         .audit
@@ -2865,11 +3087,48 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding =
+            match state.request_principal_binding(Self::extract_agent_id(&msg)) {
+                Ok(binding) => binding,
+                Err(reason) => {
+                    tracing::warn!(
+                        "SECURITY: Request principal mismatch for task '{}': {}",
+                        safe_task_method,
+                        reason
+                    );
+                    let action = extract_task_action(&task_method, task_id.as_deref());
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "request_principal_mismatch",
+                                "session": "stdio-session",
+                                "handler": safe_task_method,
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit principal mismatch: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            };
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
-                if let Err(err) = deputy.validate_action(session_id, &task_method, &claimed_id) {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
+                if let Err(err) = deputy.validate_action(session_id, &task_method, principal) {
                     let reason = err.to_string();
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for task '{}': {}",
@@ -2889,7 +3148,7 @@ impl ProxyBridge {
                                 "source": "proxy",
                                 "event": "deputy_validation_failed",
                                 "session": session_id,
-                                "principal": claimed_id,
+                                "principal": principal,
                                 "handler": safe_task_method,
                             }),
                         )
@@ -3129,7 +3388,8 @@ impl ProxyBridge {
         }
 
         let action = extract_task_action(&task_method, task_id.as_deref());
-        let eval_ctx = state.evaluation_context();
+        let eval_ctx =
+            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
                 // SECURITY (FIND-R80-006): ABAC refinement — only runs when ABAC
@@ -3456,12 +3716,49 @@ impl ProxyBridge {
             }
         }
 
+        let request_principal_binding =
+            match state.request_principal_binding(Self::extract_agent_id(&msg)) {
+                Ok(binding) => binding,
+                Err(reason) => {
+                    tracing::warn!(
+                        "SECURITY: Request principal mismatch for extension '{}:{}': {}",
+                        safe_extension_id,
+                        safe_ext_method,
+                        reason
+                    );
+                    let verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "request_principal_mismatch",
+                                "session": "stdio-session",
+                                "handler": format!("ext:{extension_id}:{method}"),
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit principal mismatch: {}", e);
+                    }
+                    let response = make_denial_response(&id, &reason);
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            };
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
-            if let Some(claimed_id) = Self::extract_agent_id(&msg) {
+            if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 let deputy_key = format!("ext:{extension_id}:{method}");
-                if let Err(err) = deputy.validate_action(session_id, &deputy_key, &claimed_id) {
+                if let Err(err) = deputy.validate_action(session_id, &deputy_key, principal) {
                     let reason = err.to_string();
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for extension '{}:{}': {}",
@@ -3481,7 +3778,7 @@ impl ProxyBridge {
                                 "source": "proxy",
                                 "event": "deputy_validation_failed",
                                 "session": session_id,
-                                "principal": claimed_id,
+                                "principal": principal,
                                 "handler": deputy_key,
                             }),
                         )
@@ -3498,7 +3795,8 @@ impl ProxyBridge {
             }
         }
 
-        let eval_ctx = state.evaluation_context();
+        let eval_ctx =
+            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
@@ -5728,7 +6026,7 @@ mod tests {
         state.record_forwarded_action("read_file");
         state.record_forwarded_action("write_file");
 
-        let ctx = state.evaluation_context();
+        let ctx = state.evaluation_context(None);
         assert_eq!(ctx.call_counts.get("read_file"), Some(&2));
         assert_eq!(ctx.call_counts.get("write_file"), Some(&1));
         assert_eq!(ctx.call_counts.len(), 2);
@@ -5741,7 +6039,7 @@ mod tests {
         state.record_forwarded_action("write_file");
         state.record_forwarded_action("exec_command");
 
-        let ctx = state.evaluation_context();
+        let ctx = state.evaluation_context(None);
         assert_eq!(
             ctx.previous_actions,
             vec![
@@ -5750,5 +6048,46 @@ mod tests {
                 "exec_command".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_request_principal_binding_prefers_configured_identity_for_deputy_and_eval() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = Some("Agent-Alpha".to_string());
+
+        let binding = state
+            .request_principal_binding(Some("agent-alpha".to_string()))
+            .unwrap();
+
+        assert_eq!(binding.deputy_principal.as_deref(), Some("Agent-Alpha"));
+        assert_eq!(binding.evaluation_agent_id.as_deref(), Some("Agent-Alpha"));
+    }
+
+    #[test]
+    fn test_request_principal_binding_rejects_mismatched_claim_against_configured_identity() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = Some("agent-alpha".to_string());
+
+        let err = state
+            .request_principal_binding(Some("agent-beta".to_string()))
+            .unwrap_err();
+
+        assert!(
+            err.contains("does not match configured VELLAVETO_AGENT_ID"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_request_principal_binding_uses_claim_for_deputy_when_unconfigured() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = None;
+
+        let binding = state
+            .request_principal_binding(Some("agent-claim".to_string()))
+            .unwrap();
+
+        assert_eq!(binding.deputy_principal.as_deref(), Some("agent-claim"));
+        assert!(binding.evaluation_agent_id.is_none());
     }
 }

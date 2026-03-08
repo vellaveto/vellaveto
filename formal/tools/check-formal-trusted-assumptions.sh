@@ -33,6 +33,8 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_audit_append.rs"]="audit_append_kernel_assumptions_registered"
         ["formal/verus/verified_audit_chain.rs"]="audit_chain_kernel_assumptions_registered"
         ["formal/verus/verified_capability_attenuation.rs"]="capability_attenuation_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_context.rs"]="capability_context_kernel_assumptions_registered"
+        ["formal/verus/verified_bridge_principal.rs"]="bridge_principal_kernel_assumptions_registered"
         ["formal/verus/verified_capability_glob.rs"]="capability_glob_kernel_assumptions_registered"
         ["formal/verus/verified_capability_glob_subset.rs"]="capability_glob_subset_kernel_assumptions_registered"
         ["formal/verus/verified_capability_grant.rs"]="capability_grant_kernel_assumptions_registered"
