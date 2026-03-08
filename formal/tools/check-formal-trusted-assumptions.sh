@@ -33,7 +33,9 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_audit_append.rs"]="audit_append_kernel_assumptions_registered"
         ["formal/verus/verified_audit_chain.rs"]="audit_chain_kernel_assumptions_registered"
         ["formal/verus/verified_capability_attenuation.rs"]="capability_attenuation_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_glob.rs"]="capability_glob_kernel_assumptions_registered"
         ["formal/verus/verified_capability_grant.rs"]="capability_grant_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_identity.rs"]="capability_identity_kernel_assumptions_registered"
         ["formal/verus/verified_capability_literal.rs"]="capability_literal_kernel_assumptions_registered"
         ["formal/verus/verified_capability_pattern.rs"]="capability_pattern_kernel_assumptions_registered"
         ["formal/verus/verified_constraint_eval.rs"]="constraint_eval_kernel_assumptions_registered"
@@ -44,7 +46,9 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_merkle.rs"]="merkle_guard_kernel_assumptions_registered"
         ["formal/verus/verified_merkle_fold.rs"]="merkle_fold_kernel_assumptions_registered"
         ["formal/verus/verified_merkle_path.rs"]="merkle_path_kernel_assumptions_registered"
+        ["formal/verus/verified_nhi_delegation.rs"]="nhi_delegation_kernel_assumptions_registered"
         ["formal/verus/verified_path.rs"]="path_kernel_assumptions_registered"
+        ["formal/verus/verified_refinement_safety.rs"]="refinement_safety_kernel_assumptions_registered"
         ["formal/verus/verified_rotation_manifest.rs"]="rotation_manifest_kernel_assumptions_registered"
     )
 

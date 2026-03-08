@@ -72,9 +72,12 @@ pub mod tool_registry;
 pub mod transparency;
 pub(crate) mod util;
 pub(crate) mod verified_capability_attenuation;
+pub(crate) mod verified_capability_glob;
 pub(crate) mod verified_capability_grant;
+pub(crate) mod verified_capability_identity;
 pub(crate) mod verified_capability_literal;
 pub(crate) mod verified_capability_pattern;
+pub(crate) mod verified_nhi_delegation;
 pub mod workflow_tracker;
 
 use serde::{Deserialize, Serialize};

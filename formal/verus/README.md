@@ -5,8 +5,11 @@ evaluation fail-closed control flow, audit append/recovery counter transitions,
 audit-chain verification guards, Merkle append/init/proof-shape guards,
 Merkle fold structure, Merkle proof-path structure, cross-rotation
 manifest linkage/path-safety guards, capability attenuation arithmetic,
+capability parent-glob literal-child matching,
 capability grant attenuation, capability literal matching fast paths,
-capability pattern attenuation, fixed-point entropy alert gating,
+capability pattern attenuation, capability holder/issuer identity-chain
+guards, NHI delegation terminal-state/participant/link/depth guards,
+fixed-point entropy alert gating,
 cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
@@ -16,6 +19,10 @@ Each standalone kernel now binds itself to a checker-enforced kernel-scoped
 assumption contract rather than the whole shared boundary.
 The Merkle and audit-filesystem trust boundaries are also mirrored as explicit
 Verus axiom modules under `formal/verus/`.
+The canonical multi-file entrypoint is now
+`cargo-verus verify --manifest-path formal/verus/Cargo.toml`.
+The local shell wrapper keeps a direct per-file `verus` fallback unless
+`FORMAL_USE_CARGO_VERUS=1` is selected.
 
 ## What Is Verified
 
@@ -270,6 +277,31 @@ Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_ttl_limit_is_fail_closed` | A TTL above policy cannot produce a child expiry |
 | `lemma_expiry_transitive_nonincreasing` | A second attenuation step cannot increase expiry past the first or root parent |
 
+### Capability Parent-Glob Matcher (`verified_capability_glob.rs`) — 19 verified items, CAP-GLOB-1–CAP-GLOB-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-GLOB-1 | ASCII fold correctness | Uppercase ASCII bytes fold to lowercase while non-uppercase bytes are unchanged |
+| CAP-GLOB-2 | Case-insensitive byte equality | Byte comparison is exactly ASCII-case-insensitive equality after folding |
+| CAP-GLOB-3 | Empty-pattern base case | An empty parent pattern matches iff the child literal is also empty |
+| CAP-GLOB-4 | `?` fail-closed empty rejection | A `?` step cannot match an empty child suffix |
+| CAP-GLOB-5 | Literal-child matcher equivalence | The extracted recursive parent-glob matcher is equivalent to its Verus spec for the delegation subset branch |
+
+Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_ascii_uppercase_folds_to_lowercase` | Any uppercase ASCII byte folds by the expected offset |
+| `lemma_non_uppercase_byte_is_stable` | Bytes outside `A-Z` remain unchanged by the fold |
+| `lemma_case_insensitive_byte_match_is_symmetric` | Case-insensitive byte comparison is symmetric |
+| `lemma_empty_pattern_matches_only_empty_child` | The base case accepts only the empty child literal |
+| `lemma_question_rejects_empty_child` | `?` cannot consume an empty child suffix |
+| `lemma_literal_mismatch_is_rejected` | A mismatching literal byte cannot be accepted by the parent-glob matcher |
+
 ### Capability Grant Attenuation (`verified_capability_grant.rs`) — 10 verified items, CAP-GRANT-1–CAP-GRANT-4
 
 Properties proven for ALL possible inputs:
@@ -340,6 +372,90 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_identical_child_glob_allowed` | Exact equality bypasses the child-glob rejection |
 | `lemma_literal_child_falls_through` | Literal child patterns are not rejected by the guard |
 | `lemma_accepted_child_glob_requires_wildcard_or_equality` | An accepted child glob must be justified by wildcard parent or equality |
+
+### Capability Identity-Chain Guards (`verified_capability_identity.rs`) — 11 verified items, CAP-ID-1–CAP-ID-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-ID-1 | Self-delegation rejection | A delegated child holder normalized to the same identity as the parent holder is always rejected |
+| CAP-ID-2 | Delegated issuer-link validity | Root tokens have no parent obligation; delegated children must carry the parent holder as issuer |
+| CAP-ID-3 | Holder expectation satisfaction | Verification passes iff the normalized holder equals the expected holder |
+
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_self_delegation_is_rejected` | Self-delegation (normalized new == parent holder) is always blocked |
+| `lemma_distinct_holder_is_allowed` | A distinct holder passes the delegation guard |
+| `lemma_root_token_issuer_is_unconstrained` | Root tokens (no parent) are unconstrained in their issuer field |
+| `lemma_delegated_child_requires_parent_holder_issuer` | A delegated child with a mismatching issuer is rejected |
+| `lemma_matching_holder_expectation_is_required` | Both directions of the holder-expectation identity are proved |
+
+### NHI Delegation Guards (`verified_nhi_delegation.rs`) — 19 verified items, NHI-DEL-1–NHI-DEL-8
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| NHI-DEL-1 | Terminal-state detection | Revoked or expired identities are terminal (delegation-blocking) |
+| NHI-DEL-2 | Participant guard fail-closed | Terminal identities cannot participate in delegation |
+| NHI-DEL-3 | Link-effective guard | A delegation link is effective iff the target agent matches, the link is active, the expiry parsed, and now is before expiry |
+| NHI-DEL-4 | Depth-exceeded guard | Chain depth exceeds the bound iff `chain_len > max_depth` (strict, not >=) |
+| NHI-DEL-5 | Revoked link is not effective | A deactivated link is never effective regardless of agent matching, parse status, or expiry |
+| NHI-DEL-6 | Chain stops at inactive link | An inactive link at position `k` prevents chain traversal beyond `k` |
+| NHI-DEL-7 | Revocation completeness | Deactivating any link between root and leaf disconnects the leaf from the root in any chain traversal |
+| NHI-DEL-8 | Liveness witness | A fully-active, fully-matched, fully-unexpired chain is traversable (revocation is not vacuously true) |
+
+Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_revoked_identity_is_terminal` | A revoked identity is always terminal regardless of expiry |
+| `lemma_expired_identity_is_terminal` | An expired identity is always terminal regardless of revocation |
+| `lemma_active_identity_is_not_terminal` | A non-revoked, non-expired identity is not terminal |
+| `lemma_terminal_identity_cannot_delegate` | Terminal state implies delegation is blocked |
+| `lemma_effective_link_requires_parse_success` | An unparseable expiry timestamp always fails the link-effective guard (fail-closed) |
+| `lemma_effective_link_requires_active_and_unexpired` | Inactive or expired links are not effective |
+| `lemma_depth_exceeded_is_strict` | Depth at exactly the bound does not exceed; depth at bound+1 does |
+| `lemma_revoked_link_is_not_effective` | An inactive link is never effective (chain-level revocation primitive) |
+| `lemma_chain_stops_at_inactive_link` | Chain traversal cannot advance past an inactive link |
+| `lemma_revocation_disconnects_leaf` | Revoking any link disconnects all downstream agents (inductive proof over chain depth) |
+| `lemma_all_active_chain_is_traversable` | An all-active chain is traversable to its full depth (liveness) |
+
+### Safety-Critical Refinement (`verified_refinement_safety.rs`) — 16 verified items
+
+Mechanizes the three safety-critical simulation obligations from the
+policy engine refinement map (`formal/refinement/MCPPolicyEngine.md`).
+These are the transitions where an incorrect implementation would be
+fail-open.
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| R-MCP-START-EMPTY | Empty policy set → Deny | An empty policy set always produces a Deny verdict (fail-closed initialization) |
+| R-MCP-APPLY-DENY | Deny contribution → Deny verdict | A Deny contribution at the first matching policy guarantees a Deny final verdict |
+| R-MCP-EXHAUSTED-NOMATCH | No match → Deny | Exhausting all policies without a match always produces a Deny verdict |
+
+Verification result: **16 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_empty_policies_fail_closed` | Empty policy set always produces Deny |
+| `lemma_exhausted_no_match_fail_closed` | No matching policy always produces Deny |
+| `lemma_deny_contribution_is_deny` | A Deny trace match has Deny verdict contribution |
+| `lemma_no_policy_match_always_denies` | Composition: both empty and exhausted cases produce Deny |
+| `lemma_deny_never_becomes_allow` | Deny contribution is never Allow (verdict stability) |
+| `lemma_verdict_is_total` | Every verdict is Allow, Deny, or RequireApproval (exhaustiveness) |
+| `lemma_allow_is_reachable` | Allow is reachable (safety proofs are not vacuous) |
 
 ### Entropy Alert Gate (`verified_entropy_gate.rs`) — 13 verified items, ENT-GATE-1–ENT-GATE-5
 
@@ -455,13 +571,17 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_merkle_path.rs` | `vellaveto-audit/src/verified_merkle_path.rs` | `merkle.rs` routes sibling presence, sibling index selection, `is_left` encoding, parent ascent, and verifier concatenation direction through the verified proof-path kernel |
 | `formal/verus/verified_rotation_manifest.rs` | `vellaveto-audit/src/verified_rotation_manifest.rs` | `rotation.rs` routes cross-rotation start-hash linkage, rotated filename safety, and the missing-file prune boundary through the verified manifest kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
+| `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes the literal-child parent-glob subset branch through the verified recursive matcher |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
 | `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes child-glob metacharacter rejection through the verified pattern guard |
+| `formal/verus/verified_capability_identity.rs` | `vellaveto-mcp/src/verified_capability_identity.rs` | `capability_token.rs` routes self-delegation rejection, delegated-child issuer-link validation, and holder-expectation checks through the verified identity-chain gate |
+| `formal/verus/verified_nhi_delegation.rs` | `vellaveto-mcp/src/verified_nhi_delegation.rs` | `nhi.rs` routes terminal-state detection, delegation participant guards, link-effective checks, and chain-depth bounds through the verified NHI delegation gate |
 | `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
 | `formal/verus/verified_path.rs` | `vellaveto-engine/src/path.rs` | Byte-level equivalent of `normalize_decoded_path`, called by `normalize_path_bounded()` after decode/backslash normalization |
+| `formal/verus/Cargo.toml` and `formal/verus/src/lib.rs` | `formal/tools/verify-verus.sh` | Canonical `cargo-verus` manifest and shim for running the full standalone Verus suite through one entrypoint |
 | `formal/verus/assumptions.rs` | `formal/ASSUMPTION_REGISTRY.md` | Shared Verus-facing kernel-assumption map for the canonical trust-boundary registry |
 | `formal/verus/merkle_boundary_axioms.rs` | `formal/MERKLE_TRUST_BOUNDARY.md` and `vellaveto-audit/src/trusted_merkle_hash.rs` | Trusted proof-facing Merkle hash/codec axiom surface used by the shared assumptions layer |
 | `formal/verus/audit_fs_boundary_axioms.rs` | `formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md` and `vellaveto-audit/src/trusted_audit_fs.rs` | Trusted proof-facing audit-filesystem axiom surface used by the shared assumptions layer |
@@ -474,12 +594,23 @@ compilation. Minor syntactic differences exist (e.g., `len() == 0` vs
 ## How to Verify
 
 ```bash
+# Option 0: Docker (reproducible, no local setup)
+make formal-docker                    # Full mesh (all tools)
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-verus  # Verus only
+```
+
+```bash
 # Option 1: Binary release (recommended)
 VERUS_VERSION="0.2026.03.01.25809cb"
 curl -sSL -o verus.zip \
   "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
 unzip verus.zip -d verus-bin
 rustup install 1.93.1-x86_64-unknown-linux-gnu
+chmod +x verus-bin/verus-x86-linux/verus verus-bin/verus-x86-linux/cargo-verus
+
+# Canonical full-suite entrypoint
+# Requires normal Cargo registry access for the pinned Verus crates.
+verus-bin/verus-x86-linux/cargo-verus verify --manifest-path formal/verus/Cargo.toml -- --triggers-mode silent
 
 # Audit append/recovery counter transitions (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_audit_append.rs
@@ -502,6 +633,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rot
 # Capability attenuation depth/expiry kernel (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
 
+# Capability parent-glob literal-child matcher (19 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_glob.rs
+
 # Capability grant restriction/invocation kernel (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
@@ -510,6 +644,12 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 
 # Capability child-glob rejection guard (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
+
+# Capability holder/issuer identity-chain guards (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_identity.rs
+
+# NHI delegation terminal-state/participant/link/depth guards (14 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_nhi_delegation.rs
 
 # Constraint evaluation fail-closed control flow (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
@@ -540,9 +680,12 @@ verus formal/verus/verified_merkle_fold.rs
 verus formal/verus/verified_merkle_path.rs
 verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
+verus formal/verus/verified_capability_glob.rs
 verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
 verus formal/verus/verified_capability_pattern.rs
+verus formal/verus/verified_capability_identity.rs
+verus formal/verus/verified_nhi_delegation.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_entropy_gate.rs
@@ -559,9 +702,12 @@ Expected output:
 - `verified_merkle_path.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_capability_identity.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_nhi_delegation.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_entropy_gate.rs`: `verification results:: 13 verified, 0 errors`

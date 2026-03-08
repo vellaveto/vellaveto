@@ -106,12 +106,18 @@ formal/tla/*_TTrace_*.bin
 formal/tla/*_TTrace_*.tla
 formal/kani/target/
 formal/kani/Cargo.lock
+formal/verus/target/
+formal/verus/Cargo.lock
 formal/tools/*.jar
 /states/
 
 # Lean 4 build artifacts
 formal/lean/.lake/
 formal/lean/lake-manifest.json
+
+# Local-only formal verification planning (not public)
+formal/LOCAL_VERIFICATION_PLAN.md
+formal/PROOF_OWNER_LEDGER.md
 
 # Paper drafts (work-in-progress)
 paper/

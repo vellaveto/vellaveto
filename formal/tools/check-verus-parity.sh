@@ -10,6 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DRIFT_FOUND=0
+VERUS_MANIFEST="$PROJECT_DIR/formal/verus/Cargo.toml"
+VERUS_LIB="$PROJECT_DIR/formal/verus/src/lib.rs"
 
 fail() {
     echo "  DRIFT: $1"
@@ -84,10 +86,14 @@ PROD_MERKLE_PATH="$PROJECT_DIR/vellaveto-audit/src/verified_merkle_path.rs"
 PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
+PROD_CAPABILITY_GLOB="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
+PROD_CAPABILITY_IDENTITY="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_identity.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
+PROD_NHI="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_delegation.rs"
+PROD_NHI_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/nhi.rs"
 VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
 VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
 VERUS_MERKLE="$PROJECT_DIR/formal/verus/verified_merkle.rs"
@@ -95,9 +101,12 @@ VERUS_MERKLE_FOLD="$PROJECT_DIR/formal/verus/verified_merkle_fold.rs"
 VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
+VERUS_CAPABILITY_GLOB="$PROJECT_DIR/formal/verus/verified_capability_glob.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
+VERUS_CAPABILITY_IDENTITY="$PROJECT_DIR/formal/verus/verified_capability_identity.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
+VERUS_NHI="$PROJECT_DIR/formal/verus/verified_nhi_delegation.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
 PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
 VERUS_ENTROPY="$PROJECT_DIR/formal/verus/verified_entropy_gate.rs"
@@ -108,6 +117,48 @@ PROD_DLP="$PROJECT_DIR/vellaveto-mcp/src/inspection/verified_dlp_core.rs"
 VERUS_DLP="$PROJECT_DIR/formal/verus/verified_dlp_core.rs"
 PROD_PATH="$PROJECT_DIR/vellaveto-engine/src/path.rs"
 VERUS_PATH="$PROJECT_DIR/formal/verus/verified_path.rs"
+
+echo "--- Cargo Verus Entrypoint ---"
+check_file_pair \
+    "formal/verus/Cargo.toml ↔ formal/verus/src/lib.rs" \
+    "$VERUS_MANIFEST" \
+    "$VERUS_LIB"
+check_symbol_parity \
+    "Verus manifest pins the expected vstd crate version" \
+    "$VERUS_MANIFEST" \
+    'vstd[[:space:]]*=[[:space:]]*"=0\.0\.0-2026-03-01-0109"' \
+    "$VERUS_LIB" \
+    'verified_core\.rs'
+for module in \
+    verified_audit_append \
+    verified_audit_chain \
+    verified_merkle \
+    verified_merkle_fold \
+    verified_merkle_path \
+    verified_rotation_manifest \
+    verified_capability_attenuation \
+    verified_capability_glob \
+    verified_capability_grant \
+    verified_capability_identity \
+    verified_capability_literal \
+    verified_capability_pattern \
+    verified_constraint_eval \
+    verified_cross_call_dlp \
+    verified_core \
+    verified_entropy_gate \
+    verified_nhi_delegation \
+    verified_dlp_core \
+    verified_path \
+    verified_refinement_safety
+do
+    check_symbol_parity \
+        "$module is wired into the cargo-verus shim" \
+        "$VERUS_LIB" \
+        "${module}\\.rs" \
+        "$PROJECT_DIR/formal/verus/${module}.rs" \
+        'verus!'
+done
+echo ""
 
 echo "--- Core Verdict ---"
 check_file_pair "verified_core.rs ↔ vellaveto-engine/src/verified_core.rs" "$PROD_CORE" "$VERUS_CORE"
@@ -425,6 +476,27 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+attenuated_expiry_epoch'
 echo ""
 
+echo "--- Capability Parent-Glob Kernel ---"
+check_file_pair \
+    "verified_capability_glob.rs ↔ vellaveto-mcp/src/verified_capability_glob.rs" \
+    "$PROD_CAPABILITY_GLOB" \
+    "$VERUS_CAPABILITY_GLOB"
+for fn in ascii_fold_byte byte_eq_ignore_ascii_case literal_child_matches_parent_glob; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_GLOB" \
+        "pub\\(crate\\)[[:space:]]+(const[[:space:]]+)?fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_GLOB" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability subset uses verified literal child glob matcher" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_glob::literal_child_matches_parent_glob' \
+    "$VERUS_CAPABILITY_GLOB" \
+    'pub[[:space:]]+fn[[:space:]]+literal_child_matches_parent_glob'
+echo ""
+
 echo "--- Capability Grant Kernel ---"
 check_file_pair \
     "verified_capability_grant.rs ↔ vellaveto-mcp/src/verified_capability_grant.rs" \
@@ -442,6 +514,39 @@ check_symbol_parity \
     'verified_capability_grant::grant_restrictions_attenuated' \
     "$VERUS_CAPABILITY_GRANT" \
     'pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated'
+echo ""
+
+echo "--- Capability Identity Kernel ---"
+check_file_pair \
+    "verified_capability_identity.rs ↔ vellaveto-mcp/src/verified_capability_identity.rs" \
+    "$PROD_CAPABILITY_IDENTITY" \
+    "$VERUS_CAPABILITY_IDENTITY"
+for fn in delegation_holder_distinct delegated_child_issuer_valid holder_expectation_satisfied; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_IDENTITY" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_IDENTITY" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability attenuation uses verified holder-distinct guard" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_identity::delegation_holder_distinct' \
+    "$VERUS_CAPABILITY_IDENTITY" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_holder_distinct'
+check_symbol_parity \
+    "capability attenuation uses verified issuer-link guard" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_identity::delegated_child_issuer_valid' \
+    "$VERUS_CAPABILITY_IDENTITY" \
+    'pub[[:space:]]+fn[[:space:]]+delegated_child_issuer_valid'
+check_symbol_parity \
+    "capability verification uses verified holder-expectation guard" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_identity::holder_expectation_satisfied' \
+    "$VERUS_CAPABILITY_IDENTITY" \
+    'pub[[:space:]]+fn[[:space:]]+holder_expectation_satisfied'
 echo ""
 
 echo "--- Capability Literal Kernel ---"
@@ -517,6 +622,45 @@ check_symbol_parity \
     'pub\(crate\)[[:space:]]+use[[:space:]]+crate::verified_entropy_gate::' \
     "$VERUS_ENTROPY" \
     'pub[[:space:]]+fn[[:space:]]+is_high_entropy_millibits'
+echo ""
+
+echo "--- NHI Delegation Kernel ---"
+check_file_pair \
+    "verified_nhi_delegation.rs ↔ vellaveto-mcp/src/verified_nhi_delegation.rs" \
+    "$PROD_NHI" \
+    "$VERUS_NHI"
+for fn in identity_is_terminal delegation_participant_allowed delegation_link_effective_for_chain delegation_chain_depth_exceeded; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_NHI" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_NHI" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "NHI is_terminal uses verified terminal-state guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_delegation::identity_is_terminal' \
+    "$VERUS_NHI" \
+    'pub[[:space:]]+fn[[:space:]]+identity_is_terminal'
+check_symbol_parity \
+    "NHI create_delegation uses verified participant guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_delegation::delegation_participant_allowed' \
+    "$VERUS_NHI" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_participant_allowed'
+check_symbol_parity \
+    "NHI resolve_delegation_chain uses verified link-effective guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_delegation::delegation_link_effective_for_chain' \
+    "$VERUS_NHI" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_link_effective_for_chain'
+check_symbol_parity \
+    "NHI resolve_delegation_chain uses verified depth-exceeded guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_delegation::delegation_chain_depth_exceeded' \
+    "$VERUS_NHI" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_chain_depth_exceeded'
 echo ""
 
 echo "--- Cross-Call DLP Tracker Gate ---"

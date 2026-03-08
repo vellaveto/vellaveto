@@ -113,11 +113,27 @@ pub open spec fn capability_grant_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn capability_glob_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn capability_identity_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_literal_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
 pub open spec fn capability_pattern_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn nhi_delegation_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn refinement_safety_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 

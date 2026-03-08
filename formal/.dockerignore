@@ -1,0 +1,10 @@
+# Only the entrypoint script is COPY'd into the image.
+# Everything else is mounted at runtime via -v.
+kani/
+tla/
+lean/
+coq/
+alloy/
+verus/
+refinement/
+*.md

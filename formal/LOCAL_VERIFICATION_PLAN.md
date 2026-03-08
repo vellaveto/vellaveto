@@ -23,6 +23,8 @@ Completed now:
 - Trusted assumption inventory check exists and is enforced in CI.
 - Canonical Verus shell entrypoint exists:
   [`formal/tools/verify-verus.sh`](/home/paolo/.vella-workspace/sentinel/formal/tools/verify-verus.sh)
+- Canonical `cargo-verus` manifest exists:
+  [`formal/verus/Cargo.toml`](/home/paolo/.vella-workspace/sentinel/formal/verus/Cargo.toml)
 - Verus parity check exists:
   [`formal/tools/check-verus-parity.sh`](/home/paolo/.vella-workspace/sentinel/formal/tools/check-verus-parity.sh)
 - Proof-owner ledger exists:
@@ -32,6 +34,8 @@ Completed now:
   - constraint evaluation fail-closed control flow
   - capability attenuation arithmetic in
     `vellaveto-mcp/src/verified_capability_attenuation.rs`
+  - capability parent-glob literal-child matcher in
+    `vellaveto-mcp/src/verified_capability_glob.rs`
   - capability grant restriction/invocation attenuation in
     `vellaveto-mcp/src/verified_capability_grant.rs`
   - capability literal matching/subset fast paths in
@@ -55,20 +59,23 @@ Completed now:
     `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs`
   - DLP buffer arithmetic
   - engine path normalization kernel in `vellaveto-engine/src/path.rs`
+  - safety-critical refinement obligations (R-MCP-START-EMPTY,
+    R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH) in
+    `formal/verus/verified_refinement_safety.rs`
 - Entropy-backed steganographic alert decisions now flow through a fixed-point
   decision helper in `vellaveto-engine/src/entropy_gate.rs` instead of direct
   raw `f64` threshold comparisons in `collusion.rs`.
 
 Known gaps against the March 6 plan:
 
-- No `formal/verus/Cargo.toml` or `cargo verus` entrypoint yet.
-- No Verus kernels yet for broader entropy math, split-detection/pattern
-  completeness, full capability delegation semantics, or broader Merkle
+- No Verus kernels yet for broader entropy math or broader Merkle
   correctness proofs.
-- Refinement exists only as a documented map plus executable witnesses, not a
-  machine-checked forward simulation.
-- Public-facing formal counts and paper text are still stale in places outside
-  this local plan.
+- DLP pattern completeness explicitly stays in Kani/tests (design decision
+  documented in Phase 2).
+- Capability child-glob containment semantics remain outside the Verus
+  boundary; revocation chain propagation is now mechanized.
+- Safety-critical refinement obligations are mechanized; full forward
+  simulation (P5b) is deferred until the traced API is stable.
 
 ## Phase Plan
 
@@ -86,7 +93,8 @@ Must have:
 - local plan and ownership ledger exist under `formal/`
 
 Remaining:
-- add `formal/verus/Cargo.toml` if `cargo verus` can be made stable enough
+- keep the `cargo-verus` manifest path green in local bootstrap and CI
+- keep the local shell wrapper fail-safe when Cargo registry access is absent
 
 ### Phase 1: Finish the policy-engine kernel in Verus
 
@@ -132,8 +140,18 @@ Current status:
 - cross-call field-capacity/update gate landed in Verus
 - bounded overlap and overlap completeness already exist in the extracted DLP
   core proof
-- the stale/expired-entry invariant is blocked on current runtime shape because
-  `CrossCallDlpTracker` is session-scoped and has no per-entry expiry state yet
+
+Design decisions (closed):
+- **DLP pattern completeness stays in Kani/tests.** Regex-based secret pattern
+  matching depends on the `regex` crate, which is an opaque FFI boundary from
+  Verus's perspective. Pattern detection correctness is already covered by Kani
+  harnesses K69-K77 (injection pipeline, sanitizer, temporal window) with
+  bounded model checking. No `verified_dlp_pattern.rs` will be created.
+- **Stale-entry invariant is trivially satisfied.** `CrossCallDlpTracker` is
+  session-scoped: entries are created when a field is first seen and destroyed
+  when the session ends. There is no per-entry expiry, timestamp, or TTL state.
+  Stale entries cannot exist. If per-entry expiry is added in the future, this
+  invariant must be revisited with a Verus proof covering expiry-aware lookup.
 
 ### Phase 3: Capability delegation kernel
 
@@ -145,11 +163,22 @@ Must have:
 Current status:
 - arithmetic attenuation kernel landed for remaining-depth decrement and expiry
   clamping
+- literal-child parent-glob matcher landed for the delegation subset branch
 - grant restriction-shape and `max_invocations` attenuation kernel landed
 - literal-only matching and literal-child subset fast paths landed
 - child-glob rejection guard landed for the conservative subset rule
-- broader parent-glob containment semantics, holder/issuer chain semantics, and
-  revocation are still outside the Verus boundary
+- holder/issuer identity-chain guards landed in
+  `vellaveto-mcp/src/verified_capability_identity.rs` (CAP-ID-1–CAP-ID-3,
+  11 verified): self-delegation rejection, delegated-child issuer-link
+  validation, holder-expectation satisfaction
+- NHI delegation guards landed in
+  `vellaveto-mcp/src/verified_nhi_delegation.rs` (NHI-DEL-1–NHI-DEL-8,
+  23 verified): terminal-state detection, participant guard, link-effective
+  guard (fail-closed on unparseable expiry), chain-depth bound, revocation
+  chain propagation (chain-break at inactive link, revocation completeness,
+  liveness witness)
+- broader child-glob containment semantics are still outside the Verus
+  boundary; revocation completeness is now mechanized
 
 ### Phase 4: Audit integrity kernel
 
@@ -183,9 +212,27 @@ Must have:
 - abstract state includes policy snapshot, DLP tracker projection, verdict
   history, and audit sequence
 
+Sub-phases:
+- **P5a (safety-critical subset, done):** The three safety-critical simulation
+  obligations are mechanized in `formal/verus/verified_refinement_safety.rs`
+  (16 verified items): R-MCP-START-EMPTY (empty→Deny), R-MCP-APPLY-DENY
+  (deny propagation), R-MCP-EXHAUSTED-NOMATCH (no-match→Deny). These
+  transitions are where a wrong implementation would be fail-open.
+- **P5b (full forward simulation, deferred):** The remaining 6 obligations
+  (R-MCP-INIT-SORT, R-MCP-START-NONEMPTY, R-MCP-MATCH-MISS, R-MCP-MATCH-HIT,
+  R-MCP-APPLY-ALLOW, R-MCP-APPLY-REQUIRE-APPROVAL, R-MCP-CONTINUE,
+  R-MCP-INDEX-STUTTER) are correctness obligations. They are covered by
+  executable witnesses in `vellaveto-engine/tests/refinement_trace.rs` but
+  not yet machine-checked. Full forward simulation depends on a stable traced
+  evaluation API.
+
 Current status:
 - [`formal/refinement/MCPPolicyEngine.md`](/home/paolo/.vella-workspace/sentinel/formal/refinement/MCPPolicyEngine.md)
-  is only a documented refinement map with executable witnesses
+  documents the concrete-to-abstract mapping with 9 simulation obligations
+- 8 of 9 obligations covered by executable witnesses (R-MCP-INDEX-STUTTER
+  not yet covered)
+- 3 safety-critical obligations mechanized in Verus (P5a done)
+- full forward simulation deferred to P5b
 
 ### Phase 6: Canonical trust-boundary module
 
@@ -215,18 +262,24 @@ Must have:
 - pinned environment story
 
 Current status:
-- CI is close
-- local orchestration is in place
-- public counts and paper text are still stale
+- CI runs all 6 headless toolchains (TLA+, Verus, Kani, Lean, Coq, trusted
+  assumptions) with pinned versions and SHA256-verified downloads
+- `make verify-all` / `make formal` runs the full mesh locally
+- `make formal-docker` runs the full mesh in a reproducible Docker image with
+  every tool version pinned to match CI
+- `formal/verus/Cargo.toml` gives one canonical version-pinned `cargo-verus`
+  entrypoint
+- `formal/tools/verify-verus.sh` keeps direct per-file `verus` as the local
+  fallback unless `FORMAL_USE_CARGO_VERUS=1` is selected
+- `formal/Dockerfile` installs Rust 1.94.0 + 1.93.1 (Verus), Verus binary,
+  Kani, TLA+ tla2tools.jar, elan/Lean 4, and Coq — all SHA256-verified
 
 ## Immediate Work Queue
 
-1. Add `formal/verus/Cargo.toml` if a stable `cargo verus` entrypoint is
-   practical.
-2. Decide whether Phase 2 needs a real per-entry expiry model in
+1. Decide whether Phase 2 needs a real per-entry expiry model in
    `CrossCallDlpTracker` or whether the stale-entry invariant should move to the
    session-lifecycle boundary instead.
-3. Then expand into remaining capability containment, the concrete Merkle
+2. Then expand into remaining capability containment, the concrete Merkle
    hash-function boundary, and refinement kernels.
 
 ## Working Rule

@@ -8,6 +8,9 @@ on:
       - "vellaveto-engine/src/**"
       - "vellaveto-mcp/src/inspection/**"
       - "vellaveto-mcp/src/capability_token.rs"
+      - "vellaveto-mcp/src/nhi.rs"
+      - "vellaveto-mcp/src/verified_capability_identity.rs"
+      - "vellaveto-mcp/src/verified_nhi_delegation.rs"
       - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-engine/src/collusion.rs"
       - "vellaveto-engine/src/domain.rs"
@@ -20,6 +23,9 @@ on:
       - "vellaveto-engine/src/**"
       - "vellaveto-mcp/src/inspection/**"
       - "vellaveto-mcp/src/capability_token.rs"
+      - "vellaveto-mcp/src/nhi.rs"
+      - "vellaveto-mcp/src/verified_capability_identity.rs"
+      - "vellaveto-mcp/src/verified_nhi_delegation.rs"
       - "vellaveto-mcp/src/task_state.rs"
       - "vellaveto-engine/src/collusion.rs"
       - "vellaveto-engine/src/domain.rs"
@@ -192,7 +198,7 @@ jobs:
         run: cargo kani
 
   verus:
-    name: "Verus (V1-V12, ENG-CON-1..4, D1-D6)"
+    name: "Verus (20 kernels, 321 verified items)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -213,7 +219,7 @@ jobs:
             "https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip"
           echo "${VERUS_SHA256}  verus.zip" | sha256sum -c -
           unzip -q verus.zip -d verus-bin
-          chmod +x verus-bin/verus-x86-linux/verus
+          chmod +x verus-bin/verus-x86-linux/verus verus-bin/verus-x86-linux/cargo-verus
 
       - name: Verify Verus proof target parity
         run: |
@@ -221,5 +227,7 @@ jobs:
 
       - name: Run canonical Verus verification
         run: |
+          FORMAL_USE_CARGO_VERUS=1 \
+          CARGO_VERUS_BIN=verus-bin/verus-x86-linux/cargo-verus \
           VERUS_BIN=verus-bin/verus-x86-linux/verus \
             bash formal/tools/verify-verus.sh

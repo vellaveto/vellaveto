@@ -33,9 +33,13 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_merkle_path.rs` | Verus | MERKLE-PATH-1–MERKLE-PATH-5 | Merkle proof sibling/orientation/parent-step structure on actual Rust |
 | `verus/verified_rotation_manifest.rs` | Verus | ROT-MAN-1–ROT-MAN-3 | Cross-rotation manifest linkage and path-safety guards on actual Rust |
 | `verus/verified_capability_attenuation.rs` | Verus | CAP-ATT-1–CAP-ATT-4 | Capability delegation depth/expiry attenuation on actual Rust |
+| `verus/verified_capability_glob.rs` | Verus | CAP-GLOB-1–CAP-GLOB-5 | Capability parent-glob literal-child containment on actual Rust |
 | `verus/verified_capability_grant.rs` | Verus | CAP-GRANT-1–CAP-GRANT-4 | Capability grant restriction-shape and invocation attenuation on actual Rust |
 | `verus/verified_capability_literal.rs` | Verus | CAP-LIT-1–CAP-LIT-4 | Capability literal fast paths for matching and subset fallthrough on actual Rust |
 | `verus/verified_capability_pattern.rs` | Verus | CAP-PAT-1–CAP-PAT-4 | Capability child-glob rejection guard on actual Rust |
+| `verus/verified_capability_identity.rs` | Verus | CAP-ID-1–CAP-ID-3 | Capability holder/issuer identity-chain guards on actual Rust |
+| `verus/verified_nhi_delegation.rs` | Verus | NHI-DEL-1–NHI-DEL-8 | NHI delegation terminal-state, participant, link-effective, depth, and revocation chain propagation guards on actual Rust |
+| `verus/verified_refinement_safety.rs` | Verus | R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH | Safety-critical policy engine refinement obligations (fail-closed) |
 | `verus/verified_entropy_gate.rs` | Verus | ENT-GATE-1–ENT-GATE-5 | Fixed-point entropy alert gate on actual Rust |
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
@@ -54,7 +58,10 @@ Current formal suite across 6 tools:
   assumption contract through `formal/verus/assumptions.rs`
 - the Merkle and audit-filesystem trust boundaries now also exist as explicit
   Verus axiom modules under `formal/verus/`
-- **Verus:** 16 verified files / 256 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 16 verified (`verified_dlp_core.rs`), and 33 verified (`verified_path.rs`)
+- `formal/verus/Cargo.toml` now provides the canonical version-pinned
+  `cargo-verus` entrypoint, while `formal/tools/verify-verus.sh` keeps the
+  direct per-file `verus` fallback for offline/local runs
+- **Verus:** 20 verified files / 321 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 19 verified (`verified_capability_glob.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), and 16 verified (`verified_refinement_safety.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -126,6 +133,7 @@ Current formal suite across 6 tools:
 ```
 formal/
   README.md                          ← This file
+  Dockerfile                         ← Reproducible Docker image (all tools pinned)
   tla/
     MCPCommon.tla                    ← Shared operators (pattern matching, sorting)
     MCPPolicyEngine.tla              ← Policy evaluation state machine
@@ -175,6 +183,8 @@ formal/
       TaskLifecycle.v                ← Task lifecycle T1-T3 (10 theorems)
   verus/
     README.md                        ← Verus setup and verification guide
+    Cargo.toml                       ← Canonical cargo-verus manifest
+    src/lib.rs                       ← Cargo-verus shim that wires the full proof suite
     assumptions.rs                   ← Shared Verus-facing kernel-assumption registry mirror
     merkle_boundary_axioms.rs        ← Trusted Merkle hash/codec axiom surface
     audit_fs_boundary_axioms.rs      ← Trusted audit-filesystem axiom surface
@@ -187,9 +197,13 @@ formal/
     verified_merkle_path.rs          ← Merkle proof sibling/orientation/parent structure (15 verified)
     verified_rotation_manifest.rs    ← Cross-rotation manifest linkage/path-safety guards (16 verified)
     verified_capability_attenuation.rs ← Capability delegation depth/expiry attenuation (13 verified)
+    verified_capability_glob.rs      ← Capability parent-glob literal-child containment (19 verified)
     verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (10 verified)
     verified_capability_literal.rs   ← Capability literal matching/subset fast paths (11 verified)
     verified_capability_pattern.rs   ← Capability child-glob rejection guard (12 verified)
+    verified_capability_identity.rs  ← Capability holder/issuer identity-chain guards (11 verified)
+    verified_nhi_delegation.rs       ← NHI delegation terminal/participant/link/depth/revocation guards (19 verified)
+    verified_refinement_safety.rs    ← Safety-critical policy engine refinement obligations (16 verified)
     verified_entropy_gate.rs         ← Fixed-point entropy alert gate (13 verified)
     verified_cross_call_dlp.rs       ← Cross-call tracker field-capacity/update gate (11 verified)
     verified_dlp_core.rs             ← DLP buffer arithmetic (D1-D6, 16 verified)
@@ -256,6 +270,28 @@ Requirements:
 - `coq_makefile` (included with Coq)
 
 ## Running Verification
+
+### Docker (Reproducible, All Tools)
+
+The easiest way to run the full formal mesh with pinned, SHA256-verified tools:
+
+```bash
+# Build the image (first run downloads ~2GB of tools)
+make formal-docker
+
+# Or run a single toolchain
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-verus
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-kani
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-tla
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-lean
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-coq
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-trusted-assumptions
+```
+
+The Dockerfile pins every version to match CI: Verus `0.2026.03.01.25809cb`,
+Kani `0.67.0`, TLA+ `v1.8.0`, Lean 4 `v4.16.0` (via elan `v4.2.0`),
+Rust `1.94.0` + `1.93.1`, Coq via Ubuntu 24.04 apt. All binary downloads are
+SHA256-verified.
 
 ### TLA+ Policy Engine (S1–S6, L1–L2)
 
@@ -405,6 +441,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rot
 # Capability attenuation depth/expiry kernel (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
 
+# Capability parent-glob literal-child matcher (19 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_glob.rs
+
 # Capability grant restriction/invocation kernel (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
@@ -413,6 +452,15 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 
 # Capability child-glob rejection guard (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
+
+# Capability holder/issuer identity-chain guards (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_identity.rs
+
+# NHI delegation terminal/participant/link/depth/revocation guards (19 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_nhi_delegation.rs
+
+# Safety-critical refinement obligations (16 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_refinement_safety.rs
 
 # Constraint evaluation fail-closed control flow (ENG-CON-1–ENG-CON-4, 14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
@@ -441,9 +489,13 @@ Expected output:
 - `verified_merkle_path.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_capability_identity.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_nhi_delegation.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_refinement_safety.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_cross_call_dlp.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 14 verified, 0 errors`
@@ -670,7 +722,7 @@ each by input space coverage:
 
 Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
 stub, not the full production `evaluate_action()`. The production fail-closed
-property is proven by Verus V1/V2 on `compute_verdict` and by 10,200+ tests.
+property is proven by Verus V1/V2 on `compute_verdict` and by 10,550+ tests.
 
 ### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
 
@@ -732,7 +784,7 @@ Context conditions (time windows, call limits, agent identity, etc.) are
 modeled as a single boolean predicate. The specification verifies the
 fail-closed property: `requires_context ∧ ¬has_context → Deny`. It does not
 model each of the 17 condition types individually — those are tested by the
-8,972 Rust unit tests.
+10,550+ Rust unit tests.
 
 ### Conditional on_no_match="continue"
 
@@ -789,7 +841,7 @@ The Verus core is the strongest verification layer.
 | Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 8,972 Rust unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 10,550+ Rust unit tests |
 | Lean/Coq grant subset uses exact-pattern + depth preorder | Simpler than Rust glob/path/domain coverage, so it does not prove full runtime containment | Alloy + Kani + Rust tests cover the broader delegation surface |
 | K9 simplified IDNA (lowercase + trim only) | Cannot detect full IDNA normalization bugs | Full IDNA tested by 200+ unit tests and fuzz targets |
 | Kani sort omits production's 3rd ID tiebreaker | Sort order may differ when priority and type are equal | Does not affect V6/V7 safety; determinism tested by unit tests |
@@ -816,7 +868,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **256 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **321 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, NHI-DEL-1–NHI-DEL-8, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
@@ -825,7 +877,7 @@ forward simulation proof.
 
 The three-layer verification architecture:
 - **Layer 3 (TLA+):** Proves protocol design is correct (no deadlocks, no safety violations)
-- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,200+ tests)
+- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,550+ tests)
 - **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
 - **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
-- **Tests:** Concrete execution verification (10,350+ tests + 24 fuzz targets)
+- **Tests:** Concrete execution verification (10,550+ tests + 24 fuzz targets)

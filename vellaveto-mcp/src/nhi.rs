@@ -20,6 +20,7 @@
 
 use crate::accountability;
 use crate::did_plc;
+use crate::verified_nhi_delegation;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -349,18 +350,18 @@ impl NhiManager {
     /// (Revoked or Expired). Use this for access denial checks where both
     /// terminal states should block access.
     pub async fn is_terminal(&self, id: &str) -> bool {
-        // Check the revocation list first (covers Revoked).
-        let revoked = self.revocation_list.read().await;
-        if revoked.contains(id) {
-            return true;
-        }
-        drop(revoked);
+        let status_is_revoked = {
+            let revoked = self.revocation_list.read().await;
+            revoked.contains(id)
+        };
         // Also check if the identity status is Expired.
         let identities = self.identities.read().await;
-        identities
+        let status_is_expired = identities
             .get(id)
             .map(|i| matches!(i.status, NhiIdentityStatus::Expired))
-            .unwrap_or(false)
+            .unwrap_or(false);
+
+        verified_nhi_delegation::identity_is_terminal(status_is_revoked, status_is_expired)
     }
 
     /// Activate an identity (transition from probationary to active).
@@ -903,9 +904,11 @@ impl NhiManager {
         // SECURITY (FIND-R115-022): Reject delegation from/to terminal-state agents.
         // Revoked or Expired agents must not be able to delegate or receive delegations.
         if let Some(from_identity) = identities.get(from_agent) {
-            if matches!(
-                from_identity.status,
-                NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+            let status_is_revoked = matches!(from_identity.status, NhiIdentityStatus::Revoked);
+            let status_is_expired = matches!(from_identity.status, NhiIdentityStatus::Expired);
+            if !verified_nhi_delegation::delegation_participant_allowed(
+                status_is_revoked,
+                status_is_expired,
             ) {
                 return Err(NhiError::TerminalStateAgent {
                     agent_id: from_agent.to_string(),
@@ -914,9 +917,11 @@ impl NhiManager {
             }
         }
         if let Some(to_identity) = identities.get(to_agent) {
-            if matches!(
-                to_identity.status,
-                NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+            let status_is_revoked = matches!(to_identity.status, NhiIdentityStatus::Revoked);
+            let status_is_expired = matches!(to_identity.status, NhiIdentityStatus::Expired);
+            if !verified_nhi_delegation::delegation_participant_allowed(
+                status_is_revoked,
+                status_is_expired,
             ) {
                 return Err(NhiError::TerminalStateAgent {
                     agent_id: to_agent.to_string(),
@@ -1028,11 +1033,16 @@ impl NhiManager {
         // Fail-closed: unparseable expires_at is treated as expired.
         let now = chrono::Utc::now();
         while let Some(link) = delegations.values().find(|d| {
-            d.to_agent == current
-                && d.active
-                && chrono::DateTime::parse_from_rfc3339(&d.expires_at)
-                    .map(|exp| now < exp)
-                    .unwrap_or(false) // fail-closed: unparseable expiry = expired
+            let (expiry_parsed, now_before_expiry) =
+                chrono::DateTime::parse_from_rfc3339(&d.expires_at)
+                    .map(|exp| (true, now < exp))
+                    .unwrap_or((false, false));
+            verified_nhi_delegation::delegation_link_effective_for_chain(
+                d.to_agent == current,
+                d.active,
+                expiry_parsed,
+                now_before_expiry,
+            )
         }) {
             if visited.contains(&link.from_agent) {
                 break; // Prevent cycles
@@ -1041,7 +1051,10 @@ impl NhiManager {
             chain.push(link.clone());
             current = link.from_agent.clone();
 
-            if chain.len() > self.config.max_delegation_chain_depth {
+            if verified_nhi_delegation::delegation_chain_depth_exceeded(
+                chain.len(),
+                self.config.max_delegation_chain_depth,
+            ) {
                 break;
             }
         }

@@ -31,7 +31,9 @@ use vellaveto_types::{
 };
 
 use crate::verified_capability_attenuation;
+use crate::verified_capability_glob;
 use crate::verified_capability_grant;
+use crate::verified_capability_identity;
 use crate::verified_capability_literal;
 use crate::verified_capability_pattern;
 
@@ -198,7 +200,11 @@ pub fn attenuate_capability_token(
     // comparing to prevent bypass via Cyrillic/Greek/fullwidth lookalikes.
     let normalized_new = vellaveto_types::unicode::normalize_homoglyphs(new_holder);
     let normalized_parent = vellaveto_types::unicode::normalize_homoglyphs(&parent.holder);
-    if normalized_new.eq_ignore_ascii_case(&normalized_parent) {
+    let normalized_new_equals_parent_holder_ignore_ascii_case =
+        normalized_new.eq_ignore_ascii_case(&normalized_parent);
+    if !verified_capability_identity::delegation_holder_distinct(
+        normalized_new_equals_parent_holder_ignore_ascii_case,
+    ) {
         return Err(CapabilityError::AttenuationViolation(
             "self-delegation is not permitted".to_string(),
         ));
@@ -297,6 +303,15 @@ pub fn attenuate_capability_token(
         issuer_public_key: public_key_hex,
     };
 
+    if !verified_capability_identity::delegated_child_issuer_valid(
+        token.parent_token_id.is_some(),
+        token.issuer == parent.holder,
+    ) {
+        return Err(CapabilityError::AttenuationViolation(
+            "delegated child issuer must equal parent holder".to_string(),
+        ));
+    }
+
     token
         .validate_structure()
         .map_err(|e| CapabilityError::SigningFailed(format!("token validation failed: {e}")))?;
@@ -366,7 +381,8 @@ pub fn verify_capability_token(
             vellaveto_types::unicode::normalize_homoglyphs(&token.holder.to_ascii_lowercase());
         let norm_expected =
             vellaveto_types::unicode::normalize_homoglyphs(&expected.to_ascii_lowercase());
-        if norm_holder != norm_expected {
+        if !verified_capability_identity::holder_expectation_satisfied(norm_holder == norm_expected)
+        {
             return Ok(CapabilityVerification {
                 valid: false,
                 failure_reason: Some(format!(
@@ -651,7 +667,7 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
         // Child is a literal value — safe to check against parent glob.
         verified_capability_literal::literal_child_pattern_subset(
             child_has_metacharacters,
-            pattern_matches(parent, child),
+            verified_capability_glob::literal_child_matches_parent_glob(parent, child),
         )
     }
 

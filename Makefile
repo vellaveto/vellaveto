@@ -109,7 +109,7 @@ verify: ## Run full verification suite and produce evidence bundle
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
 	fi
-	@# Verus (256 verified items on actual Rust)
+	@# Verus (321 verified items on actual Rust)
 	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ]; then \
 		echo "Running Verus deductive verification..."; \
 		bash formal/tools/check-verus-parity.sh; \
@@ -224,6 +224,11 @@ formal-trusted-assumptions: ## Verify the trusted-assumption inventory matches t
 formal-verus: ## Run Verus parity checks and canonical verification
 	bash formal/tools/check-verus-parity.sh
 	bash formal/tools/verify-verus.sh
+
+.PHONY: formal-docker
+formal-docker: ## Run formal verification in Docker (reproducible, all tools pinned)
+	docker build -t vellaveto-formal formal/
+	docker run --rm -v "$(CURDIR):/workspace" vellaveto-formal
 
 .PHONY: clean
 clean: ## Clean build artifacts
