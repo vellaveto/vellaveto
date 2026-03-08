@@ -80,10 +80,12 @@ VERUS_CONTEXT_DELEGATION="$PROJECT_DIR/formal/verus/verified_context_delegation.
 PROD_BRIDGE_PRINCIPAL="$PROJECT_DIR/vellaveto-mcp/src/verified_bridge_principal.rs"
 PROD_DELEGATION_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_delegation_projection.rs"
 PROD_DEPUTY_HANDOFF="$PROJECT_DIR/vellaveto-mcp/src/verified_deputy_handoff.rs"
+PROD_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_evaluation_context_projection.rs"
 PROD_RELAY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
 VERUS_BRIDGE_PRINCIPAL="$PROJECT_DIR/formal/verus/verified_bridge_principal.rs"
 VERUS_DELEGATION_PROJECTION="$PROJECT_DIR/formal/verus/verified_delegation_projection.rs"
 VERUS_DEPUTY_HANDOFF="$PROJECT_DIR/formal/verus/verified_deputy_handoff.rs"
+VERUS_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/formal/verus/verified_evaluation_context_projection.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
@@ -171,6 +173,7 @@ for module in \
     verified_capability_domain \
     verified_delegation_projection \
     verified_deputy_handoff \
+    verified_evaluation_context_projection \
     verified_capability_context \
     verified_context_delegation \
     verified_capability_glob \
@@ -335,8 +338,8 @@ check_symbol_parity \
     "$VERUS_DELEGATION_PROJECTION" \
     'pub[[:space:]]+fn[[:space:]]+projected_call_chain_len'
 check_symbol_parity \
-    "relay uses verified delegation-depth projection" \
-    "$PROD_RELAY_WRAPPER" \
+    "evaluation-context projection uses verified delegation-depth projection" \
+    "$PROD_EVAL_CONTEXT_PROJECTION" \
     'verified_delegation_projection::projected_call_chain_len' \
     "$VERUS_DELEGATION_PROJECTION" \
     'pub[[:space:]]+fn[[:space:]]+projected_call_chain_len'
@@ -356,17 +359,36 @@ for fn in deputy_validated_claim_trusted evaluation_principal_source_after_deput
         "pub[[:space:]]+fn[[:space:]]+$fn"
 done
 check_symbol_parity \
-    "relay uses verified deputy-validated claim guard" \
-    "$PROD_RELAY_WRAPPER" \
+    "evaluation-context projection uses verified deputy-validated claim guard" \
+    "$PROD_EVAL_CONTEXT_PROJECTION" \
     'verified_deputy_handoff::deputy_validated_claim_trusted' \
     "$VERUS_DEPUTY_HANDOFF" \
     'pub[[:space:]]+fn[[:space:]]+deputy_validated_claim_trusted'
 check_symbol_parity \
-    "relay uses verified post-deputy evaluation principal selector" \
-    "$PROD_RELAY_WRAPPER" \
+    "evaluation-context projection uses verified post-deputy evaluation principal selector" \
+    "$PROD_EVAL_CONTEXT_PROJECTION" \
     'verified_deputy_handoff::evaluation_principal_source_after_deputy' \
     "$VERUS_DEPUTY_HANDOFF" \
     'pub[[:space:]]+fn[[:space:]]+evaluation_principal_source_after_deputy'
+echo ""
+
+echo "--- Evaluation Context Projection Kernel ---"
+check_file_pair \
+    "verified_evaluation_context_projection.rs ↔ vellaveto-mcp/src/verified_evaluation_context_projection.rs" \
+    "$PROD_EVAL_CONTEXT_PROJECTION" \
+    "$VERUS_EVAL_CONTEXT_PROJECTION"
+check_symbol_parity \
+    "project_evaluation_context exists in production and Verus" \
+    "$PROD_EVAL_CONTEXT_PROJECTION" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+project_evaluation_context|pub\(crate\)[[:space:]]+fn[[:space:]]+project_evaluation_context' \
+    "$VERUS_EVAL_CONTEXT_PROJECTION" \
+    'pub[[:space:]]+fn[[:space:]]+project_evaluation_context'
+check_symbol_parity \
+    "relay uses verified evaluation-context projection" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_evaluation_context_projection::project_evaluation_context' \
+    "$VERUS_EVAL_CONTEXT_PROJECTION" \
+    'pub[[:space:]]+fn[[:space:]]+project_evaluation_context'
 echo ""
 
 echo "--- Constraint Evaluation Kernel ---"

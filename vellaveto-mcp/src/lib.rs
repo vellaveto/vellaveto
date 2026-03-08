@@ -86,6 +86,7 @@ pub(crate) mod verified_capability_selection;
 pub(crate) mod verified_capability_verification;
 pub(crate) mod verified_delegation_projection;
 pub(crate) mod verified_deputy_handoff;
+pub(crate) mod verified_evaluation_context_projection;
 pub(crate) mod verified_nhi_delegation;
 pub(crate) mod verified_nhi_graph;
 pub mod workflow_tracker;

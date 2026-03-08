@@ -29,8 +29,7 @@ use crate::inspection::{
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
 use crate::verified_bridge_principal;
-use crate::verified_delegation_projection;
-use crate::verified_deputy_handoff;
+use crate::verified_evaluation_context_projection;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -416,53 +415,32 @@ impl RelayState {
         })
     }
 
-    /// Resolve the engine evaluation principal after deputy validation.
-    ///
-    /// A configured session principal always remains authoritative. A claimed
-    /// `_meta.agent_id` may only be promoted into engine evaluation after the
-    /// deputy subsystem has validated it against an active server-side
-    /// delegation context.
-    fn effective_evaluation_agent_id(
+    /// Build an EvaluationContext from the current session state.
+    fn evaluation_context(
         &self,
         request_principal_binding: &RequestPrincipalBinding,
         deputy_binding: Option<&DeputyValidationBinding>,
-    ) -> Option<String> {
-        let deputy_validated_claim = verified_deputy_handoff::deputy_validated_claim_trusted(
-            deputy_binding.is_some_and(|binding| binding.has_active_delegation),
+    ) -> EvaluationContext {
+        let projection = verified_evaluation_context_projection::project_evaluation_context(
+            request_principal_binding.evaluation_agent_id.is_some(),
             request_principal_binding.claimed_agent_id.is_some(),
-        );
-
-        match verified_deputy_handoff::evaluation_principal_source_after_deputy(
-            self.agent_id.is_some(),
-            deputy_validated_claim,
-        ) {
-            verified_deputy_handoff::EvaluationPrincipalSource::Configured => {
-                request_principal_binding.evaluation_agent_id.clone()
-            }
-            verified_deputy_handoff::EvaluationPrincipalSource::DeputyValidatedClaim => {
-                request_principal_binding.claimed_agent_id.clone()
-            }
-            verified_deputy_handoff::EvaluationPrincipalSource::None => None,
-        }
-    }
-
-    /// Project active deputy delegation into a synthetic fail-closed call chain.
-    ///
-    /// The relay only trusts the projected depth, not the contents of each hop.
-    /// Synthetic placeholder entries ensure future code cannot accidentally treat
-    /// this as a fully reconstructed hop history.
-    fn projected_delegation_call_chain(
-        &self,
-        deputy_binding: Option<&DeputyValidationBinding>,
-    ) -> Vec<CallChainEntry> {
-        let len = verified_delegation_projection::projected_call_chain_len(
             deputy_binding.is_some_and(|binding| binding.has_active_delegation),
             deputy_binding.map_or(0, |binding| binding.delegation_depth),
         );
 
-        let mut chain = Vec::with_capacity(len);
-        for _ in 0..len {
-            chain.push(CallChainEntry {
+        let request_agent_id = match projection.agent_source {
+            verified_evaluation_context_projection::EvaluationContextAgentSource::Configured => {
+                request_principal_binding.evaluation_agent_id.clone()
+            }
+            verified_evaluation_context_projection::EvaluationContextAgentSource::DeputyValidatedClaim => {
+                request_principal_binding.claimed_agent_id.clone()
+            }
+            verified_evaluation_context_projection::EvaluationContextAgentSource::None => None,
+        };
+
+        let mut call_chain = Vec::with_capacity(projection.projected_call_chain_len);
+        for _ in 0..projection.projected_call_chain_len {
+            call_chain.push(CallChainEntry {
                 agent_id: SYNTHETIC_DELEGATION_AGENT_ID.to_string(),
                 tool: SYNTHETIC_DELEGATION_TOOL.to_string(),
                 function: SYNTHETIC_DELEGATION_FUNCTION.to_string(),
@@ -471,22 +449,14 @@ impl RelayState {
                 verified: None,
             });
         }
-        chain
-    }
 
-    /// Build an EvaluationContext from the current session state.
-    fn evaluation_context(
-        &self,
-        request_agent_id: Option<String>,
-        deputy_binding: Option<&DeputyValidationBinding>,
-    ) -> EvaluationContext {
         EvaluationContext {
             timestamp: None,
             agent_id: request_agent_id,
             agent_identity: None,
             call_counts: self.call_counts.clone(),
             previous_actions: self.action_history.iter().cloned().collect(),
-            call_chain: self.projected_delegation_call_chain(deputy_binding),
+            call_chain,
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
@@ -1400,9 +1370,8 @@ impl ProxyBridge {
         }
 
         let ann = state.known_tool_annotations.get(&tool_name);
-        let eval_ctx = state
-            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
-        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
+        let eval_ctx =
+            state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
         let (decision, eval_trace) =
             self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
         match decision {
@@ -2078,9 +2047,8 @@ impl ProxyBridge {
             resolve_domains(&mut action).await;
         }
 
-        let eval_ctx = state
-            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
-        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
+        let eval_ctx =
+            state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
         match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
@@ -3482,9 +3450,8 @@ impl ProxyBridge {
         }
 
         let action = extract_task_action(&task_method, task_id.as_deref());
-        let eval_ctx = state
-            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
-        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
+        let eval_ctx =
+            state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
                 // SECURITY (FIND-R80-006): ABAC refinement — only runs when ABAC
@@ -3897,9 +3864,8 @@ impl ProxyBridge {
             }
         }
 
-        let eval_ctx = state
-            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
-        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
+        let eval_ctx =
+            state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
@@ -6000,6 +5966,14 @@ fn build_server_decl_from_tools_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_request_principal_binding() -> RequestPrincipalBinding {
+        RequestPrincipalBinding {
+            deputy_principal: None,
+            claimed_agent_id: None,
+            evaluation_agent_id: None,
+        }
+    }
     use serde_json::json;
 
     #[test]
@@ -6129,7 +6103,7 @@ mod tests {
         state.record_forwarded_action("read_file");
         state.record_forwarded_action("write_file");
 
-        let ctx = state.evaluation_context(None, None);
+        let ctx = state.evaluation_context(&empty_request_principal_binding(), None);
         assert_eq!(ctx.call_counts.get("read_file"), Some(&2));
         assert_eq!(ctx.call_counts.get("write_file"), Some(&1));
         assert_eq!(ctx.call_counts.len(), 2);
@@ -6142,7 +6116,7 @@ mod tests {
         state.record_forwarded_action("write_file");
         state.record_forwarded_action("exec_command");
 
-        let ctx = state.evaluation_context(None, None);
+        let ctx = state.evaluation_context(&empty_request_principal_binding(), None);
         assert_eq!(
             ctx.previous_actions,
             vec![
@@ -6161,7 +6135,8 @@ mod tests {
             delegation_depth: 3,
         };
 
-        let ctx = state.evaluation_context(None, Some(&deputy_binding));
+        let ctx =
+            state.evaluation_context(&empty_request_principal_binding(), Some(&deputy_binding));
 
         assert_eq!(ctx.call_chain.len(), 3);
         assert!(ctx.call_chain.iter().all(|entry| {
@@ -6182,7 +6157,8 @@ mod tests {
             delegation_depth: 3,
         };
 
-        let ctx = state.evaluation_context(None, Some(&deputy_binding));
+        let ctx =
+            state.evaluation_context(&empty_request_principal_binding(), Some(&deputy_binding));
 
         assert!(ctx.call_chain.is_empty());
     }
@@ -6229,7 +6205,7 @@ mod tests {
     }
 
     #[test]
-    fn test_effective_evaluation_agent_id_promotes_deputy_validated_claim() {
+    fn test_relay_state_evaluation_context_promotes_deputy_validated_claim() {
         let mut state = RelayState::new(HashSet::new());
         state.agent_id = None;
 
@@ -6241,14 +6217,14 @@ mod tests {
             delegation_depth: 1,
         };
 
-        let evaluation_agent_id =
-            state.effective_evaluation_agent_id(&binding, Some(&deputy_binding));
+        let ctx = state.evaluation_context(&binding, Some(&deputy_binding));
 
-        assert_eq!(evaluation_agent_id.as_deref(), Some("agent-claim"));
+        assert_eq!(ctx.agent_id.as_deref(), Some("agent-claim"));
+        assert_eq!(ctx.call_chain.len(), 1);
     }
 
     #[test]
-    fn test_effective_evaluation_agent_id_rejects_unvalidated_claim() {
+    fn test_relay_state_evaluation_context_rejects_unvalidated_claim() {
         let mut state = RelayState::new(HashSet::new());
         state.agent_id = None;
 
@@ -6260,9 +6236,28 @@ mod tests {
             delegation_depth: 0,
         };
 
-        let evaluation_agent_id =
-            state.effective_evaluation_agent_id(&binding, Some(&deputy_binding));
+        let ctx = state.evaluation_context(&binding, Some(&deputy_binding));
 
-        assert!(evaluation_agent_id.is_none());
+        assert!(ctx.agent_id.is_none());
+        assert!(ctx.call_chain.is_empty());
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_prefers_configured_identity_over_claim() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = Some("agent-configured".to_string());
+
+        let binding = state
+            .request_principal_binding(Some("agent-configured".to_string()))
+            .unwrap();
+        let deputy_binding = DeputyValidationBinding {
+            has_active_delegation: true,
+            delegation_depth: 2,
+        };
+
+        let ctx = state.evaluation_context(&binding, Some(&deputy_binding));
+
+        assert_eq!(ctx.agent_id.as_deref(), Some("agent-configured"));
+        assert_eq!(ctx.call_chain.len(), 2);
     }
 }

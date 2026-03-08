@@ -27,6 +27,7 @@ FILES=(
     "formal/verus/verified_capability_domain.rs"
     "formal/verus/verified_delegation_projection.rs"
     "formal/verus/verified_deputy_handoff.rs"
+    "formal/verus/verified_evaluation_context_projection.rs"
     "formal/verus/verified_capability_context.rs"
     "formal/verus/verified_context_delegation.rs"
     "formal/verus/verified_capability_glob.rs"

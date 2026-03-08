@@ -22,6 +22,8 @@ mod verified_capability_domain;
 mod verified_delegation_projection;
 #[path = "../verified_deputy_handoff.rs"]
 mod verified_deputy_handoff;
+#[path = "../verified_evaluation_context_projection.rs"]
+mod verified_evaluation_context_projection;
 #[path = "../verified_capability_glob.rs"]
 mod verified_capability_glob;
 #[path = "../verified_capability_glob_subset.rs"]

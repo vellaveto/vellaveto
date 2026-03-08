@@ -654,6 +654,28 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_configured_source_dominates_validated_claim` | A configured session principal always wins over a deputy-validated claim |
 | `lemma_validated_claim_promotes_only_without_configured_source` | A validated claim is promoted only when no configured session principal exists |
 
+### Evaluation Context Projection Guards (`verified_evaluation_context_projection.rs`) — 9 verified items, EVAL-CTX-1–EVAL-CTX-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| EVAL-CTX-1 | Configured source dominance | A configured session principal always remains authoritative for engine evaluation, even if a deputy-validated claim also exists |
+| EVAL-CTX-2 | Validated-claim promotion | Without a configured session principal, an active deputy-validated claim becomes the engine evaluation principal |
+| EVAL-CTX-3 | Unvalidated-claim rejection | Without active delegation, a claimed principal never populates `EvaluationContext.agent_id` |
+| EVAL-CTX-4 | Delegation-depth projection | The engine-visible synthetic call-chain length is exactly the active deputy delegation depth, else zero |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_configured_identity_dominates_claim_and_depth` | A configured principal always wins, while projection never exceeds deputy-reported depth |
+| `lemma_validated_claim_only_promotes_with_active_delegation` | Claimed principals are promoted only when delegation is active |
+| `lemma_inactive_delegation_projects_empty_chain` | Inactive delegation always projects an empty call chain |
+| `lemma_active_delegation_preserves_depth` | Active delegation preserves the exact deputy-reported depth |
+
 ### NHI Delegation Guards (`verified_nhi_delegation.rs`) — 19 verified items, NHI-DEL-1–NHI-DEL-8
 
 Properties proven for ALL possible inputs:
@@ -880,8 +902,9 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_capability_context.rs` | `vellaveto-engine/src/verified_capability_context.rs` | `context_check.rs` routes capability-token holder binding, issuer allowlist, and remaining-depth threshold checks through the verified engine gate |
 | `formal/verus/verified_context_delegation.rs` | `vellaveto-engine/src/verified_context_delegation.rs` | `context_check.rs` routes principal presence, required-principal satisfaction, max-chain-depth, and delegation-depth checks through the verified context-delegation gate |
 | `formal/verus/verified_bridge_principal.rs` | `vellaveto-mcp/src/verified_bridge_principal.rs` | `relay.rs` routes configured-vs-claimed consistency, deputy principal-source selection, and engine evaluation principal-source selection through the verified bridge gate |
-| `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `relay.rs` routes deputy-validated delegation depth through the verified projection kernel before populating `EvaluationContext.call_chain` |
-| `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `relay.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate |
+| `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated delegation depth through the verified projection kernel before the relay populates `EvaluationContext.call_chain` |
+| `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate before the relay consumes it |
+| `formal/verus/verified_evaluation_context_projection.rs` | `vellaveto-mcp/src/verified_evaluation_context_projection.rs` | `relay.rs` routes engine-visible principal selection and synthetic delegation-depth projection through the combined verified evaluation-context gate |
 | `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
 | `formal/verus/verified_capability_domain.rs` | `vellaveto-mcp/src/verified_capability_domain.rs` | `capability_token.rs` routes `allowed_domains` coverage and subset checks through the verified domain normalization/matching/containment kernel |
 | `formal/verus/verified_capability_path.rs` | `vellaveto-mcp/src/verified_capability_path.rs` | `capability_token.rs` routes grant/action path normalization through the extracted fail-closed path kernel |
@@ -964,6 +987,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_del
 # Deputy-validated claim promotion into engine evaluation (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy_handoff.rs
 
+# Combined relay projection into engine evaluation context (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_evaluation_context_projection.rs
+
 # Capability grant-coverage path/domain restriction gate (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_coverage.rs
 
@@ -1042,6 +1068,7 @@ verus formal/verus/verified_context_delegation.rs
 verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
+verus formal/verus/verified_evaluation_context_projection.rs
 verus formal/verus/verified_capability_coverage.rs
 verus formal/verus/verified_capability_domain.rs
 verus formal/verus/verified_capability_path.rs
@@ -1077,6 +1104,7 @@ Expected output:
 - `verified_bridge_principal.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_evaluation_context_projection.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_domain.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_path.rs`: `verification results:: 9 verified, 0 errors`
