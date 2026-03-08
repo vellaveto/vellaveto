@@ -118,6 +118,16 @@ formal/lean/lake-manifest.json
 # Local-only formal verification planning (not public)
 formal/LOCAL_VERIFICATION_PLAN.md
 formal/PROOF_OWNER_LEDGER.md
+formal/ASSUMPTION_REGISTRY.md
+formal/AUDIT_FILESYSTEM_TRUST_BOUNDARY.md
+formal/MERKLE_TRUST_BOUNDARY.md
+
+# Local-only dev/planning docs (not public)
+docs/CI_GREEN.md
+docs/FORMAL_VERIFICATION_PLAN.md
+docs/MCP_SECURITY_GAPS.md
+docs/RUST_EDITION_2024.md
+docs/SHOW_HN.md
 
 # Paper drafts (work-in-progress)
 paper/
