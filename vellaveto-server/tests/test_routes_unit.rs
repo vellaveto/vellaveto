@@ -2059,9 +2059,11 @@ async fn per_ip_rate_limit_429_response_body_format() {
         body["error"].is_string(),
         "Response must include 'error' string"
     );
+    // R246-SRV-3: retry_after_seconds removed from JSON body (info disclosure).
+    // The Retry-After header (verified above) is the RFC 7231 mechanism.
     assert!(
-        body["retry_after_seconds"].is_number(),
-        "Response must include 'retry_after_seconds' number"
+        body.get("retry_after_seconds").is_none(),
+        "retry_after_seconds must not be in response body"
     );
 }
 

@@ -2126,16 +2126,14 @@ async fn evaluate(
     // Enforces TenantQuotas.max_evaluations_per_minute. Default tenant (unlimited)
     // is skipped. Checked before engine evaluation to reject early.
     if let Some(ref quotas) = tenant_ctx.quotas {
-        if let Some(retry_after) = state
+        if let Some(_retry_after) = state
             .tenant_rate_limiter
             .check(&tenant_ctx.tenant_id, quotas.max_evaluations_per_minute)
         {
             return Err((
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(ErrorResponse {
-                    error: format!(
-                        "Tenant evaluation rate limit exceeded (retry after {retry_after}s)"
-                    ),
+                    error: "Tenant evaluation rate limit exceeded".to_string(),
                 }),
             ));
         }
@@ -3121,7 +3119,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
-                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+                Json(json!({"error": "Rate limit exceeded. Try again later."})),
             )
                 .into_response();
         }
@@ -3135,7 +3133,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
-                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+                Json(json!({"error": "Rate limit exceeded. Try again later."})),
             )
                 .into_response();
         }
@@ -3152,7 +3150,7 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
             return (
                 StatusCode::TOO_MANY_REQUESTS,
                 [(header::RETRY_AFTER, retry_after.to_string())],
-                Json(json!({"error": "Rate limit exceeded. Try again later.", "retry_after_seconds": retry_after})),
+                Json(json!({"error": "Rate limit exceeded. Try again later."})),
             )
                 .into_response();
         }
