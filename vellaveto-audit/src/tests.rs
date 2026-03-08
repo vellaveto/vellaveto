@@ -393,6 +393,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         prev_hash: None,
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     };
 
     let entry_b = AuditEntry {
@@ -406,6 +407,7 @@ async fn test_fix2_field_separator_prevents_boundary_shift() {
         prev_hash: None,
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
@@ -442,6 +444,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         prev_hash: None,
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     };
 
     let entry_b = AuditEntry {
@@ -459,6 +462,7 @@ async fn test_canonical_json_produces_deterministic_hashes() {
         prev_hash: None,
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     };
 
     let hash_a = AuditLogger::compute_entry_hash(&entry_a).unwrap();
@@ -5248,6 +5252,7 @@ async fn test_r228_verify_chain_mixed_utc_suffixes_correct_order() {
             prev_hash: None,
             commitment: None,
             tenant_id: None,
+            acis_envelope: None,
         };
         content.push_str(&serde_json::to_string(&entry).unwrap());
         content.push('\n');
@@ -5289,6 +5294,7 @@ async fn test_r228_verify_chain_mixed_suffix_regression_detected() {
             prev_hash: None,
             commitment: None,
             tenant_id: None,
+            acis_envelope: None,
         };
         content.push_str(&serde_json::to_string(&entry).unwrap());
         content.push('\n');

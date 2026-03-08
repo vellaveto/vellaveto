@@ -1,0 +1,289 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright 2026 Paolo Vella
+// SPDX-License-Identifier: MPL-2.0
+
+//! ACIS (Agent-Consumer Interaction Surface) configuration.
+//!
+//! Controls how ACIS decision envelopes are emitted, which fields are
+//! populated, and session/identity binding behavior.
+
+use serde::{Deserialize, Serialize};
+use vellaveto_types::has_dangerous_chars;
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+/// Maximum length of `default_transport` label.
+const MAX_TRANSPORT_LEN: usize = 32;
+
+/// Maximum length of `tenant_id` override.
+const MAX_TENANT_ID_LEN: usize = 256;
+
+/// Maximum number of custom finding labels allowed.
+const MAX_CUSTOM_FINDING_LABELS: usize = 64;
+
+/// Maximum length of a single custom finding label.
+const MAX_FINDING_LABEL_LEN: usize = 128;
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+/// ACIS configuration section.
+///
+/// Controls envelope emission, session binding, and identity requirements
+/// across all transport surfaces.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AcisConfig {
+    /// Enable ACIS decision envelope emission on every enforcement decision.
+    /// Default: `true` (fail-closed — always emit).
+    #[serde(default = "default_emit_envelopes")]
+    pub emit_envelopes: bool,
+
+    /// Require a session ID on every ACIS envelope.  When `true`, requests
+    /// without a session ID produce a Deny verdict.
+    /// Default: `false` (session binding is opt-in).
+    #[serde(default)]
+    pub require_session_id: bool,
+
+    /// Require an authenticated agent identity on every ACIS envelope.
+    /// When `true`, unauthenticated requests produce a Deny verdict.
+    /// Default: `false`.
+    #[serde(default)]
+    pub require_agent_identity: bool,
+
+    /// Include evaluation timing (`evaluation_us`) in envelopes.
+    /// Default: `true`.
+    #[serde(default = "default_include_timing")]
+    pub include_timing: bool,
+
+    /// Include security findings (DLP, injection, etc.) in envelopes.
+    /// Default: `true`.
+    #[serde(default = "default_include_findings")]
+    pub include_findings: bool,
+
+    /// Default transport label when the intercepting surface does not
+    /// provide one.  Must be one of: `stdio`, `http`, `websocket`, `grpc`,
+    /// `sse`.
+    #[serde(default = "default_transport")]
+    pub default_transport: String,
+
+    /// Static tenant ID override.  When set, every envelope uses this
+    /// tenant ID instead of deriving it from the request context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+
+    /// Custom finding labels to include in envelopes (e.g., for downstream
+    /// SIEM enrichment).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_finding_labels: Vec<String>,
+}
+
+fn default_emit_envelopes() -> bool {
+    true
+}
+
+fn default_include_timing() -> bool {
+    true
+}
+
+fn default_include_findings() -> bool {
+    true
+}
+
+fn default_transport() -> String {
+    "stdio".into()
+}
+
+impl Default for AcisConfig {
+    fn default() -> Self {
+        Self {
+            emit_envelopes: default_emit_envelopes(),
+            require_session_id: false,
+            require_agent_identity: false,
+            include_timing: default_include_timing(),
+            include_findings: default_include_findings(),
+            default_transport: default_transport(),
+            tenant_id: None,
+            custom_finding_labels: vec![],
+        }
+    }
+}
+
+impl AcisConfig {
+    /// Validate all fields for length, content, and structural invariants.
+    pub fn validate(&self) -> Result<(), String> {
+        // default_transport
+        if self.default_transport.is_empty() {
+            return Err("default_transport must not be empty".into());
+        }
+        if self.default_transport.len() > MAX_TRANSPORT_LEN {
+            return Err(format!(
+                "default_transport length {} exceeds max {}",
+                self.default_transport.len(),
+                MAX_TRANSPORT_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.default_transport) {
+            return Err("default_transport contains dangerous characters".into());
+        }
+        match self.default_transport.as_str() {
+            "stdio" | "http" | "websocket" | "grpc" | "sse" => {}
+            other => {
+                return Err(format!(
+                    "default_transport must be one of: stdio, http, websocket, grpc, sse — got '{other}'"
+                ));
+            }
+        }
+
+        // tenant_id
+        if let Some(ref tid) = self.tenant_id {
+            if tid.is_empty() {
+                return Err("tenant_id must not be empty when set".into());
+            }
+            if tid.len() > MAX_TENANT_ID_LEN {
+                return Err(format!(
+                    "tenant_id length {} exceeds max {}",
+                    tid.len(),
+                    MAX_TENANT_ID_LEN
+                ));
+            }
+            if has_dangerous_chars(tid) {
+                return Err("tenant_id contains dangerous characters".into());
+            }
+        }
+
+        // custom_finding_labels
+        if self.custom_finding_labels.len() > MAX_CUSTOM_FINDING_LABELS {
+            return Err(format!(
+                "custom_finding_labels has {} entries, max is {}",
+                self.custom_finding_labels.len(),
+                MAX_CUSTOM_FINDING_LABELS
+            ));
+        }
+        for (i, label) in self.custom_finding_labels.iter().enumerate() {
+            if label.is_empty() {
+                return Err(format!("custom_finding_labels[{i}] must not be empty"));
+            }
+            if label.len() > MAX_FINDING_LABEL_LEN {
+                return Err(format!(
+                    "custom_finding_labels[{i}] length {} exceeds max {}",
+                    label.len(),
+                    MAX_FINDING_LABEL_LEN
+                ));
+            }
+            if has_dangerous_chars(label) {
+                return Err(format!(
+                    "custom_finding_labels[{i}] contains dangerous characters"
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_is_fail_closed() {
+        let cfg = AcisConfig::default();
+        assert!(cfg.emit_envelopes, "emit_envelopes must default to true");
+        assert!(cfg.include_timing);
+        assert!(cfg.include_findings);
+        assert!(!cfg.require_session_id);
+        assert!(!cfg.require_agent_identity);
+        assert_eq!(cfg.default_transport, "stdio");
+    }
+
+    #[test]
+    fn test_default_validates() {
+        assert!(AcisConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn test_empty_transport_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.default_transport = String::new();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("default_transport must not be empty"));
+    }
+
+    #[test]
+    fn test_invalid_transport_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.default_transport = "smoke_signal".into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("must be one of"));
+    }
+
+    #[test]
+    fn test_all_valid_transports_accepted() {
+        for t in &["stdio", "http", "websocket", "grpc", "sse"] {
+            let mut cfg = AcisConfig::default();
+            cfg.default_transport = (*t).into();
+            assert!(cfg.validate().is_ok(), "transport '{t}' should be valid");
+        }
+    }
+
+    #[test]
+    fn test_dangerous_chars_in_tenant_id_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.tenant_id = Some("tenant\x00id".into());
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("tenant_id contains dangerous"));
+    }
+
+    #[test]
+    fn test_empty_tenant_id_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.tenant_id = Some(String::new());
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("tenant_id must not be empty"));
+    }
+
+    #[test]
+    fn test_too_many_finding_labels_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.custom_finding_labels = vec!["label".into(); 65];
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("custom_finding_labels has 65"));
+    }
+
+    #[test]
+    fn test_empty_finding_label_rejected() {
+        let mut cfg = AcisConfig::default();
+        cfg.custom_finding_labels = vec![String::new()];
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("custom_finding_labels[0] must not be empty"));
+    }
+
+    #[test]
+    fn test_toml_roundtrip() {
+        let cfg = AcisConfig {
+            emit_envelopes: true,
+            require_session_id: true,
+            require_agent_identity: false,
+            include_timing: true,
+            include_findings: true,
+            default_transport: "http".into(),
+            tenant_id: Some("acme-corp".into()),
+            custom_finding_labels: vec!["siem-enrichment".into()],
+        };
+        let toml_str = toml::to_string(&cfg).expect("serialize");
+        let decoded: AcisConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(cfg, decoded);
+    }
+
+    #[test]
+    fn test_deny_unknown_fields() {
+        let toml_str = r#"
+            emit_envelopes = true
+            evil_field = "pwned"
+        "#;
+        assert!(toml::from_str::<AcisConfig>(toml_str).is_err());
+    }
+}

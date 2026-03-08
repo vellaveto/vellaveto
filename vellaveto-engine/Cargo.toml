@@ -33,6 +33,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 tracing = { workspace = true }
 metrics = { workspace = true }
 unicode-normalization = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -1138,6 +1138,7 @@ fn test_validate_rejects_too_many_policies() {
         iam: Default::default(),
         topology: Default::default(),
         shield: Default::default(),
+        acis: Default::default(),
     };
     config.policies = (0..=MAX_POLICIES)
         .map(|i| PolicyRule {

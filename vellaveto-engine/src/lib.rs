@@ -16,6 +16,7 @@
 //! The engine is synchronous by design — all evaluation completes in <5ms P99.
 
 pub mod abac;
+pub mod acis;
 pub mod adaptive_rate;
 pub mod behavioral;
 pub mod cache;
@@ -42,6 +43,7 @@ mod policy_compile;
 mod rule_check;
 mod traced;
 mod verified_capability_context;
+mod verified_capability_delegation_context;
 pub mod verified_constraint_eval;
 mod verified_context_delegation;
 pub mod verified_core;

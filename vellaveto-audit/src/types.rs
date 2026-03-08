@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use vellaveto_types::{Action, Verdict};
+use vellaveto_types::{AcisDecisionEnvelope, Action, Verdict};
 
 #[derive(Error, Debug)]
 pub enum AuditError {
@@ -46,6 +46,11 @@ pub struct AuditEntry {
     /// None for entries created before multi-tenancy was enabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+    /// ACIS decision envelope (E1-5: Sprint 1).
+    /// When present, carries the normalized decision contract for this entry.
+    /// Backward-compatible: absent in pre-ACIS entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acis_envelope: Option<AcisDecisionEnvelope>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

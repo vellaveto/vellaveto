@@ -285,6 +285,7 @@ mod tests {
             prev_hash: None,
             commitment: None,
             tenant_id: tenant_id.map(|t| t.to_string()),
+            acis_envelope: None,
         }
     }
 

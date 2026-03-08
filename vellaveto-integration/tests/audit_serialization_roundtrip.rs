@@ -35,6 +35,7 @@ fn make_entry(verdict: Verdict, metadata: serde_json::Value) -> AuditEntry {
         prev_hash: None,
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     }
 }
 

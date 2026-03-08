@@ -2092,6 +2092,7 @@ fn cmd_policies(preset: String) -> Result<()> {
         metering: Default::default(),
         topology: Default::default(),
         shield: Default::default(),
+        acis: Default::default(),
     };
     let toml_str =
         toml::to_string_pretty(&config).context("Failed to serialize policies to TOML")?;

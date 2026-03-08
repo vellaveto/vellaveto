@@ -16,6 +16,7 @@
 //! Vellaveto crates depend on it.
 
 pub mod abac;
+pub mod acis;
 pub mod audit_store;
 pub mod capability;
 pub mod command;
@@ -54,6 +55,7 @@ mod tests;
 // External crates import types from the crate root.
 pub use self::core::*;
 pub use abac::*;
+pub use acis::*;
 pub use audit_store::*;
 pub use capability::*;
 pub use command::*;

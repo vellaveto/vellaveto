@@ -1692,6 +1692,9 @@ impl PolicyConfig {
         // Consumer shield configuration bounds
         self.shield.validate().map_err(|e| format!("shield: {e}"))?;
 
+        // ACIS decision envelope configuration
+        self.acis.validate().map_err(|e| format!("acis: {e}"))?;
+
         Ok(())
     }
 

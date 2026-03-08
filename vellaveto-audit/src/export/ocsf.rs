@@ -375,6 +375,7 @@ mod tests {
             prev_hash: None,
             commitment: None,
             tenant_id: None,
+            acis_envelope: None,
         }
     }
 

@@ -58,6 +58,7 @@ fn make_test_entry(idx: usize) -> AuditEntry {
         },
         commitment: None,
         tenant_id: None,
+        acis_envelope: None,
     }
 }
 

@@ -544,6 +544,7 @@ impl AuditLogger {
             prev_hash: last_hash_guard.clone(),
             commitment: None,
             tenant_id,
+            acis_envelope: None,
         };
 
         // Compute hash

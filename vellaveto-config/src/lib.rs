@@ -38,6 +38,7 @@ pub mod transport;
 // ═══════════════════════════════════════════════════════════════════════════════
 pub mod a2a;
 pub mod abac;
+pub mod acis;
 pub mod audit_store;
 pub mod billing;
 pub mod cluster;
@@ -129,6 +130,7 @@ pub use rag_defense_config::{
 // Re-exports from Phase 16.6 split submodules
 pub use a2a::A2aConfig;
 pub use abac::AbacConfig;
+pub use acis::AcisConfig;
 pub use audit_store::AuditStoreConfig;
 pub use billing::BillingConfig;
 pub use cluster::ClusterConfig;
@@ -603,6 +605,14 @@ pub struct PolicyConfig {
     /// session isolation, and encrypted local audit.
     #[serde(default)]
     pub shield: ShieldConfig,
+
+    // ═══════════════════════════════════════════════════
+    // ACIS (AGENT-CONSUMER INTERACTION SURFACE)
+    // ═══════════════════════════════════════════════════
+    /// ACIS decision envelope configuration — controls envelope emission,
+    /// session/identity binding requirements, and transport defaults.
+    #[serde(default)]
+    pub acis: AcisConfig,
 }
 
 impl PolicyConfig {

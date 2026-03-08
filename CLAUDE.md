@@ -89,9 +89,11 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Identity: AgentIdentity, EvaluationContext, RequestContext, StatelessContextBlob | `vellaveto-types/src/identity.rs` |
 | ETDI, Threat, ABAC, capability, compliance, NHI, governance, discovery, projector, ZK audit, audit store, policy lifecycle, evidence pack | `vellaveto-types/src/*.rs` |
 | Shield types: BlindCredential, CredentialType, CredentialVaultStatus, SessionCredentialBinding | `vellaveto-types/src/shield.rs` |
+| ACIS: AcisDecisionEnvelope, DecisionKind, DecisionOrigin, AcisActionSummary | `vellaveto-types/src/acis.rs` |
 | Time utilities: parse_iso8601_secs | `vellaveto-types/src/time_util.rs` |
-| Tests (~180) | `vellaveto-types/src/tests.rs` |
+| Tests (~196) | `vellaveto-types/src/tests.rs` |
 | **vellaveto-engine** | |
+| ACIS action fingerprinting (SHA-256) | `vellaveto-engine/src/acis.rs` |
 | Policy evaluation | `vellaveto-engine/src/lib.rs` |
 | ABAC engine + Cedar-style evaluation | `vellaveto-engine/src/abac.rs` |
 | Least-agency tracker | `vellaveto-engine/src/least_agency.rs` |
@@ -110,6 +112,7 @@ Verdict::Allow | Verdict::Deny { reason } | Verdict::RequireApproval { .. }
 | Tests (~421) | `vellaveto-audit/src/tests.rs` |
 | **vellaveto-config** | |
 | PolicyConfig + validation | `vellaveto-config/src/lib.rs`, `vellaveto-config/src/config_validate.rs` |
+| ACIS config (envelope emission, session/identity binding) | `vellaveto-config/src/acis.rs` |
 | All config modules | `vellaveto-config/src/*.rs` |
 | Tests (~301) | `vellaveto-config/src/tests.rs` |
 | **vellaveto-mcp** | |
@@ -219,6 +222,8 @@ All phases implemented, tested, and hardened through 246 audit rounds. Details i
 
 **R237 adversarial audit (Mar 2026):** 31 findings (7 HIGH, 16 MEDIUM, 8 LOW), 22 fixed in 3 sprints. Sprint 1: Wasm reload_plugins case-insensitive duplicate (ENG-1), HTML named entity decode gap (MCP-1), OIDC/session error genericization (SRV-1/3), store_flow capacity fail-closed (SRV-2), shield passphrase env var (SHLD-1), audit log error surfacing (DIFF-1). Sprint 2: sampling/elicitation circuit breaker (MCP-2), cross-call DLP capacity finding (MCP-4), elicitation DLP tool name (MCP-5), SPIFFE trust_domain validation (TLS-1), context isolation method sanitization (SHLD-3), collusion window bounds (ENG-7), call_chain u64→i64 safe cast (PROXY-1). Sprint 3: regex constraint path normalization (ENG-2), ABAC normalize_full() for all string ops (ENG-3/5), cache risk_score awareness (ENG-6), temp file cleanup guard (SHLD-2), verify_client_cert validation (TLS-2), M2M per-client rate limiting (SRV-4), SAML InResponseTo replay protection (SRV-5), Punycode decode pass in injection scanner (MCP-3), semantic guardrails timeout audit logging (MCP-6), TLS path traversal validation (CFG-1). 10,550+ tests, 0 failures.
 
+**E1 — ACIS Contract and Boundary Inventory (Sprint 1, Mar 2026):** Defines the Agent-Consumer Interaction Surface as a runtime contract shared by every enforcement path. E1-1: `AcisDecisionEnvelope`, `DecisionKind`, `DecisionOrigin`, `AcisActionSummary` types in `vellaveto-types/src/acis.rs` (16 tests). E1-2: `AcisConfig` in `vellaveto-config/src/acis.rs` — envelope emission, session/identity binding, transport defaults (11 tests). E1-3: Full transport interception inventory (stdio relay, HTTP handler, WebSocket, gRPC, server API). E1-4: `compute_action_fingerprint()` SHA-256 + `fingerprint_action()` in `vellaveto-engine/src/acis.rs` (6 tests). E1-5: `acis_envelope: Option<AcisDecisionEnvelope>` added to `AuditEntry` (backward-compatible). 33 new tests.
+
 ---
 
 ## Code Change Protocol
@@ -244,8 +249,6 @@ cargo clippy --workspace
 <type>(<scope>): <subject>
 
 <body>
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`
