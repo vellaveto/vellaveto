@@ -24,6 +24,8 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets,
 };
+use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
 
 use super::auth::{
@@ -1511,10 +1513,22 @@ pub async fn handle_mcp_post(
                         reason: reason.clone(),
                     };
 
-                    // Audit the denial
+                    // Audit the denial with ACIS envelope
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context_with_chain(
@@ -1523,6 +1537,7 @@ pub async fn handle_mcp_post(
                                 &oauth_claims,
                                 &full_call_chain,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
@@ -1598,9 +1613,21 @@ pub async fn handle_mcp_post(
                         None
                     };
 
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context_with_chain(
@@ -1609,6 +1636,7 @@ pub async fn handle_mcp_post(
                                 &oauth_claims,
                                 &full_call_chain,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
@@ -2206,9 +2234,25 @@ pub async fn handle_mcp_post(
                         None
                     };
 
+                    let origin = match &verdict {
+                        Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
+                        _ => DecisionOrigin::PolicyEngine,
+                    };
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &verdict,
+                        origin,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context(
@@ -2216,6 +2260,7 @@ pub async fn handle_mcp_post(
                                 json!({"resource_uri": uri}),
                                 &oauth_claims,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
@@ -3172,9 +3217,21 @@ pub async fn handle_mcp_post(
                         );
                     }
 
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &Verdict::Allow,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &Verdict::Allow,
                             build_audit_context(
@@ -3186,6 +3243,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
@@ -3233,9 +3291,21 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context(
@@ -3247,6 +3317,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
@@ -3306,9 +3377,21 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
+                    let acis_envelope = build_acis_envelope(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "http",
+                        &[],
+                        None,
+                        Some(&session_id),
+                        None,
+                        None,
+                    );
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context(
@@ -3320,6 +3403,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            acis_envelope,
                         )
                         .await
                     {
