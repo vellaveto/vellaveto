@@ -51,7 +51,7 @@ VellaVeto provides controls mapped to five articles:
 |---------|-------------|-------------------|
 | Art 50(2) | Transparency: mark AI-generated output | `VerdictExplanation` with configurable verbosity injected into `_meta` |
 | Art 10 | Data governance for training/validation | `DataGovernanceRecord` with classification, purpose, provenance, retention |
-| Art 12 | Record-keeping and traceability | Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519+ML-DSA-65 checkpoints |
+| Art 12 | Record-keeping and traceability | Tamper-evident audit: SHA-256 chains, Merkle proofs, Ed25519+ML-DSA-65 checkpoints, ACIS decision envelopes with per-verdict fingerprints |
 | Art 14 | Human oversight | `RequireApproval` verdict, human-in-the-loop workflow with configurable timeout |
 | Art 9 | Risk management system | Policy engine with risk scoring, ABAC, behavioral anomaly detection, circuit breakers |
 

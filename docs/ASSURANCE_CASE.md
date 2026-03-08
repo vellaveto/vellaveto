@@ -71,25 +71,26 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Test evidence** | `vellaveto-mcp/src/transparency.rs` — Art 50(1) tests; `vellaveto-server/src/routes/compliance.rs` — API tests; `vellaveto-audit/src/eu_ai_act.rs` — registry tests; `vellaveto-audit/src/data_governance.rs` — Art 10 tests |
 | **Reproduce** | `cargo test -p vellaveto-audit -- eu_ai_act && cargo test -p vellaveto-audit -- data_governance && cargo test -p vellaveto-mcp -- transparency` |
 
-### C6. "39 audit rounds, 400+ findings"
+### C6. "246 audit rounds, 1,660+ findings"
 
 | Field | Value |
 |-------|-------|
 | **Scope** | Internal adversarial testing using automated multi-agent protocol (Bottega). Not external third-party audits. |
-| **Methodology** | Automated adversarial agent generates attack payloads against running instance; findings triaged by severity (P0–P3); fixes verified by re-running attack corpus |
-| **Evidence** | `SWARM_FINDINGS_PLAN.md` — consolidated finding list; `CHANGELOG.md` — per-phase finding counts and fix PRs; `security-testing/` — pentest harness |
+| **Methodology** | Automated adversarial agent generates attack payloads against running instance; findings triaged by severity (P0–P3); fixes verified by re-running attack corpus. 6-agent parallel swarm with threat intelligence integration (100+ attack vectors, 30+ CVEs per sweep from R226+). |
+| **Evidence** | `CHANGELOG.md` — per-round finding counts and fix PRs; `docs/SECURITY_REVIEW.md` — methodology and severity breakdown; `vellaveto-integration/tests/` — regression tests |
 | **Clarification** | These are *internal automated audit iterations*, not external penetration tests by a third-party firm. The badge text reflects this. |
 | **Reproduce** | Finding verification: `cargo test -p vellaveto-integration -- regression` |
 
-### C7. "19 formally verified properties"
+### C7. "747+ formally verified properties"
 
 | Field | Value |
 |-------|-------|
-| **Scope** | 16 safety properties + 3 liveness properties across TLA+ (S1–S10, L1–L3) and Alloy (S11–S16). 3 additional Lean 4 lemmas (determinism, fail-closed, path normalization idempotence). |
-| **Assumptions** | Bounded model checking (finite state spaces). Properties are structural and do not depend on bound values. Pattern matching abstracted to wildcard + exact. |
+| **Scope** | 523 Verus verified items (deductive, ALL inputs via Z3 SMT on actual Rust), 77 Kani bounded model checking harnesses (on actual Rust), 64 TLA+ safety/liveness properties, 43 Coq theorems, 30 Lean 4 theorems, 10 Alloy assertions — across 7 tools. |
+| **Verus coverage** | 40 verified kernels covering verdict fail-closed (V1-V8), path normalization (V9-V10), rule override (V11-V12), DLP buffer safety (D1-D6), constraint evaluation, audit chain integrity, Merkle proofs, rotation manifests, capability delegation, NHI delegation, approval scope binding, deputy chain, entropy gates, cross-call DLP, and refinement safety obligations. |
+| **Assumptions** | Verus: Z3 SMT-checked for ALL inputs. Kani: bounded model checking (finite state spaces). TLA+: exhaustive within declared bounds. Properties are structural. |
 | **What is NOT verified** | Pattern compilation, cryptographic primitives, timing, concurrency, network properties, serialization. See [FORMAL_SCOPE.md](FORMAL_SCOPE.md). |
-| **Test evidence** | `formal/README.md` — property catalog with source traceability |
-| **Reproduce** | `cd formal/tla && java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla && java -jar tla2tools.jar -config AbacForbidOverrides.cfg MC_AbacForbidOverrides.tla` |
+| **Test evidence** | `formal/README.md` — property catalog with source traceability; `formal/verus/` — 40 Verus kernels; `formal/kani/` — 77 harnesses |
+| **Reproduce** | `cd formal/tla && java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla` and `cd formal/verus && cargo verus --crate-type=lib src/lib.rs` |
 
 ---
 
@@ -97,15 +98,19 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit + integration tests | Rust `#[test]` | 5,003+ |
-| SDK tests | Python / Go / TypeScript | 173 |
+| Unit + integration tests | Rust `#[test]` | 10,550+ |
+| SDK tests | Python / Go / TypeScript / Java | 855 |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| Formal specs (TLA+ / Alloy) | Model checking | 19 properties |
-| Formal proofs (Lean 4) | Type checking | 3 lemmas |
+| Formal — Verus (deductive) | Z3 SMT on actual Rust (ALL inputs) | 523 verified items |
+| Formal — Kani (BMC) | Bounded model checking on actual Rust | 77 harnesses |
+| Formal — TLA+ | Exhaustive model checking | 64 properties |
+| Formal — Coq | Interactive theorem proving | 43 theorems |
+| Formal — Lean 4 | Dependent type checking | 30 theorems |
+| Formal — Alloy | Relational model checking | 10 assertions |
 | Criterion benchmarks | Statistical microbenchmark | 51 benchmarks |
 | Reproducibility kit | Docker + pinned results | `repro/` |
-| CI gates | GitHub Actions | 11 workflows |
+| CI gates | GitHub Actions | 16 workflows |
 
 ---
 

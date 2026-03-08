@@ -69,6 +69,7 @@ Vellaveto exposes Prometheus metrics at the `/metrics` endpoint. All metrics use
 | Metric | Type | Description |
 |--------|------|-------------|
 | `vellaveto_audit_entries_total` | counter | Audit log entries written |
+| `vellaveto_audit_acis_entries_total` | counter | Entries with ACIS decision envelopes |
 | `vellaveto_audit_checkpoint_total` | counter | Audit checkpoints created |
 | `vellaveto_audit_rotation_total` | counter | Audit log rotations |
 

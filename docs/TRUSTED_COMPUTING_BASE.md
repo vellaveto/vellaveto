@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
-> **Status:** Phases 0–14 complete (Verus V1-V12/D1-D6 + Kani K1-K77)
+> **Status:** Phases 0–72 complete (747+ verification instances across 7 tools)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the full roadmap
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -450,7 +450,7 @@ Kani operates on extracted Rust code verified to match production code via
 - `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
 - `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
 
-**Total: 210 verification instances across 7 tools.**
+**Total: 747+ verification instances across 7 tools (523 Verus + 77 Kani + 64 TLA+ + 43 Coq + 30 Lean + 10 Alloy).**
 
 ---
 
@@ -607,9 +607,9 @@ PR-level gating on security-critical paths will be added for:
 
 ## 8. Roadmap
 
-Phases 0–14 are complete. The TCB includes Verus deductive proofs on actual
-Rust code, 68 Kani bounded model checking harnesses, and comprehensive coverage
-of all security-critical pure functions.
+Phases 0–72 are complete. The TCB includes 523 Verus-verified items on actual
+Rust code (deductive, ALL inputs via Z3 SMT), 77 Kani bounded model checking
+harnesses, and comprehensive coverage of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |
 |-------|--------|-------------|-----------------|

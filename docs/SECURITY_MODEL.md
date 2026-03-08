@@ -46,6 +46,7 @@ Each policy decision is written as a JSON Lines entry containing:
 - **Redacted** parameters (secrets, PII, credentials replaced with `[REDACTED]`)
 - SHA-256 hash chain linking each entry to the previous
 - Optional Ed25519 checkpoint signatures every N entries
+- Optional ACIS decision envelope — structured metadata containing decision ID, SHA-256 action fingerprint, verdict kind, decision origin (PolicyEngine or ApprovalGate), transport label, and session/tenant binding (backward-compatible: `acis_envelope` is `null` for pre-ACIS entries)
 
 **Integrity:** The hash chain provides tamper *detection* (not prevention). An attacker with file-system write access could truncate the log, but this is detected on the next verification pass. Ed25519 checkpoints prevent silent key rotation.
 
