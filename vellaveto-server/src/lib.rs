@@ -25,6 +25,7 @@ pub mod tenant;
 pub mod threat_intel;
 pub mod tls;
 pub mod usage_tracker;
+mod verified_approval_id;
 
 /// Re-export for fuzz testing — not part of the public API.
 #[doc(hidden)]
@@ -1181,6 +1182,25 @@ impl AppState {
             Ok(cluster.approval_approve(id, by).await?)
         } else {
             Ok(self.approvals.approve(id, by).await?)
+        }
+    }
+
+    /// Consume an approved approval exactly once for a matching request scope.
+    pub async fn consume_approved_approval(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ApprovalOpError> {
+        if let Some(ref cluster) = self.cluster {
+            Ok(cluster
+                .approval_consume_approved(id, session_id, action_fingerprint)
+                .await?)
+        } else {
+            Ok(self
+                .approvals
+                .consume_approved(id, session_id, action_fingerprint)
+                .await?)
         }
     }
 

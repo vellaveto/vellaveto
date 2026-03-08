@@ -17,8 +17,8 @@ use super::ProxyBridge;
 use super::ToolAnnotations;
 use crate::extractor::{
     classify_message, extract_action, extract_extension_action, extract_resource_action,
-    extract_task_action, make_batch_error_response, make_denial_response, make_invalid_response,
-    MessageType,
+    extract_task_action, make_approval_response, make_batch_error_response, make_denial_response,
+    make_invalid_response, MessageType,
 };
 use crate::framing::{read_message, write_message};
 use crate::inspection::{
@@ -36,6 +36,7 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
+use vellaveto_approval::ApprovalStatus;
 use vellaveto_config::ToolManifest;
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
@@ -49,6 +50,7 @@ const SYNTHETIC_DELEGATION_AGENT_ID: &str = "delegation-hop";
 const SYNTHETIC_DELEGATION_TOOL: &str = "deputy";
 const SYNTHETIC_DELEGATION_FUNCTION: &str = "delegated";
 const SYNTHETIC_DELEGATION_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
+const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
 ///
@@ -715,6 +717,138 @@ impl ProxyBridge {
         }
     }
 
+    async fn presented_approval_matches_action(
+        &self,
+        presented_approval_id: Option<&str>,
+        action: &Action,
+    ) -> Result<Option<String>, ()> {
+        let Some(approval_id) = presented_approval_id else {
+            return Ok(None);
+        };
+
+        let Some(store) = self.approval_store.as_ref() else {
+            tracing::warn!(
+                approval_id = %approval_id,
+                "Presented approval cannot be verified without an approval store"
+            );
+            return Err(());
+        };
+
+        let approval = match store.get(approval_id).await {
+            Ok(approval) => approval,
+            Err(e) => {
+                tracing::warn!(
+                    approval_id = %approval_id,
+                    error = ?e,
+                    "Presented approval lookup failed"
+                );
+                return Err(());
+            }
+        };
+
+        if approval.status != ApprovalStatus::Approved {
+            tracing::warn!(
+                approval_id = %approval_id,
+                status = ?approval.status,
+                "Presented approval is not approved"
+            );
+            return Err(());
+        }
+
+        // Fail closed on approvals that predate action-fingerprint binding.
+        if approval.action_fingerprint.is_none() {
+            tracing::warn!(
+                approval_id = %approval_id,
+                "Presented approval missing action fingerprint binding"
+            );
+            return Err(());
+        }
+
+        let action_fingerprint = fingerprint_action(action);
+        if !approval.scope_matches(None, Some(action_fingerprint.as_str())) {
+            tracing::warn!(
+                approval_id = %approval_id,
+                "Presented approval scope does not match the current action"
+            );
+            return Err(());
+        }
+
+        Ok(Some(approval_id.to_string()))
+    }
+
+    async fn consume_presented_approval(
+        &self,
+        approval_id: Option<&str>,
+        action: &Action,
+    ) -> Result<(), ()> {
+        let Some(approval_id) = approval_id else {
+            return Ok(());
+        };
+
+        let Some(store) = self.approval_store.as_ref() else {
+            tracing::warn!(
+                approval_id = %approval_id,
+                "Presented approval cannot be consumed without an approval store"
+            );
+            return Err(());
+        };
+
+        let action_fingerprint = fingerprint_action(action);
+        match store
+            .consume_approved(approval_id, None, Some(action_fingerprint.as_str()))
+            .await
+        {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                tracing::warn!(
+                    approval_id = %approval_id,
+                    "Presented approval could not be consumed for this action"
+                );
+                Err(())
+            }
+            Err(e) => {
+                tracing::warn!(
+                    approval_id = %approval_id,
+                    error = ?e,
+                    "Presented approval consume failed"
+                );
+                Err(())
+            }
+        }
+    }
+
+    async fn create_pending_approval(
+        &self,
+        action: &Action,
+        reason: &str,
+        session_id: Option<&str>,
+    ) -> Option<String> {
+        let store = self.approval_store.as_ref()?;
+        let action_fingerprint = fingerprint_action(action);
+        match store
+            .create(
+                action.clone(),
+                reason.to_string(),
+                None,
+                session_id.map(ToOwned::to_owned),
+                Some(action_fingerprint),
+            )
+            .await
+        {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::error!("Failed to create approval (fail-closed): {}", e);
+                None
+            }
+        }
+    }
+
+    fn inject_approval_id(response: &mut Value, approval_id: String) {
+        if let Some(data) = response.get_mut("error").and_then(|e| e.get_mut("data")) {
+            data["approval_id"] = Value::String(approval_id);
+        }
+    }
+
     /// Handle a message received from the agent.
     async fn handle_agent_message(
         &self,
@@ -872,6 +1006,9 @@ impl ProxyBridge {
                 .map_err(ProxyError::Framing)?;
             return Ok(());
         }
+
+        let presented_approval_id = Self::extract_approval_id_from_meta(&msg);
+        let mut matched_approval_id: Option<String> = None;
 
         // ═══════════════════════════════════════════════════════════════════
         // Phase 3.1: Pre-evaluation security checks
@@ -1278,90 +1415,187 @@ impl ProxyBridge {
                 crate::tool_registry::TrustLevel::Unknown => {
                     registry.register_unknown(&tool_name).await;
                     let action = extract_action(&tool_name, &arguments);
-                    let reason = format!(
-                        "Tool '{tool_name}' is not in the registry — requires approval before use"
-                    );
-                    let verdict = Verdict::RequireApproval {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
+                    match self
+                        .presented_approval_matches_action(
+                            presented_approval_id.as_deref(),
                             &action,
-                            &verdict,
-                            json!({"source": "proxy", "registry": "unknown_tool", "tool": tool_name}),
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE: {}", e);
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                        }
+                        Err(()) => {
+                            let verdict = Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "registry": "unknown_tool",
+                                        "tool": tool_name,
+                                        "approval_id": presented_approval_id,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::error!("AUDIT FAILURE: {}", e);
+                            }
+                            let response =
+                                make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                        Ok(None) => {}
                     }
-                    // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
-                    let approval_id = if let Some(ref store) = self.approval_store {
-                        let action_fingerprint = fingerprint_action(&action);
-                        match store
-                            .create(action, reason.clone(), None, None, Some(action_fingerprint))
+                    if matched_approval_id.is_none() {
+                        let reason = format!(
+                            "Tool '{tool_name}' is not in the registry — requires approval before use"
+                        );
+                        let verdict = Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({"source": "proxy", "registry": "unknown_tool", "tool": tool_name}),
+                            )
                             .await
                         {
-                            Ok(id) => Some(id),
-                            Err(e) => {
-                                tracing::error!("APPROVAL CREATION FAILURE (unknown_tool): {}", e);
-                                None
-                            }
+                            tracing::error!("AUDIT FAILURE: {}", e);
                         }
-                    } else {
-                        None
-                    };
-                    let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
-                    let response = make_denial_response(&id, &error_data.to_string());
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                        // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
+                        let approval_id = if let Some(ref store) = self.approval_store {
+                            let action_fingerprint = fingerprint_action(&action);
+                            match store
+                                .create(
+                                    action,
+                                    reason.clone(),
+                                    None,
+                                    None,
+                                    Some(action_fingerprint),
+                                )
+                                .await
+                            {
+                                Ok(id) => Some(id),
+                                Err(e) => {
+                                    tracing::error!(
+                                        "APPROVAL CREATION FAILURE (unknown_tool): {}",
+                                        e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                        let response = make_denial_response(&id, &error_data.to_string());
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
                 crate::tool_registry::TrustLevel::Untrusted { score } => {
                     let action = extract_action(&tool_name, &arguments);
-                    let reason = format!(
-                        "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
-                    );
-                    let verdict = Verdict::RequireApproval {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
+                    match self
+                        .presented_approval_matches_action(
+                            presented_approval_id.as_deref(),
                             &action,
-                            &verdict,
-                            json!({"source": "proxy", "registry": "untrusted_tool", "tool": tool_name}),
                         )
                         .await
                     {
-                        tracing::error!("AUDIT FAILURE: {}", e);
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                        }
+                        Err(()) => {
+                            let verdict = Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            };
+                            if let Err(e) = self
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "proxy",
+                                        "registry": "untrusted_tool",
+                                        "tool": tool_name,
+                                        "approval_id": presented_approval_id,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::error!("AUDIT FAILURE: {}", e);
+                            }
+                            let response =
+                                make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON);
+                            write_message(agent_writer, &response)
+                                .await
+                                .map_err(ProxyError::Framing)?;
+                            return Ok(());
+                        }
+                        Ok(None) => {}
                     }
-                    // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
-                    let approval_id = if let Some(ref store) = self.approval_store {
-                        let action_fingerprint = fingerprint_action(&action);
-                        match store
-                            .create(action, reason.clone(), None, None, Some(action_fingerprint))
+                    if matched_approval_id.is_none() {
+                        let reason = format!(
+                            "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
+                        );
+                        let verdict = Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({"source": "proxy", "registry": "untrusted_tool", "tool": tool_name}),
+                            )
                             .await
                         {
-                            Ok(id) => Some(id),
-                            Err(e) => {
-                                tracing::error!(
-                                    "APPROVAL CREATION FAILURE (untrusted_tool): {}",
-                                    e
-                                );
-                                None
-                            }
+                            tracing::error!("AUDIT FAILURE: {}", e);
                         }
-                    } else {
-                        None
-                    };
-                    let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
-                    let response = make_denial_response(&id, &error_data.to_string());
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                        // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
+                        let approval_id = if let Some(ref store) = self.approval_store {
+                            let action_fingerprint = fingerprint_action(&action);
+                            match store
+                                .create(
+                                    action,
+                                    reason.clone(),
+                                    None,
+                                    None,
+                                    Some(action_fingerprint),
+                                )
+                                .await
+                            {
+                                Ok(id) => Some(id),
+                                Err(e) => {
+                                    tracing::error!(
+                                        "APPROVAL CREATION FAILURE (untrusted_tool): {}",
+                                        e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                        let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                        let response = make_denial_response(&id, &error_data.to_string());
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
                 crate::tool_registry::TrustLevel::Trusted => {
                     // Trusted — proceed to engine evaluation
@@ -1384,6 +1618,25 @@ impl ProxyBridge {
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
         let (decision, eval_trace) =
             self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
+        let decision = match decision {
+            ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => match self
+                .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                .await
+            {
+                Ok(Some(approval_id)) => {
+                    matched_approval_id = Some(approval_id);
+                    ProxyDecision::Forward
+                }
+                Err(()) => ProxyDecision::Block(
+                    make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                    Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                ),
+                Ok(None) => ProxyDecision::Block(response, verdict),
+            },
+            other => other,
+        };
         match decision {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R78-002): ABAC refinement — only runs when ABAC
@@ -1477,23 +1730,6 @@ impl ProxyBridge {
                         }
                     }
                 }
-
-                // SECURITY (FIND-R52-009): Audit allowed tool calls for full observability.
-                // Compliance frameworks (EU AI Act Art 50, SOC 2) require tracking all
-                // decisions, not just denials.
-                let meta = Self::tool_call_audit_metadata(&tool_name, ann);
-                if let Err(e) = self.audit.log_entry(&action, &Verdict::Allow, meta).await {
-                    tracing::warn!("Audit log failed for allowed tool call: {}", e);
-                }
-                // Record tool call in registry on Allow
-                if let Some(ref registry) = self.tool_registry {
-                    registry.record_call(&tool_name).await;
-                }
-                state.record_forwarded_action(&tool_name);
-                // SECURITY (FIND-R150-003): Truncate tool_name before storing in
-                // PendingRequest — parity with passthrough handler (line ~2057).
-                let truncated_tool: String = tool_name.chars().take(256).collect();
-                state.track_pending_request(&id, truncated_tool, eval_trace);
 
                 // Consumer shield: record outbound context BEFORE sanitization
                 // (so the user's local context preserves original text, not PII placeholders)
@@ -1613,6 +1849,62 @@ impl ProxyBridge {
                         }
                     }
                 }
+
+                if let Err(()) = self
+                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
+                    .await
+                {
+                    let verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "tool_call_denied",
+                                "tool": tool_name,
+                                "approval_id": matched_approval_id.as_deref(),
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (FIND-R52-009): Audit allowed tool calls for full observability.
+                // Compliance frameworks (EU AI Act Art 50, SOC 2) require tracking all
+                // decisions, not just denials.
+                let mut meta = Self::tool_call_audit_metadata(&tool_name, ann);
+                if let Some(ref approval_id) = matched_approval_id {
+                    if let Some(obj) = meta.as_object_mut() {
+                        obj.insert(
+                            "approval_id".to_string(),
+                            Value::String(approval_id.clone()),
+                        );
+                    }
+                }
+                if let Err(e) = self.audit.log_entry(&action, &Verdict::Allow, meta).await {
+                    tracing::warn!("Audit log failed for allowed tool call: {}", e);
+                }
+                // Record tool call in registry on Allow
+                if let Some(ref registry) = self.tool_registry {
+                    registry.record_call(&tool_name).await;
+                }
+                state.record_forwarded_action(&tool_name);
+                // SECURITY (FIND-R150-003): Truncate tool_name before storing in
+                // PendingRequest — parity with passthrough handler (line ~2057).
+                let truncated_tool: String = tool_name.chars().take(256).collect();
+                state.track_pending_request(&id, truncated_tool, eval_trace);
 
                 write_message(child_stdin, &msg)
                     .await
@@ -2066,27 +2358,38 @@ impl ProxyBridge {
         if self.engine.has_ip_rules() {
             resolve_domains(&mut action).await;
         }
+        let presented_approval_id = Self::extract_approval_id_from_meta(&msg);
+        let mut matched_approval_id: Option<String> = None;
 
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
-        match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
-            ProxyDecision::Forward => {
-                // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
-                if let Err(e) = self
-                    .audit
-                    .log_entry(
-                        &action,
-                        &Verdict::Allow,
-                        json!({"source": "proxy", "resource_uri": uri}),
-                    )
-                    .await
-                {
-                    tracing::warn!("Audit log failed for allowed resource read: {}", e);
+        let decision =
+            match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
+                ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => {
+                    match self
+                        .presented_approval_matches_action(
+                            presented_approval_id.as_deref(),
+                            &action,
+                        )
+                        .await
+                    {
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                            ProxyDecision::Forward
+                        }
+                        Err(()) => ProxyDecision::Block(
+                            make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                            Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            },
+                        ),
+                        Ok(None) => ProxyDecision::Block(response, verdict),
+                    }
                 }
-                // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
-                state.record_forwarded_action("resources/read");
-                state.track_pending_request(&id, "resources/read".to_string(), None);
-
+                other => other,
+            };
+        match decision {
+            ProxyDecision::Forward => {
                 // SECURITY (R233-SHIELD-2): PII sanitization for resource reads.
                 #[cfg(feature = "consumer-shield")]
                 let msg = if let Some(ref sanitizer) = self.shield_sanitizer {
@@ -2120,6 +2423,58 @@ impl ProxyBridge {
                 } else {
                     msg
                 };
+
+                if let Err(()) = self
+                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
+                    .await
+                {
+                    let verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "resource_read_denied",
+                                "resource_uri": uri,
+                                "approval_id": matched_approval_id.as_deref(),
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
+                // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
+                let mut audit_meta = json!({"source": "proxy", "resource_uri": uri});
+                if let Some(ref approval_id) = matched_approval_id {
+                    if let Some(obj) = audit_meta.as_object_mut() {
+                        obj.insert(
+                            "approval_id".to_string(),
+                            Value::String(approval_id.clone()),
+                        );
+                    }
+                }
+                if let Err(e) = self
+                    .audit
+                    .log_entry(&action, &Verdict::Allow, audit_meta)
+                    .await
+                {
+                    tracing::warn!("Audit log failed for allowed resource read: {}", e);
+                }
+                // SECURITY (R38-MCP-2): Update call_counts and action_history for ResourceRead.
+                state.record_forwarded_action("resources/read");
+                state.track_pending_request(&id, "resources/read".to_string(), None);
 
                 write_message(child_stdin, &msg)
                     .await
@@ -3480,9 +3835,32 @@ impl ProxyBridge {
         }
 
         let action = extract_task_action(&task_method, task_id.as_deref());
+        let presented_approval_id = Self::extract_approval_id_from_meta(&msg);
+        let mut matched_approval_id: Option<String> = None;
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
-        match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+        let eval_result = match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+            Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
+                match self
+                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                    .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Ok((Verdict::Allow, trace))
+                    }
+                    Err(()) => Ok((
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        },
+                        trace,
+                    )),
+                    Ok(None) => Ok((verdict, trace)),
+                }
+            }
+            other => other,
+        };
+        match eval_result {
             Ok((Verdict::Allow, _trace)) => {
                 // SECURITY (FIND-R80-006): ABAC refinement — only runs when ABAC
                 // engine is configured. If the PolicyEngine allowed the action,
@@ -3577,18 +3955,57 @@ impl ProxyBridge {
                     }
                 }
 
+                if let Err(()) = self
+                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
+                    .await
+                {
+                    let verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "task_request_denied",
+                                "task_method": safe_task_method,
+                                "task_id": safe_task_id,
+                                "approval_id": matched_approval_id.as_deref(),
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 if let Err(e) = self
                     .audit
-                    .log_entry(
-                        &action,
-                        &Verdict::Allow,
-                        json!({
-                            "source": "proxy",
-                            "event": "task_request_forwarded",
-                            "task_method": safe_task_method,
-                            "task_id": safe_task_id,
-                        }),
-                    )
+                    .log_entry(&action, &Verdict::Allow, {
+                        let mut meta = json!({
+                        "source": "proxy",
+                        "event": "task_request_forwarded",
+                        "task_method": safe_task_method,
+                        "task_id": safe_task_id,
+                        });
+                        if let Some(ref approval_id) = matched_approval_id {
+                            if let Some(obj) = meta.as_object_mut() {
+                                obj.insert(
+                                    "approval_id".to_string(),
+                                    Value::String(approval_id.clone()),
+                                );
+                            }
+                        }
+                        meta
+                    })
                     .await
                 {
                     tracing::warn!("Audit log failed: {}", e);
@@ -3602,13 +4019,11 @@ impl ProxyBridge {
                     .await
                     .map_err(ProxyError::Framing)?;
             }
-            Ok((verdict @ Verdict::Deny { .. }, _))
-            | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+            Ok((verdict @ Verdict::Deny { .. }, _)) => {
                 // SECURITY (FIND-R166-001/002): Extract reason without unreachable!().
                 // Verdict is #[non_exhaustive] — future variants must not panic.
                 let _reason = match &verdict {
                     Verdict::Deny { reason } => reason.clone(),
-                    Verdict::RequireApproval { reason } => reason.clone(),
                     other => format!("Denied by policy: {other:?}"),
                 };
                 // SECURITY (R239-MCP-4): Genericize deny reason in response to avoid
@@ -3620,6 +4035,36 @@ impl ProxyBridge {
                     .log_entry(
                         &action,
                         &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "task_request_denied",
+                            "task_method": safe_task_method,
+                            "task_id": safe_task_id,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+            Ok((Verdict::RequireApproval { reason }, _)) => {
+                let mut response =
+                    make_approval_response(&id, "Request blocked: security policy violation");
+                if let Some(approval_id) =
+                    self.create_pending_approval(&action, &reason, None).await
+                {
+                    Self::inject_approval_id(&mut response, approval_id);
+                }
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        },
                         json!({
                             "source": "proxy",
                             "event": "task_request_denied",
@@ -3721,6 +4166,8 @@ impl ProxyBridge {
 
         let params = msg.get("params").cloned().unwrap_or(json!({}));
         let action = extract_extension_action(&extension_id, &method, &params);
+        let presented_approval_id = Self::extract_approval_id_from_meta(&msg);
+        let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (R230-RELAY-2): Circuit breaker check for extension methods.
         // Parity with handle_tool_call (line 692).
@@ -3896,8 +4343,29 @@ impl ProxyBridge {
 
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
+        let eval_result = match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+            Ok((verdict @ Verdict::RequireApproval { .. }, trace)) => {
+                match self
+                    .presented_approval_matches_action(presented_approval_id.as_deref(), &action)
+                    .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Ok((Verdict::Allow, trace))
+                    }
+                    Err(()) => Ok((
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        },
+                        trace,
+                    )),
+                    Ok(None) => Ok((verdict, trace)),
+                }
+            }
+            other => other,
+        };
 
-        match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
+        match eval_result {
             Ok((Verdict::Allow, _trace)) => {
                 // SECURITY (FIND-R80-007): ABAC refinement — only runs when ABAC
                 // engine is configured. If the PolicyEngine allowed the action,
@@ -4209,22 +4677,61 @@ impl ProxyBridge {
                     return Ok(());
                 }
 
+                if let Err(()) = self
+                    .consume_presented_approval(matched_approval_id.as_deref(), &action)
+                    .await
+                {
+                    let verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    if let Err(e) = self
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "extension_method_denied",
+                                "extension_id": safe_extension_id,
+                                "method": safe_ext_method,
+                                "approval_id": matched_approval_id.as_deref(),
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Audit log failed for approval consume denial: {}", e);
+                    }
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+
                 // SECURITY (FIND-R46-004): Fingerprint extension method parameters
                 // for future memory poisoning detection in downstream calls.
                 state.memory_tracker.extract_from_value(&params);
 
                 if let Err(e) = self
                     .audit
-                    .log_entry(
-                        &action,
-                        &Verdict::Allow,
-                        json!({
-                            "source": "proxy",
-                            "event": "extension_method_forwarded",
-                            "extension_id": safe_extension_id,
-                            "method": safe_ext_method,
-                        }),
-                    )
+                    .log_entry(&action, &Verdict::Allow, {
+                        let mut meta = json!({
+                        "source": "proxy",
+                        "event": "extension_method_forwarded",
+                        "extension_id": safe_extension_id,
+                        "method": safe_ext_method,
+                        });
+                        if let Some(ref approval_id) = matched_approval_id {
+                            if let Some(obj) = meta.as_object_mut() {
+                                obj.insert(
+                                    "approval_id".to_string(),
+                                    Value::String(approval_id.clone()),
+                                );
+                            }
+                        }
+                        meta
+                    })
                     .await
                 {
                     tracing::warn!("Audit log failed: {}", e);
@@ -4237,8 +4744,7 @@ impl ProxyBridge {
                     .await
                     .map_err(ProxyError::Framing)?;
             }
-            Ok((verdict @ Verdict::Deny { .. }, _))
-            | Ok((verdict @ Verdict::RequireApproval { .. }, _)) => {
+            Ok((verdict @ Verdict::Deny { .. }, _)) => {
                 // SECURITY (R238-MCP-7): Genericize deny reason — do not leak
                 // policy details to the agent. The actual reason is still logged
                 // in the audit entry below.
@@ -4249,6 +4755,36 @@ impl ProxyBridge {
                     .log_entry(
                         &action,
                         &verdict,
+                        json!({
+                            "source": "proxy",
+                            "event": "extension_method_denied",
+                            "extension_id": safe_extension_id,
+                            "method": safe_ext_method,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Audit log failed: {}", e);
+                }
+                write_message(agent_writer, &response)
+                    .await
+                    .map_err(ProxyError::Framing)?;
+            }
+            Ok((Verdict::RequireApproval { reason }, _)) => {
+                let mut response =
+                    make_approval_response(&id, "Request blocked: security policy violation");
+                if let Some(approval_id) =
+                    self.create_pending_approval(&action, &reason, None).await
+                {
+                    Self::inject_approval_id(&mut response, approval_id);
+                }
+                if let Err(e) = self
+                    .audit
+                    .log_entry(
+                        &action,
+                        &Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        },
                         json!({
                             "source": "proxy",
                             "event": "extension_method_denied",
@@ -5996,6 +6532,10 @@ fn build_server_decl_from_tools_list(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use vellaveto_approval::ApprovalStore;
+    use vellaveto_engine::PolicyEngine;
 
     fn empty_request_principal_binding() -> RequestPrincipalBinding {
         RequestPrincipalBinding {
@@ -6052,6 +6592,179 @@ mod tests {
         state.record_forwarded_action("read_file");
         state.record_forwarded_action("read_file");
         assert_eq!(state.call_counts.get("read_file"), Some(&2));
+    }
+
+    #[tokio::test]
+    async fn test_presented_approval_matches_action_accepts_matching_approved_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("read_file", &json!({"path": "/tmp/test"}));
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Approval required".to_string(),
+                None,
+                None,
+                Some(fingerprint_action(&action)),
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        let matched = bridge
+            .presented_approval_matches_action(Some(&approval_id), &action)
+            .await
+            .unwrap();
+        assert_eq!(matched.as_deref(), Some(approval_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_presented_approval_matches_action_rejects_legacy_unbound_approval() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("read_file", &json!({"path": "/tmp/test"}));
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Approval required".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        assert!(bridge
+            .presented_approval_matches_action(Some(&approval_id), &action)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_presented_approval_matches_action_rejects_mismatched_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let approved_action = extract_action("read_file", &json!({"path": "/tmp/test"}));
+        let approval_id = store
+            .create(
+                approved_action.clone(),
+                "Approval required".to_string(),
+                None,
+                None,
+                Some(fingerprint_action(&approved_action)),
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        let mismatched_action = extract_action("read_file", &json!({"path": "/etc/passwd"}));
+        assert!(bridge
+            .presented_approval_matches_action(Some(&approval_id), &mismatched_action)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_pending_approval_binds_action_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action =
+            extract_extension_action("x-custom", "x-custom/run", &json!({"path": "/tmp/test"}));
+        let approval_id = bridge
+            .create_pending_approval(&action, "Approval required", None)
+            .await
+            .unwrap();
+        let approval = store.get(&approval_id).await.unwrap();
+
+        assert_eq!(
+            approval.action_fingerprint.as_deref(),
+            Some(fingerprint_action(&action).as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("read_file", &json!({"path": "/tmp/test"}));
+        let approval_id = store
+            .create(
+                action.clone(),
+                "Approval required".to_string(),
+                None,
+                None,
+                Some(fingerprint_action(&action)),
+            )
+            .await
+            .unwrap();
+        store.approve(&approval_id, "reviewer").await.unwrap();
+
+        bridge
+            .consume_presented_approval(Some(&approval_id), &action)
+            .await
+            .unwrap();
+        assert!(bridge
+            .consume_presented_approval(Some(&approval_id), &action)
+            .await
+            .is_err());
+        assert_eq!(
+            store.get(&approval_id).await.unwrap().status,
+            ApprovalStatus::Consumed
+        );
+    }
+
+    #[test]
+    fn test_inject_approval_id_sets_error_data_field() {
+        let mut response = make_approval_response(&json!(7), "Approval required");
+        ProxyBridge::inject_approval_id(&mut response, "apr-123".to_string());
+
+        assert_eq!(response["error"]["data"]["approval_id"], "apr-123");
     }
 
     #[test]

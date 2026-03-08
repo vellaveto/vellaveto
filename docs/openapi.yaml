@@ -148,7 +148,7 @@ paths:
         and returns a verdict (Allow, Deny, or RequireApproval). The action's
         parameters are redacted in the response for security. A caller may
         optionally present `x-vellaveto-approval-id` to retry the same action
-        with an already approved, scope-matching approval.
+        with an already approved, scope-matching, single-use approval.
       tags: [Evaluation]
       parameters:
         - name: trace
@@ -162,10 +162,15 @@ paths:
           required: false
           schema:
             type: string
+            minLength: 1
+            maxLength: 128
           description: |
-            Previously approved approval ID to reuse for the same action.
-            The server fails closed unless the approval is approved and bound
-            to the current sanitized action fingerprint.
+            Previously approved approval ID to reuse for the same sanitized action.
+            Values must be valid UTF-8, 1-128 characters, and free of unsafe
+            control characters. The server fails closed unless the approval is
+            approved, any stored session binding matches the current request,
+            the current sanitized action fingerprint matches, and the approval
+            has not already been consumed by a prior successful allow.
       requestBody:
         required: true
         content:
@@ -420,6 +425,10 @@ paths:
                 properties:
                   count:
                     type: integer
+                  total:
+                    type: integer
+                  truncated:
+                    type: boolean
                   approvals:
                     type: array
                     items:
@@ -435,6 +444,10 @@ paths:
       responses:
         "200":
           description: Approval details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalEntry"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -446,7 +459,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ApprovalId"
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -454,6 +467,10 @@ paths:
       responses:
         "200":
           description: Request approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalEntry"
 
   /api/approvals/{id}/deny:
     post:
@@ -463,7 +480,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ApprovalId"
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
@@ -471,6 +488,10 @@ paths:
       responses:
         "200":
           description: Request denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalEntry"
 
   # ═══════════════════════════════════════════════════════════════════════════
   # AUDIT
@@ -2886,7 +2907,9 @@ components:
       required: true
       schema:
         type: string
+        minLength: 1
         maxLength: 128
+      description: Approval ID (1-128 chars, no control characters)
 
   responses:
     BadRequest:
@@ -3137,7 +3160,7 @@ components:
           type: string
           description: |
             Present when verdict is RequireApproval, or when a presented
-            approved approval authorized the action.
+            approved single-use approval authorized and was consumed by the action.
         trace:
           type: object
           description: Detailed evaluation trace (when trace=true)
@@ -3333,14 +3356,33 @@ components:
           type: string
         action:
           $ref: "#/components/schemas/Action"
+        reason:
+          type: string
         status:
           type: string
-          enum: [pending, approved, denied, expired]
+          enum: [pending, approved, consumed, denied, expired]
         requested_by:
           type: string
         created_at:
           type: string
           format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        resolved_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        consumed_at:
+          type: string
+          format: date-time
+          nullable: true
+        session_id:
+          type: string
+        action_fingerprint:
+          type: string
 
     AuditEntry:
       type: object

@@ -54,6 +54,8 @@ use super::origin::validate_origin;
 use super::ProxyState;
 use crate::proxy_metrics::record_dlp_finding;
 
+const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
+
 /// Configuration for WebSocket transport.
 #[derive(Debug, Clone)]
 pub struct WebSocketConfig {
@@ -750,6 +752,8 @@ async fn relay_client_to_upstream(
                     }
                 }
 
+                let presented_approval_id = super::helpers::extract_approval_id_from_meta(&parsed);
+
                 // Classify and evaluate
                 let classified = extractor::classify_message(&parsed);
                 match classified {
@@ -777,6 +781,7 @@ async fn relay_client_to_upstream(
                         }
 
                         let mut action = extractor::extract_action(tool_name, arguments);
+                        let mut matched_approval_id: Option<String> = None;
 
                         // SECURITY (FIND-R75-002): DNS resolution for IP-based policy evaluation.
                         // Parity with HTTP handler (handlers.rs:717). Without this, policies
@@ -1052,93 +1057,185 @@ async fn relay_client_to_upstream(
                             let trust = registry.check_trust_level(tool_name).await;
                             match trust {
                                 vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
-                                    registry.register_unknown(tool_name).await;
-                                    let verdict = Verdict::Deny {
-                                        reason: "Unknown tool requires approval".to_string(),
-                                    };
-                                    if let Err(e) = state
-                                        .audit
-                                        .log_entry(
-                                            &action,
-                                            &verdict,
-                                            json!({
-                                                "source": "ws_proxy",
-                                                "session": session_id,
-                                                "transport": "websocket",
-                                                "registry": "unknown_tool",
-                                                "tool": tool_name,
-                                            }),
-                                        )
-                                        .await
-                                    {
-                                        tracing::warn!("Failed to audit WS unknown tool: {}", e);
-                                    }
-                                    let approval_reason = "Approval required";
-                                    let approval_id = create_ws_approval(
+                                    match super::helpers::presented_approval_matches_action(
                                         &state,
                                         &session_id,
+                                        presented_approval_id.as_deref(),
                                         &action,
-                                        approval_reason,
                                     )
-                                    .await;
-                                    let error = make_ws_error_response_with_data(
-                                        Some(id),
-                                        -32001,
-                                        approval_reason,
-                                        Some(json!({
-                                            "verdict": "require_approval",
-                                            "reason": approval_reason,
-                                            "approval_id": approval_id,
-                                        })),
-                                    );
-                                    let mut sink = client_sink.lock().await;
-                                    let _ = sink.send(Message::Text(error.into())).await;
-                                    continue;
+                                    .await
+                                    {
+                                        Ok(Some(approval_id)) => {
+                                            matched_approval_id = Some(approval_id);
+                                        }
+                                        Ok(None) => {
+                                            registry.register_unknown(tool_name).await;
+                                            let verdict = Verdict::Deny {
+                                                reason: "Unknown tool requires approval"
+                                                    .to_string(),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "registry": "unknown_tool",
+                                                        "tool": tool_name,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS unknown tool: {}",
+                                                    e
+                                                );
+                                            }
+                                            let approval_reason = "Approval required";
+                                            let approval_id = create_ws_approval(
+                                                &state,
+                                                &session_id,
+                                                &action,
+                                                approval_reason,
+                                            )
+                                            .await;
+                                            let error = make_ws_error_response_with_data(
+                                                Some(id),
+                                                -32001,
+                                                approval_reason,
+                                                Some(json!({
+                                                    "verdict": "require_approval",
+                                                    "reason": approval_reason,
+                                                    "approval_id": approval_id,
+                                                })),
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error.into())).await;
+                                            continue;
+                                        }
+                                        Err(()) => {
+                                            let verdict = Verdict::Deny {
+                                                reason: INVALID_PRESENTED_APPROVAL_REASON
+                                                    .to_string(),
+                                            };
+                                            let _ = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "registry": "unknown_tool",
+                                                        "approval_id": presented_approval_id,
+                                                    }),
+                                                )
+                                                .await;
+                                            let error = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 }
                                 vellaveto_mcp::tool_registry::TrustLevel::Untrusted {
                                     score: _,
                                 } => {
-                                    let verdict = Verdict::Deny {
-                                        reason: "Untrusted tool requires approval".to_string(),
-                                    };
-                                    if let Err(e) = state
-                                        .audit
-                                        .log_entry(
-                                            &action,
-                                            &verdict,
-                                            json!({
-                                                "source": "ws_proxy",
-                                                "session": session_id,
-                                                "transport": "websocket",
-                                                "registry": "untrusted_tool",
-                                                "tool": tool_name,
-                                            }),
-                                        )
-                                        .await
-                                    {
-                                        tracing::warn!("Failed to audit WS untrusted tool: {}", e);
-                                    }
-                                    let approval_reason = "Approval required";
-                                    let approval_id = create_ws_approval(
+                                    match super::helpers::presented_approval_matches_action(
                                         &state,
                                         &session_id,
+                                        presented_approval_id.as_deref(),
                                         &action,
-                                        approval_reason,
                                     )
-                                    .await;
-                                    let error = make_ws_error_response_with_data(
-                                        Some(id),
-                                        -32001,
-                                        approval_reason,
-                                        Some(json!({
-                                            "verdict": "require_approval",
-                                            "reason": approval_reason,
-                                            "approval_id": approval_id,
-                                        })),
-                                    );
-                                    let mut sink = client_sink.lock().await;
-                                    let _ = sink.send(Message::Text(error.into())).await;
-                                    continue;
+                                    .await
+                                    {
+                                        Ok(Some(approval_id)) => {
+                                            matched_approval_id = Some(approval_id);
+                                        }
+                                        Ok(None) => {
+                                            let verdict = Verdict::Deny {
+                                                reason: "Untrusted tool requires approval"
+                                                    .to_string(),
+                                            };
+                                            if let Err(e) = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "registry": "untrusted_tool",
+                                                        "tool": tool_name,
+                                                    }),
+                                                )
+                                                .await
+                                            {
+                                                tracing::warn!(
+                                                    "Failed to audit WS untrusted tool: {}",
+                                                    e
+                                                );
+                                            }
+                                            let approval_reason = "Approval required";
+                                            let approval_id = create_ws_approval(
+                                                &state,
+                                                &session_id,
+                                                &action,
+                                                approval_reason,
+                                            )
+                                            .await;
+                                            let error = make_ws_error_response_with_data(
+                                                Some(id),
+                                                -32001,
+                                                approval_reason,
+                                                Some(json!({
+                                                    "verdict": "require_approval",
+                                                    "reason": approval_reason,
+                                                    "approval_id": approval_id,
+                                                })),
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error.into())).await;
+                                            continue;
+                                        }
+                                        Err(()) => {
+                                            let verdict = Verdict::Deny {
+                                                reason: INVALID_PRESENTED_APPROVAL_REASON
+                                                    .to_string(),
+                                            };
+                                            let _ = state
+                                                .audit
+                                                .log_entry(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "ws_proxy",
+                                                        "session": session_id,
+                                                        "transport": "websocket",
+                                                        "registry": "untrusted_tool",
+                                                        "approval_id": presented_approval_id,
+                                                    }),
+                                                )
+                                                .await;
+                                            let error = make_ws_error_response(
+                                                Some(id),
+                                                -32001,
+                                                "Denied by policy",
+                                            );
+                                            let mut sink = client_sink.lock().await;
+                                            let _ = sink.send(Message::Text(error.into())).await;
+                                            continue;
+                                        }
+                                    }
                                 }
                                 vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
                                     // Trusted — proceed to engine evaluation
@@ -1230,6 +1327,33 @@ async fn relay_client_to_upstream(
                                 }
                             };
                             (verdict, EvaluationContext::default())
+                        };
+
+                        let verdict = match verdict {
+                            Verdict::RequireApproval { reason } => {
+                                if matched_approval_id.is_some() {
+                                    Verdict::Allow
+                                } else {
+                                    match super::helpers::presented_approval_matches_action(
+                                        &state,
+                                        &session_id,
+                                        presented_approval_id.as_deref(),
+                                        &action,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some(approval_id)) => {
+                                            matched_approval_id = Some(approval_id);
+                                            Verdict::Allow
+                                        }
+                                        Ok(None) => Verdict::RequireApproval { reason },
+                                        Err(()) => Verdict::Deny {
+                                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                        },
+                                    }
+                                }
+                            }
+                            other => other,
                         };
 
                         match verdict {
@@ -1335,6 +1459,25 @@ async fn relay_client_to_upstream(
                                 // NOTE: Session touch + call_counts/action_history
                                 // update already performed inside the TOCTOU-safe
                                 // block above (FIND-R130-002). No separate update here.
+
+                                if super::helpers::consume_presented_approval(
+                                    &state,
+                                    &session_id,
+                                    matched_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                .is_err()
+                                {
+                                    let error_resp = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Denied by policy",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error_resp.into())).await;
+                                    continue;
+                                }
 
                                 // Audit the allow
                                 if let Err(e) = state
@@ -1632,6 +1775,7 @@ async fn relay_client_to_upstream(
 
                         // Build action for resource read
                         let mut action = extractor::extract_resource_action(uri);
+                        let mut matched_approval_id: Option<String> = None;
 
                         // SECURITY (FIND-R75-002): DNS resolution for resource reads.
                         // Parity with HTTP handler (handlers.rs:1543).
@@ -1805,6 +1949,29 @@ async fn relay_client_to_upstream(
                             (verdict, EvaluationContext::default())
                         };
 
+                        let verdict = match verdict {
+                            Verdict::RequireApproval { reason } => {
+                                match super::helpers::presented_approval_matches_action(
+                                    &state,
+                                    &session_id,
+                                    presented_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                {
+                                    Ok(Some(approval_id)) => {
+                                        matched_approval_id = Some(approval_id);
+                                        Verdict::Allow
+                                    }
+                                    Ok(None) => Verdict::RequireApproval { reason },
+                                    Err(()) => Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    },
+                                }
+                            }
+                            other => other,
+                        };
+
                         match verdict {
                             Verdict::Allow => {
                                 // SECURITY (FIND-R116-002): ABAC refinement for resource reads.
@@ -1900,6 +2067,25 @@ async fn relay_client_to_upstream(
                                 // NOTE: Session touch + call_counts/action_history
                                 // update already performed inside the TOCTOU-safe
                                 // block above (FIND-R130-002). No separate update here.
+
+                                if super::helpers::consume_presented_approval(
+                                    &state,
+                                    &session_id,
+                                    matched_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                .is_err()
+                                {
+                                    let error_resp = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Denied by policy",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error_resp.into())).await;
+                                    continue;
+                                }
 
                                 // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
                                 if let Err(e) = state
@@ -2322,6 +2508,7 @@ async fn relay_client_to_upstream(
                         // Policy-evaluate task requests (async operations)
                         let action =
                             extractor::extract_task_action(task_method, task_id.as_deref());
+                        let mut matched_approval_id: Option<String> = None;
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval for task
                         // requests. Context is built inside the DashMap shard lock to
                         // prevent stale snapshot evaluation races.
@@ -2400,6 +2587,29 @@ async fn relay_client_to_upstream(
                                 }
                             };
                             (verdict, EvaluationContext::default())
+                        };
+
+                        let verdict = match verdict {
+                            Verdict::RequireApproval { reason } => {
+                                match super::helpers::presented_approval_matches_action(
+                                    &state,
+                                    &session_id,
+                                    presented_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                {
+                                    Ok(Some(approval_id)) => {
+                                        matched_approval_id = Some(approval_id);
+                                        Verdict::Allow
+                                    }
+                                    Ok(None) => Verdict::RequireApproval { reason },
+                                    Err(()) => Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    },
+                                }
+                            }
+                            other => other,
                         };
 
                         match verdict {
@@ -2491,6 +2701,25 @@ async fn relay_client_to_upstream(
                                             continue;
                                         }
                                     }
+                                }
+
+                                if super::helpers::consume_presented_approval(
+                                    &state,
+                                    &session_id,
+                                    matched_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                .is_err()
+                                {
+                                    let error_resp = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Denied by policy",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error_resp.into())).await;
+                                    continue;
                                 }
 
                                 if let Err(e) = state
@@ -2732,6 +2961,7 @@ async fn relay_client_to_upstream(
 
                         let mut action =
                             extractor::extract_extension_action(extension_id, method, &params);
+                        let mut matched_approval_id: Option<String> = None;
 
                         // SECURITY (FIND-R118-004): DNS resolution for extension methods.
                         // Parity with ToolCall (line 710) and ResourceRead (line 1439).
@@ -2814,6 +3044,29 @@ async fn relay_client_to_upstream(
                                 }
                             };
                             (verdict, EvaluationContext::default())
+                        };
+
+                        let verdict = match verdict {
+                            Verdict::RequireApproval { reason } => {
+                                match super::helpers::presented_approval_matches_action(
+                                    &state,
+                                    &session_id,
+                                    presented_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                {
+                                    Ok(Some(approval_id)) => {
+                                        matched_approval_id = Some(approval_id);
+                                        Verdict::Allow
+                                    }
+                                    Ok(None) => Verdict::RequireApproval { reason },
+                                    Err(()) => Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    },
+                                }
+                            }
+                            other => other,
                         };
 
                         match verdict {
@@ -2912,6 +3165,25 @@ async fn relay_client_to_upstream(
                                 // NOTE: Session touch + call_counts/action_history
                                 // update already performed inside the TOCTOU-safe
                                 // block above (FIND-R130-002). No separate update here.
+
+                                if super::helpers::consume_presented_approval(
+                                    &state,
+                                    &session_id,
+                                    matched_approval_id.as_deref(),
+                                    &action,
+                                )
+                                .await
+                                .is_err()
+                                {
+                                    let error_resp = make_ws_error_response(
+                                        Some(id),
+                                        -32001,
+                                        "Denied by policy",
+                                    );
+                                    let mut sink = client_sink.lock().await;
+                                    let _ = sink.send(Message::Text(error_resp.into())).await;
+                                    continue;
+                                }
 
                                 if let Err(e) = state
                                     .audit

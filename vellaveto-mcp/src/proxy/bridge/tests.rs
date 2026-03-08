@@ -2053,6 +2053,33 @@ fn test_extract_agent_id_rejects_null_byte() {
     assert!(id.is_none(), "Agent ID with null byte should be rejected");
 }
 
+#[test]
+fn test_extract_approval_id_from_meta_nested_in_params() {
+    let msg = json!({
+        "params": {
+            "_meta": {
+                "approval_id": "apr-123"
+            }
+        }
+    });
+    let approval_id = ProxyBridge::extract_approval_id_from_meta(&msg);
+    assert_eq!(approval_id.as_deref(), Some("apr-123"));
+}
+
+#[test]
+fn test_extract_approval_id_from_meta_rejects_control_chars() {
+    let msg = json!({"_meta": {"approval_id": "apr\x00bad"}});
+    let approval_id = ProxyBridge::extract_approval_id_from_meta(&msg);
+    assert!(approval_id.is_none());
+}
+
+#[test]
+fn test_extract_approval_id_from_meta_missing_field_returns_none() {
+    let msg = json!({"method": "tools/call"});
+    let approval_id = ProxyBridge::extract_approval_id_from_meta(&msg);
+    assert!(approval_id.is_none());
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // evaluation.rs: tool_call_audit_metadata — destructive variant
 // ─────────────────────────────────────────────────────────────────────

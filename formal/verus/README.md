@@ -13,7 +13,8 @@ capability exact parent-glob/child-glob subset checking,
 capability grant attenuation, capability literal matching fast paths,
 capability pattern attenuation, capability holder/issuer identity-chain
 guards, NHI delegation terminal-state/participant/link/depth guards,
-fixed-point entropy alert gating,
+approval scope binding, single-use approval consumption, presented approval-id
+validation, server approval-id validation, fixed-point entropy alert gating,
 cross-call DLP tracker gating, DLP buffer arithmetic, and path normalization using
 [Verus](https://github.com/verus-lang/verus).
 
@@ -23,6 +24,7 @@ Each standalone kernel now binds itself to a checker-enforced kernel-scoped
 assumption contract rather than the whole shared boundary.
 The Merkle and audit-filesystem trust boundaries are also mirrored as explicit
 Verus axiom modules under `formal/verus/`.
+The current suite covers 40 standalone kernels / 523 verified items.
 The canonical multi-file entrypoint is now
 `cargo-verus verify --manifest-path formal/verus/Cargo.toml`.
 The local shell wrapper keeps a direct per-file `verus` fallback unless
@@ -740,6 +742,60 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_bound_fingerprint_binding_requires_present_match` | Fingerprint-scoped approvals only succeed when the request presents the exact bound fingerprint |
 | `lemma_scope_requires_all_bound_dimensions` | Combined scope checking is fail-closed across both bound dimensions |
 
+### Approval Consumption Guards (`verified_approval_consumption.rs`) — 7 verified items
+
+Properties proven for ALL possible inputs:
+
+| Property | Meaning |
+|----------|---------|
+| Approved-only consumption | Only approvals still in `Approved` can be consumed |
+| Fingerprint-bound consumption | Consumption is rejected unless an `action_fingerprint` binding exists |
+| Matching-scope consumption | Consumption is rejected unless the current request matches the bound fingerprint |
+
+Verification result: **7 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_consumption_requires_approved_bound_matching_scope` | Single-use consumption succeeds only when the approval is approved, bound, and scope-matching |
+
+### Presented Approval ID Guards (`verified_presented_approval_id.rs`) — 6 verified items
+
+Properties proven for ALL possible inputs:
+
+| Property | Meaning |
+|----------|---------|
+| Transport length cap | `_meta.approval_id` is accepted only when its length is at most 256 bytes |
+| Dangerous-character rejection | Control and otherwise dangerous characters always fail validation |
+| Safe bounded acceptance | A bounded value without dangerous characters is always accepted |
+
+Verification result: **6 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_presented_approval_id_requires_safe_bounded_value` | Transport-presented approval IDs are admitted iff they are within the cap and free of dangerous characters |
+
+### Server Approval ID Guards (`verified_server_approval_id.rs`) — 6 verified items
+
+Properties proven for ALL possible inputs:
+
+| Property | Meaning |
+|----------|---------|
+| Non-empty bounded server ID | HTTP approval IDs are accepted only when their length is in `1..=128` |
+| Unsafe-character rejection | Control and unsafe characters always fail validation |
+| Safe bounded acceptance | A non-empty bounded value without unsafe characters is always accepted |
+
+Verification result: **6 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_server_approval_id_requires_safe_bounded_value` | Server approval IDs are admitted iff they are non-empty, within the public cap, and free of unsafe characters |
+
 ### NHI Delegation Guards (`verified_nhi_delegation.rs`) — 19 verified items, NHI-DEL-1–NHI-DEL-8
 
 Properties proven for ALL possible inputs:
@@ -971,6 +1027,9 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate before the relay consumes it |
 | `formal/verus/verified_evaluation_context_projection.rs` | `vellaveto-mcp/src/verified_evaluation_context_projection.rs` | `relay.rs` routes engine-visible principal selection and synthetic delegation-depth projection through the combined verified evaluation-context gate |
 | `formal/verus/verified_approval_scope.rs` | `vellaveto-approval/src/verified_approval_scope.rs` | `PendingApproval::scope_matches()` routes `session_id` and `action_fingerprint` through the shared fail-closed approval-scope gate before approval reuse decisions |
+| `formal/verus/verified_approval_consumption.rs` | `vellaveto-approval/src/verified_approval_consumption.rs` | `ApprovalStore::consume_approved()` routes approved-state and action-fingerprint scope checks through the shared single-use consumption gate before transitioning to `Consumed` |
+| `formal/verus/verified_presented_approval_id.rs` | `vellaveto-approval/src/verified_presented_approval_id.rs` | `extract_presented_approval_id_from_rpc_meta()` routes `_meta.approval_id` length and dangerous-character checks through the shared validation gate used by the MCP relay and HTTP proxy |
+| `formal/verus/verified_server_approval_id.rs` | `vellaveto-server/src/verified_approval_id.rs` | `routes/approval.rs` routes path/header approval ID validation through the verified server approval-id gate, and `routes/main.rs` reuses that validator for `x-vellaveto-approval-id` |
 | `formal/verus/verified_transport_context.rs` | `vellaveto-types/src/verified_transport_context.rs` | `vellaveto-server/src/routes/main.rs` and `relay.rs` route `agent_identity` and `capability_token` through the shared fail-closed transport projection gate |
 | `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
 | `formal/verus/verified_capability_domain.rs` | `vellaveto-mcp/src/verified_capability_domain.rs` | `capability_token.rs` routes `allowed_domains` coverage and subset checks through the verified domain normalization/matching/containment kernel |
@@ -1062,6 +1121,15 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_eva
 
 # Shared approval scope binding gate (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_approval_scope.rs
+
+# Shared approval single-use consumption gate (7 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_approval_consumption.rs
+
+# Shared `_meta.approval_id` validation gate (6 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_presented_approval_id.rs
+
+# HTTP server approval-id validation gate (6 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_server_approval_id.rs
 
 # Shared fail-closed transport projection for sensitive context fields (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_transport_context.rs
@@ -1186,6 +1254,9 @@ Expected output:
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_evaluation_context_projection.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_approval_scope.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_approval_consumption.rs`: `verification results:: 7 verified, 0 errors`
+- `verified_presented_approval_id.rs`: `verification results:: 6 verified, 0 errors`
+- `verified_server_approval_id.rs`: `verification results:: 6 verified, 0 errors`
 - `verified_transport_context.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_domain.rs`: `verification results:: 16 verified, 0 errors`

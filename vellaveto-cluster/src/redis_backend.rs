@@ -393,6 +393,49 @@ else
 end
 "#;
 
+/// Lua script for atomic single-use approval consumption.
+///
+/// Returns:
+/// - 1 when the approval was consumed
+/// - 0 when the approval exists but is not usable for this request
+/// - Redis nil when the approval key does not exist
+const CONSUME_APPROVED_SCRIPT: &str = r#"
+local approval_key = KEYS[1]
+local json = redis.call('GET', approval_key)
+if not json then
+    return nil
+end
+
+local approval = cjson.decode(json)
+if approval['status'] ~= 'Approved' then
+    return 0
+end
+
+local bound_fingerprint = approval['action_fingerprint']
+if not bound_fingerprint or bound_fingerprint == cjson.null then
+    return 0
+end
+
+local requested_fingerprint = ARGV[1]
+if requested_fingerprint == '' or requested_fingerprint ~= bound_fingerprint then
+    return 0
+end
+
+local bound_session = approval['session_id']
+local requested_session = ARGV[2]
+if bound_session and bound_session ~= cjson.null then
+    if requested_session == '' or requested_session ~= bound_session then
+        return 0
+    end
+end
+
+approval['status'] = 'Consumed'
+approval['consumed_at'] = ARGV[3]
+redis.call('SET', approval_key, cjson.encode(approval))
+redis.call('EXPIRE', approval_key, tonumber(ARGV[4]))
+return 1
+"#;
+
 #[async_trait]
 impl ClusterBackend for RedisBackend {
     async fn approval_create(
@@ -519,6 +562,7 @@ impl ClusterBackend for RedisBackend {
             status: ApprovalStatus::Pending,
             resolved_by: None,
             resolved_at: None,
+            consumed_at: None,
             requested_by,
             session_id,
             action_fingerprint,
@@ -715,9 +759,43 @@ impl ClusterBackend for RedisBackend {
         approval.status = ApprovalStatus::Approved;
         approval.resolved_by = Some(by.to_string());
         approval.resolved_at = Some(now);
+        approval.consumed_at = None;
 
         self.persist_and_cleanup(&mut conn, &approval).await?;
         Ok(approval)
+    }
+
+    async fn approval_consume_approved(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ClusterError> {
+        validate_approval_id_for_redis(id)?;
+
+        let mut conn = self.get_conn().await?;
+        let consumed_at = chrono::Utc::now().to_rfc3339();
+        let result: Option<i32> = deadpool_redis::redis::Script::new(CONSUME_APPROVED_SCRIPT)
+            .key(self.approval_key(id))
+            .arg(action_fingerprint.unwrap_or_default())
+            .arg(session_id.unwrap_or_default())
+            .arg(consumed_at)
+            .arg(3600)
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|e| {
+                ClusterError::Connection(format!("Redis approval consume failed: {}", e))
+            })?;
+
+        match result {
+            Some(1) => Ok(true),
+            Some(0) => Ok(false),
+            Some(other) => Err(ClusterError::Backend(format!(
+                "Unexpected Redis approval consume result: {}",
+                other
+            ))),
+            None => Err(ClusterError::NotFound(id.to_string())),
+        }
     }
 
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError> {
@@ -790,6 +868,7 @@ impl ClusterBackend for RedisBackend {
         approval.status = ApprovalStatus::Denied;
         approval.resolved_by = Some(by.to_string());
         approval.resolved_at = Some(now);
+        approval.consumed_at = None;
 
         self.persist_and_cleanup(&mut conn, &approval).await?;
         Ok(approval)

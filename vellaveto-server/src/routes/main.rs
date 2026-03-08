@@ -2577,47 +2577,59 @@ async fn evaluate(
     // If RequireApproval, create a pending approval.
     // Fail-closed: if approval creation fails, convert to Deny so the caller
     // can't proceed without a resolvable approval_id.
-    let (verdict, approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
-        match presented_approval_matches_action(&state, presented_approval_id.as_deref(), &action)
+    let (mut verdict, mut approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
+        if let Some(id) = gate_approval_id.clone() {
+            (Verdict::Allow, Some(id))
+        } else {
+            match presented_approval_matches_action(
+                &state,
+                presented_approval_id.as_deref(),
+                &action,
+            )
             .await
-        {
-            Ok(Some(id)) => (Verdict::Allow, Some(id)),
-            Err(()) => (
-                Verdict::Deny {
-                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                },
-                None,
-            ),
-            Ok(None) => {
-                // SECURITY (R9-2): Record the requester identity so the approval endpoint
-                // can enforce separation of privilege (different principal must approve).
-                let requester =
-                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
-                let requested_by = if requester != "anonymous" {
-                    Some(requester)
-                } else {
-                    None
-                };
-                match state
-                    .create_approval(
-                        action.clone(),
-                        reason.clone(),
-                        requested_by,
-                        None,
-                        Some(fingerprint_action(&action)),
-                    )
-                    .await
-                {
-                    Ok(id) => (verdict, Some(id)),
-                    Err(e) => {
-                        tracing::error!("Failed to create approval (fail-closed → Deny): {:?}", e);
-                        let deny_reason = "Approval required but could not be created".to_string();
-                        (
-                            Verdict::Deny {
-                                reason: deny_reason,
-                            },
+            {
+                Ok(Some(id)) => (Verdict::Allow, Some(id)),
+                Err(()) => (
+                    Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                    None,
+                ),
+                Ok(None) => {
+                    // SECURITY (R9-2): Record the requester identity so the approval endpoint
+                    // can enforce separation of privilege (different principal must approve).
+                    let requester =
+                        crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
+                    let requested_by = if requester != "anonymous" {
+                        Some(requester)
+                    } else {
+                        None
+                    };
+                    match state
+                        .create_approval(
+                            action.clone(),
+                            reason.clone(),
+                            requested_by,
                             None,
+                            Some(fingerprint_action(&action)),
                         )
+                        .await
+                    {
+                        Ok(id) => (verdict, Some(id)),
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to create approval (fail-closed → Deny): {:?}",
+                                e
+                            );
+                            let deny_reason =
+                                "Approval required but could not be created".to_string();
+                            (
+                                Verdict::Deny {
+                                    reason: deny_reason,
+                                },
+                                None,
+                            )
+                        }
                     }
                 }
             }
@@ -2627,7 +2639,40 @@ async fn evaluate(
     } else {
         (verdict, None)
     };
-    let audit_approval_id = approval_id.clone().or(gate_approval_id.clone());
+
+    if matches!(verdict, Verdict::Allow) {
+        if let Some(ref approval_id_to_consume) = approval_id {
+            let action_fingerprint = fingerprint_action(&action);
+            match state
+                .consume_approved_approval(
+                    approval_id_to_consume,
+                    None,
+                    Some(action_fingerprint.as_str()),
+                )
+                .await
+            {
+                Ok(true) => {}
+                Ok(false) | Err(_) => {
+                    tracing::warn!(
+                        approval_id = %approval_id_to_consume,
+                        "Presented approval could not be consumed for this action"
+                    );
+                    verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    approval_id = None;
+                }
+            }
+        }
+    }
+    let audit_approval_id = if matches!(verdict, Verdict::Allow) {
+        approval_id.clone()
+    } else {
+        approval_id
+            .clone()
+            .or(gate_approval_id.clone())
+            .or(presented_approval_id.clone())
+    };
 
     // Record metrics (both internal AtomicU64 and Prometheus)
     state.metrics.record_evaluation(&verdict);
@@ -3321,6 +3366,38 @@ mod tests {
         let metadata = extract_negotiated_tls_metadata(request.headers())
             .expect("valid fallback alias should provide protocol metadata");
         assert_eq!(metadata.protocol.as_deref(), Some("TLSv1.2"));
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_accepts_valid_header() {
+        let request = build_request(&[(APPROVAL_ID_HEADER, "apr-123")]);
+        let approval_id = extract_presented_approval_id(request.headers());
+        assert!(approval_id.is_ok());
+        assert_eq!(
+            approval_id.ok().and_then(|value| value),
+            Some("apr-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_rejects_invalid_utf8_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            APPROVAL_ID_HEADER,
+            axum::http::HeaderValue::from_bytes(b"\xFF").expect("opaque header value"),
+        );
+
+        let err = extract_presented_approval_id(&headers).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0.error.contains("valid UTF-8"));
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_rejects_invalid_characters() {
+        let request = build_request(&[(APPROVAL_ID_HEADER, "apr\tbad")]);
+        let err = extract_presented_approval_id(request.headers()).unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1 .0.error.contains("invalid characters"));
     }
 
     #[test]

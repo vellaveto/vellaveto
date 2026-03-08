@@ -117,12 +117,12 @@ Required JWT claims:
 
 ### Verdict
 
-All verdict responses include one of:
+The `verdict` payload includes one of:
 
 ```json
 { "verdict": { "Allow": {} } }
 { "verdict": { "Deny": { "reason": "blocked by policy: credential-block" } } }
-{ "verdict": { "RequireApproval": { "reason": "dangerous command", "approval_id": "apr-123" } } }
+{ "verdict": { "RequireApproval": { "reason": "dangerous command" } }, "approval_id": "apr-123" }
 ```
 
 ---
@@ -245,7 +245,7 @@ Evaluate an action against loaded policies.
 
 ```json
 {
-  "verdict": "Allow",
+  "verdict": { "Allow": {} },
   "action": {
     "tool": "file_read",
     "function": "read",
@@ -276,7 +276,7 @@ curl -X POST http://localhost:3000/api/evaluate \
 
 # Response: 200 OK
 {
-  "verdict": "Allow",
+  "verdict": { "Allow": {} },
   "action": { "tool": "file_read", "function": "read" }
 }
 ```
@@ -331,16 +331,21 @@ curl -X POST http://localhost:3000/api/evaluate \
 **Optional Approval Header**
 
 `POST /api/evaluate` accepts an optional `x-vellaveto-approval-id` header. Present a
-previously approved `approval_id` to retry the same action without creating a new
-pending approval.
+previously approved `approval_id` to retry the same sanitized action once without
+creating a new pending approval.
 
+- The header value must be valid UTF-8, 1-128 characters, and free of unsafe
+  control characters.
 - The approval must already be `approved`.
+- If the approval is session-bound, the current `context.session_id` must match.
 - The approval must be bound to the exact action fingerprint computed from the
   sanitized request.
-- Pending, denied, expired, legacy-unbound, or mismatched approvals fail closed
-  as `Deny`.
+- A successful allow consumes the approval; later replays of the same
+  `approval_id` fail closed.
+- Pending, denied, consumed, expired, legacy-unbound, or mismatched approvals
+  fail closed as `Deny`.
 
-**Example: Reuse an Approved Approval**
+**Example: Reuse a Single Approved Approval**
 
 ```bash
 curl -X POST http://localhost:3000/api/evaluate \
@@ -355,11 +360,15 @@ curl -X POST http://localhost:3000/api/evaluate \
 
 # Response: 200 OK
 {
-  "verdict": "Allow",
+  "verdict": { "Allow": {} },
   "action": { "tool": "bash", "function": "execute" },
   "approval_id": "apr-abc123"
 }
 ```
+
+If the same client presents `apr-abc123` again after this successful allow, the
+server denies the replay because the approval has already transitioned to
+`consumed`.
 
 ---
 
@@ -480,16 +489,26 @@ List all pending approval requests.
 
 ```json
 {
+  "count": 1,
+  "total": 1,
+  "truncated": false,
   "approvals": [
     {
       "id": "apr-abc123",
       "action": {
         "tool": "bash",
-        "function": "execute"
+        "function": "execute",
+        "parameters": {
+          "command": "[REDACTED]"
+        }
       },
       "reason": "dangerous command: rm -rf",
-      "requested_at": "2026-02-08T10:00:00Z",
-      "requested_by": "agent-123"
+      "status": "pending",
+      "created_at": "2026-02-08T10:00:00Z",
+      "expires_at": "2026-02-08T11:00:00Z",
+      "requested_by": "agent-123",
+      "session_id": "sess-456",
+      "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
     }
   ]
 }
@@ -523,10 +542,17 @@ Get details for a specific approval request.
   },
   "reason": "dangerous command: rm -rf",
   "status": "pending",
-  "requested_at": "2026-02-08T10:00:00Z",
-  "requested_by": "agent-123"
+  "created_at": "2026-02-08T10:00:00Z",
+  "expires_at": "2026-02-08T11:00:00Z",
+  "requested_by": "agent-123",
+  "session_id": "sess-456",
+  "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
 }
 ```
+
+`status` may be `pending`, `approved`, `consumed`, `denied`, or `expired`.
+`consumed_at` is populated after a successful single-use reuse through
+`POST /api/evaluate`.
 
 ---
 
@@ -555,10 +581,23 @@ Approve a pending request.
 
 ```json
 {
-  "message": "Approval granted",
   "id": "apr-abc123",
+  "action": {
+    "tool": "bash",
+    "function": "execute",
+    "parameters": {
+      "command": "[REDACTED]"
+    }
+  },
+  "reason": "dangerous command: rm -rf",
+  "status": "approved",
+  "created_at": "2026-02-08T10:00:00Z",
+  "expires_at": "2026-02-08T11:00:00Z",
   "resolved_by": "operator@example.com",
-  "approved_at": "2026-02-08T10:05:00Z"
+  "resolved_at": "2026-02-08T10:05:00Z",
+  "requested_by": "agent-123",
+  "session_id": "sess-456",
+  "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
 }
 ```
 
@@ -589,10 +628,23 @@ Deny a pending request.
 
 ```json
 {
-  "message": "Approval denied",
   "id": "apr-abc123",
-  "denied_by": "operator@example.com",
-  "denied_at": "2026-02-08T10:05:00Z"
+  "action": {
+    "tool": "bash",
+    "function": "execute",
+    "parameters": {
+      "command": "[REDACTED]"
+    }
+  },
+  "reason": "dangerous command: rm -rf",
+  "status": "denied",
+  "created_at": "2026-02-08T10:00:00Z",
+  "expires_at": "2026-02-08T11:00:00Z",
+  "resolved_by": "operator@example.com",
+  "resolved_at": "2026-02-08T10:05:00Z",
+  "requested_by": "agent-123",
+  "session_id": "sess-456",
+  "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
 }
 ```
 

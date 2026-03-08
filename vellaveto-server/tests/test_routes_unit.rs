@@ -60,6 +60,17 @@ impl ClusterBackend for UnhealthyClusterBackend {
         ))
     }
 
+    async fn approval_consume_approved(
+        &self,
+        _id: &str,
+        _session_id: Option<&str>,
+        _action_fingerprint: Option<&str>,
+    ) -> Result<bool, ClusterError> {
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
+    }
+
     async fn approval_deny(&self, _id: &str, _by: &str) -> Result<PendingApproval, ClusterError> {
         Err(ClusterError::Connection(
             "mock backend unavailable".to_string(),

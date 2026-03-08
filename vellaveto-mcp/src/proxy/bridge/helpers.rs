@@ -83,6 +83,15 @@ impl ProxyBridge {
         Some(raw.to_string())
     }
 
+    /// Extract a presented approval ID from MCP message `_meta`.
+    ///
+    /// Accepts both top-level `_meta` and nested `params._meta`, matching the
+    /// existing agent-id extraction rules. Length-capped and control-char
+    /// filtered so malformed approval IDs fail closed before store lookup.
+    pub(super) fn extract_approval_id_from_meta(msg: &Value) -> Option<String> {
+        vellaveto_approval::extract_presented_approval_id_from_rpc_meta(msg)
+    }
+
     /// Persist a flagged tool to the JSONL file.
     ///
     /// Appends a single line: `{"tool":"<name>","flagged_at":"<ISO8601>","reason":"<reason>"}`

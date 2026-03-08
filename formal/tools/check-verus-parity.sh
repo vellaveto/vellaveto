@@ -84,15 +84,28 @@ PROD_DELEGATION_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_delegation_p
 PROD_DEPUTY_HANDOFF="$PROJECT_DIR/vellaveto-mcp/src/verified_deputy_handoff.rs"
 PROD_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_evaluation_context_projection.rs"
 PROD_TRANSPORT_CONTEXT="$PROJECT_DIR/vellaveto-types/src/verified_transport_context.rs"
+PROD_PRESENTED_APPROVAL_ID="$PROJECT_DIR/vellaveto-approval/src/verified_presented_approval_id.rs"
+PROD_SERVER_APPROVAL_ID="$PROJECT_DIR/vellaveto-server/src/verified_approval_id.rs"
+PROD_APPROVAL_CONSUMPTION="$PROJECT_DIR/vellaveto-approval/src/verified_approval_consumption.rs"
 PROD_APPROVAL_SCOPE="$PROJECT_DIR/vellaveto-approval/src/verified_approval_scope.rs"
 PROD_RELAY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
 PROD_SERVER_CONTEXT_WRAPPER="$PROJECT_DIR/vellaveto-server/src/routes/main.rs"
+PROD_SERVER_APPROVAL_ROUTE="$PROJECT_DIR/vellaveto-server/src/routes/approval.rs"
+PROD_HTTP_PROXY_HANDLERS="$PROJECT_DIR/vellaveto-http-proxy/src/proxy/handlers.rs"
+PROD_HTTP_PROXY_GRPC_SERVICE="$PROJECT_DIR/vellaveto-http-proxy/src/proxy/grpc/service.rs"
+PROD_HTTP_PROXY_WEBSOCKET="$PROJECT_DIR/vellaveto-http-proxy/src/proxy/websocket/mod.rs"
+PROD_HTTP_PROXY_HELPERS="$PROJECT_DIR/vellaveto-http-proxy/src/proxy/helpers.rs"
+PROD_MCP_HELPERS="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/helpers.rs"
 PROD_APPROVAL_WRAPPER="$PROJECT_DIR/vellaveto-approval/src/lib.rs"
+PROD_REDIS_BACKEND="$PROJECT_DIR/vellaveto-cluster/src/redis_backend.rs"
 VERUS_BRIDGE_PRINCIPAL="$PROJECT_DIR/formal/verus/verified_bridge_principal.rs"
 VERUS_DELEGATION_PROJECTION="$PROJECT_DIR/formal/verus/verified_delegation_projection.rs"
 VERUS_DEPUTY_HANDOFF="$PROJECT_DIR/formal/verus/verified_deputy_handoff.rs"
 VERUS_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/formal/verus/verified_evaluation_context_projection.rs"
 VERUS_TRANSPORT_CONTEXT="$PROJECT_DIR/formal/verus/verified_transport_context.rs"
+VERUS_PRESENTED_APPROVAL_ID="$PROJECT_DIR/formal/verus/verified_presented_approval_id.rs"
+VERUS_SERVER_APPROVAL_ID="$PROJECT_DIR/formal/verus/verified_server_approval_id.rs"
+VERUS_APPROVAL_CONSUMPTION="$PROJECT_DIR/formal/verus/verified_approval_consumption.rs"
 VERUS_APPROVAL_SCOPE="$PROJECT_DIR/formal/verus/verified_approval_scope.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
@@ -183,6 +196,9 @@ for module in \
     verified_delegation_projection \
     verified_deputy_handoff \
     verified_evaluation_context_projection \
+    verified_presented_approval_id \
+    verified_server_approval_id \
+    verified_approval_consumption \
     verified_approval_scope \
     verified_transport_context \
     verified_capability_context \
@@ -423,6 +439,151 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+project_evaluation_context'
 echo ""
 
+echo "--- Presented Approval ID Kernel ---"
+check_file_pair \
+    "verified_presented_approval_id.rs ↔ vellaveto-approval/src/verified_presented_approval_id.rs" \
+    "$PROD_PRESENTED_APPROVAL_ID" \
+    "$VERUS_PRESENTED_APPROVAL_ID"
+for fn in \
+    presented_approval_id_length_valid \
+    presented_approval_id_value_accepted
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_PRESENTED_APPROVAL_ID" \
+        "pub[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_PRESENTED_APPROVAL_ID" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "shared RPC meta approval extractor uses the verified presented-approval-id kernel" \
+    "$PROD_APPROVAL_WRAPPER" \
+    'verified_presented_approval_id::presented_approval_id_value_accepted' \
+    "$VERUS_PRESENTED_APPROVAL_ID" \
+    'pub[[:space:]]+fn[[:space:]]+presented_approval_id_value_accepted'
+check_symbol_parity \
+    "MCP relay helper uses the shared RPC meta approval extractor" \
+    "$PROD_MCP_HELPERS" \
+    'extract_presented_approval_id_from_rpc_meta' \
+    "$VERUS_PRESENTED_APPROVAL_ID" \
+    'pub[[:space:]]+fn[[:space:]]+presented_approval_id_value_accepted'
+check_symbol_parity \
+    "HTTP proxy helper uses the shared RPC meta approval extractor" \
+    "$PROD_HTTP_PROXY_HELPERS" \
+    'extract_presented_approval_id_from_rpc_meta' \
+    "$VERUS_PRESENTED_APPROVAL_ID" \
+    'pub[[:space:]]+fn[[:space:]]+presented_approval_id_value_accepted'
+echo ""
+
+echo "--- Server Approval ID Kernel ---"
+check_file_pair \
+    "verified_server_approval_id.rs ↔ vellaveto-server/src/verified_approval_id.rs" \
+    "$PROD_SERVER_APPROVAL_ID" \
+    "$VERUS_SERVER_APPROVAL_ID"
+for fn in \
+    server_approval_id_length_valid \
+    server_approval_id_value_accepted
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_SERVER_APPROVAL_ID" \
+        "pub[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_SERVER_APPROVAL_ID" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "server approval route validator uses the verified server approval-id kernel" \
+    "$PROD_SERVER_APPROVAL_ROUTE" \
+    'verified_approval_id::server_approval_id_value_accepted' \
+    "$VERUS_SERVER_APPROVAL_ID" \
+    'pub[[:space:]]+fn[[:space:]]+server_approval_id_value_accepted'
+check_symbol_parity \
+    "server evaluate route validates the presented approval header through validate_approval_id" \
+    "$PROD_SERVER_CONTEXT_WRAPPER" \
+    'super::approval::validate_approval_id\(approval_id\)' \
+    "$VERUS_SERVER_APPROVAL_ID" \
+    'pub[[:space:]]+fn[[:space:]]+server_approval_id_value_accepted'
+echo ""
+
+echo "--- Approval Consumption Kernel ---"
+check_file_pair \
+    "verified_approval_consumption.rs ↔ vellaveto-approval/src/verified_approval_consumption.rs" \
+    "$PROD_APPROVAL_CONSUMPTION" \
+    "$VERUS_APPROVAL_CONSUMPTION"
+for fn in \
+    approval_status_allows_consumption \
+    approval_binding_allows_consumption \
+    approval_consumption_permitted
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_APPROVAL_CONSUMPTION" \
+        "pub[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_APPROVAL_CONSUMPTION" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "ApprovalStore::consume_approved uses the verified approval-consumption kernel" \
+    "$PROD_APPROVAL_WRAPPER" \
+    'verified_approval_consumption::approval_consumption_permitted' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "ApprovalStore::consume_approved transitions permitted approvals to Consumed" \
+    "$PROD_APPROVAL_WRAPPER" \
+    'approval\.status[[:space:]]*=[[:space:]]*ApprovalStatus::Consumed' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "server evaluate route consumes presented approvals on allow" \
+    "$PROD_SERVER_CONTEXT_WRAPPER" \
+    'consume_approved_approval\(' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "relay final-allow path consumes presented approvals" \
+    "$PROD_RELAY_WRAPPER" \
+    '\.consume_presented_approval\(matched_approval_id\.as_deref\(\),[[:space:]]*&action\)' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "http proxy JSON-RPC path consumes presented approvals" \
+    "$PROD_HTTP_PROXY_HANDLERS" \
+    'consume_presented_approval\(' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "http proxy WebSocket path consumes presented approvals" \
+    "$PROD_HTTP_PROXY_WEBSOCKET" \
+    'consume_presented_approval\(' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "http proxy gRPC path consumes presented approvals" \
+    "$PROD_HTTP_PROXY_GRPC_SERVICE" \
+    'consume_presented_approval\(' \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+check_symbol_parity \
+    "Redis consume script rejects non-Approved approvals" \
+    "$PROD_REDIS_BACKEND" \
+    "approval\\['status'\\][[:space:]]*~=[[:space:]]*'Approved'" \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_status_allows_consumption'
+check_symbol_parity \
+    "Redis consume script rejects approvals without action fingerprints" \
+    "$PROD_REDIS_BACKEND" \
+    "if[[:space:]]+not[[:space:]]+bound_fingerprint[[:space:]]+or[[:space:]]+bound_fingerprint[[:space:]]*==[[:space:]]*cjson\\.null" \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_binding_allows_consumption'
+check_symbol_parity \
+    "Redis consume script transitions successful consumes to Consumed" \
+    "$PROD_REDIS_BACKEND" \
+    "approval\\['status'\\][[:space:]]*=[[:space:]]*'Consumed'" \
+    "$VERUS_APPROVAL_CONSUMPTION" \
+    'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
+echo ""
+
 echo "--- Approval Scope Kernel ---"
 check_file_pair \
     "verified_approval_scope.rs ↔ vellaveto-approval/src/verified_approval_scope.rs" \
@@ -450,6 +611,18 @@ check_symbol_parity \
     "server evaluate route uses approval scope matching for presented approvals" \
     "$PROD_SERVER_CONTEXT_WRAPPER" \
     'scope_matches\(None,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    "$VERUS_APPROVAL_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
+check_symbol_parity \
+    "relay presented approval matcher uses approval scope matching" \
+    "$PROD_RELAY_WRAPPER" \
+    'scope_matches\(None,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    "$VERUS_APPROVAL_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
+check_symbol_parity \
+    "http proxy presented approval matcher uses session-bound approval scope matching" \
+    "$PROD_HTTP_PROXY_HELPERS" \
+    'scope_matches\(Some\(session_id\),[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
     "$VERUS_APPROVAL_SCOPE" \
     'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
 echo ""

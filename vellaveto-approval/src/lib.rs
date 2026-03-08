@@ -7,6 +7,7 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,14 +20,16 @@ use uuid::Uuid;
 use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::Action;
 
+pub mod verified_approval_consumption;
 pub mod verified_approval_scope;
+pub mod verified_presented_approval_id;
 
 #[derive(Error, Debug)]
 pub enum ApprovalError {
     /// The requested approval ID does not exist in the store.
     #[error("Approval not found: {0}")]
     NotFound(String),
-    /// The approval has already been approved, denied, or expired and cannot be
+    /// The approval has already been approved, consumed, denied, or expired and cannot be
     /// resolved again.
     #[error("Approval already resolved: {0}")]
     AlreadyResolved(String),
@@ -55,10 +58,11 @@ pub enum ApprovalError {
 /// State transitions:
 /// ```text
 /// Pending --> Approved  (via approve())
+/// Approved --> Consumed (via consume_approved())
 /// Pending --> Denied    (via deny())
 /// Pending --> Expired   (via expire_stale() or on-access TTL check)
 /// ```
-/// Once resolved (Approved/Denied/Expired), the status is terminal and
+/// Once resolved (Approved/Consumed/Denied/Expired), the status is terminal and
 /// cannot be changed. Attempting to resolve an already-resolved approval
 /// returns `ApprovalError::AlreadyResolved`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -70,6 +74,9 @@ pub enum ApprovalStatus {
     /// The approval was approved by a reviewer. The `resolved_by` and
     /// `resolved_at` fields on `PendingApproval` are populated.
     Approved,
+    /// The approval was successfully consumed by an enforcement path.
+    /// `consumed_at` records when the approved action was first used.
+    Consumed,
     /// The approval was denied by a reviewer. The `resolved_by` and
     /// `resolved_at` fields on `PendingApproval` are populated.
     Denied,
@@ -91,6 +98,8 @@ pub struct PendingApproval {
     pub status: ApprovalStatus,
     pub resolved_by: Option<String>,
     pub resolved_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumed_at: Option<DateTime<Utc>>,
     /// SECURITY (R9-2): Identity of the agent/principal that requested this approval.
     /// Derived from the authenticated Bearer token hash at creation time.
     /// Used to prevent self-approval: the resolver must differ from the requester.
@@ -161,6 +170,42 @@ pub const MAX_SESSION_ID_LEN: usize = 512;
 ///
 /// SECURITY (E3-1): SHA-256 hex = 64 chars; allow headroom for future algorithms.
 pub const MAX_FINGERPRINT_LEN: usize = 128;
+
+/// Extract a presented approval ID from a JSON-RPC message `_meta`.
+///
+/// Accepts both top-level `_meta` and nested `params._meta`. The value is
+/// length-capped and control-char filtered so malformed approval IDs fail
+/// closed before any store lookup.
+#[must_use = "security decisions must not be discarded"]
+pub fn extract_presented_approval_id_from_rpc_meta(msg: &Value) -> Option<String> {
+    let meta = msg
+        .get("_meta")
+        .or_else(|| msg.get("params").and_then(|params| params.get("_meta")))?;
+    let raw = meta.get("approval_id").and_then(|value| value.as_str())?;
+
+    let length_valid =
+        verified_presented_approval_id::presented_approval_id_length_valid(raw.len());
+    let contains_dangerous_chars = vellaveto_types::has_dangerous_chars(raw);
+    if !verified_presented_approval_id::presented_approval_id_value_accepted(
+        length_valid,
+        contains_dangerous_chars,
+    ) {
+        if !length_valid {
+            tracing::warn!(
+                len = raw.len(),
+                max = verified_presented_approval_id::MAX_PRESENTED_APPROVAL_ID_LEN,
+                "presented approval_id in _meta exceeds maximum length — ignoring"
+            );
+        } else {
+            tracing::warn!(
+                "presented approval_id in _meta contains control or Unicode format characters — ignoring"
+            );
+        }
+        return None;
+    }
+
+    Some(raw.to_string())
+}
 
 /// Compute a deduplication key from an action and reason.
 ///
@@ -593,6 +638,7 @@ impl ApprovalStore {
             status: ApprovalStatus::Pending,
             resolved_by: None,
             resolved_at: None,
+            consumed_at: None,
             requested_by,
             session_id,
             action_fingerprint,
@@ -788,6 +834,7 @@ impl ApprovalStore {
         approval.status = ApprovalStatus::Approved;
         approval.resolved_by = Some(by.to_string());
         approval.resolved_at = Some(Utc::now());
+        approval.consumed_at = None;
 
         let result = approval.clone();
         // Remove from dedup index since it's no longer pending
@@ -803,6 +850,7 @@ impl ApprovalStore {
             approval.status = ApprovalStatus::Pending;
             approval.resolved_by = None;
             approval.resolved_at = None;
+            approval.consumed_at = None;
             let mut dedup = self.dedup_index.write().await;
             dedup.insert(dedup_key, id.to_string());
             return Err(e);
@@ -935,6 +983,7 @@ impl ApprovalStore {
         approval.status = ApprovalStatus::Denied;
         approval.resolved_by = Some(by.to_string());
         approval.resolved_at = Some(Utc::now());
+        approval.consumed_at = None;
 
         let result = approval.clone();
         // Remove from dedup index since it's no longer pending
@@ -949,6 +998,7 @@ impl ApprovalStore {
             approval.status = ApprovalStatus::Pending;
             approval.resolved_by = None;
             approval.resolved_at = None;
+            approval.consumed_at = None;
             let mut dedup = self.dedup_index.write().await;
             dedup.insert(dedup_key, id.to_string());
             return Err(e);
@@ -963,6 +1013,45 @@ impl ApprovalStore {
             .get(id)
             .cloned()
             .ok_or_else(|| ApprovalError::NotFound(id.to_string()))
+    }
+
+    /// Consume an approved approval exactly once for a matching scope binding.
+    ///
+    /// Returns `Ok(true)` when the approval was atomically consumed.
+    /// Returns `Ok(false)` when the approval exists but is not usable for this
+    /// request (for example because it is still pending, already consumed, lacks
+    /// an action-fingerprint binding, or does not match the presented scope).
+    pub async fn consume_approved(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ApprovalError> {
+        let mut pending = self.pending.write().await;
+        let approval = pending
+            .get_mut(id)
+            .ok_or_else(|| ApprovalError::NotFound(id.to_string()))?;
+
+        let scope_matches = approval.scope_matches(session_id, action_fingerprint);
+        if !verified_approval_consumption::approval_consumption_permitted(
+            approval.status == ApprovalStatus::Approved,
+            approval.action_fingerprint.is_some(),
+            scope_matches,
+        ) {
+            return Ok(false);
+        }
+
+        approval.status = ApprovalStatus::Consumed;
+        approval.consumed_at = Some(Utc::now());
+
+        let result = approval.clone();
+        if let Err(e) = self.persist_approval(&result).await {
+            approval.status = ApprovalStatus::Approved;
+            approval.consumed_at = None;
+            return Err(e);
+        }
+
+        Ok(true)
     }
 
     /// Return true when the given approval matches the provided scope bindings.
@@ -1012,7 +1101,7 @@ impl ApprovalStore {
     ///
     /// Persists the expired status to the JSONL file so restarts don't
     /// resurrect expired approvals as pending. Also removes resolved
-    /// (approved/denied/expired) entries older than 1 hour from memory
+    /// (approved/consumed/denied/expired) entries older than 1 hour from memory
     /// to prevent unbounded growth.
     pub async fn expire_stale(&self) -> usize {
         let now = Utc::now();
@@ -1050,10 +1139,10 @@ impl ApprovalStore {
 
         // Remove resolved entries older than 1 hour to prevent memory leaks
         let retention_cutoff = now - Duration::hours(1);
-        // SECURITY (FIND-R126-001): Use resolved_at for retention comparison.
+        // SECURITY (FIND-R126-001): Use the most recent terminal timestamp for retention comparison.
         pending.retain(|_, a| {
             a.status == ApprovalStatus::Pending
-                || a.resolved_at.unwrap_or(a.created_at) > retention_cutoff
+                || a.consumed_at.or(a.resolved_at).unwrap_or(a.created_at) > retention_cutoff
         });
 
         // Drop both locks before I/O operations
@@ -1152,6 +1241,62 @@ mod tests {
 
     fn sample_action_fingerprint() -> String {
         "a".repeat(64)
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_top_level() {
+        let msg = json!({"_meta": {"approval_id": "apr-top"}});
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert_eq!(approval_id.as_deref(), Some("apr-top"));
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_nested_in_params() {
+        let msg = json!({
+            "params": {
+                "_meta": {
+                    "approval_id": "apr-nested"
+                }
+            }
+        });
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert_eq!(approval_id.as_deref(), Some("apr-nested"));
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_prefers_top_level_meta() {
+        let msg = json!({
+            "_meta": {"approval_id": "apr-top"},
+            "params": {"_meta": {"approval_id": "apr-nested"}}
+        });
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert_eq!(approval_id.as_deref(), Some("apr-top"));
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_rejects_too_long() {
+        let msg = json!({
+            "_meta": {
+                "approval_id":
+                    "a".repeat(verified_presented_approval_id::MAX_PRESENTED_APPROVAL_ID_LEN + 1)
+            }
+        });
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert!(approval_id.is_none());
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_rejects_control_chars() {
+        let msg = json!({"_meta": {"approval_id": "apr\x00bad"}});
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert!(approval_id.is_none());
+    }
+
+    #[test]
+    fn test_extract_presented_approval_id_from_rpc_meta_missing_field_returns_none() {
+        let msg = json!({"method": "tools/call"});
+        let approval_id = extract_presented_approval_id_from_rpc_meta(&msg);
+        assert!(approval_id.is_none());
     }
 
     #[tokio::test]
@@ -3078,6 +3223,7 @@ mod tests {
             status: ApprovalStatus::Pending,
             resolved_by: None,
             resolved_at: None,
+            consumed_at: None,
             requested_by: Some("requester".to_string()),
             session_id: Some("session-a".to_string()),
             action_fingerprint: Some(action_fingerprint.clone()),
@@ -3129,6 +3275,120 @@ mod tests {
             .scope_matches(&id, Some(session_id.as_str()), None)
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_consume_approved_succeeds_once_and_sets_consumed_state() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+        store.approve(&id, "reviewer").await.unwrap();
+
+        assert!(store
+            .consume_approved(
+                &id,
+                Some(session_id.as_str()),
+                Some(action_fingerprint.as_str())
+            )
+            .await
+            .unwrap());
+        assert!(!store
+            .consume_approved(
+                &id,
+                Some(session_id.as_str()),
+                Some(action_fingerprint.as_str())
+            )
+            .await
+            .unwrap());
+
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Consumed);
+        assert!(approval.consumed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_consume_approved_rejects_scope_mismatch_without_consuming() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+        store.approve(&id, "reviewer").await.unwrap();
+
+        assert!(!store
+            .consume_approved(
+                &id,
+                Some("other-session"),
+                Some(action_fingerprint.as_str())
+            )
+            .await
+            .unwrap());
+
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Approved);
+        assert!(approval.consumed_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_consume_approved_rejects_legacy_unbound_approval_without_consuming() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(sample_session_id()),
+                None,
+            )
+            .await
+            .unwrap();
+        store.approve(&id, "reviewer").await.unwrap();
+
+        assert!(!store
+            .consume_approved(
+                &id,
+                Some("session-123"),
+                Some(sample_action_fingerprint().as_str())
+            )
+            .await
+            .unwrap());
+
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(approval.status, ApprovalStatus::Approved);
+        assert!(approval.consumed_at.is_none());
     }
 
     // ─────────────────────────────────────────────────────────────────────

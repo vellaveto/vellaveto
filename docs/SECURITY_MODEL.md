@@ -53,7 +53,7 @@ Each policy decision is written as a JSON Lines entry containing:
 
 ### Approval Queue (in-memory, optional file export)
 
-Pending human approvals store the full `Action` (including unredacted parameters) so reviewers can make informed decisions. Approvals expire after 1 hour (configurable TTL) and are capped at 10,000 pending entries. When an approval is reused on `/api/evaluate`, Vellaveto fails closed unless the presented approval is already approved and its stored scope bindings (`session_id` and/or `action_fingerprint`) match the current request.
+Pending human approvals store the full `Action` (including unredacted parameters) so reviewers can make informed decisions. Approvals expire after 1 hour (configurable TTL) and are capped at 10,000 pending entries. When an approval is reused on `/api/evaluate`, Vellaveto fails closed unless the presented approval is already approved, its stored scope bindings (`session_id` and/or `action_fingerprint`) match the current request, and the approval has not already been consumed by a prior successful allow. Successful reuse transitions the approval to `Consumed`, so replay attempts fail closed.
 
 **Self-approval prevention:** The `requested_by` identity must differ from the `resolved_by` identity.
 

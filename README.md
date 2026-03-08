@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/tests-10%2C550%2B_passing-brightgreen.svg" alt="Tests: 10,550+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-246_rounds-orange.svg" alt="246 Internal Security Audit Rounds"></a>
-    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-545%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 545+ properties | 7 tools"></a>
+    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-747%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 747+ properties | 7 tools"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
@@ -309,13 +309,13 @@ We use formal methods to prove — not just test — critical security propertie
 | Tool | What's Proven | Files |
 |---|---|---|
 | **TLA+** | Policy engine determinism, ABAC forbid-override correctness, workflow constraint enforcement, task lifecycle safety, cascading failure recovery | [formal/tla/](formal/tla/) |
-| **Verus** | Deductive verification on actual Rust (ALL inputs via Z3 SMT): verdict fail-closed (V1-V8), path normalization idempotence + no-traversal (V9-V10), rule override correctness (V11-V12), DLP buffer safety (D1-D6), capability holder/issuer identity-chain (CAP-ID-1–3), NHI delegation guards + revocation chain completeness (NHI-DEL-1–8), and safety-critical refinement obligations (R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH). 20 kernels, 321 verified items. | [formal/verus/](formal/verus/) |
+| **Verus** | Deductive verification on actual Rust (ALL inputs via Z3 SMT): verdict fail-closed (V1-V8), path normalization idempotence + no-traversal (V9-V10), rule override correctness (V11-V12), DLP buffer safety (D1-D6), approval scope binding and single-use consumption, transport and approval-ID sanitization, capability holder/issuer identity-chain (CAP-ID-1–3), NHI delegation guards + revocation chain completeness (NHI-DEL-1–8), and safety-critical refinement obligations (R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH). 40 kernels, 523 verified items. | [formal/verus/](formal/verus/) |
 | **Kani** | 77 bounded model checking harnesses on actual Rust: IP validation, cache safety, capability delegation, rule checking, constraint evaluation, task lifecycle, IDNA domain normalization, Unicode homoglyph security, RwLock poisoning safety, and more | [formal/kani/](formal/kani/) |
 | **Lean 4** | Fail-closed property (errors → Deny), evaluation determinism, path normalization idempotence | [formal/lean/](formal/lean/) |
 | **Coq** | 43 theorems across fail-closed, determinism, ABAC forbid-override, capability delegation attenuation, circuit breaker, and task lifecycle | [formal/coq/](formal/coq/) |
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
 
-**545+ verification obligations (321 Verus + 77 Kani + 64 TLA+ + 43 Coq + 30 Lean + 10 Alloy)** across 7 tools. Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) and [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md) for details.
+**747+ verification obligations (523 Verus + 77 Kani + 64 TLA+ + 43 Coq + 30 Lean + 10 Alloy)** across 7 tools. Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) and [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md) for details.
 
 ### Former Limitations (Now Resolved)
 

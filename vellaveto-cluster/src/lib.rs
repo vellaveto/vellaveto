@@ -41,7 +41,7 @@ pub enum ClusterError {
     #[error("Approval not found: {0}")]
     NotFound(String),
 
-    /// Approval already resolved (approved/denied/expired).
+    /// Approval already resolved (approved/consumed/denied/expired).
     #[error("Approval already resolved: {0}")]
     AlreadyResolved(String),
 
@@ -120,6 +120,18 @@ pub trait ClusterBackend: Send + Sync {
 
     /// Approve a pending approval. Returns the updated approval.
     async fn approval_approve(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError>;
+
+    /// Consume an approved approval exactly once for a matching request scope.
+    ///
+    /// Returns `Ok(true)` when the approval was consumed, `Ok(false)` when the
+    /// approval exists but is not usable for this request, and `Err` on backend
+    /// or lookup failures.
+    async fn approval_consume_approved(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ClusterError>;
 
     /// Deny a pending approval. Returns the updated approval.
     async fn approval_deny(&self, id: &str, by: &str) -> Result<PendingApproval, ClusterError>;

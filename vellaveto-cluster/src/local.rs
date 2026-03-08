@@ -66,6 +66,18 @@ impl ClusterBackend for LocalBackend {
         Ok(self.approvals.approve(id, by).await?)
     }
 
+    async fn approval_consume_approved(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ClusterError> {
+        Ok(self
+            .approvals
+            .consume_approved(id, session_id, action_fingerprint)
+            .await?)
+    }
+
     async fn approval_deny(
         &self,
         id: &str,
@@ -223,6 +235,35 @@ mod tests {
         let denied = backend.approval_deny(&id, "security-team").await.unwrap();
         assert_eq!(denied.status, ApprovalStatus::Denied);
         assert_eq!(denied.resolved_by.as_deref(), Some("security-team"));
+    }
+
+    #[tokio::test]
+    async fn test_local_backend_approval_consume_approved_delegates() {
+        let store = make_store();
+        let backend = LocalBackend::new(store.clone());
+
+        let action = test_action();
+        let fingerprint = "a".repeat(64);
+        let id = backend
+            .approval_create(
+                action,
+                "review this".to_string(),
+                None,
+                None,
+                Some(fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+        backend.approval_approve(&id, "admin").await.unwrap();
+
+        assert!(backend
+            .approval_consume_approved(&id, None, Some(fingerprint.as_str()))
+            .await
+            .unwrap());
+        assert_eq!(
+            store.get(&id).await.unwrap().status,
+            ApprovalStatus::Consumed
+        );
     }
 
     #[tokio::test]

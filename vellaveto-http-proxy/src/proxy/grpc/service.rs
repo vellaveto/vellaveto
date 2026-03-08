@@ -38,7 +38,7 @@ use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::convert::{
     json_to_proto_response, make_proto_denial_response, make_proto_error_response,
-    proto_request_to_json,
+    make_proto_error_response_with_data, proto_request_to_json,
 };
 use super::interceptors::{
     contains_dangerous_chars, extract_or_generate_request_id, extract_session_id,
@@ -58,6 +58,7 @@ use crate::proxy_metrics::record_dlp_finding;
 /// Global gRPC metrics counters.
 static GRPC_REQUESTS_TOTAL: AtomicU64 = AtomicU64::new(0);
 static GRPC_MESSAGES_TOTAL: AtomicU64 = AtomicU64::new(0);
+const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
 
 fn record_grpc_request() {
     // SECURITY (FIND-R55-GRPC-012): SeqCst on security-adjacent metrics counters
@@ -123,6 +124,21 @@ impl McpGrpcService {
         } else {
             None
         }
+    }
+
+    fn approval_required_response(
+        &self,
+        proto_req: &JsonRpcRequest,
+        approval_id: Option<String>,
+    ) -> JsonRpcResponse {
+        let mut data = json!({
+            "type": "approval_required",
+            "reason": "Approval required",
+        });
+        if let Some(approval_id) = approval_id {
+            data["approval_id"] = Value::String(approval_id);
+        }
+        make_proto_error_response_with_data(proto_req, -32001, "Approval required", &data)
     }
 
     /// Evaluate a single JSON-RPC request through the policy pipeline.
@@ -999,6 +1015,7 @@ impl McpGrpcService {
         }
 
         let mut action = extractor::extract_action(tool_name, arguments);
+        let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Parity with WS handler (create_ws_approval) which tries agent_identity.subject
@@ -1059,79 +1076,151 @@ impl McpGrpcService {
             let trust = registry.check_trust_level(tool_name).await;
             match trust {
                 vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
-                    registry.register_unknown(tool_name).await;
-                    let verdict = Verdict::Deny {
-                        reason: "Unknown tool requires approval".to_string(),
-                    };
-                    if let Err(e) = self
-                        .state
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "grpc_proxy",
-                                "session": session_id,
-                                "transport": "grpc",
-                                "registry": "unknown_tool",
-                                "tool": tool_name,
-                            }),
-                        )
-                        .await
+                    match crate::proxy::helpers::presented_approval_matches_action(
+                        &self.state,
+                        session_id,
+                        crate::proxy::helpers::extract_approval_id_from_meta(json_req).as_deref(),
+                        &action,
+                    )
+                    .await
                     {
-                        tracing::warn!("Failed to audit gRPC unknown tool: {}", e);
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                        }
+                        Ok(None) => {
+                            registry.register_unknown(tool_name).await;
+                            let verdict = Verdict::Deny {
+                                reason: "Unknown tool requires approval".to_string(),
+                            };
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "registry": "unknown_tool",
+                                        "tool": tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit gRPC unknown tool: {}", e);
+                            }
+                            let approval_id =
+                                if let Some(ref approval_store) = self.state.approval_store {
+                                    approval_store
+                                        .create(
+                                            action.clone(),
+                                            "Unknown tool requires approval".to_string(),
+                                            requested_by.clone(),
+                                            Some(session_id.to_string()),
+                                            Some(fingerprint_action(&action)),
+                                        )
+                                        .await
+                                        .ok()
+                                } else {
+                                    None
+                                };
+                            return self.approval_required_response(proto_req, approval_id);
+                        }
+                        Err(()) => {
+                            let verdict = Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            };
+                            let _ = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "registry": "unknown_tool",
+                                    }),
+                                )
+                                .await;
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
                     }
-                    // SECURITY (FIND-R211-003): Create pending approval in store — parity
-                    // with HTTP handler (handlers.rs:669) Unknown tool branch.
-                    if let Some(ref approval_store) = self.state.approval_store {
-                        let _ = approval_store
-                            .create(
-                                action.clone(),
-                                "Unknown tool requires approval".to_string(),
-                                requested_by.clone(),
-                                Some(session_id.to_string()),
-                                Some(fingerprint_action(&action)),
-                            )
-                            .await;
-                    }
-                    return make_proto_denial_response(proto_req, "Approval required");
                 }
                 vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score: _ } => {
-                    let verdict = Verdict::Deny {
-                        reason: "Untrusted tool requires approval".to_string(),
-                    };
-                    if let Err(e) = self
-                        .state
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "grpc_proxy",
-                                "session": session_id,
-                                "transport": "grpc",
-                                "registry": "untrusted_tool",
-                                "tool": tool_name,
-                            }),
-                        )
-                        .await
+                    match crate::proxy::helpers::presented_approval_matches_action(
+                        &self.state,
+                        session_id,
+                        crate::proxy::helpers::extract_approval_id_from_meta(json_req).as_deref(),
+                        &action,
+                    )
+                    .await
                     {
-                        tracing::warn!("Failed to audit gRPC untrusted tool: {}", e);
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                        }
+                        Ok(None) => {
+                            let verdict = Verdict::Deny {
+                                reason: "Untrusted tool requires approval".to_string(),
+                            };
+                            if let Err(e) = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "registry": "untrusted_tool",
+                                        "tool": tool_name,
+                                    }),
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to audit gRPC untrusted tool: {}", e);
+                            }
+                            let approval_id =
+                                if let Some(ref approval_store) = self.state.approval_store {
+                                    approval_store
+                                        .create(
+                                            action.clone(),
+                                            "Untrusted tool requires approval".to_string(),
+                                            requested_by.clone(),
+                                            Some(session_id.to_string()),
+                                            Some(fingerprint_action(&action)),
+                                        )
+                                        .await
+                                        .ok()
+                                } else {
+                                    None
+                                };
+                            return self.approval_required_response(proto_req, approval_id);
+                        }
+                        Err(()) => {
+                            let verdict = Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            };
+                            let _ = self
+                                .state
+                                .audit
+                                .log_entry(
+                                    &action,
+                                    &verdict,
+                                    json!({
+                                        "source": "grpc_proxy",
+                                        "session": session_id,
+                                        "transport": "grpc",
+                                        "registry": "untrusted_tool",
+                                    }),
+                                )
+                                .await;
+                            return make_proto_denial_response(proto_req, "Denied by policy");
+                        }
                     }
-                    // SECURITY (FIND-R211-003): Create pending approval in store — parity
-                    // with HTTP handler (handlers.rs:699) Untrusted tool branch.
-                    if let Some(ref approval_store) = self.state.approval_store {
-                        let _ = approval_store
-                            .create(
-                                action.clone(),
-                                "Untrusted tool requires approval".to_string(),
-                                requested_by.clone(),
-                                Some(session_id.to_string()),
-                                Some(fingerprint_action(&action)),
-                            )
-                            .await;
-                    }
-                    return make_proto_denial_response(proto_req, "Approval required");
                 }
                 vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
                     // Trusted — proceed to engine evaluation
@@ -1211,6 +1300,33 @@ impl McpGrpcService {
                 };
                 (verdict, EvaluationContext::default(), None, vec![])
             };
+
+        let verdict = match verdict {
+            Verdict::RequireApproval { reason } => {
+                if matched_approval_id.is_some() {
+                    Verdict::Allow
+                } else {
+                    match crate::proxy::helpers::presented_approval_matches_action(
+                        &self.state,
+                        session_id,
+                        crate::proxy::helpers::extract_approval_id_from_meta(json_req).as_deref(),
+                        &action,
+                    )
+                    .await
+                    {
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                            Verdict::Allow
+                        }
+                        Ok(None) => Verdict::RequireApproval { reason },
+                        Err(()) => Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        },
+                    }
+                }
+            }
+            other => other,
+        };
 
         match &verdict {
             Verdict::Allow => {
@@ -1335,6 +1451,18 @@ impl McpGrpcService {
                 // NOTE: Session touch + call_counts/action_history update already
                 // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
+                if crate::proxy::helpers::consume_presented_approval(
+                    &self.state,
+                    session_id,
+                    matched_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                .is_err()
+                {
+                    return make_proto_denial_response(proto_req, "Denied by policy");
+                }
+
                 // Audit the allow
                 if let Err(e) = self
                     .state
@@ -1410,8 +1538,8 @@ impl McpGrpcService {
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
-                if let Some(ref approval_store) = self.state.approval_store {
-                    let _ = approval_store
+                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
+                    approval_store
                         .create(
                             action.clone(),
                             reason.clone(),
@@ -1419,10 +1547,12 @@ impl McpGrpcService {
                             Some(session_id.to_string()),
                             Some(fingerprint_action(&action)),
                         )
-                        .await;
-                }
-                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
-                make_proto_denial_response(proto_req, "Denied by policy")
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+                self.approval_required_response(proto_req, approval_id)
             }
             // Fail-closed: unknown Verdict variants produce Deny
             _ => make_proto_denial_response(proto_req, "Denied by policy"),
@@ -1439,6 +1569,8 @@ impl McpGrpcService {
         _id: &Value,
         uri: &str,
     ) -> JsonRpcResponse {
+        let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
+
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
         // receives None as requested_by, bypassing the self-approval check.
@@ -1542,6 +1674,7 @@ impl McpGrpcService {
         }
 
         let mut action = extractor::extract_resource_action(uri);
+        let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (FIND-R116-007): DNS resolution for resource reads.
         // Parity with HTTP handler (handlers.rs:1662) and WS handler (websocket/mod.rs:1439).
@@ -1694,6 +1827,29 @@ impl McpGrpcService {
             (verdict, EvaluationContext::default(), None)
         };
 
+        let verdict = match verdict {
+            Verdict::RequireApproval { reason } => {
+                match crate::proxy::helpers::presented_approval_matches_action(
+                    &self.state,
+                    session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Verdict::Allow
+                    }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                }
+            }
+            other => other,
+        };
+
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call.
@@ -1756,6 +1912,18 @@ impl McpGrpcService {
 
                 // NOTE: Session touch + call_counts/action_history update already
                 // performed inside the TOCTOU-safe block above (FIND-R160-001).
+
+                if crate::proxy::helpers::consume_presented_approval(
+                    &self.state,
+                    session_id,
+                    matched_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                .is_err()
+                {
+                    return make_proto_denial_response(proto_req, "Denied by policy");
+                }
 
                 // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
                 if let Err(e) = self
@@ -1827,8 +1995,8 @@ impl McpGrpcService {
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
-                if let Some(ref approval_store) = self.state.approval_store {
-                    let _ = approval_store
+                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
+                    approval_store
                         .create(
                             action.clone(),
                             reason.clone(),
@@ -1836,11 +2004,12 @@ impl McpGrpcService {
                             Some(session_id.to_string()),
                             Some(fingerprint_action(&action)),
                         )
-                        .await;
-                }
-                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
-                let _ = reason;
-                make_proto_denial_response(proto_req, "Denied by policy")
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+                self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
             _ => make_proto_denial_response(proto_req, "Denied by policy"),
@@ -2218,6 +2387,8 @@ impl McpGrpcService {
         task_method: &str,
         task_id: Option<&str>,
     ) -> JsonRpcResponse {
+        let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
+
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
         // receives None as requested_by, bypassing the self-approval check.
@@ -2411,6 +2582,7 @@ impl McpGrpcService {
         }
 
         let action = extractor::extract_task_action(task_method, task_id);
+        let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (FIND-R160-001): TOCTOU-safe context+eval for task requests.
         // No session update needed for tasks, but context must be read atomically
@@ -2457,6 +2629,29 @@ impl McpGrpcService {
                 }
             };
             (verdict, EvaluationContext::default())
+        };
+
+        let verdict = match verdict {
+            Verdict::RequireApproval { reason } => {
+                match crate::proxy::helpers::presented_approval_matches_action(
+                    &self.state,
+                    session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Verdict::Allow
+                    }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                }
+            }
+            other => other,
         };
 
         match &verdict {
@@ -2527,6 +2722,17 @@ impl McpGrpcService {
                     }
                 }
 
+                if crate::proxy::helpers::consume_presented_approval(
+                    &self.state,
+                    session_id,
+                    matched_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                .is_err()
+                {
+                    return make_proto_denial_response(proto_req, "Denied by policy");
+                }
                 if let Err(e) = self
                     .state
                     .audit
@@ -2602,8 +2808,8 @@ impl McpGrpcService {
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
-                if let Some(ref approval_store) = self.state.approval_store {
-                    let _ = approval_store
+                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
+                    approval_store
                         .create(
                             action.clone(),
                             reason.clone(),
@@ -2611,10 +2817,12 @@ impl McpGrpcService {
                             Some(session_id.to_string()),
                             Some(fingerprint_action(&action)),
                         )
-                        .await;
-                }
-                // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
-                make_proto_denial_response(proto_req, "Denied by policy")
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+                self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
             _ => make_proto_denial_response(proto_req, "Denied by policy"),
@@ -2632,6 +2840,14 @@ impl McpGrpcService {
         extension_id: &str,
         method: &str,
     ) -> JsonRpcResponse {
+        let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
+        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+            s.agent_identity
+                .as_ref()
+                .and_then(|id| id.subject.clone())
+                .or_else(|| s.oauth_subject.clone())
+        });
+
         // SECURITY (FIND-R222-001): Injection scanning on extension method parameters.
         // Parity with PassThrough handler and handle_task_request.
         if !self.state.injection_disabled {
@@ -2795,6 +3011,7 @@ impl McpGrpcService {
         }
 
         let mut action = extractor::extract_extension_action(extension_id, method, &params);
+        let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (FIND-R118-004): DNS resolution for extension methods.
         // Parity with handle_tool_call (line 637) and handle_resource_read (line 1047).
@@ -2867,6 +3084,29 @@ impl McpGrpcService {
             (verdict, EvaluationContext::default(), None)
         };
 
+        let verdict = match verdict {
+            Verdict::RequireApproval { reason } => {
+                match crate::proxy::helpers::presented_approval_matches_action(
+                    &self.state,
+                    session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Verdict::Allow
+                    }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                }
+            }
+            other => other,
+        };
+
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
@@ -2932,6 +3172,18 @@ impl McpGrpcService {
                 // NOTE: Session touch + call_counts/action_history update already
                 // performed inside the TOCTOU-safe block above (FIND-R160-001).
 
+                if crate::proxy::helpers::consume_presented_approval(
+                    &self.state,
+                    session_id,
+                    matched_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                .is_err()
+                {
+                    return make_proto_denial_response(proto_req, "Denied by policy");
+                }
+
                 if let Err(e) = self
                     .state
                     .audit
@@ -2979,6 +3231,48 @@ impl McpGrpcService {
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
                 let _ = reason;
                 make_proto_denial_response(proto_req, "Denied by policy")
+            }
+            Verdict::RequireApproval { reason, .. } => {
+                let verdict = Verdict::RequireApproval {
+                    reason: reason.clone(),
+                };
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry(
+                        &action,
+                        &verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "session": session_id,
+                            "transport": "grpc",
+                            "extension_id": extension_id,
+                        }),
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC extension approval request: {}", e);
+                    if let Some(deny) =
+                        self.audit_strict_deny(proto_req, "extension require_approval")
+                    {
+                        return deny;
+                    }
+                }
+                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
+                    approval_store
+                        .create(
+                            action.clone(),
+                            reason.clone(),
+                            requested_by.clone(),
+                            Some(session_id.to_string()),
+                            Some(fingerprint_action(&action)),
+                        )
+                        .await
+                        .ok()
+                } else {
+                    None
+                };
+                self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
             _ => make_proto_denial_response(proto_req, "Denied by policy"),

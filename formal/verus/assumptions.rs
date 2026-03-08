@@ -153,6 +153,18 @@ pub open spec fn approval_scope_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn approval_consumption_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn presented_approval_id_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn server_approval_id_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_attenuation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

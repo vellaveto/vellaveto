@@ -52,6 +52,12 @@ mod verified_dlp_core;
 mod verified_entropy_gate;
 #[path = "../verified_evaluation_context_projection.rs"]
 mod verified_evaluation_context_projection;
+#[path = "../verified_presented_approval_id.rs"]
+mod verified_presented_approval_id;
+#[path = "../verified_server_approval_id.rs"]
+mod verified_server_approval_id;
+#[path = "../verified_approval_consumption.rs"]
+mod verified_approval_consumption;
 #[path = "../verified_approval_scope.rs"]
 mod verified_approval_scope;
 #[path = "../verified_transport_context.rs"]

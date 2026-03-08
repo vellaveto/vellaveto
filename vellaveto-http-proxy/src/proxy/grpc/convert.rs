@@ -296,6 +296,35 @@ pub fn make_proto_error_response(
     }
 }
 
+/// Build a JSON-RPC error response with structured `error.data`.
+pub fn make_proto_error_response_with_data(
+    req: &JsonRpcRequest,
+    code: i32,
+    message: &str,
+    data: &Value,
+) -> JsonRpcResponse {
+    let id_oneof = match &req.id_oneof {
+        Some(super::proto::json_rpc_request::IdOneof::IdInt(n)) => {
+            Some(super::proto::json_rpc_response::IdOneof::IdInt(*n))
+        }
+        Some(super::proto::json_rpc_request::IdOneof::IdString(s)) => Some(
+            super::proto::json_rpc_response::IdOneof::IdString(s.clone()),
+        ),
+        None => None,
+    };
+
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id_oneof,
+        result: None,
+        error: Some(JsonRpcError {
+            code,
+            message: message.to_string(),
+            data: json_to_prost_struct(data, 0).ok(),
+        }),
+    }
+}
+
 /// Build a JSON-RPC denial response (code -32001) as a protobuf `JsonRpcResponse`.
 pub fn make_proto_denial_response(req: &JsonRpcRequest, reason: &str) -> JsonRpcResponse {
     make_proto_error_response(req, -32001, reason)
@@ -681,6 +710,30 @@ mod tests {
             .unwrap()
             .data
             .is_none());
+    }
+
+    #[test]
+    fn test_make_proto_error_response_with_data_preserves_struct() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id_oneof: None,
+            method: "test".into(),
+            params: None,
+        };
+        let err = make_proto_error_response_with_data(
+            &req,
+            -32001,
+            "Approval required",
+            &json!({
+                "type": "approval_required",
+                "approval_id": "ap-123",
+            }),
+        )
+        .error
+        .unwrap();
+        let data = err.data.unwrap();
+        assert!(data.fields.contains_key("type"));
+        assert!(data.fields.contains_key("approval_id"));
     }
 
     #[test]

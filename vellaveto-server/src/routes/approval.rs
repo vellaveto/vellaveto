@@ -33,10 +33,6 @@ use crate::AppState;
 /// Maximum length for the `resolved_by` field (Finding B1: prevents multi-MB strings).
 const MAX_RESOLVED_BY_LEN: usize = 1024;
 
-/// Maximum length for approval ID path parameters.
-/// UUIDs are 36 chars; 128 gives ample margin while preventing log bloat.
-const MAX_APPROVAL_ID_LEN: usize = 128;
-
 /// SECURITY (FIND-R67-001): Maximum entries returned by pending approvals list.
 const MAX_PENDING_LIST: usize = 1000;
 
@@ -44,16 +40,22 @@ const MAX_PENDING_LIST: usize = 1000;
 /// SECURITY (R16-APPR-1): Reject oversized or malformed IDs to prevent
 /// log bloat and provide clean error messages.
 pub(crate) fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if id.is_empty() || id.len() > MAX_APPROVAL_ID_LEN {
+    let length_valid = crate::verified_approval_id::server_approval_id_length_valid(id.len());
+    if !length_valid {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("Approval ID must be 1-{MAX_APPROVAL_ID_LEN} characters"),
+                error: format!(
+                    "Approval ID must be 1-{} characters",
+                    crate::verified_approval_id::MAX_SERVER_APPROVAL_ID_LEN
+                ),
             }),
         ));
     }
-    // SECURITY (R16-APPR-2): Reject control characters in approval IDs
-    if id.chars().any(crate::routes::is_unsafe_char) {
+    if !crate::verified_approval_id::server_approval_id_value_accepted(
+        length_valid,
+        id.chars().any(crate::routes::is_unsafe_char),
+    ) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -738,8 +740,8 @@ mod tests {
 
     #[test]
     fn test_max_approval_id_len_reasonable() {
-        assert!(MAX_APPROVAL_ID_LEN >= 36); // UUID length
-        assert!(MAX_APPROVAL_ID_LEN <= 256);
+        assert!(crate::verified_approval_id::MAX_SERVER_APPROVAL_ID_LEN >= 36); // UUID length
+        assert!(crate::verified_approval_id::MAX_SERVER_APPROVAL_ID_LEN <= 256);
     }
 
     #[test]

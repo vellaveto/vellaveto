@@ -34,7 +34,10 @@ use super::call_chain::{
     build_evaluation_context, check_privilege_escalation, sync_session_call_chain_from_headers,
     track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
-use super::helpers::resolve_domains;
+use super::helpers::{
+    consume_presented_approval, extract_approval_id_from_meta, presented_approval_matches_action,
+    resolve_domains,
+};
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
 use super::trace_propagation;
@@ -54,6 +57,7 @@ use crate::proxy_metrics::record_dlp_finding;
 /// FIND-R56-HTTP-007: Maximum length for MCP session IDs.
 /// Server-generated IDs are UUIDs (36 chars); anything over 128 is suspicious.
 const MAX_SESSION_ID_LENGTH: usize = 128;
+const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
 
 /// Main POST /mcp handler.
 ///
@@ -383,6 +387,8 @@ pub async fn handle_mcp_post(
         );
     }
 
+    let presented_approval_id = extract_approval_id_from_meta(&msg);
+
     // Classify the message using shared extractor
     match extractor::classify_message(&msg) {
         MessageType::ToolCall {
@@ -657,6 +663,8 @@ pub async fn handle_mcp_post(
                 }
             }
 
+            let mut matched_approval_id: Option<String> = None;
+
             // Tool registry check: if enabled, unknown or untrusted tools
             // require approval before engine evaluation. This runs before the
             // shard lock to avoid holding it during async registry reads.
@@ -664,76 +672,172 @@ pub async fn handle_mcp_post(
                 let trust = registry.check_trust_level(&tool_name).await;
                 match trust {
                     vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
-                        registry.register_unknown(&tool_name).await;
-                        // SECURITY (FIND-045): Generic message to client; detailed reason in audit log only.
-                        let reason = "Approval required".to_string();
-                        let verdict = Verdict::RequireApproval {
-                            reason: reason.clone(),
-                        };
-                        if let Err(e) = state.audit.log_entry(
-                            &action,
-                            &verdict,
-                            json!({"source": "http_proxy", "session": &session_id, "registry": "unknown_tool"}),
-                        ).await {
-                            tracing::error!("AUDIT FAILURE: {}", e);
-                        }
-                        // Create pending approval if store is configured
-                        let approval_id = if let Some(ref store) = state.approval_store {
-                            store
-                                .create(
-                                    action.clone(),
-                                    reason.clone(),
-                                    requested_by.clone(),
-                                    Some(session_id.clone()),
-                                    Some(fingerprint_action(&action)),
-                                )
-                                .await
-                                .ok()
-                        } else {
-                            None
-                        };
-                        let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
-                        let response = make_denial_response(&id, &error_data.to_string());
-                        return attach_session_header(
-                            (StatusCode::OK, Json(response)).into_response(),
+                        match presented_approval_matches_action(
+                            &state,
                             &session_id,
-                        );
+                            presented_approval_id.as_deref(),
+                            &action,
+                        )
+                        .await
+                        {
+                            Ok(Some(approval_id)) => {
+                                matched_approval_id = Some(approval_id);
+                            }
+                            Ok(None) => {}
+                            Err(()) => {
+                                let verdict = Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "http_proxy",
+                                            "session": &session_id,
+                                            "registry": "unknown_tool",
+                                            "approval_id": presented_approval_id,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                }
+                                let response = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy",
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                        }
+                        if matched_approval_id.is_none() {
+                            registry.register_unknown(&tool_name).await;
+                            // SECURITY (FIND-045): Generic message to client; detailed reason in audit log only.
+                            let reason = "Approval required".to_string();
+                            let verdict = Verdict::RequireApproval {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = state.audit.log_entry(
+                                &action,
+                                &verdict,
+                                json!({"source": "http_proxy", "session": &session_id, "registry": "unknown_tool"}),
+                            ).await {
+                                tracing::error!("AUDIT FAILURE: {}", e);
+                            }
+                            // Create pending approval if store is configured
+                            let approval_id = if let Some(ref store) = state.approval_store {
+                                store
+                                    .create(
+                                        action.clone(),
+                                        reason.clone(),
+                                        requested_by.clone(),
+                                        Some(session_id.clone()),
+                                        Some(fingerprint_action(&action)),
+                                    )
+                                    .await
+                                    .ok()
+                            } else {
+                                None
+                            };
+                            let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                            let response = make_denial_response(&id, &error_data.to_string());
+                            return attach_session_header(
+                                (StatusCode::OK, Json(response)).into_response(),
+                                &session_id,
+                            );
+                        }
                     }
                     vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score } => {
-                        // SECURITY (FIND-045): Don't leak trust scores to clients.
-                        // Detailed reason (including score) goes to audit log only.
-                        tracing::info!(tool = %tool_name, score = score, "Tool trust score below threshold");
-                        let reason = "Approval required".to_string();
-                        let verdict = Verdict::RequireApproval {
-                            reason: reason.clone(),
-                        };
-                        if let Err(e) = state.audit.log_entry(
-                            &action,
-                            &verdict,
-                            json!({"source": "http_proxy", "session": &session_id, "registry": "untrusted_tool"}),
-                        ).await {
-                            tracing::error!("AUDIT FAILURE: {}", e);
-                        }
-                        let approval_id = if let Some(ref store) = state.approval_store {
-                            store
-                                .create(
-                                    action.clone(),
-                                    reason.clone(),
-                                    requested_by.clone(),
-                                    Some(session_id.clone()),
-                                    Some(fingerprint_action(&action)),
-                                )
-                                .await
-                                .ok()
-                        } else {
-                            None
-                        };
-                        let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
-                        let response = make_denial_response(&id, &error_data.to_string());
-                        return attach_session_header(
-                            (StatusCode::OK, Json(response)).into_response(),
+                        match presented_approval_matches_action(
+                            &state,
                             &session_id,
-                        );
+                            presented_approval_id.as_deref(),
+                            &action,
+                        )
+                        .await
+                        {
+                            Ok(Some(approval_id)) => {
+                                matched_approval_id = Some(approval_id);
+                            }
+                            Ok(None) => {}
+                            Err(()) => {
+                                let verdict = Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                };
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &verdict,
+                                        json!({
+                                            "source": "http_proxy",
+                                            "session": &session_id,
+                                            "registry": "untrusted_tool",
+                                            "approval_id": presented_approval_id,
+                                        }),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                }
+                                let response = json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "error": {
+                                        "code": -32001,
+                                        "message": "Denied by policy",
+                                    }
+                                });
+                                return attach_session_header(
+                                    (StatusCode::OK, Json(response)).into_response(),
+                                    &session_id,
+                                );
+                            }
+                        }
+                        if matched_approval_id.is_none() {
+                            // SECURITY (FIND-045): Don't leak trust scores to clients.
+                            // Detailed reason (including score) goes to audit log only.
+                            tracing::info!(tool = %tool_name, score = score, "Tool trust score below threshold");
+                            let reason = "Approval required".to_string();
+                            let verdict = Verdict::RequireApproval {
+                                reason: reason.clone(),
+                            };
+                            if let Err(e) = state.audit.log_entry(
+                                &action,
+                                &verdict,
+                                json!({"source": "http_proxy", "session": &session_id, "registry": "untrusted_tool"}),
+                            ).await {
+                                tracing::error!("AUDIT FAILURE: {}", e);
+                            }
+                            let approval_id = if let Some(ref store) = state.approval_store {
+                                store
+                                    .create(
+                                        action.clone(),
+                                        reason.clone(),
+                                        requested_by.clone(),
+                                        Some(session_id.clone()),
+                                        Some(fingerprint_action(&action)),
+                                    )
+                                    .await
+                                    .ok()
+                            } else {
+                                None
+                            };
+                            let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
+                            let response = make_denial_response(&id, &error_data.to_string());
+                            return attach_session_header(
+                                (StatusCode::OK, Json(response)).into_response(),
+                                &session_id,
+                            );
+                        }
                     }
                     vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
                         // Trusted — proceed to engine evaluation
@@ -811,6 +915,36 @@ pub async fn handle_mcp_post(
                         .evaluate_action_with_context(&action, &state.policies, None)
                         .map(|v| (v, None))
                 }
+            };
+
+            let eval_result = match eval_result {
+                Ok((Verdict::RequireApproval { reason }, trace)) => {
+                    if matched_approval_id.is_some() {
+                        Ok((Verdict::Allow, trace))
+                    } else {
+                        match presented_approval_matches_action(
+                            &state,
+                            &session_id,
+                            presented_approval_id.as_deref(),
+                            &action,
+                        )
+                        .await
+                        {
+                            Ok(Some(approval_id)) => {
+                                matched_approval_id = Some(approval_id);
+                                Ok((Verdict::Allow, trace))
+                            }
+                            Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
+                            Err(()) => Ok((
+                                Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                },
+                                trace,
+                            )),
+                        }
+                    }
+                }
+                other => other,
             };
 
             match eval_result {
@@ -990,10 +1124,6 @@ pub async fn handle_mcp_post(
                             )
                         }
                     };
-                    // Track request->tool mapping so response validation can resolve
-                    // tool context even when upstream omits result._meta.tool.
-                    track_pending_tool_call(&state.sessions, &session_id, &id, &tool_name);
-
                     // Phase 20: Gateway routing — resolve backend URL before forwarding
                     let gateway_decision = if let Some(ref gw) = state.gateway {
                         match gw.route(&tool_name) {
@@ -1030,6 +1160,33 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
+
+                    if consume_presented_approval(
+                        &state,
+                        &session_id,
+                        matched_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let response = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32001,
+                                "message": "Denied by policy"
+                            }
+                        });
+                        return attach_session_header(
+                            (StatusCode::OK, Json(response)).into_response(),
+                            &session_id,
+                        );
+                    }
+
+                    // Track request->tool mapping so response validation can resolve
+                    // tool context even when upstream omits result._meta.tool.
+                    track_pending_tool_call(&state.sessions, &session_id, &id, &tool_name);
 
                     // Phase 29: Cross-transport smart fallback path.
                     // When enabled and transport_health is available, try
@@ -1714,6 +1871,7 @@ pub async fn handle_mcp_post(
             }
 
             let mut action = extractor::extract_resource_action(&uri);
+            let mut matched_approval_id: Option<String> = None;
 
             // DNS rebinding protection for resource reads
             if state.engine.has_ip_rules() {
@@ -1834,6 +1992,32 @@ pub async fn handle_mcp_post(
                 }
             };
 
+            let eval_result = match eval_result {
+                Ok((Verdict::RequireApproval { reason }, trace)) => {
+                    match presented_approval_matches_action(
+                        &state,
+                        &session_id,
+                        presented_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    {
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                            Ok((Verdict::Allow, trace))
+                        }
+                        Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
+                        Err(()) => Ok((
+                            Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            },
+                            trace,
+                        )),
+                    }
+                }
+                other => other,
+            };
+
             match eval_result {
                 Ok((Verdict::Allow, trace)) => {
                     // SECURITY (FIND-R112-003): ABAC refinement for resource reads.
@@ -1928,6 +2112,29 @@ pub async fn handle_mcp_post(
                                 );
                             }
                         }
+                    }
+
+                    if consume_presented_approval(
+                        &state,
+                        &session_id,
+                        matched_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let response = serde_json::json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": {
+                                "code": -32001,
+                                "message": "Denied by policy"
+                            }
+                        });
+                        return attach_session_header(
+                            (StatusCode::OK, Json(response)).into_response(),
+                            &session_id,
+                        );
                     }
 
                     // Canonicalize if configured (KL2 TOCTOU fix)
@@ -2789,6 +2996,7 @@ pub async fn handle_mcp_post(
             }
 
             let action = extractor::extract_task_action(&task_method, task_id.as_deref());
+            let mut matched_approval_id: Option<String> = None;
 
             // SECURITY (FIND-R190-007): TOCTOU-safe context+eval for task requests.
             // Read context and evaluate inside a single DashMap shard lock, matching
@@ -2849,6 +3057,32 @@ pub async fn handle_mcp_post(
                         .evaluate_action_with_context(&action, &state.policies, None)
                         .map(|v| (v, None))
                 }
+            };
+
+            let eval_result = match eval_result {
+                Ok((Verdict::RequireApproval { reason }, trace)) => {
+                    match presented_approval_matches_action(
+                        &state,
+                        &session_id,
+                        presented_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    {
+                        Ok(Some(approval_id)) => {
+                            matched_approval_id = Some(approval_id);
+                            Ok((Verdict::Allow, trace))
+                        }
+                        Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
+                        Err(()) => Ok((
+                            Verdict::Deny {
+                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                            },
+                            trace,
+                        )),
+                    }
+                }
+                other => other,
             };
 
             match eval_result {
@@ -2921,6 +3155,21 @@ pub async fn handle_mcp_post(
                                 );
                             }
                         }
+                    }
+
+                    if consume_presented_approval(
+                        &state,
+                        &session_id,
+                        matched_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return attach_session_header(
+                            make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
+                            &session_id,
+                        );
                     }
 
                     if let Err(e) = state
@@ -3043,6 +3292,20 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
                     };
+                    let approval_id = if let Some(ref store) = state.approval_store {
+                        store
+                            .create(
+                                action.clone(),
+                                reason.clone(),
+                                requested_by.clone(),
+                                Some(session_id.clone()),
+                                Some(fingerprint_action(&action)),
+                            )
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    };
                     if let Err(e) = state
                         .audit
                         .log_entry(
@@ -3089,6 +3352,14 @@ pub async fn handle_mcp_post(
                             }
                         }
                     });
+                    if let Some(aid) = approval_id {
+                        if let Some(data) = response
+                            .get_mut("error")
+                            .and_then(|error| error.get_mut("data"))
+                        {
+                            data["approval_id"] = Value::String(aid);
+                        }
+                    }
                     if let Some(t) = trace {
                         response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
                     }
@@ -3331,6 +3602,7 @@ pub async fn handle_mcp_post(
             }
 
             let mut action = extractor::extract_extension_action(extension_id, method, &params);
+            let mut matched_approval_id: Option<String> = None;
 
             // SECURITY (FIND-R118-004): DNS resolution for extension methods.
             // Parity with ToolCall (line 721) and ResourceRead (line 1660).
@@ -3357,6 +3629,27 @@ pub async fn handle_mcp_post(
                         reason: format!("Policy evaluation failed: {e}"),
                     }
                 }
+            };
+
+            let verdict = match verdict {
+                Verdict::RequireApproval { reason } => match presented_approval_matches_action(
+                    &state,
+                    &session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        Verdict::Allow
+                    }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    },
+                },
+                other => other,
             };
 
             match verdict {
@@ -3451,6 +3744,21 @@ pub async fn handle_mcp_post(
                         }
                     }
 
+                    if consume_presented_approval(
+                        &state,
+                        &session_id,
+                        matched_approval_id.as_deref(),
+                        &action,
+                    )
+                    .await
+                    .is_err()
+                    {
+                        return attach_session_header(
+                            make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
+                            &session_id,
+                        );
+                    }
+
                     // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
                     // Parity with ToolCall (line 759) and ResourceRead (line 1748).
                     if let Some(mut session) = state.sessions.get_mut(&session_id) {
@@ -3507,19 +3815,14 @@ pub async fn handle_mcp_post(
                     .await;
                     attach_session_header(response, &session_id)
                 }
-                _ => {
-                    let reason = match &verdict {
-                        Verdict::Deny { reason } => reason.clone(),
-                        Verdict::RequireApproval { reason, .. } => {
-                            format!("Requires approval: {reason}")
-                        }
-                        _ => "Extension call denied — fail-closed".to_string(),
-                    };
+                Verdict::Deny { reason } => {
                     if let Err(e) = state
                         .audit
                         .log_entry(
                             &action,
-                            &verdict,
+                            &Verdict::Deny {
+                                reason: reason.clone(),
+                            },
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -3535,6 +3838,81 @@ pub async fn handle_mcp_post(
                     {
                         tracing::warn!("Failed to audit extension deny: {}", e);
                     }
+                    let response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32001,
+                            "message": "Denied by policy"
+                        }
+                    });
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+                Verdict::RequireApproval { reason } => {
+                    let verdict = Verdict::RequireApproval {
+                        reason: reason.clone(),
+                    };
+                    let approval_id = if let Some(ref store) = state.approval_store {
+                        store
+                            .create(
+                                action.clone(),
+                                reason.clone(),
+                                requested_by.clone(),
+                                Some(session_id.clone()),
+                                Some(fingerprint_action(&action)),
+                            )
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    };
+                    if let Err(e) = state
+                        .audit
+                        .log_entry(
+                            &action,
+                            &verdict,
+                            build_audit_context(
+                                &session_id,
+                                json!({
+                                    "event": "extension_method_requires_approval",
+                                    "extension_id": extension_id,
+                                    "method": method,
+                                }),
+                                &oauth_claims,
+                            ),
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit extension approval request: {}", e);
+                    }
+                    let mut response = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": -32002,
+                            "message": "Approval required",
+                            "data": {
+                                "type": "approval_required"
+                            }
+                        }
+                    });
+                    if let Some(aid) = approval_id {
+                        if let Some(data) = response
+                            .get_mut("error")
+                            .and_then(|error| error.get_mut("data"))
+                        {
+                            data["approval_id"] = Value::String(aid);
+                        }
+                    }
+                    attach_session_header(
+                        (StatusCode::OK, Json(response)).into_response(),
+                        &session_id,
+                    )
+                }
+                _ => {
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,

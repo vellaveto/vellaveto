@@ -303,6 +303,109 @@ async fn test_create_ws_approval_prefers_agent_identity_subject() {
     assert_eq!(pending[0].requested_by.as_deref(), Some("agent-subject"));
 }
 
+#[tokio::test]
+async fn test_presented_approval_matches_action_enforces_session_binding() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let action = vellaveto_types::Action::new("tool", "fn", json!({"path": "/tmp/test"}));
+    let session_id = state.sessions.get_or_create(None);
+    let other_session_id = state.sessions.get_or_create(None);
+    let approval_id = state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .create(
+            action.clone(),
+            "Approval required".to_string(),
+            Some("user-1".to_string()),
+            Some(session_id.clone()),
+            Some(vellaveto_engine::acis::fingerprint_action(&action)),
+        )
+        .await
+        .unwrap();
+    state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .approve(&approval_id, "reviewer")
+        .await
+        .unwrap();
+
+    assert!(super::super::helpers::presented_approval_matches_action(
+        &state,
+        &session_id,
+        Some(&approval_id),
+        &action,
+    )
+    .await
+    .is_ok());
+    assert!(super::super::helpers::presented_approval_matches_action(
+        &state,
+        &other_session_id,
+        Some(&approval_id),
+        &action,
+    )
+    .await
+    .is_err());
+}
+
+#[tokio::test]
+async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let action = vellaveto_types::Action::new("tool", "fn", json!({"path": "/tmp/test"}));
+    let session_id = state.sessions.get_or_create(None);
+    let approval_id = state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .create(
+            action.clone(),
+            "Approval required".to_string(),
+            Some("user-1".to_string()),
+            Some(session_id.clone()),
+            Some(vellaveto_engine::acis::fingerprint_action(&action)),
+        )
+        .await
+        .unwrap();
+    state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .approve(&approval_id, "reviewer")
+        .await
+        .unwrap();
+
+    assert!(super::super::helpers::consume_presented_approval(
+        &state,
+        &session_id,
+        Some(&approval_id),
+        &action,
+    )
+    .await
+    .is_ok());
+    assert!(super::super::helpers::consume_presented_approval(
+        &state,
+        &session_id,
+        Some(&approval_id),
+        &action,
+    )
+    .await
+    .is_err());
+}
+
 // ==========================================================================
 // extract_scannable_text tests
 // ==========================================================================

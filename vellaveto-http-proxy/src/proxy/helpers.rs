@@ -12,10 +12,13 @@
 
 use bytes::Bytes;
 use serde_json::Value;
+use vellaveto_approval::ApprovalStatus;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::{ManifestConfig, ToolManifest};
+use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_types::{Action, Verdict};
 
+use super::ProxyState;
 use crate::session::SessionStore;
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
@@ -68,6 +71,125 @@ pub(super) async fn resolve_domains(action: &mut Action) {
         }
     }
     action.resolved_ips = resolved;
+}
+
+/// Extract a presented approval ID from a JSON-RPC message `_meta`.
+///
+/// Accepts both top-level `_meta` and nested `params._meta`, matching the
+/// stdio relay path. Length-capped and control-char filtered so malformed
+/// approval IDs fail closed before any store lookup.
+pub(super) fn extract_approval_id_from_meta(msg: &Value) -> Option<String> {
+    vellaveto_approval::extract_presented_approval_id_from_rpc_meta(msg)
+}
+
+/// Validate a presented approval against the current proxy session and action.
+pub(super) async fn presented_approval_matches_action(
+    state: &ProxyState,
+    session_id: &str,
+    presented_approval_id: Option<&str>,
+    action: &Action,
+) -> Result<Option<String>, ()> {
+    let Some(approval_id) = presented_approval_id else {
+        return Ok(None);
+    };
+
+    let Some(store) = state.approval_store.as_ref() else {
+        tracing::warn!(
+            approval_id = %approval_id,
+            "Presented approval cannot be verified without an approval store"
+        );
+        return Err(());
+    };
+
+    let approval = match store.get(approval_id).await {
+        Ok(approval) => approval,
+        Err(e) => {
+            tracing::warn!(
+                approval_id = %approval_id,
+                error = ?e,
+                "Presented approval lookup failed"
+            );
+            return Err(());
+        }
+    };
+
+    if approval.status != ApprovalStatus::Approved {
+        tracing::warn!(
+            approval_id = %approval_id,
+            status = ?approval.status,
+            "Presented approval is not approved"
+        );
+        return Err(());
+    }
+
+    // Fail closed on approvals that predate action-fingerprint binding.
+    if approval.action_fingerprint.is_none() {
+        tracing::warn!(
+            approval_id = %approval_id,
+            "Presented approval missing action fingerprint binding"
+        );
+        return Err(());
+    }
+
+    let action_fingerprint = fingerprint_action(action);
+    if !approval.scope_matches(Some(session_id), Some(action_fingerprint.as_str())) {
+        tracing::warn!(
+            approval_id = %approval_id,
+            session_id = %session_id,
+            "Presented approval scope does not match the current proxy session and action"
+        );
+        return Err(());
+    }
+
+    Ok(Some(approval_id.to_string()))
+}
+
+/// Consume a presented approval once the request is about to be forwarded.
+pub(super) async fn consume_presented_approval(
+    state: &ProxyState,
+    session_id: &str,
+    approval_id: Option<&str>,
+    action: &Action,
+) -> Result<(), ()> {
+    let Some(approval_id) = approval_id else {
+        return Ok(());
+    };
+
+    let Some(store) = state.approval_store.as_ref() else {
+        tracing::warn!(
+            approval_id = %approval_id,
+            "Presented approval cannot be consumed without an approval store"
+        );
+        return Err(());
+    };
+
+    let action_fingerprint = fingerprint_action(action);
+    match store
+        .consume_approved(
+            approval_id,
+            Some(session_id),
+            Some(action_fingerprint.as_str()),
+        )
+        .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            tracing::warn!(
+                approval_id = %approval_id,
+                session_id = %session_id,
+                "Presented approval could not be consumed for this proxy session and action"
+            );
+            Err(())
+        }
+        Err(e) => {
+            tracing::warn!(
+                approval_id = %approval_id,
+                error = ?e,
+                "Presented approval consume failed"
+            );
+            Err(())
+        }
+    }
 }
 
 /// Read a response body with a size limit to prevent OOM.

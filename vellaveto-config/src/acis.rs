@@ -206,16 +206,20 @@ mod tests {
 
     #[test]
     fn test_empty_transport_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.default_transport = String::new();
+        let cfg = AcisConfig {
+            default_transport: String::new(),
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("default_transport must not be empty"));
     }
 
     #[test]
     fn test_invalid_transport_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.default_transport = "smoke_signal".into();
+        let cfg = AcisConfig {
+            default_transport: "smoke_signal".into(),
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("must be one of"));
     }
@@ -223,40 +227,50 @@ mod tests {
     #[test]
     fn test_all_valid_transports_accepted() {
         for t in &["stdio", "http", "websocket", "grpc", "sse"] {
-            let mut cfg = AcisConfig::default();
-            cfg.default_transport = (*t).into();
+            let cfg = AcisConfig {
+                default_transport: (*t).into(),
+                ..AcisConfig::default()
+            };
             assert!(cfg.validate().is_ok(), "transport '{t}' should be valid");
         }
     }
 
     #[test]
     fn test_dangerous_chars_in_tenant_id_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.tenant_id = Some("tenant\x00id".into());
+        let cfg = AcisConfig {
+            tenant_id: Some("tenant\x00id".into()),
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("tenant_id contains dangerous"));
     }
 
     #[test]
     fn test_empty_tenant_id_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.tenant_id = Some(String::new());
+        let cfg = AcisConfig {
+            tenant_id: Some(String::new()),
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("tenant_id must not be empty"));
     }
 
     #[test]
     fn test_too_many_finding_labels_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.custom_finding_labels = vec!["label".into(); 65];
+        let cfg = AcisConfig {
+            custom_finding_labels: vec!["label".into(); 65],
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("custom_finding_labels has 65"));
     }
 
     #[test]
     fn test_empty_finding_label_rejected() {
-        let mut cfg = AcisConfig::default();
-        cfg.custom_finding_labels = vec![String::new()];
+        let cfg = AcisConfig {
+            custom_finding_labels: vec![String::new()],
+            ..AcisConfig::default()
+        };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("custom_finding_labels[0] must not be empty"));
     }
