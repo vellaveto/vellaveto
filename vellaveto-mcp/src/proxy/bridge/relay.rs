@@ -29,6 +29,8 @@ use crate::inspection::{
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
 use crate::verified_bridge_principal;
+use crate::verified_delegation_projection;
+use crate::verified_deputy_handoff;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -36,10 +38,16 @@ use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
 use vellaveto_config::ToolManifest;
+use vellaveto_engine::deputy::DeputyValidationBinding;
 use vellaveto_types::{
-    sanitize_for_log, unicode::normalize_homoglyphs, Action, EvaluationContext, EvaluationTrace,
-    Verdict,
+    sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, EvaluationContext,
+    EvaluationTrace, Verdict,
 };
+
+const SYNTHETIC_DELEGATION_AGENT_ID: &str = "delegation-hop";
+const SYNTHETIC_DELEGATION_TOOL: &str = "deputy";
+const SYNTHETIC_DELEGATION_FUNCTION: &str = "delegated";
+const SYNTHETIC_DELEGATION_TIMESTAMP: &str = "1970-01-01T00:00:00Z";
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
 ///
@@ -166,6 +174,7 @@ struct PendingRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RequestPrincipalBinding {
     deputy_principal: Option<String>,
+    claimed_agent_id: Option<String>,
     evaluation_agent_id: Option<String>,
 }
 
@@ -402,19 +411,82 @@ impl RelayState {
 
         Ok(RequestPrincipalBinding {
             deputy_principal,
+            claimed_agent_id,
             evaluation_agent_id,
         })
     }
 
+    /// Resolve the engine evaluation principal after deputy validation.
+    ///
+    /// A configured session principal always remains authoritative. A claimed
+    /// `_meta.agent_id` may only be promoted into engine evaluation after the
+    /// deputy subsystem has validated it against an active server-side
+    /// delegation context.
+    fn effective_evaluation_agent_id(
+        &self,
+        request_principal_binding: &RequestPrincipalBinding,
+        deputy_binding: Option<&DeputyValidationBinding>,
+    ) -> Option<String> {
+        let deputy_validated_claim = verified_deputy_handoff::deputy_validated_claim_trusted(
+            deputy_binding.is_some_and(|binding| binding.has_active_delegation),
+            request_principal_binding.claimed_agent_id.is_some(),
+        );
+
+        match verified_deputy_handoff::evaluation_principal_source_after_deputy(
+            self.agent_id.is_some(),
+            deputy_validated_claim,
+        ) {
+            verified_deputy_handoff::EvaluationPrincipalSource::Configured => {
+                request_principal_binding.evaluation_agent_id.clone()
+            }
+            verified_deputy_handoff::EvaluationPrincipalSource::DeputyValidatedClaim => {
+                request_principal_binding.claimed_agent_id.clone()
+            }
+            verified_deputy_handoff::EvaluationPrincipalSource::None => None,
+        }
+    }
+
+    /// Project active deputy delegation into a synthetic fail-closed call chain.
+    ///
+    /// The relay only trusts the projected depth, not the contents of each hop.
+    /// Synthetic placeholder entries ensure future code cannot accidentally treat
+    /// this as a fully reconstructed hop history.
+    fn projected_delegation_call_chain(
+        &self,
+        deputy_binding: Option<&DeputyValidationBinding>,
+    ) -> Vec<CallChainEntry> {
+        let len = verified_delegation_projection::projected_call_chain_len(
+            deputy_binding.is_some_and(|binding| binding.has_active_delegation),
+            deputy_binding.map_or(0, |binding| binding.delegation_depth),
+        );
+
+        let mut chain = Vec::with_capacity(len);
+        for _ in 0..len {
+            chain.push(CallChainEntry {
+                agent_id: SYNTHETIC_DELEGATION_AGENT_ID.to_string(),
+                tool: SYNTHETIC_DELEGATION_TOOL.to_string(),
+                function: SYNTHETIC_DELEGATION_FUNCTION.to_string(),
+                timestamp: SYNTHETIC_DELEGATION_TIMESTAMP.to_string(),
+                hmac: None,
+                verified: None,
+            });
+        }
+        chain
+    }
+
     /// Build an EvaluationContext from the current session state.
-    fn evaluation_context(&self, request_agent_id: Option<String>) -> EvaluationContext {
+    fn evaluation_context(
+        &self,
+        request_agent_id: Option<String>,
+        deputy_binding: Option<&DeputyValidationBinding>,
+    ) -> EvaluationContext {
         EvaluationContext {
             timestamp: None,
             agent_id: request_agent_id,
             agent_identity: None,
             call_counts: self.call_counts.clone(),
             previous_actions: self.action_history.iter().cloned().collect(),
-            call_chain: Vec::new(),
+            call_chain: self.projected_delegation_call_chain(deputy_binding),
             tenant_id: None,
             verification_tier: None,
             capability_token: None,
@@ -952,44 +1024,51 @@ impl ProxyBridge {
                 }
             };
 
+        let mut deputy_binding: Option<DeputyValidationBinding> = None;
+
         // Phase 3.1: Deputy validation (OWASP ASI02)
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
-                if let Err(err) = deputy.validate_action(session_id, &tool_name, principal) {
-                    let reason = err.to_string();
-                    tracing::warn!(
-                        "SECURITY: Deputy validation failed for '{}' -> '{}': {}",
-                        principal,
-                        tool_name,
-                        reason
-                    );
-                    let action = extract_action(&tool_name, &arguments);
-                    let verdict = Verdict::Deny {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "deputy_validation_failed",
-                                "session": session_id,
-                                "principal": principal,
-                                "tool": tool_name,
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                match deputy.validate_action_binding(session_id, &tool_name, principal) {
+                    Ok(binding) => {
+                        deputy_binding = Some(binding);
                     }
-                    let response = make_denial_response(&id, &reason);
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                    Err(err) => {
+                        let reason = err.to_string();
+                        tracing::warn!(
+                            "SECURITY: Deputy validation failed for '{}' -> '{}': {}",
+                            principal,
+                            tool_name,
+                            reason
+                        );
+                        let action = extract_action(&tool_name, &arguments);
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "deputy_validation_failed",
+                                    "session": session_id,
+                                    "principal": principal,
+                                    "tool": tool_name,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit deputy validation: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -1321,8 +1400,9 @@ impl ProxyBridge {
         }
 
         let ann = state.known_tool_annotations.get(&tool_name);
-        let eval_ctx =
-            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
+        let eval_ctx = state
+            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
+        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
         let (decision, eval_trace) =
             self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
         match decision {
@@ -1723,42 +1803,49 @@ impl ProxyBridge {
                 }
             };
 
+        let mut deputy_binding: Option<DeputyValidationBinding> = None;
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
-                if let Err(err) = deputy.validate_action(session_id, "resources/read", principal) {
-                    let reason = err.to_string();
-                    tracing::warn!(
-                        "SECURITY: Deputy validation failed for resources/read: {}",
-                        reason
-                    );
-                    let action = extract_resource_action(&uri);
-                    let verdict = Verdict::Deny {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "deputy_validation_failed",
-                                "session": session_id,
-                                "principal": principal,
-                                "handler": "resources/read",
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                match deputy.validate_action_binding(session_id, "resources/read", principal) {
+                    Ok(binding) => {
+                        deputy_binding = Some(binding);
                     }
-                    let response = make_denial_response(&id, &reason);
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                    Err(err) => {
+                        let reason = err.to_string();
+                        tracing::warn!(
+                            "SECURITY: Deputy validation failed for resources/read: {}",
+                            reason
+                        );
+                        let action = extract_resource_action(&uri);
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "deputy_validation_failed",
+                                    "session": session_id,
+                                    "principal": principal,
+                                    "handler": "resources/read",
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit deputy validation: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -1991,8 +2078,9 @@ impl ProxyBridge {
             resolve_domains(&mut action).await;
         }
 
-        let eval_ctx =
-            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
+        let eval_ctx = state
+            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
+        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
         match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R52-009): Audit allowed resource reads for full observability.
@@ -2171,21 +2259,20 @@ impl ProxyBridge {
             }
         }
 
-        let request_principal_binding = match state
-            .request_principal_binding(Self::extract_agent_id(msg))
-        {
-            Ok(binding) => binding,
-            Err(reason) => {
-                tracing::warn!(
-                    "SECURITY: Request principal mismatch for sampling/createMessage: {}",
-                    reason
-                );
-                let action = vellaveto_types::Action::new(
-                    "vellaveto",
-                    "sampling_principal_mismatch",
-                    json!({}),
-                );
-                let _ = self
+        let request_principal_binding =
+            match state.request_principal_binding(Self::extract_agent_id(msg)) {
+                Ok(binding) => binding,
+                Err(reason) => {
+                    tracing::warn!(
+                        "SECURITY: Request principal mismatch for sampling/createMessage: {}",
+                        reason
+                    );
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "sampling_principal_mismatch",
+                        json!({}),
+                    );
+                    let _ = self
                     .audit
                     .log_entry(
                         &action,
@@ -2195,21 +2282,21 @@ impl ProxyBridge {
                         json!({"source": "proxy", "event": "request_principal_mismatch_sampling"}),
                     )
                     .await;
-                let response =
-                    make_denial_response(&id, "Request blocked: security policy violation");
-                write_message(agent_writer, &response)
-                    .await
-                    .map_err(ProxyError::Framing)?;
-                return Ok(());
-            }
-        };
+                    let response =
+                        make_denial_response(&id, "Request blocked: security policy violation");
+                    write_message(agent_writer, &response)
+                        .await
+                        .map_err(ProxyError::Framing)?;
+                    return Ok(());
+                }
+            };
 
         // SECURITY (R240-MCP-1): Deputy validation — parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 if let Err(err) =
-                    deputy.validate_action(session_id, "sampling/createMessage", principal)
+                    deputy.validate_action_binding(session_id, "sampling/createMessage", principal)
                 {
                     tracing::warn!("SECURITY: Deputy validation failed for sampling: {}", err);
                     let action = vellaveto_types::Action::new(
@@ -2669,7 +2756,7 @@ impl ProxyBridge {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 if let Err(err) =
-                    deputy.validate_action(session_id, "elicitation/create", principal)
+                    deputy.validate_action_binding(session_id, "elicitation/create", principal)
                 {
                     tracing::warn!(
                         "SECURITY: Deputy validation failed for elicitation: {}",
@@ -3124,43 +3211,50 @@ impl ProxyBridge {
                 }
             };
 
+        let mut deputy_binding: Option<DeputyValidationBinding> = None;
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
-                if let Err(err) = deputy.validate_action(session_id, &task_method, principal) {
-                    let reason = err.to_string();
-                    tracing::warn!(
-                        "SECURITY: Deputy validation failed for task '{}': {}",
-                        safe_task_method,
-                        reason
-                    );
-                    let action = extract_task_action(&task_method, task_id.as_deref());
-                    let verdict = Verdict::Deny {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "deputy_validation_failed",
-                                "session": session_id,
-                                "principal": principal,
-                                "handler": safe_task_method,
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                match deputy.validate_action_binding(session_id, &task_method, principal) {
+                    Ok(binding) => {
+                        deputy_binding = Some(binding);
                     }
-                    let response = make_denial_response(&id, &reason);
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                    Err(err) => {
+                        let reason = err.to_string();
+                        tracing::warn!(
+                            "SECURITY: Deputy validation failed for task '{}': {}",
+                            safe_task_method,
+                            reason
+                        );
+                        let action = extract_task_action(&task_method, task_id.as_deref());
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "deputy_validation_failed",
+                                    "session": session_id,
+                                    "principal": principal,
+                                    "handler": safe_task_method,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit deputy validation: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -3388,8 +3482,9 @@ impl ProxyBridge {
         }
 
         let action = extract_task_action(&task_method, task_id.as_deref());
-        let eval_ctx =
-            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
+        let eval_ctx = state
+            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
+        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
                 // SECURITY (FIND-R80-006): ABAC refinement — only runs when ABAC
@@ -3753,50 +3848,58 @@ impl ProxyBridge {
                 }
             };
 
+        let mut deputy_binding: Option<DeputyValidationBinding> = None;
+
         // SECURITY (R235-RLY-1): Deputy validation — transport parity with handle_tool_call.
         if let Some(ref deputy) = self.deputy {
             let session_id = "stdio-session";
             if let Some(principal) = request_principal_binding.deputy_principal.as_deref() {
                 let deputy_key = format!("ext:{extension_id}:{method}");
-                if let Err(err) = deputy.validate_action(session_id, &deputy_key, principal) {
-                    let reason = err.to_string();
-                    tracing::warn!(
-                        "SECURITY: Deputy validation failed for extension '{}:{}': {}",
-                        safe_extension_id,
-                        safe_ext_method,
-                        reason
-                    );
-                    let verdict = Verdict::Deny {
-                        reason: reason.clone(),
-                    };
-                    if let Err(e) = self
-                        .audit
-                        .log_entry(
-                            &action,
-                            &verdict,
-                            json!({
-                                "source": "proxy",
-                                "event": "deputy_validation_failed",
-                                "session": session_id,
-                                "principal": principal,
-                                "handler": deputy_key,
-                            }),
-                        )
-                        .await
-                    {
-                        tracing::warn!("Failed to audit deputy validation: {}", e);
+                match deputy.validate_action_binding(session_id, &deputy_key, principal) {
+                    Ok(binding) => {
+                        deputy_binding = Some(binding);
                     }
-                    let response = make_denial_response(&id, &reason);
-                    write_message(agent_writer, &response)
-                        .await
-                        .map_err(ProxyError::Framing)?;
-                    return Ok(());
+                    Err(err) => {
+                        let reason = err.to_string();
+                        tracing::warn!(
+                            "SECURITY: Deputy validation failed for extension '{}:{}': {}",
+                            safe_extension_id,
+                            safe_ext_method,
+                            reason
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        if let Err(e) = self
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "proxy",
+                                    "event": "deputy_validation_failed",
+                                    "session": session_id,
+                                    "principal": principal,
+                                    "handler": deputy_key,
+                                }),
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit deputy validation: {}", e);
+                        }
+                        let response = make_denial_response(&id, &reason);
+                        write_message(agent_writer, &response)
+                            .await
+                            .map_err(ProxyError::Framing)?;
+                        return Ok(());
+                    }
                 }
             }
         }
 
-        let eval_ctx =
-            state.evaluation_context(request_principal_binding.evaluation_agent_id.clone());
+        let eval_ctx = state
+            .effective_evaluation_agent_id(&request_principal_binding, deputy_binding.as_ref());
+        let eval_ctx = state.evaluation_context(eval_ctx, deputy_binding.as_ref());
 
         match self.evaluate_action_inner(&action, Some(&eval_ctx)) {
             Ok((Verdict::Allow, _trace)) => {
@@ -6026,7 +6129,7 @@ mod tests {
         state.record_forwarded_action("read_file");
         state.record_forwarded_action("write_file");
 
-        let ctx = state.evaluation_context(None);
+        let ctx = state.evaluation_context(None, None);
         assert_eq!(ctx.call_counts.get("read_file"), Some(&2));
         assert_eq!(ctx.call_counts.get("write_file"), Some(&1));
         assert_eq!(ctx.call_counts.len(), 2);
@@ -6039,7 +6142,7 @@ mod tests {
         state.record_forwarded_action("write_file");
         state.record_forwarded_action("exec_command");
 
-        let ctx = state.evaluation_context(None);
+        let ctx = state.evaluation_context(None, None);
         assert_eq!(
             ctx.previous_actions,
             vec![
@@ -6048,6 +6151,40 @@ mod tests {
                 "exec_command".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_projects_active_delegation_depth() {
+        let state = RelayState::new(HashSet::new());
+        let deputy_binding = DeputyValidationBinding {
+            has_active_delegation: true,
+            delegation_depth: 3,
+        };
+
+        let ctx = state.evaluation_context(None, Some(&deputy_binding));
+
+        assert_eq!(ctx.call_chain.len(), 3);
+        assert!(ctx.call_chain.iter().all(|entry| {
+            entry.agent_id == SYNTHETIC_DELEGATION_AGENT_ID
+                && entry.tool == SYNTHETIC_DELEGATION_TOOL
+                && entry.function == SYNTHETIC_DELEGATION_FUNCTION
+                && entry.timestamp == SYNTHETIC_DELEGATION_TIMESTAMP
+                && entry.hmac.is_none()
+                && entry.verified.is_none()
+        }));
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_ignores_inactive_delegation_depth() {
+        let state = RelayState::new(HashSet::new());
+        let deputy_binding = DeputyValidationBinding {
+            has_active_delegation: false,
+            delegation_depth: 3,
+        };
+
+        let ctx = state.evaluation_context(None, Some(&deputy_binding));
+
+        assert!(ctx.call_chain.is_empty());
     }
 
     #[test]
@@ -6089,5 +6226,43 @@ mod tests {
 
         assert_eq!(binding.deputy_principal.as_deref(), Some("agent-claim"));
         assert!(binding.evaluation_agent_id.is_none());
+    }
+
+    #[test]
+    fn test_effective_evaluation_agent_id_promotes_deputy_validated_claim() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = None;
+
+        let binding = state
+            .request_principal_binding(Some("agent-claim".to_string()))
+            .unwrap();
+        let deputy_binding = DeputyValidationBinding {
+            has_active_delegation: true,
+            delegation_depth: 1,
+        };
+
+        let evaluation_agent_id =
+            state.effective_evaluation_agent_id(&binding, Some(&deputy_binding));
+
+        assert_eq!(evaluation_agent_id.as_deref(), Some("agent-claim"));
+    }
+
+    #[test]
+    fn test_effective_evaluation_agent_id_rejects_unvalidated_claim() {
+        let mut state = RelayState::new(HashSet::new());
+        state.agent_id = None;
+
+        let binding = state
+            .request_principal_binding(Some("agent-claim".to_string()))
+            .unwrap();
+        let deputy_binding = DeputyValidationBinding {
+            has_active_delegation: false,
+            delegation_depth: 0,
+        };
+
+        let evaluation_agent_id =
+            state.effective_evaluation_agent_id(&binding, Some(&deputy_binding));
+
+        assert!(evaluation_agent_id.is_none());
     }
 }

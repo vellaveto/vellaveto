@@ -19,6 +19,7 @@ use crate::compiled::{CompiledContextCondition, CompiledPolicy};
 use crate::matcher::PatternMatcher;
 use crate::normalize::normalize_full;
 use crate::verified_capability_context;
+use crate::verified_context_delegation;
 use crate::PolicyEngine;
 use chrono::{Datelike, Timelike};
 use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
@@ -249,7 +250,10 @@ impl PolicyEngine {
                     // SECURITY (FIND-R110-002): Use > so that max_depth=0 means
                     // "direct calls only" (empty chain allowed) as documented in compiled.rs.
                     // max_depth is the exclusive upper bound: deny when len > max_depth.
-                    if context.call_chain.len() > *max_depth {
+                    if !verified_context_delegation::chain_depth_within_limit(
+                        context.call_chain.len(),
+                        *max_depth,
+                    ) {
                         return Some(Verdict::Deny {
                             reason: deny_reason.clone(),
                         });
@@ -664,10 +668,15 @@ impl PolicyEngine {
                     // OWASP ASI02: Confused deputy prevention
                     // Check principal context if available
                     // Principal context is stored in agent_identity claims
-                    let has_principal =
-                        context.agent_identity.is_some() || context.agent_id.is_some();
+                    let has_principal = verified_context_delegation::identified_principal_present(
+                        context.agent_identity.is_some(),
+                        context.agent_id.is_some(),
+                    );
 
-                    if *require_principal && !has_principal {
+                    if !verified_context_delegation::principal_requirement_satisfied(
+                        *require_principal,
+                        has_principal,
+                    ) {
                         return Some(Verdict::Deny {
                             reason: format!(
                                 "{deny_reason} (principal required but not identified)"
@@ -678,7 +687,10 @@ impl PolicyEngine {
                     // Check delegation depth from call chain
                     // The call chain represents the delegation chain in multi-agent scenarios
                     let delegation_depth = context.call_chain.len();
-                    if delegation_depth > *max_delegation_depth as usize {
+                    if !verified_context_delegation::delegation_depth_within_limit(
+                        delegation_depth,
+                        *max_delegation_depth,
+                    ) {
                         return Some(Verdict::Deny {
                             reason: format!(
                                 "{deny_reason} (delegation depth {delegation_depth} exceeds max {max_delegation_depth})"

@@ -6,6 +6,7 @@ audit-chain verification guards, Merkle append/init/proof-shape guards,
 Merkle fold structure, Merkle proof-path structure, cross-rotation
 manifest linkage/path-safety guards, capability attenuation arithmetic,
 stdio bridge principal-binding guards,
+post-deputy evaluation-principal handoff guards,
 capability parent-glob literal-child matching,
 capability exact parent-glob/child-glob subset checking,
 capability grant attenuation, capability literal matching fast paths,
@@ -442,6 +443,28 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_depth_threshold_is_inclusive` | Depth exactly at the policy threshold is accepted |
 | `lemma_depth_below_threshold_fails_closed` | Any depth strictly below the threshold is rejected |
 
+### Context Delegation Guards (`verified_context_delegation.rs`) — 11 verified items, CTX-DEP-1–CTX-DEP-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CTX-DEP-1 | Principal presence aggregation | The engine treats an attested identity or a legacy `agent_id` as sufficient principal presence |
+| CTX-DEP-2 | Required-principal fail-closed | `deputy_validation` denies when a principal is required but neither identity source is present |
+| CTX-DEP-3 | Call-chain depth bound is inclusive | `max_chain_depth` allows `len == max_depth` and denies only when `len > max_depth` |
+| CTX-DEP-4 | Delegation depth bound is inclusive | `deputy_validation` allows `delegation_depth == max_delegation_depth` and denies only when `delegation_depth > max_delegation_depth` |
+
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_missing_identity_sources_mean_no_principal` | If both identity sources are absent, no principal is present |
+| `lemma_principal_requirement_fails_closed_without_principal` | Requiring a principal fails closed when none is present |
+| `lemma_chain_depth_limit_is_inclusive` | `max_chain_depth` accepts the exact bound and zero |
+| `lemma_delegation_depth_limit_is_inclusive` | `deputy_validation` accepts the exact bound and zero |
+
 ### Stdio Bridge Principal-Binding Guards (`verified_bridge_principal.rs`) — 12 verified items, BRIDGE-PRINC-1–BRIDGE-PRINC-4
 
 Properties proven for ALL possible inputs:
@@ -464,6 +487,46 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_deputy_prefers_configured_identity` | Deputy validation always prefers the configured source when present |
 | `lemma_engine_only_trusts_configured_identity` | Engine evaluation never trusts a claimed-only principal |
 | `lemma_configured_source_aligns_deputy_and_engine` | A configured session principal aligns both subsystems on the same trusted source |
+
+### Delegation Projection Guards (`verified_delegation_projection.rs`) — 7 verified items, DEP-PROJ-1–DEP-PROJ-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| DEP-PROJ-1 | Inactive delegation projects empty chain | Without an active deputy-validated delegation context, the relay exposes a zero-length engine call chain |
+| DEP-PROJ-2 | Active delegation preserves validated depth | With an active delegation context, the projected engine call-chain length exactly matches the deputy-reported delegation depth |
+| DEP-PROJ-3 | Projected depth stays bounded | The projected call-chain length never exceeds the deputy depth domain (`u8::MAX`) |
+
+Verification result: **7 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_inactive_delegation_projects_empty_chain` | Inactive delegation always projects an empty chain regardless of deputy-reported depth |
+| `lemma_active_delegation_preserves_depth` | Active delegation preserves the exact deputy-reported depth |
+| `lemma_projected_depth_is_bounded_by_u8_max` | Projection cannot exceed the `u8` deputy-depth domain |
+
+### Deputy Handoff Guards (`verified_deputy_handoff.rs`) — 9 verified items, DEP-HANDOFF-1–DEP-HANDOFF-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| DEP-HANDOFF-1 | Active-delegation requirement | A claimed principal is only promoted after deputy validation when that claim was checked against an active server-side delegation context |
+| DEP-HANDOFF-2 | Configured source dominance | A configured session principal remains authoritative even if a deputy-validated claim also exists |
+| DEP-HANDOFF-3 | Validated-claim promotion | Without a configured session principal, a deputy-validated claim becomes the engine evaluation principal; otherwise evaluation stays anonymous |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_deputy_validated_claim_requires_active_delegation` | Active delegation and a present claim are both necessary before promotion can occur |
+| `lemma_configured_source_dominates_validated_claim` | A configured session principal always wins over a deputy-validated claim |
+| `lemma_validated_claim_promotes_only_without_configured_source` | A validated claim is promoted only when no configured session principal exists |
 
 ### NHI Delegation Guards (`verified_nhi_delegation.rs`) — 19 verified items, NHI-DEL-1–NHI-DEL-8
 
@@ -688,8 +751,11 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_merkle_path.rs` | `vellaveto-audit/src/verified_merkle_path.rs` | `merkle.rs` routes sibling presence, sibling index selection, `is_left` encoding, parent ascent, and verifier concatenation direction through the verified proof-path kernel |
 | `formal/verus/verified_rotation_manifest.rs` | `vellaveto-audit/src/verified_rotation_manifest.rs` | `rotation.rs` routes cross-rotation start-hash linkage, rotated filename safety, and the missing-file prune boundary through the verified manifest kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
-| `formal/verus/verified_bridge_principal.rs` | `vellaveto-mcp/src/verified_bridge_principal.rs` | `relay.rs` routes configured-vs-claimed consistency, deputy principal-source selection, and engine evaluation principal-source selection through the verified bridge gate |
 | `formal/verus/verified_capability_context.rs` | `vellaveto-engine/src/verified_capability_context.rs` | `context_check.rs` routes capability-token holder binding, issuer allowlist, and remaining-depth threshold checks through the verified engine gate |
+| `formal/verus/verified_context_delegation.rs` | `vellaveto-engine/src/verified_context_delegation.rs` | `context_check.rs` routes principal presence, required-principal satisfaction, max-chain-depth, and delegation-depth checks through the verified context-delegation gate |
+| `formal/verus/verified_bridge_principal.rs` | `vellaveto-mcp/src/verified_bridge_principal.rs` | `relay.rs` routes configured-vs-claimed consistency, deputy principal-source selection, and engine evaluation principal-source selection through the verified bridge gate |
+| `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `relay.rs` routes deputy-validated delegation depth through the verified projection kernel before populating `EvaluationContext.call_chain` |
+| `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `relay.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate |
 | `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes the literal-child parent-glob subset branch through the verified recursive matcher |
 | `formal/verus/verified_capability_glob_subset.rs` | `vellaveto-mcp/src/verified_capability_glob_subset.rs` | `capability_token.rs` routes the remaining child-glob branch through the exact subset kernel after the wildcard/equality/literal fast paths |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
@@ -755,8 +821,17 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_rot
 # Capability attenuation depth/expiry kernel (13 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_attenuation.rs
 
+# Engine call-chain/principal delegation guards (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_context_delegation.rs
+
 # Stdio bridge principal-binding alignment (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_bridge_principal.rs
+
+# Deputy delegation-depth projection into engine call-chain length (7 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_delegation_projection.rs
+
+# Deputy-validated claim promotion into engine evaluation (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy_handoff.rs
 
 # Engine capability-token holder/issuer/depth guards (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_context.rs
@@ -817,7 +892,10 @@ verus formal/verus/verified_merkle_fold.rs
 verus formal/verus/verified_merkle_path.rs
 verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
+verus formal/verus/verified_context_delegation.rs
 verus formal/verus/verified_bridge_principal.rs
+verus formal/verus/verified_delegation_projection.rs
+verus formal/verus/verified_deputy_handoff.rs
 verus formal/verus/verified_capability_context.rs
 verus formal/verus/verified_capability_glob.rs
 verus formal/verus/verified_capability_glob_subset.rs
@@ -844,7 +922,10 @@ Expected output:
 - `verified_merkle_path.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
+- `verified_context_delegation.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_bridge_principal.rs`: `verification results:: 12 verified, 0 errors`
+- `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
+- `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_context.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_capability_glob_subset.rs`: `verification results:: 11 verified, 0 errors`

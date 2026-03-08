@@ -113,7 +113,19 @@ pub open spec fn capability_context_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn context_delegation_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn bridge_principal_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn deputy_handoff_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn delegation_projection_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 

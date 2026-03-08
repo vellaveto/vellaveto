@@ -100,6 +100,15 @@ impl std::fmt::Display for DeputyError {
 
 impl std::error::Error for DeputyError {}
 
+/// Summary of what the deputy subsystem validated for a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeputyValidationBinding {
+    /// True when the request was checked against an active delegation context.
+    pub has_active_delegation: bool,
+    /// Current active delegation depth for the session.
+    pub delegation_depth: u8,
+}
+
 /// Rule for allowed delegations.
 ///
 /// SECURITY (FIND-R67-PF-001): Fields are `pub(crate)` to prevent external
@@ -368,6 +377,23 @@ impl DeputyValidator {
         tool: &str,
         claimed_principal: &str,
     ) -> Result<(), DeputyError> {
+        self.validate_action_binding(session_id, tool, claimed_principal)
+            .map(|_| ())
+    }
+
+    /// Validate an action and return whether the claimed principal was proven
+    /// against an active delegation context.
+    ///
+    /// Direct requests without any stored delegation context return
+    /// `has_active_delegation = false`; this must not be treated as trusted
+    /// identity establishment by higher layers.
+    #[must_use = "deputy validation results must not be discarded"]
+    pub fn validate_action_binding(
+        &self,
+        session_id: &str,
+        tool: &str,
+        claimed_principal: &str,
+    ) -> Result<DeputyValidationBinding, DeputyError> {
         let contexts = self.active_contexts.read().map_err(|e| {
             tracing::error!(
                 "CRITICAL: Deputy RwLock poisoned in validate_action for session '{}': {}",
@@ -384,7 +410,10 @@ impl DeputyValidator {
             None => {
                 // No delegation context = direct request
                 // This is allowed if no explicit delegation is required
-                return Ok(());
+                return Ok(DeputyValidationBinding {
+                    has_active_delegation: false,
+                    delegation_depth: 0,
+                });
             }
         };
 
@@ -429,7 +458,10 @@ impl DeputyValidator {
             }
         }
 
-        Ok(())
+        Ok(DeputyValidationBinding {
+            has_active_delegation: true,
+            delegation_depth: ctx.delegation_depth,
+        })
     }
 
     /// Check if a tool is allowed for the current delegation chain.
@@ -758,6 +790,33 @@ mod tests {
         // Stored values should be normalized to Latin equivalents
         assert_eq!(ctx.original_principal, "admin");
         assert_eq!(ctx.delegated_to, Some("worker".to_string()));
+    }
+
+    #[test]
+    fn test_validate_action_binding_direct_request_is_not_trusted_delegation() {
+        let validator = DeputyValidator::new(3);
+
+        let binding = validator
+            .validate_action_binding("session-1", "read_file", "worker")
+            .unwrap();
+
+        assert!(!binding.has_active_delegation);
+        assert_eq!(binding.delegation_depth, 0);
+    }
+
+    #[test]
+    fn test_validate_action_binding_returns_active_delegation_summary() {
+        let validator = DeputyValidator::new(3);
+        validator
+            .register_delegation("session-1", "admin", "worker", &["read_file".to_string()])
+            .unwrap();
+
+        let binding = validator
+            .validate_action_binding("session-1", "read_file", "worker")
+            .unwrap();
+
+        assert!(binding.has_active_delegation);
+        assert_eq!(binding.delegation_depth, 1);
     }
 
     /// FIND-R213-002: validate_action normalizes claimed_principal homoglyphs.

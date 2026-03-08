@@ -73,11 +73,17 @@ echo ""
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CAPABILITY_CONTEXT="$PROJECT_DIR/vellaveto-engine/src/verified_capability_context.rs"
+PROD_CONTEXT_DELEGATION="$PROJECT_DIR/vellaveto-engine/src/verified_context_delegation.rs"
 PROD_CONTEXT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/context_check.rs"
 VERUS_CAPABILITY_CONTEXT="$PROJECT_DIR/formal/verus/verified_capability_context.rs"
+VERUS_CONTEXT_DELEGATION="$PROJECT_DIR/formal/verus/verified_context_delegation.rs"
 PROD_BRIDGE_PRINCIPAL="$PROJECT_DIR/vellaveto-mcp/src/verified_bridge_principal.rs"
+PROD_DELEGATION_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_delegation_projection.rs"
+PROD_DEPUTY_HANDOFF="$PROJECT_DIR/vellaveto-mcp/src/verified_deputy_handoff.rs"
 PROD_RELAY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
 VERUS_BRIDGE_PRINCIPAL="$PROJECT_DIR/formal/verus/verified_bridge_principal.rs"
+VERUS_DELEGATION_PROJECTION="$PROJECT_DIR/formal/verus/verified_delegation_projection.rs"
+VERUS_DEPUTY_HANDOFF="$PROJECT_DIR/formal/verus/verified_deputy_handoff.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
@@ -151,7 +157,10 @@ for module in \
     verified_rotation_manifest \
     verified_capability_attenuation \
     verified_bridge_principal \
+    verified_delegation_projection \
+    verified_deputy_handoff \
     verified_capability_context \
+    verified_context_delegation \
     verified_capability_glob \
     verified_capability_glob_subset \
     verified_capability_grant \
@@ -227,6 +236,45 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+capability_remaining_depth_sufficient'
 echo ""
 
+echo "--- Context Delegation Kernel ---"
+check_file_pair \
+    "verified_context_delegation.rs ↔ vellaveto-engine/src/verified_context_delegation.rs" \
+    "$PROD_CONTEXT_DELEGATION" \
+    "$VERUS_CONTEXT_DELEGATION"
+for fn in identified_principal_present principal_requirement_satisfied chain_depth_within_limit delegation_depth_within_limit; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CONTEXT_DELEGATION" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CONTEXT_DELEGATION" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "context checker uses verified call-chain depth guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_context_delegation::chain_depth_within_limit' \
+    "$VERUS_CONTEXT_DELEGATION" \
+    'pub[[:space:]]+fn[[:space:]]+chain_depth_within_limit'
+check_symbol_parity \
+    "context checker uses verified principal-presence guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_context_delegation::identified_principal_present' \
+    "$VERUS_CONTEXT_DELEGATION" \
+    'pub[[:space:]]+fn[[:space:]]+identified_principal_present'
+check_symbol_parity \
+    "context checker uses verified principal-requirement guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_context_delegation::principal_requirement_satisfied' \
+    "$VERUS_CONTEXT_DELEGATION" \
+    'pub[[:space:]]+fn[[:space:]]+principal_requirement_satisfied'
+check_symbol_parity \
+    "context checker uses verified delegation-depth guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_context_delegation::delegation_depth_within_limit' \
+    "$VERUS_CONTEXT_DELEGATION" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_depth_within_limit'
+echo ""
+
 echo "--- Bridge Principal Kernel ---"
 check_file_pair \
     "verified_bridge_principal.rs ↔ vellaveto-mcp/src/verified_bridge_principal.rs" \
@@ -258,6 +306,52 @@ check_symbol_parity \
     'verified_bridge_principal::evaluation_principal_source' \
     "$VERUS_BRIDGE_PRINCIPAL" \
     'pub[[:space:]]+fn[[:space:]]+evaluation_principal_source'
+echo ""
+
+echo "--- Delegation Projection Kernel ---"
+check_file_pair \
+    "verified_delegation_projection.rs ↔ vellaveto-mcp/src/verified_delegation_projection.rs" \
+    "$PROD_DELEGATION_PROJECTION" \
+    "$VERUS_DELEGATION_PROJECTION"
+check_symbol_parity \
+    "projected_call_chain_len exists in production and Verus" \
+    "$PROD_DELEGATION_PROJECTION" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+projected_call_chain_len|pub\(crate\)[[:space:]]+fn[[:space:]]+projected_call_chain_len' \
+    "$VERUS_DELEGATION_PROJECTION" \
+    'pub[[:space:]]+fn[[:space:]]+projected_call_chain_len'
+check_symbol_parity \
+    "relay uses verified delegation-depth projection" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_delegation_projection::projected_call_chain_len' \
+    "$VERUS_DELEGATION_PROJECTION" \
+    'pub[[:space:]]+fn[[:space:]]+projected_call_chain_len'
+echo ""
+
+echo "--- Deputy Handoff Kernel ---"
+check_file_pair \
+    "verified_deputy_handoff.rs ↔ vellaveto-mcp/src/verified_deputy_handoff.rs" \
+    "$PROD_DEPUTY_HANDOFF" \
+    "$VERUS_DEPUTY_HANDOFF"
+for fn in deputy_validated_claim_trusted evaluation_principal_source_after_deputy; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_DEPUTY_HANDOFF" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_DEPUTY_HANDOFF" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "relay uses verified deputy-validated claim guard" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_deputy_handoff::deputy_validated_claim_trusted' \
+    "$VERUS_DEPUTY_HANDOFF" \
+    'pub[[:space:]]+fn[[:space:]]+deputy_validated_claim_trusted'
+check_symbol_parity \
+    "relay uses verified post-deputy evaluation principal selector" \
+    "$PROD_RELAY_WRAPPER" \
+    'verified_deputy_handoff::evaluation_principal_source_after_deputy' \
+    "$VERUS_DEPUTY_HANDOFF" \
+    'pub[[:space:]]+fn[[:space:]]+evaluation_principal_source_after_deputy'
 echo ""
 
 echo "--- Constraint Evaluation Kernel ---"
