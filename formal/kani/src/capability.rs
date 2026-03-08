@@ -21,12 +21,14 @@
 //! | K38 | pattern_is_subset correctness | S11 |
 //! | K39 | glob_match("*", any) == true | — |
 //! | K40 | normalize_path_for_grant: no ".." in output | S11 |
+//! | K41 | path_component_next_depth fails closed above root | S11 |
 //!
 //! # Production Correspondence
 //!
 //! - `pattern_matches` (metachar branch) ↔ `verified_capability_glob::literal_child_matches_parent_glob`
 //! - `pattern_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:610-630`
-//! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/capability_token.rs:459-482`
+//! - `path_component_next_depth` ↔ `vellaveto-mcp/src/verified_capability_path.rs`
+//! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/verified_capability_path.rs`
 //! - `grant_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:598-696`
 
 use std::collections::{HashSet, VecDeque};
@@ -121,6 +123,25 @@ pub fn next_covering_grant_index(
                 None
             }
         }
+    }
+}
+
+/// Fail-closed depth transition from production capability path normalization.
+pub fn path_component_next_depth(
+    current_depth: usize,
+    component_is_empty_or_dot: bool,
+    component_is_dotdot: bool,
+) -> Option<usize> {
+    if component_is_empty_or_dot {
+        Some(current_depth)
+    } else if component_is_dotdot {
+        if current_depth == 0 {
+            None
+        } else {
+            Some(current_depth - 1)
+        }
+    } else {
+        current_depth.checked_add(1)
     }
 }
 
@@ -320,15 +341,19 @@ pub fn normalize_path_for_grant(path: &str) -> Option<String> {
     }
     let mut components: Vec<&str> = Vec::new();
     for component in path.split('/') {
-        match component {
-            "" | "." => continue,
-            ".." => {
-                if components.is_empty() {
-                    return None; // Traversal above root — fail-closed
-                }
+        let next_depth = path_component_next_depth(
+            components.len(),
+            component.is_empty() || component == ".",
+            component == "..",
+        )?;
+        match next_depth.cmp(&components.len()) {
+            std::cmp::Ordering::Less => {
                 components.pop();
             }
-            c => components.push(c),
+            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Greater => {
+                components.push(component);
+            }
         }
     }
     let normalized = if path.starts_with('/') {
@@ -664,6 +689,14 @@ mod tests {
         assert_eq!(next_covering_grant_index(None, 2, true), Some(2));
         assert_eq!(next_covering_grant_index(Some(1), 2, false), Some(1));
         assert_eq!(next_covering_grant_index(Some(1), 2, true), Some(1));
+    }
+
+    #[test]
+    fn test_path_component_next_depth() {
+        assert_eq!(path_component_next_depth(2, true, false), Some(2));
+        assert_eq!(path_component_next_depth(0, false, true), None);
+        assert_eq!(path_component_next_depth(2, false, true), Some(1));
+        assert_eq!(path_component_next_depth(2, false, false), Some(3));
     }
 
     #[test]

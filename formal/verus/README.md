@@ -327,6 +327,30 @@ Verification result: **8 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_existing_selection_is_preserved` | A previously selected index is preserved regardless of the current grant result |
 | `lemma_selected_index_never_moves_forward` | The selected index cannot advance to a later matching grant |
 
+### Capability Grant Path Kernel (`verified_capability_path.rs`) — 9 verified items, CAP-PATH-1–CAP-PATH-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-PATH-1 | Empty/dot component is a no-op | Empty and `.` path components preserve the current normalized depth |
+| CAP-PATH-2 | Above-root traversal fails closed | A `..` component at depth zero rejects normalization |
+| CAP-PATH-3 | Non-root parent traversal pops exactly one level | A `..` component below root decreases normalized depth by one |
+| CAP-PATH-4 | Literal component increments depth | A non-special component increases normalized depth by one |
+| CAP-PATH-5 | Depth overflow fails closed | Impossible component-depth overflow rejects normalization |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_empty_or_dot_component_keeps_depth` | Empty and `.`-style components preserve the current depth |
+| `lemma_dotdot_at_root_fails_closed` | `..` at root denies normalization |
+| `lemma_dotdot_below_root_pops` | `..` below root decrements the depth exactly once |
+| `lemma_literal_component_pushes_when_bounded` | A normal component increments depth when not at the maximum |
+| `lemma_literal_component_overflow_fails_closed` | Impossible depth overflow is rejected fail-closed |
+
 ### Capability Parent-Glob Matcher (`verified_capability_glob.rs`) — 19 verified items, CAP-GLOB-1–CAP-GLOB-5
 
 Properties proven for ALL possible inputs:
@@ -830,6 +854,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `relay.rs` routes deputy-validated delegation depth through the verified projection kernel before populating `EvaluationContext.call_chain` |
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `relay.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate |
 | `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
+| `formal/verus/verified_capability_path.rs` | `vellaveto-mcp/src/verified_capability_path.rs` | `capability_token.rs` routes grant/action path normalization through the extracted fail-closed path kernel |
 | `formal/verus/verified_capability_selection.rs` | `vellaveto-mcp/src/verified_capability_selection.rs` | `capability_token.rs` routes first-match grant selection in `check_grant_coverage()` through the verified selection kernel |
 | `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes both the runtime metachar matcher branch and the literal-child parent-glob subset branch through the verified recursive matcher |
 | `formal/verus/verified_capability_glob_subset.rs` | `vellaveto-mcp/src/verified_capability_glob_subset.rs` | `capability_token.rs` routes the remaining child-glob branch through the exact subset kernel after the wildcard/equality/literal fast paths |
@@ -912,6 +937,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dep
 # Capability grant-coverage path/domain restriction gate (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_coverage.rs
 
+# Capability grant path fail-closed transition gate (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_path.rs
+
 # Capability first-match selection gate (8 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_selection.rs
 
@@ -982,6 +1010,7 @@ verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
 verus formal/verus/verified_capability_coverage.rs
+verus formal/verus/verified_capability_path.rs
 verus formal/verus/verified_capability_selection.rs
 verus formal/verus/verified_capability_context.rs
 verus formal/verus/verified_capability_glob.rs
@@ -1015,6 +1044,7 @@ Expected output:
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
+- `verified_capability_path.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_selection.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_capability_context.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`

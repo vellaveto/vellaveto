@@ -108,6 +108,7 @@ PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.
 PROD_CAPABILITY_IDENTITY="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_identity.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
+PROD_CAPABILITY_PATH="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_path.rs"
 PROD_CAPABILITY_SELECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_selection.rs"
 PROD_CAPABILITY_VERIFICATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_verification.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
@@ -128,6 +129,7 @@ VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_IDENTITY="$PROJECT_DIR/formal/verus/verified_capability_identity.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
+VERUS_CAPABILITY_PATH="$PROJECT_DIR/formal/verus/verified_capability_path.rs"
 VERUS_CAPABILITY_SELECTION="$PROJECT_DIR/formal/verus/verified_capability_selection.rs"
 VERUS_CAPABILITY_VERIFICATION="$PROJECT_DIR/formal/verus/verified_capability_verification.rs"
 VERUS_NHI="$PROJECT_DIR/formal/verus/verified_nhi_delegation.rs"
@@ -174,6 +176,7 @@ for module in \
     verified_capability_identity \
     verified_capability_literal \
     verified_capability_pattern \
+    verified_capability_path \
     verified_capability_selection \
     verified_capability_verification \
     verified_constraint_eval \
@@ -885,6 +888,25 @@ check_symbol_parity \
     'verified_capability_pattern::has_glob_metacharacters' \
     "$VERUS_CAPABILITY_PATTERN" \
     'pub[[:space:]]+fn[[:space:]]+has_glob_metacharacters'
+echo ""
+
+echo "--- Capability Path Kernel ---"
+check_file_pair \
+    "verified_capability_path.rs ↔ vellaveto-mcp/src/verified_capability_path.rs" \
+    "$PROD_CAPABILITY_PATH" \
+    "$VERUS_CAPABILITY_PATH"
+check_symbol_parity \
+    "path_component_next_depth exists in production and Verus" \
+    "$PROD_CAPABILITY_PATH" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+path_component_next_depth' \
+    "$VERUS_CAPABILITY_PATH" \
+    'pub[[:space:]]+fn[[:space:]]+path_component_next_depth'
+check_symbol_parity \
+    "capability coverage uses verified path normalizer" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_path::normalize_path_for_grant' \
+    "$PROD_CAPABILITY_PATH" \
+    'pub\(crate\)[[:space:]]+fn[[:space:]]+normalize_path_for_grant'
 echo ""
 
 echo "--- Capability Selection Kernel ---"

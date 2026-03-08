@@ -37,6 +37,7 @@ use crate::verified_capability_glob_subset;
 use crate::verified_capability_grant;
 use crate::verified_capability_identity;
 use crate::verified_capability_literal;
+use crate::verified_capability_path;
 use crate::verified_capability_pattern;
 use crate::verified_capability_selection;
 use crate::verified_capability_verification;
@@ -495,35 +496,6 @@ pub fn check_grant_coverage(token: &CapabilityToken, action: &Action) -> Option<
     selected_index
 }
 
-/// Normalize a path by resolving `.` and `..` components.
-///
-/// SECURITY (FIND-083): Fail-closed — returns `None` if the path contains
-/// null bytes or attempts to traverse above the root.
-fn normalize_path_for_grant(path: &str) -> Option<String> {
-    if path.contains('\0') {
-        return None; // Null byte injection — fail-closed
-    }
-    let mut components: Vec<&str> = Vec::new();
-    for component in path.split('/') {
-        match component {
-            "" | "." => continue,
-            ".." => {
-                if components.is_empty() {
-                    return None; // Traversal above root — fail-closed
-                }
-                components.pop();
-            }
-            c => components.push(c),
-        }
-    }
-    let normalized = if path.starts_with('/') {
-        format!("/{}", components.join("/"))
-    } else {
-        components.join("/")
-    };
-    Some(normalized)
-}
-
 /// Check if a grant covers the given action.
 fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
     // Check tool pattern
@@ -545,7 +517,7 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
         // path traversal attacks (e.g., "/safe/../etc/passwd" matching "/safe/**").
         action.target_paths.iter().all(|path| {
             // Fail-closed: if normalization fails, deny the grant
-            let normalized = match normalize_path_for_grant(path) {
+            let normalized = match verified_capability_path::normalize_path_for_grant(path) {
                 Some(n) => n,
                 None => return false,
             };
@@ -674,13 +646,14 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
             // before checking subset containment. Without normalization, a child
             // with "/safe/../../etc" passes the parent's "/safe/*" pattern match
             // but at runtime resolves to "/etc".
-            let normalized = match normalize_path_for_grant(path) {
+            let normalized = match verified_capability_path::normalize_path_for_grant(path) {
                 Some(n) => n,
                 None => return false, // Fail-closed: malformed path = deny
             };
             let covered = parent_grant.allowed_paths.iter().any(|pp| {
                 // Also normalize parent pattern for consistent comparison
-                let parent_normalized = normalize_path_for_grant(pp).unwrap_or_default();
+                let parent_normalized =
+                    verified_capability_path::normalize_path_for_grant(pp).unwrap_or_default();
                 if parent_normalized.is_empty() {
                     return false; // Malformed parent pattern — fail-closed
                 }

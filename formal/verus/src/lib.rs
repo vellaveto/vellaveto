@@ -32,6 +32,8 @@ mod verified_capability_identity;
 mod verified_capability_literal;
 #[path = "../verified_capability_pattern.rs"]
 mod verified_capability_pattern;
+#[path = "../verified_capability_path.rs"]
+mod verified_capability_path;
 #[path = "../verified_capability_selection.rs"]
 mod verified_capability_selection;
 #[path = "../verified_capability_verification.rs"]
