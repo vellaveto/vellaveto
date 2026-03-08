@@ -74,6 +74,12 @@ pub struct MediationConfig {
     pub include_timing: bool,
     /// Include findings in ACIS envelope.  Default: `true`.
     pub include_findings: bool,
+    /// Require a session ID.  When `true`, requests without a session ID
+    /// produce a Deny verdict.  Default: `false`.
+    pub require_session_id: bool,
+    /// Require an authenticated agent identity.  When `true`, requests
+    /// without agent identity produce a Deny verdict.  Default: `false`.
+    pub require_agent_identity: bool,
 }
 
 impl Default for MediationConfig {
@@ -85,6 +91,8 @@ impl Default for MediationConfig {
             injection_blocking: true,
             include_timing: true,
             include_findings: true,
+            require_session_id: false,
+            require_agent_identity: false,
         }
     }
 }
@@ -124,8 +132,62 @@ pub fn mediate(
     tenant_id: Option<&str>,
 ) -> MediationResult {
     let start = Instant::now();
-    let mut dlp_findings: Vec<String> = Vec::new();
-    let mut injection_findings: Vec<String> = Vec::new();
+    let dlp_findings: Vec<String> = Vec::new();
+    let injection_findings: Vec<String> = Vec::new();
+
+    // ── Step 0: ACIS binding enforcement ─────────────────────────────────
+    // Fail-closed: if the config requires session or identity but they are
+    // missing, deny immediately.  This runs before DLP/injection so that
+    // unauthenticated traffic never reaches the scanning pipeline.
+
+    if config.require_session_id && session_id.is_none() {
+        let elapsed = start.elapsed();
+        return build_result(
+            decision_id,
+            action,
+            Verdict::Deny {
+                reason: "session ID required by ACIS policy".to_string(),
+            },
+            DecisionOrigin::SessionGuard,
+            None,
+            &dlp_findings,
+            &injection_findings,
+            transport,
+            session_id,
+            tenant_id,
+            elapsed.as_micros() as u64,
+            config,
+            context,
+        );
+    }
+
+    if config.require_agent_identity
+        && context
+            .and_then(|ctx| ctx.agent_identity.as_ref())
+            .is_none()
+    {
+        let elapsed = start.elapsed();
+        return build_result(
+            decision_id,
+            action,
+            Verdict::Deny {
+                reason: "agent identity required by ACIS policy".to_string(),
+            },
+            DecisionOrigin::SessionGuard,
+            None,
+            &dlp_findings,
+            &injection_findings,
+            transport,
+            session_id,
+            tenant_id,
+            elapsed.as_micros() as u64,
+            config,
+            context,
+        );
+    }
+
+    let mut dlp_findings = dlp_findings;
+    let mut injection_findings = injection_findings;
 
     // ── Step 1: DLP parameter scanning ───────────────────────────────────
     if config.dlp_enabled {
@@ -383,7 +445,8 @@ fn now_utc() -> String {
 mod tests {
     use super::*;
     use serde_json::json;
-    use vellaveto_types::Policy;
+    use vellaveto_types::identity::AgentIdentity;
+    use vellaveto_types::{Policy, PolicyType};
 
     fn test_engine() -> PolicyEngine {
         PolicyEngine::with_policies(true, &[]).expect("test engine")
@@ -875,5 +938,140 @@ mod tests {
             r.envelope.action_fingerprint, env.action_fingerprint,
             "fingerprint must match between mediate() and build_acis_envelope()"
         );
+    }
+
+    // ── Gap 3: AcisConfig enforcement tests ──────────────────────────────
+
+    fn allow_policy() -> Policy {
+        Policy {
+            id: "file_write:*".into(),
+            name: "Allow file writes".into(),
+            policy_type: PolicyType::Allow,
+            priority: 100,
+            path_rules: None,
+            network_rules: None,
+        }
+    }
+
+    #[test]
+    fn test_require_session_id_denies_when_missing() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_session_id: true,
+            ..MediationConfig::default()
+        };
+        let r = mediate("sess-1", &action, &engine, None, "http", &config, None, None);
+        assert!(matches!(r.verdict, Verdict::Deny { .. }));
+        assert_eq!(r.origin, DecisionOrigin::SessionGuard);
+        assert_eq!(r.envelope.decision, DecisionKind::Deny);
+    }
+
+    #[test]
+    fn test_require_session_id_allows_when_present() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_session_id: true,
+            ..MediationConfig::default()
+        };
+        let r = mediate(
+            "sess-2", &action, &engine, None, "http", &config, Some("session-abc"), None,
+        );
+        assert!(matches!(r.verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_require_agent_identity_denies_when_missing() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_agent_identity: true,
+            ..MediationConfig::default()
+        };
+        // No context → Deny
+        let r = mediate("ident-1", &action, &engine, None, "grpc", &config, None, None);
+        assert!(matches!(r.verdict, Verdict::Deny { .. }));
+        assert_eq!(r.origin, DecisionOrigin::SessionGuard);
+        // Context without identity → also Deny
+        let ctx = EvaluationContext::default();
+        let r2 = mediate("ident-2", &action, &engine, Some(&ctx), "grpc", &config, None, None);
+        assert!(matches!(r2.verdict, Verdict::Deny { .. }));
+    }
+
+    #[test]
+    fn test_require_agent_identity_allows_when_present() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_agent_identity: true,
+            ..MediationConfig::default()
+        };
+        let ctx = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: Some("llm-provider".to_string()),
+                ..AgentIdentity::default()
+            }),
+            ..Default::default()
+        };
+        let r = mediate("ident-3", &action, &engine, Some(&ctx), "websocket", &config, None, None);
+        assert!(matches!(r.verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_require_both_session_and_identity_enforced() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_session_id: true,
+            require_agent_identity: true,
+            ..MediationConfig::default()
+        };
+        // Missing both → Deny (session check first)
+        let r = mediate("both-1", &action, &engine, None, "http", &config, None, None);
+        assert!(matches!(r.verdict, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = &r.verdict {
+            assert!(reason.contains("session ID"));
+        }
+        // Session present, identity missing → Deny
+        let ctx = EvaluationContext::default();
+        let r2 = mediate(
+            "both-2", &action, &engine, Some(&ctx), "http", &config, Some("sess-x"), None,
+        );
+        assert!(matches!(r2.verdict, Verdict::Deny { .. }));
+        if let Verdict::Deny { reason } = &r2.verdict {
+            assert!(reason.contains("agent identity"));
+        }
+        // Both present → Allow
+        let ctx_ok = EvaluationContext {
+            agent_identity: Some(AgentIdentity {
+                issuer: Some("llm-provider".to_string()),
+                ..AgentIdentity::default()
+            }),
+            ..Default::default()
+        };
+        let r3 = mediate(
+            "both-3", &action, &engine, Some(&ctx_ok), "http", &config, Some("sess-y"), None,
+        );
+        assert!(matches!(r3.verdict, Verdict::Allow));
+    }
+
+    #[test]
+    fn test_session_enforcement_runs_before_dlp() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = Action::new(
+            "http".to_string(),
+            "post".to_string(),
+            json!({"key": "AKIA1234567890ABCDEF"}),
+        );
+        let config = MediationConfig {
+            require_session_id: true,
+            dlp_enabled: true,
+            dlp_blocking: true,
+            ..MediationConfig::default()
+        };
+        let r = mediate("pre-dlp-1", &action, &engine, None, "http", &config, None, None);
+        assert_eq!(r.origin, DecisionOrigin::SessionGuard);
+        assert!(r.dlp_findings.is_empty(), "DLP should not have run");
     }
 }
