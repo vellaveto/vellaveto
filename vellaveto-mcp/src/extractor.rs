@@ -348,9 +348,11 @@ fn extract_targets_from_params_inner(
                 // SECURITY (R12-EXT-1): Percent-decode file:// paths.
                 // Without this, file:///etc/%70asswd bypasses blocked-path
                 // rules for /etc/passwd because the engine sees encoded chars.
-                let decoded = percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
-                if !decoded.is_empty() {
-                    paths.push(decoded.into_owned());
+                // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
+                if let Ok(decoded) = percent_encoding::percent_decode_str(file_path).decode_utf8() {
+                    if !decoded.is_empty() {
+                        paths.push(decoded.into_owned());
+                    }
                 }
             } else if lower.starts_with("http://") || lower.starts_with("https://") {
                 // Extract domain from HTTP(S) URL
@@ -359,19 +361,20 @@ fn extract_targets_from_params_inner(
                     // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                     // Without this, http://evil.com%40blocked.com bypasses domain matching
                     // because the encoded '@' hides the userinfo/host boundary.
-                    let decoded =
-                        percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
-                    let host = decoded.as_ref();
-                    let host = host.split(':').next().unwrap_or(host);
-                    let host = host.split('?').next().unwrap_or(host);
-                    let host = host.split('#').next().unwrap_or(host);
-                    let host = if let Some(pos) = host.rfind('@') {
-                        &host[pos + 1..]
-                    } else {
-                        host
-                    };
-                    if !host.is_empty() {
-                        domains.push(host.to_lowercase());
+                    // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed authority.
+                    if let Ok(decoded) = percent_encoding::percent_decode_str(host_raw).decode_utf8() {
+                        let host = decoded.as_ref();
+                        let host = host.split(':').next().unwrap_or(host);
+                        let host = host.split('?').next().unwrap_or(host);
+                        let host = host.split('#').next().unwrap_or(host);
+                        let host = if let Some(pos) = host.rfind('@') {
+                            &host[pos + 1..]
+                        } else {
+                            host
+                        };
+                        if !host.is_empty() {
+                            domains.push(host.to_lowercase());
+                        }
                     }
                 }
             } else if s.starts_with('/') && !s.contains(' ') {
@@ -455,27 +458,31 @@ pub fn extract_resource_action(uri: &str) -> Action {
         // Strip query strings and fragments
         let file_path = strip_query_and_fragment(file_path);
         // SECURITY (R12-EXT-1): Percent-decode file:// paths before use.
-        let decoded = percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
-        params.insert(PARAM_PATH.to_string(), Value::String(decoded.to_string()));
-        target_paths.push(decoded.into_owned());
+        // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
+        if let Ok(decoded) = percent_encoding::percent_decode_str(file_path).decode_utf8() {
+            params.insert(PARAM_PATH.to_string(), Value::String(decoded.to_string()));
+            target_paths.push(decoded.into_owned());
+        }
     } else if uri_lower.starts_with("http://") || uri_lower.starts_with("https://") {
         params.insert(PARAM_URL.to_string(), Value::String(uri.to_string()));
         // Extract domain for target_domains
         if let Some(authority) = uri.find("://").map(|i| &uri[i + 3..]) {
             let host_raw = authority.split('/').next().unwrap_or(authority);
             // SECURITY (R12-EXT-2): Percent-decode authority before splitting.
-            let decoded = percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
-            let host = decoded.as_ref();
-            let host = host.split(':').next().unwrap_or(host);
-            let host = host.split('?').next().unwrap_or(host);
-            let host = host.split('#').next().unwrap_or(host);
-            let host = if let Some(pos) = host.rfind('@') {
-                &host[pos + 1..]
-            } else {
-                host
-            };
-            if !host.is_empty() {
-                target_domains.push(host.to_lowercase());
+            // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed authority.
+            if let Ok(decoded) = percent_encoding::percent_decode_str(host_raw).decode_utf8() {
+                let host = decoded.as_ref();
+                let host = host.split(':').next().unwrap_or(host);
+                let host = host.split('?').next().unwrap_or(host);
+                let host = host.split('#').next().unwrap_or(host);
+                let host = if let Some(pos) = host.rfind('@') {
+                    &host[pos + 1..]
+                } else {
+                    host
+                };
+                if !host.is_empty() {
+                    target_domains.push(host.to_lowercase());
+                }
             }
         }
     }
