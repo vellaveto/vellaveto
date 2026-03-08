@@ -72,9 +72,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - E1-5: `acis_envelope: Option<AcisDecisionEnvelope>` added to `AuditEntry`
     (backward-compatible). `log_entry_with_acis()` entrypoint in audit logger.
     Wired into server evaluate path (7 sites), stdio relay (4 sites: tool call
-    allow/block, resource read allow/block), and HTTP proxy handler (6 sites:
+    allow/block, resource read allow/block), HTTP proxy handler (6 sites:
     tool call deny/require-approval, resource read deny/require-approval, task
-    request allow/deny/require-approval). 33 new tests.
+    request allow/deny/require-approval), WebSocket proxy (12 sites: tool call,
+    resource read, task request, extension method × Allow/Deny/RequireApproval),
+    and gRPC proxy (12 sites: same handler × verdict matrix). **41 total
+    ACIS-wired verdict decision sites across all 5 transports.** 33 new tests.
 
 - **E2 — Canonical Mediation Pipeline (Sprint 1, Mar 2026):**
   Consolidates the ACIS envelope construction into a shared mediation pipeline
