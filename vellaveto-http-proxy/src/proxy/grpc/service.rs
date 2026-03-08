@@ -29,7 +29,7 @@ use tonic::{Request, Response, Status, Streaming};
 
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -320,10 +320,11 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
+                        let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
                         if let Err(e) = self
                             .state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &n_action,
                                 &verdict,
                                 json!({
@@ -332,6 +333,7 @@ impl McpGrpcService {
                                     "blocked": self.state.response_dlp_blocking,
                                     "message_type": "progress_notification",
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -401,10 +403,11 @@ impl McpGrpcService {
                                     "message_type": "progress_notification",
                                 }),
                             );
+                            let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &inj_action,
                                     &verdict,
                                     json!({
@@ -413,6 +416,7 @@ impl McpGrpcService {
                                         "blocking": self.state.injection_blocking,
                                         "message_type": "progress_notification",
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -469,22 +473,25 @@ impl McpGrpcService {
                                 "message_type": "progress_notification",
                             }),
                         );
+                        let poison_verdict = Verdict::Deny {
+                            reason: format!(
+                                "gRPC ProgressNotification blocked: memory poisoning ({} matches)",
+                                poisoning_matches.len()
+                            ),
+                        };
+                        let envelope = build_secondary_acis_envelope(&poison_action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                         if let Err(e) = self
                             .state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &poison_action,
-                                &Verdict::Deny {
-                                    reason: format!(
-                                        "gRPC ProgressNotification blocked: memory poisoning ({} matches)",
-                                        poisoning_matches.len()
-                                    ),
-                                },
+                                &poison_verdict,
                                 json!({
                                     "source": "grpc_proxy",
                                     "event": "grpc_passthrough_memory_poisoning",
                                     "message_type": "progress_notification",
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -512,10 +519,11 @@ impl McpGrpcService {
 
                 // Audit log the forwarded ProgressNotification.
                 let action = Action::new("progress_notification", method_name, json!({}));
+                let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
@@ -524,6 +532,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "event": "progress_notification_forwarded",
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -623,10 +632,11 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
+                        let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
                         if let Err(e) = self
                             .state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &n_action,
                                 &verdict,
                                 json!({
@@ -634,6 +644,7 @@ impl McpGrpcService {
                                     "event": "notification_dlp_alert",
                                     "blocked": self.state.response_dlp_blocking,
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -704,10 +715,11 @@ impl McpGrpcService {
                                     "transport": "grpc",
                                 }),
                             );
+                            let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &inj_action,
                                     &verdict,
                                     json!({
@@ -715,6 +727,7 @@ impl McpGrpcService {
                                         "event": "passthrough_injection_detected",
                                         "blocking": self.state.injection_blocking,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -770,21 +783,24 @@ impl McpGrpcService {
                                 "transport": "grpc",
                             }),
                         );
+                        let poison_verdict = Verdict::Deny {
+                            reason: format!(
+                                "gRPC passthrough blocked: memory poisoning ({} matches)",
+                                poisoning_matches.len()
+                            ),
+                        };
+                        let envelope = build_secondary_acis_envelope(&poison_action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                         if let Err(e) = self
                             .state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &poison_action,
-                                &Verdict::Deny {
-                                    reason: format!(
-                                        "gRPC passthrough blocked: memory poisoning ({} matches)",
-                                        poisoning_matches.len()
-                                    ),
-                                },
+                                &poison_verdict,
                                 json!({
                                     "source": "grpc_proxy",
                                     "event": "grpc_passthrough_memory_poisoning",
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -816,10 +832,11 @@ impl McpGrpcService {
                 // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
                 // but must have an audit trail for observability.
                 let action = Action::new("passthrough", method_name, json!({}));
+                let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
@@ -828,6 +845,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "event": "pass_through_forwarded",
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -892,10 +910,11 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: format!("DLP blocked: secret detected in parameters: {:?}", patterns),
             };
+            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &audit_verdict,
                     json!({
@@ -905,6 +924,7 @@ impl McpGrpcService {
                         "event": "grpc_parameter_dlp_alert",
                         "findings": patterns,
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -936,10 +956,11 @@ impl McpGrpcService {
                     tool_name
                 ),
             };
+            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &verdict,
                     json!({
@@ -949,6 +970,7 @@ impl McpGrpcService {
                         "event": "rug_pull_tool_blocked",
                         "tool": tool_name,
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -985,14 +1007,16 @@ impl McpGrpcService {
                     poisoning_matches.len(),
                     tool_name
                 );
+                let mp_verdict = Verdict::Deny {
+                    reason: deny_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &mp_verdict,
                         json!({
                             "source": "grpc_proxy",
                             "session": session_id,
@@ -1001,6 +1025,7 @@ impl McpGrpcService {
                             "matches": poisoning_matches.len(),
                             "tool": tool_name,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -1050,10 +1075,11 @@ impl McpGrpcService {
                 let verdict = Verdict::Deny {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -1063,6 +1089,7 @@ impl McpGrpcService {
                             "event": "circuit_breaker_rejected",
                             "tool": tool_name,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -1094,10 +1121,11 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Unknown tool requires approval".to_string(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1107,6 +1135,7 @@ impl McpGrpcService {
                                         "registry": "unknown_tool",
                                         "tool": tool_name,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -1133,10 +1162,11 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             let _ = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1145,6 +1175,7 @@ impl McpGrpcService {
                                         "transport": "grpc",
                                         "registry": "unknown_tool",
                                     }),
+                                    envelope,
                                 )
                                 .await;
                             return make_proto_denial_response(proto_req, "Denied by policy");
@@ -1167,10 +1198,11 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Untrusted tool requires approval".to_string(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1180,6 +1212,7 @@ impl McpGrpcService {
                                         "registry": "untrusted_tool",
                                         "tool": tool_name,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -1206,10 +1239,11 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             let _ = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1218,6 +1252,7 @@ impl McpGrpcService {
                                         "transport": "grpc",
                                         "registry": "untrusted_tool",
                                     }),
+                                    envelope,
                                 )
                                 .await;
                             return make_proto_denial_response(proto_req, "Denied by policy");
@@ -1348,10 +1383,11 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &deny_verdict,
                                     json!({
@@ -1361,6 +1397,7 @@ impl McpGrpcService {
                                         "event": "abac_deny",
                                         "abac_policy": policy_id,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -1419,14 +1456,16 @@ impl McpGrpcService {
                                 .as_deref()
                                 .unwrap_or("unknown reason")
                         );
+                        let priv_verdict = Verdict::Deny {
+                            reason: internal_reason,
+                        };
+                        let envelope = build_secondary_acis_envelope(&action, &priv_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                         if let Err(e) = self
                             .state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
-                                &Verdict::Deny {
-                                    reason: internal_reason,
-                                },
+                                &priv_verdict,
                                 json!({
                                     "source": "grpc_proxy",
                                     "session": session_id,
@@ -1435,6 +1474,7 @@ impl McpGrpcService {
                                     "escalating_from_agent": priv_check.escalating_from_agent,
                                     "upstream_deny_reason": priv_check.upstream_deny_reason,
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -1647,14 +1687,16 @@ impl McpGrpcService {
                     "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
                     poisoning_matches.len()
                 );
+                let mp_verdict = Verdict::Deny {
+                    reason: deny_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &mp_verdict,
                         json!({
                             "source": "grpc_proxy",
                             "session": session_id,
@@ -1663,6 +1705,7 @@ impl McpGrpcService {
                             "matches": poisoning_matches.len(),
                             "uri": uri,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -1695,10 +1738,11 @@ impl McpGrpcService {
                     uri
                 ),
             };
+            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &verdict,
                     json!({
@@ -1708,6 +1752,7 @@ impl McpGrpcService {
                         "event": "rug_pull_resource_blocked",
                         "uri": uri,
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -1740,16 +1785,18 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: "DLP blocked: secret detected in resource URI".to_string(),
             };
+            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &audit_verdict,
                     json!({
                         "source": "grpc_proxy", "session": session_id,
                         "transport": "grpc", "event": "resource_uri_dlp_alert",
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -1775,10 +1822,11 @@ impl McpGrpcService {
                 let verdict = Verdict::Deny {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -1788,6 +1836,7 @@ impl McpGrpcService {
                             "event": "circuit_breaker_rejected",
                             "uri": uri,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -1911,10 +1960,11 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &deny_verdict,
                                     json!({
@@ -1922,6 +1972,7 @@ impl McpGrpcService {
                                         "transport": "grpc", "event": "abac_deny",
                                         "abac_policy": policy_id, "uri": uri,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -2157,16 +2208,18 @@ impl McpGrpcService {
                         "transport": "grpc",
                     }),
                 );
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
                             "source": "grpc_proxy",
                             "event": "grpc_response_dlp_alert",
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -2229,16 +2282,18 @@ impl McpGrpcService {
                             "transport": "grpc",
                         }),
                     );
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                     if let Err(e) = self
                         .state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({
                                 "source": "grpc_proxy",
                                 "event": "grpc_injection_detected",
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -2314,21 +2369,24 @@ impl McpGrpcService {
                             "blocking": self.state.injection_blocking,
                         }),
                     );
+                    let desc_verdict = Verdict::Deny {
+                        reason: format!(
+                            "Tool '{}' description contains injection: {:?}",
+                            finding.tool_name, finding.matched_patterns
+                        ),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &desc_verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                     if let Err(e) = self
                         .state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "Tool '{}' description contains injection: {:?}",
-                                    finding.tool_name, finding.matched_patterns
-                                ),
-                            },
+                            &desc_verdict,
                             json!({
                                 "source": "grpc_proxy",
                                 "event": "tool_description_injection",
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -2394,21 +2452,24 @@ impl McpGrpcService {
                                     "transport": "grpc",
                                 }),
                             );
+                            let schema_verdict = Verdict::Deny {
+                                reason: format!(
+                                    "gRPC structuredContent validation failed: {:?}",
+                                    violations
+                                ),
+                            };
+                            let envelope = build_secondary_acis_envelope(&action, &schema_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
-                                    &Verdict::Deny {
-                                        reason: format!(
-                                            "gRPC structuredContent validation failed: {:?}",
-                                            violations
-                                        ),
-                                    },
+                                    &schema_verdict,
                                     json!({
                                         "source": "grpc_proxy",
                                         "event": "output_schema_violation_grpc",
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -2521,10 +2582,11 @@ impl McpGrpcService {
                     };
 
                     let inj_action = extractor::extract_task_action(task_method, task_id);
+                    let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                     if let Err(e) = self
                         .state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &inj_action,
                             &verdict,
                             json!({
@@ -2535,6 +2597,7 @@ impl McpGrpcService {
                                 "transport": "grpc",
                                 "task_method": task_method,
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -2584,10 +2647,11 @@ impl McpGrpcService {
                     patterns
                 ),
             };
+            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &verdict,
                     json!({
@@ -2598,6 +2662,7 @@ impl McpGrpcService {
                         "task_method": task_method,
                         "findings": patterns,
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -2633,14 +2698,16 @@ impl McpGrpcService {
                     poisoning_matches.len(),
                     task_method
                 );
+                let mp_verdict = Verdict::Deny {
+                    reason: deny_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &mp_verdict,
                         json!({
                             "source": "grpc_proxy",
                             "session": session_id,
@@ -2649,6 +2716,7 @@ impl McpGrpcService {
                             "matches": poisoning_matches.len(),
                             "task_method": task_method,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -2759,10 +2827,11 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &deny_verdict,
                                     json!({
@@ -2773,6 +2842,7 @@ impl McpGrpcService {
                                         "abac_policy": policy_id,
                                         "task_method": task_method,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {
@@ -3010,10 +3080,11 @@ impl McpGrpcService {
 
                     let inj_action =
                         extractor::extract_extension_action(extension_id, method, &json!({}));
+                    let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
                     if let Err(e) = self
                         .state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &inj_action,
                             &verdict,
                             json!({
@@ -3025,6 +3096,7 @@ impl McpGrpcService {
                                 "extension_id": extension_id,
                                 "method": method,
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -3069,10 +3141,11 @@ impl McpGrpcService {
                     patterns
                 ),
             };
+            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
             if let Err(e) = self
                 .state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &audit_verdict,
                     json!({
@@ -3080,6 +3153,7 @@ impl McpGrpcService {
                         "event": "grpc_extension_parameter_dlp_alert",
                         "extension_id": extension_id, "method": method, "findings": patterns,
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -3109,20 +3183,23 @@ impl McpGrpcService {
                     "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                     poisoning_matches.len(), extension_id, method
                 );
+                let mp_verdict = Verdict::Deny {
+                    reason: deny_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &mp_verdict,
                         json!({
                             "source": "grpc_proxy", "session": session_id, "transport": "grpc",
                             "event": "memory_poisoning_detected",
                             "matches": poisoning_matches.len(),
                             "extension_id": extension_id, "method": method,
                         }),
+                        envelope,
                     )
                     .await
                 {
@@ -3248,10 +3325,11 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
                             if let Err(e) = self
                                 .state
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &deny_verdict,
                                     json!({
@@ -3262,6 +3340,7 @@ impl McpGrpcService {
                                         "extension_id": extension_id,
                                         "abac_policy": policy_id,
                                     }),
+                                    envelope,
                                 )
                                 .await
                             {

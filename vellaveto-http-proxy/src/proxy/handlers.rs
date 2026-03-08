@@ -24,7 +24,7 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets,
 };
-use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
 
@@ -353,9 +353,10 @@ pub async fn handle_mcp_post(
         let verdict = Verdict::Deny {
             reason: format!("Invalid upstream call chain header: {reason}"),
         };
+        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
         if let Err(e) = state
             .audit
-            .log_entry(
+            .log_entry_with_acis(
                 &action,
                 &verdict,
                 build_audit_context(
@@ -367,6 +368,7 @@ pub async fn handle_mcp_post(
                     }),
                     &oauth_claims,
                 ),
+                envelope,
             )
             .await
         {
@@ -467,9 +469,10 @@ pub async fn handle_mcp_post(
                         "Tool '{tool_name}' blocked: annotations changed since initial tools/list (rug-pull detected)"
                     ),
                 };
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "http", Some(&session_id));
                 if let Err(e) = state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         build_audit_context_with_chain(
@@ -478,6 +481,7 @@ pub async fn handle_mcp_post(
                             &oauth_claims,
                             &full_call_chain,
                         ),
+                        envelope,
                     )
                     .await
                 {
@@ -524,13 +528,15 @@ pub async fn handle_mcp_post(
                     audit_reason
                 );
                 let dlp_action = extractor::extract_action(&tool_name, &arguments);
+                let dlp_verdict = Verdict::Deny {
+                    reason: audit_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
                 if let Err(e) = state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &dlp_action,
-                        &Verdict::Deny {
-                            reason: audit_reason.clone(),
-                        },
+                        &dlp_verdict,
                         build_audit_context(
                             &session_id,
                             json!({
@@ -540,6 +546,7 @@ pub async fn handle_mcp_post(
                             }),
                             &oauth_claims,
                         ),
+                        envelope,
                     )
                     .await
                 {
@@ -580,13 +587,15 @@ pub async fn handle_mcp_post(
                         poisoning_matches.len(),
                         tool_name
                     );
+                    let poison_verdict = Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: deny_reason.clone(),
-                            },
+                            &poison_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -596,6 +605,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -634,9 +644,10 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: format!("Circuit breaker open: {reason}"),
                     };
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({
@@ -645,6 +656,7 @@ pub async fn handle_mcp_post(
                                 "event": "circuit_breaker_rejected",
                                 "tool": tool_name,
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -690,9 +702,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         json!({
@@ -701,6 +714,7 @@ pub async fn handle_mcp_post(
                                             "registry": "unknown_tool",
                                             "approval_id": presented_approval_id,
                                         }),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -727,10 +741,12 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            if let Err(e) = state.audit.log_entry(
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                            if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({"source": "http_proxy", "session": &session_id, "registry": "unknown_tool"}),
+                                envelope,
                             ).await {
                                 tracing::error!("AUDIT FAILURE: {}", e);
                             }
@@ -774,9 +790,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         json!({
@@ -785,6 +802,7 @@ pub async fn handle_mcp_post(
                                             "registry": "untrusted_tool",
                                             "approval_id": presented_approval_id,
                                         }),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -812,10 +830,12 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            if let Err(e) = state.audit.log_entry(
+                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                            if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({"source": "http_proxy", "session": &session_id, "registry": "untrusted_tool"}),
+                                envelope,
                             ).await {
                                 tracing::error!("AUDIT FAILURE: {}", e);
                             }
@@ -984,9 +1004,10 @@ pub async fn handle_mcp_post(
                         };
 
                         // Audit the privilege escalation with full details
+                        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 build_audit_context_with_chain(
@@ -1000,6 +1021,7 @@ pub async fn handle_mcp_post(
                                     &oauth_claims,
                                     &full_call_chain,
                                 ),
+                                envelope,
                             )
                             .await
                         {
@@ -1045,9 +1067,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         build_audit_context_with_chain(
@@ -1060,6 +1083,7 @@ pub async fn handle_mcp_post(
                                             &oauth_claims,
                                             &full_call_chain,
                                         ),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -1143,14 +1167,17 @@ pub async fn handle_mcp_post(
                             }
                             None => {
                                 // All backends unhealthy — fail-closed
+                                let gw_verdict = Verdict::Deny {
+                                    reason: "No healthy backend available".into(),
+                                };
+                                let envelope = build_secondary_acis_envelope(&action, &gw_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 let _ = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
-                                        &Verdict::Deny {
-                                            reason: "No healthy backend available".into(),
-                                        },
+                                        &gw_verdict,
                                         json!({"event": "gateway_no_backend", "tool": tool_name}),
+                                        envelope,
                                     )
                                     .await;
                                 return attach_session_header(
@@ -1268,9 +1295,10 @@ pub async fn handle_mcp_post(
                                         }
                                         // Audit if fallback occurred (>1 attempt).
                                         if result.history.attempts.len() > 1 {
+                                            let fallback_envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                             let _ = state
                                                 .audit
-                                                .log_entry(
+                                                .log_entry_with_acis(
                                                     &action,
                                                     &Verdict::Allow,
                                                     json!({
@@ -1280,6 +1308,7 @@ pub async fn handle_mcp_post(
                                                         "attempts": result.history.attempts.len(),
                                                         "total_duration_ms": result.history.total_duration_ms,
                                                     }),
+                                                    fallback_envelope,
                                                 )
                                                 .await;
                                         }
@@ -1323,9 +1352,10 @@ pub async fn handle_mcp_post(
                                                                 "Smart-fallback response DLP blocked: {patterns:?}"
                                                             ),
                                                         };
+                                                        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
                                                         let _ = state
                                                             .audit
-                                                            .log_entry(
+                                                            .log_entry_with_acis(
                                                                 &action,
                                                                 &verdict,
                                                                 json!({
@@ -1334,6 +1364,7 @@ pub async fn handle_mcp_post(
                                                                     "blocked": true,
                                                                     "findings": patterns,
                                                                 }),
+                                                                envelope,
                                                             )
                                                             .await;
                                                         return attach_session_header(
@@ -1384,9 +1415,10 @@ pub async fn handle_mcp_post(
                                                                         "Smart-fallback response injection blocked: {matches:?}"
                                                                     ),
                                                                 };
+                                                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
                                                                 let _ = state
                                                                     .audit
-                                                                    .log_entry(
+                                                                    .log_entry_with_acis(
                                                                         &action,
                                                                         &verdict,
                                                                         json!({
@@ -1394,6 +1426,7 @@ pub async fn handle_mcp_post(
                                                                             "event": "smart_fallback_injection_blocked",
                                                                             "patterns": matches,
                                                                         }),
+                                                                        envelope,
                                                                     )
                                                                     .await;
                                                                 return attach_session_header(
@@ -1438,17 +1471,20 @@ pub async fn handle_mcp_post(
                                             "cross-transport fallback failed: {}",
                                             e,
                                         );
+                                        let fallback_fail_verdict = Verdict::Deny {
+                                            reason: format!("all transports failed: {e}"),
+                                        };
+                                        let envelope = build_secondary_acis_envelope(&action, &fallback_fail_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                         let _ = state
                                             .audit
-                                            .log_entry(
+                                            .log_entry_with_acis(
                                                 &action,
-                                                &Verdict::Deny {
-                                                    reason: format!("all transports failed: {e}"),
-                                                },
+                                                &fallback_fail_verdict,
                                                 json!({
                                                     "event": "cross_transport_fallback_failed",
                                                     "tool": tool_name,
                                                 }),
+                                                envelope,
                                             )
                                             .await;
                                         return attach_session_header(
@@ -1756,13 +1792,15 @@ pub async fn handle_mcp_post(
                         "Memory poisoning detected: {} replayed data fragment(s) in resources/read",
                         poisoning_matches.len()
                     );
+                    let poison_verdict = Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: deny_reason.clone(),
-                            },
+                            &poison_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -1772,6 +1810,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -1810,9 +1849,10 @@ pub async fn handle_mcp_post(
                         "Resource '{uri}' blocked: server flagged by rug-pull detection"
                     ),
                 };
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "http", Some(&session_id));
                 if let Err(e) = state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         build_audit_context(
@@ -1823,6 +1863,7 @@ pub async fn handle_mcp_post(
                             }),
                             &oauth_claims,
                         ),
+                        envelope,
                     )
                     .await
                 {
@@ -1866,13 +1907,15 @@ pub async fn handle_mcp_post(
                         audit_reason
                     );
                     let dlp_action = extractor::extract_resource_action(&uri);
+                    let dlp_verdict = Verdict::Deny {
+                        reason: audit_reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &dlp_action,
-                            &Verdict::Deny {
-                                reason: audit_reason.clone(),
-                            },
+                            &dlp_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -1882,6 +1925,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -1924,9 +1968,10 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: format!("Circuit breaker open: {reason}"),
                     };
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context(
@@ -1937,6 +1982,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -2080,9 +2126,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         build_audit_context(
@@ -2094,6 +2141,7 @@ pub async fn handle_mcp_post(
                                             }),
                                             &oauth_claims,
                                         ),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -2401,12 +2449,14 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({"source": "http_proxy", "event": "sampling_interception"}),
+                            envelope,
                         )
                         .await
                     {
@@ -2449,12 +2499,14 @@ pub async fn handle_mcp_post(
                     "session": &session_id,
                 }),
             );
+            let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
             if let Err(e) = state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &Verdict::Allow,
                     json!({"source": "http_proxy", "event": "pass_through_forwarded"}),
+                    envelope,
                 )
                 .await
             {
@@ -2511,9 +2563,10 @@ pub async fn handle_mcp_post(
                             "session": session_id,
                         }),
                     );
+                    let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &n_action,
                             &verdict,
                             json!({
@@ -2521,6 +2574,7 @@ pub async fn handle_mcp_post(
                                 "event": "notification_dlp_alert",
                                 "blocked": state.response_dlp_blocking,
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -2585,9 +2639,10 @@ pub async fn handle_mcp_post(
                                 "session": session_id,
                             }),
                         );
+                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &inj_action,
                                 &verdict,
                                 json!({
@@ -2595,6 +2650,7 @@ pub async fn handle_mcp_post(
                                     "event": "passthrough_injection_detected",
                                     "blocking": state.injection_blocking,
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -2643,20 +2699,23 @@ pub async fn handle_mcp_post(
                             "transport": "http",
                         }),
                     );
+                    let pt_poison_verdict = Verdict::Deny {
+                        reason: format!(
+                            "HTTP passthrough blocked: memory poisoning ({} matches)",
+                            poisoning_matches.len()
+                        ),
+                    };
+                    let envelope = build_secondary_acis_envelope(&poison_action, &pt_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &poison_action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "HTTP passthrough blocked: memory poisoning ({} matches)",
-                                    poisoning_matches.len()
-                                ),
-                            },
+                            &pt_poison_verdict,
                             json!({
                                 "source": "http_proxy",
                                 "event": "http_passthrough_memory_poisoning",
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -2791,12 +2850,14 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({"source": "http_proxy", "event": "elicitation_interception"}),
+                            envelope,
                         )
                         .await
                     {
@@ -2870,13 +2931,15 @@ pub async fn handle_mcp_post(
                         poisoning_matches.len(),
                         task_method
                     );
+                    let task_poison_verdict = Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &task_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: deny_reason.clone(),
-                            },
+                            &task_poison_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -2886,6 +2949,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -2953,9 +3017,10 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
+                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &inj_action,
                                 &verdict,
                                 json!({
@@ -2963,6 +3028,7 @@ pub async fn handle_mcp_post(
                                     "event": "task_injection_detected",
                                     "blocking": state.injection_blocking,
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -3013,13 +3079,15 @@ pub async fn handle_mcp_post(
                     .collect();
                 // SECURITY (R37-PROXY-3): Keep detailed reason for audit, generic for client
                 let audit_reason = format!("DLP: secrets detected in task request: {patterns:?}");
+                let task_dlp_verdict = Verdict::Deny {
+                    reason: audit_reason.clone(),
+                };
+                let envelope = build_secondary_acis_envelope(&dlp_action, &task_dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
                 if let Err(e) = state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &dlp_action,
-                        &Verdict::Deny {
-                            reason: audit_reason.clone(),
-                        },
+                        &task_dlp_verdict,
                         build_audit_context(
                             &session_id,
                             json!({
@@ -3029,6 +3097,7 @@ pub async fn handle_mcp_post(
                             }),
                             &oauth_claims,
                         ),
+                        envelope,
                     )
                     .await
                 {
@@ -3167,9 +3236,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         build_audit_context(
@@ -3181,6 +3251,7 @@ pub async fn handle_mcp_post(
                                             }),
                                             &oauth_claims,
                                         ),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -3507,14 +3578,17 @@ pub async fn handle_mcp_post(
                     "session": &session_id,
                 }),
             );
+            let batch_verdict = Verdict::Deny {
+                reason: "JSON-RPC batching not supported".to_string(),
+            };
+            let envelope = build_secondary_acis_envelope(&batch_action, &batch_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
             if let Err(e) = state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &batch_action,
-                    &Verdict::Deny {
-                        reason: "JSON-RPC batching not supported".to_string(),
-                    },
+                    &batch_verdict,
                     json!({"source": "http_proxy", "event": "batch_rejected"}),
+                    envelope,
                 )
                 .await
             {
@@ -3591,9 +3665,10 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
+                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &inj_action,
                                 &verdict,
                                 json!({
@@ -3601,6 +3676,7 @@ pub async fn handle_mcp_post(
                                     "event": "extension_injection_detected",
                                     "blocking": state.injection_blocking,
                                 }),
+                                envelope,
                             )
                             .await
                         {
@@ -3639,12 +3715,14 @@ pub async fn handle_mcp_post(
                         "DLP blocked: secret detected in extension parameters: {patterns:?}"
                     ),
                 };
-                if let Err(e) = state.audit.log_entry(
+                let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                if let Err(e) = state.audit.log_entry_with_acis(
                     &action, &audit_verdict,
                     build_audit_context(&session_id, json!({
                         "event": "extension_parameter_dlp_alert",
                         "extension_id": extension_id, "method": method, "findings": patterns,
                     }), &oauth_claims),
+                    envelope,
                 ).await {
                     tracing::warn!("Failed to audit extension parameter DLP: {}", e);
                 }
@@ -3672,13 +3750,15 @@ pub async fn handle_mcp_post(
                         "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                         poisoning_matches.len(), extension_id, method
                     );
+                    let ext_poison_verdict = Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &ext_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: deny_reason.clone(),
-                            },
+                            &ext_poison_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -3688,6 +3768,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -3773,9 +3854,10 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         build_audit_context(
@@ -3788,6 +3870,7 @@ pub async fn handle_mcp_post(
                                             }),
                                             &oauth_claims,
                                         ),
+                                        envelope,
                                     )
                                     .await
                                 {
@@ -3870,9 +3953,10 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(ext_key.clone());
                     }
 
+                    let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &Verdict::Allow,
                             build_audit_context(
@@ -3884,6 +3968,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -3912,13 +3997,15 @@ pub async fn handle_mcp_post(
                     attach_session_header(response, &session_id)
                 }
                 Verdict::Deny { reason } => {
+                    let ext_deny_verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    let envelope = build_secondary_acis_envelope(&action, &ext_deny_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: reason.clone(),
-                            },
+                            &ext_deny_verdict,
                             build_audit_context(
                                 &session_id,
                                 json!({
@@ -3929,6 +4016,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -3965,9 +4053,10 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::ApprovalGate, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             build_audit_context(
@@ -3979,6 +4068,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
+                            envelope,
                         )
                         .await
                     {
@@ -4152,9 +4242,10 @@ pub async fn handle_mcp_delete(
                         target_domains: Vec::new(),
                         resolved_ips: Vec::new(),
                     };
+                    let envelope = build_secondary_acis_envelope(&audit_action, &vellaveto_types::Verdict::Allow, DecisionOrigin::SessionGuard, "http", Some(id));
                     if let Err(e) = state
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &audit_action,
                             &vellaveto_types::Verdict::Allow,
                             serde_json::json!({
@@ -4162,6 +4253,7 @@ pub async fn handle_mcp_delete(
                                 "transport": "http",
                                 "event": "session_terminated",
                             }),
+                            envelope,
                         )
                         .await
                     {
@@ -4612,9 +4704,10 @@ pub async fn handle_mcp_get(
         let verdict = Verdict::Deny {
             reason: format!("Invalid upstream call chain header: {reason}"),
         };
+        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
         if let Err(e) = state
             .audit
-            .log_entry(
+            .log_entry_with_acis(
                 &action,
                 &verdict,
                 build_audit_context(
@@ -4626,6 +4719,7 @@ pub async fn handle_mcp_get(
                     }),
                     &oauth_claims,
                 ),
+                envelope,
             )
             .await
         {
@@ -4722,9 +4816,10 @@ pub async fn handle_mcp_get(
             "has_last_event_id": last_event_id.is_some(),
         }),
     );
+    let envelope = build_secondary_acis_envelope(&sse_action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &sse_action,
             &Verdict::Allow,
             build_audit_context(
@@ -4735,6 +4830,7 @@ pub async fn handle_mcp_get(
                 }),
                 &oauth_claims,
             ),
+            envelope,
         )
         .await
     {
