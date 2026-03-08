@@ -100,12 +100,36 @@ pub fn delegated_capability_depths_valid(
         && remaining_depth >= min_remaining_depth
 }
 
+pub open spec fn spec_delegated_capability_issuer_valid(
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
+) -> bool {
+    required_issuers_empty || issuer_allowed
+}
+
+pub fn delegated_capability_issuer_valid(
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
+) -> (result: bool)
+    ensures
+        result
+            == spec_delegated_capability_issuer_valid(
+                required_issuers_empty,
+                issuer_allowed,
+            ),
+        result && !required_issuers_empty ==> issuer_allowed,
+{
+    required_issuers_empty || issuer_allowed
+}
+
 pub open spec fn spec_delegated_capability_context_valid(
     require_principal: bool,
     agent_identity_present: bool,
     agent_id_present: bool,
     capability_token_present: bool,
     normalized_holder_equals_agent: bool,
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
     delegation_depth: nat,
     max_delegation_depth: u8,
     remaining_depth: u8,
@@ -117,6 +141,9 @@ pub open spec fn spec_delegated_capability_context_valid(
         agent_id_present,
         capability_token_present,
         normalized_holder_equals_agent,
+    ) && spec_delegated_capability_issuer_valid(
+        required_issuers_empty,
+        issuer_allowed,
     ) && spec_delegated_capability_depths_valid(
         delegation_depth,
         max_delegation_depth,
@@ -132,6 +159,8 @@ pub fn delegated_capability_context_valid(
     agent_id_present: bool,
     capability_token_present: bool,
     normalized_holder_equals_agent: bool,
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
     delegation_depth: usize,
     max_delegation_depth: u8,
     remaining_depth: u8,
@@ -145,6 +174,8 @@ pub fn delegated_capability_context_valid(
                 agent_id_present,
                 capability_token_present,
                 normalized_holder_equals_agent,
+                required_issuers_empty,
+                issuer_allowed,
                 delegation_depth as nat,
                 max_delegation_depth,
                 remaining_depth,
@@ -153,6 +184,7 @@ pub fn delegated_capability_context_valid(
         result ==> capability_token_present,
         result ==> agent_id_present,
         result ==> normalized_holder_equals_agent,
+        result && !required_issuers_empty ==> issuer_allowed,
         result ==> delegation_depth <= max_delegation_depth as usize,
         result ==> remaining_depth >= min_remaining_depth,
 {
@@ -162,6 +194,9 @@ pub fn delegated_capability_context_valid(
         agent_id_present,
         capability_token_present,
         normalized_holder_equals_agent,
+    ) && delegated_capability_issuer_valid(
+        required_issuers_empty,
+        issuer_allowed,
     ) && delegated_capability_depths_valid(
         delegation_depth,
         max_delegation_depth,
@@ -176,6 +211,8 @@ pub proof fn lemma_missing_capability_token_fails_closed(
     agent_identity_present: bool,
     agent_id_present: bool,
     normalized_holder_equals_agent: bool,
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
     delegation_depth: nat,
     max_delegation_depth: u8,
     remaining_depth: u8,
@@ -188,6 +225,8 @@ pub proof fn lemma_missing_capability_token_fails_closed(
             agent_id_present,
             false,
             normalized_holder_equals_agent,
+            required_issuers_empty,
+            issuer_allowed,
             delegation_depth,
             max_delegation_depth,
             remaining_depth,
@@ -218,6 +257,18 @@ pub proof fn lemma_principal_requirement_and_holder_binding_are_conjoined(
             capability_token_present,
             normalized_holder_equals_agent,
         ) ==> agent_id_present,
+{
+}
+
+pub proof fn lemma_issuer_allowlist_is_conjoined(
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
+)
+    ensures
+        spec_delegated_capability_issuer_valid(
+            required_issuers_empty,
+            issuer_allowed,
+        ) ==> required_issuers_empty || issuer_allowed,
 {
 }
 

@@ -592,7 +592,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_chain_depth_limit_is_inclusive` | `max_chain_depth` accepts the exact bound and zero |
 | `lemma_delegation_depth_limit_is_inclusive` | `deputy_validation` accepts the exact bound and zero |
 
-### Combined Delegated Capability Context Guards (`verified_capability_delegation_context.rs`) — 9 verified items, CAP-DEP-CTX-1–CAP-DEP-CTX-3
+### Combined Delegated Capability Context Guards (`verified_capability_delegation_context.rs`) — 11 verified items, CAP-DEP-CTX-1–CAP-DEP-CTX-3
 
 Properties proven for ALL possible inputs:
 
@@ -600,9 +600,9 @@ Properties proven for ALL possible inputs:
 |----|----------|---------|
 | CAP-DEP-CTX-1 | Principal/holder conjunction | The combined delegated-capability precheck passes only when any required principal is present, a capability token exists, an `agent_id` exists, and the normalized token holder matches that agent |
 | CAP-DEP-CTX-2 | Delegation/depth conjunction | The combined depth precheck passes only when deputy delegation depth is within the configured bound, a capability token exists, and the token's remaining depth meets the configured minimum |
-| CAP-DEP-CTX-3 | Combined fail-closed context gate | The extracted combined gate is exactly the conjunction of the principal/holder guard and the delegation/remaining-depth guard |
+| CAP-DEP-CTX-3 | Combined fail-closed context gate | The extracted combined gate is exactly the conjunction of the principal/holder guard, issuer allowlist guard, and delegation/remaining-depth guard |
 
-Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 #### Proof Lemmas
 
@@ -610,6 +610,7 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 |-------|---------------|
 | `lemma_missing_capability_token_fails_closed` | The combined delegated-capability gate always fails when the capability token is absent |
 | `lemma_principal_requirement_and_holder_binding_are_conjoined` | The combined principal/holder guard implies both token presence and `agent_id`-backed holder binding |
+| `lemma_issuer_allowlist_is_conjoined` | The combined issuer guard is exactly the configured allowlist-or-membership disjunction |
 | `lemma_delegation_and_remaining_depth_bounds_are_conjoined` | The combined depth guard implies both deputy delegation-depth compliance and capability remaining-depth compliance |
 
 ### Stdio Bridge Principal-Binding Guards (`verified_bridge_principal.rs`) — 12 verified items, BRIDGE-PRINC-1–BRIDGE-PRINC-4
@@ -1000,7 +1001,7 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Engine call-chain/principal delegation guards (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_context_delegation.rs
 
-# Engine combined deputy/capability context guard (9 verified)
+# Engine combined deputy/capability context guard (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_delegation_context.rs
 
 # Stdio bridge principal-binding alignment (12 verified)
@@ -1127,7 +1128,7 @@ Expected output:
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
 - `verified_context_delegation.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_capability_delegation_context.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_capability_delegation_context.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_bridge_principal.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`

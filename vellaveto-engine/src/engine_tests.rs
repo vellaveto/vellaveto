@@ -8631,6 +8631,34 @@ fn test_deputy_validation_and_capability_token_delegation_depth_denied() {
     }
 }
 
+#[test]
+fn test_deputy_validation_and_capability_token_issuer_allowlist_denied() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 2},
+        {"type": "require_capability_token", "required_issuers": ["trusted-issuer"], "min_remaining_depth": 1}
+    ]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let mut token = make_delegated_capability_token("agent-a", 3);
+    token.issuer = "untrusted-issuer".to_string();
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(token)
+        .call_chain(make_delegation_chain(&["delegator-1"]))
+        .build();
+
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "issuer allowlist should deny paired context: {v:?}"
+    );
+    if let Verdict::Deny { reason } = v {
+        assert!(reason.contains("issuer 'untrusted-issuer' not in allowed list"));
+    }
+}
+
 // ════════════════════════════════════════════════════════
 // FIND-R44-057: Legacy path sort ID tiebreaker
 // ════════════════════════════════════════════════════════

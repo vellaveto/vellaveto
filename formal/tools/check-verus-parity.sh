@@ -262,7 +262,7 @@ check_file_pair \
     "verified_capability_delegation_context.rs ↔ vellaveto-engine/src/verified_capability_delegation_context.rs" \
     "$PROD_CAPABILITY_DELEGATION_CONTEXT" \
     "$VERUS_CAPABILITY_DELEGATION_CONTEXT"
-for fn in delegated_capability_principal_and_holder_valid delegated_capability_depths_valid delegated_capability_context_valid; do
+for fn in delegated_capability_principal_and_holder_valid delegated_capability_depths_valid delegated_capability_issuer_valid delegated_capability_context_valid; do
     check_symbol_parity \
         "$fn exists in production and Verus" \
         "$PROD_CAPABILITY_DELEGATION_CONTEXT" \

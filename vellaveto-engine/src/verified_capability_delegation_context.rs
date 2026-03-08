@@ -60,6 +60,17 @@ pub(crate) const fn delegated_capability_depths_valid(
         )
 }
 
+/// Return true when the token issuer satisfies the configured allowlist in the
+/// combined delegated-capability path.
+#[inline]
+#[must_use = "security decisions must not be discarded"]
+pub(crate) const fn delegated_capability_issuer_valid(
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
+) -> bool {
+    verified_capability_context::capability_issuer_allowed(required_issuers_empty, issuer_allowed)
+}
+
 /// Return true when the evaluation context satisfies the combined fail-closed
 /// deputy/capability boundary.
 #[inline]
@@ -70,6 +81,8 @@ pub(crate) const fn delegated_capability_context_valid(
     agent_id_present: bool,
     capability_token_present: bool,
     normalized_holder_equals_agent: bool,
+    required_issuers_empty: bool,
+    issuer_allowed: bool,
     delegation_depth: usize,
     max_delegation_depth: u8,
     remaining_depth: u8,
@@ -81,13 +94,14 @@ pub(crate) const fn delegated_capability_context_valid(
         agent_id_present,
         capability_token_present,
         normalized_holder_equals_agent,
-    ) && delegated_capability_depths_valid(
-        delegation_depth,
-        max_delegation_depth,
-        capability_token_present,
-        remaining_depth,
-        min_remaining_depth,
-    )
+    ) && delegated_capability_issuer_valid(required_issuers_empty, issuer_allowed)
+        && delegated_capability_depths_valid(
+            delegation_depth,
+            max_delegation_depth,
+            capability_token_present,
+            remaining_depth,
+            min_remaining_depth,
+        )
 }
 
 #[cfg(test)]
@@ -116,15 +130,25 @@ mod tests {
     }
 
     #[test]
+    fn test_delegated_capability_issuer_valid_respects_allowlist() {
+        assert!(delegated_capability_issuer_valid(true, false));
+        assert!(delegated_capability_issuer_valid(false, true));
+        assert!(!delegated_capability_issuer_valid(false, false));
+    }
+
+    #[test]
     fn test_delegated_capability_context_valid_conjoins_principal_and_depth() {
         assert!(delegated_capability_context_valid(
-            true, true, true, true, true, 1, 2, 3, 1
+            true, true, true, true, true, true, true, 1, 2, 3, 1
         ));
         assert!(!delegated_capability_context_valid(
-            true, true, true, true, true, 3, 2, 3, 1
+            true, true, true, true, true, true, true, 3, 2, 3, 1
         ));
         assert!(!delegated_capability_context_valid(
-            true, true, true, true, false, 1, 2, 3, 1
+            true, true, true, true, false, true, true, 1, 2, 3, 1
+        ));
+        assert!(!delegated_capability_context_valid(
+            true, true, true, true, true, false, false, 1, 2, 3, 1
         ));
     }
 }

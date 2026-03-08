@@ -28,6 +28,7 @@ use vellaveto_types::{sanitize_for_log, EvaluationContext, Verdict};
 #[derive(Clone, Copy)]
 struct CombinedDelegatedCapabilityConditions<'a> {
     require_principal: bool,
+    required_issuers: &'a [String],
     max_delegation_depth: u8,
     min_remaining_depth: u8,
     deputy_deny_reason: &'a str,
@@ -38,7 +39,7 @@ fn combined_delegated_capability_conditions<'a>(
     conditions: &'a [CompiledContextCondition],
 ) -> Option<CombinedDelegatedCapabilityConditions<'a>> {
     let mut deputy: Option<(&'a bool, &'a u8, &'a str)> = None;
-    let mut capability: Option<(&'a u8, &'a str)> = None;
+    let mut capability: Option<(&'a [String], &'a u8, &'a str)> = None;
 
     for cond in conditions {
         match cond {
@@ -53,6 +54,7 @@ fn combined_delegated_capability_conditions<'a>(
                 deputy = Some((require_principal, max_delegation_depth, deny_reason));
             }
             CompiledContextCondition::RequireCapabilityToken {
+                required_issuers,
                 min_remaining_depth,
                 deny_reason,
                 ..
@@ -60,7 +62,11 @@ fn combined_delegated_capability_conditions<'a>(
                 if capability.is_some() {
                     return None;
                 }
-                capability = Some((min_remaining_depth, deny_reason));
+                capability = Some((
+                    required_issuers.as_slice(),
+                    min_remaining_depth,
+                    deny_reason,
+                ));
             }
             _ => {}
         }
@@ -69,9 +75,10 @@ fn combined_delegated_capability_conditions<'a>(
     match (deputy, capability) {
         (
             Some((require_principal, max_delegation_depth, deputy_deny_reason)),
-            Some((min_remaining_depth, capability_deny_reason)),
+            Some((required_issuers, min_remaining_depth, capability_deny_reason)),
         ) => Some(CombinedDelegatedCapabilityConditions {
             require_principal: *require_principal,
+            required_issuers,
             max_delegation_depth: *max_delegation_depth,
             min_remaining_depth: *min_remaining_depth,
             deputy_deny_reason,
@@ -100,6 +107,7 @@ impl PolicyEngine {
                 context.agent_id.is_some(),
             );
             let capability_token_present = context.capability_token.is_some();
+            let required_issuers_empty = combined.required_issuers.is_empty();
             let holder_matches_agent = context
                 .capability_token
                 .as_ref()
@@ -113,6 +121,10 @@ impl PolicyEngine {
                 .capability_token
                 .as_ref()
                 .map_or(0, |token| token.remaining_depth);
+            let issuer_allowed = context.capability_token.as_ref().is_some_and(|token| {
+                let issuer_norm = normalize_full(&token.issuer);
+                combined.required_issuers.contains(&issuer_norm)
+            });
             let delegation_depth = context.call_chain.len();
 
             if !verified_capability_delegation_context::delegated_capability_context_valid(
@@ -121,6 +133,8 @@ impl PolicyEngine {
                 context.agent_id.is_some(),
                 capability_token_present,
                 holder_matches_agent,
+                required_issuers_empty,
+                issuer_allowed,
                 delegation_depth,
                 combined.max_delegation_depth,
                 remaining_depth,
@@ -172,6 +186,23 @@ impl PolicyEngine {
                     return Some(Verdict::Deny {
                         reason: format!(
                             "{} (no agent_id in context — cannot verify token holder binding)",
+                            combined.capability_deny_reason
+                        ),
+                    });
+                }
+
+                if !verified_capability_delegation_context::delegated_capability_issuer_valid(
+                    required_issuers_empty,
+                    issuer_allowed,
+                ) {
+                    let safe_issuer = context
+                        .capability_token
+                        .as_ref()
+                        .map(|token| sanitize_for_log(&token.issuer, MAX_CLAIM_DISPLAY_LEN))
+                        .unwrap_or_else(|| "<none>".to_string());
+                    return Some(Verdict::Deny {
+                        reason: format!(
+                            "{} (issuer '{safe_issuer}' not in allowed list)",
                             combined.capability_deny_reason
                         ),
                     });
@@ -944,51 +975,52 @@ impl PolicyEngine {
                     min_remaining_depth,
                     deny_reason,
                 } => {
+                    if combined_conditions.is_some() {
+                        continue;
+                    }
                     // Capability-based delegation token enforcement.
                     // SECURITY: Fail-closed when capability_token is None.
                     const MAX_CLAIM_DISPLAY_LEN: usize = 128;
                     match &context.capability_token {
                         Some(token) => {
-                            if combined_conditions.is_none() {
-                                // Check holder matches agent_id (prevents token theft).
-                                // SECURITY (FIND-R111-001): Fail-closed when agent_id is absent —
-                                // a stolen capability token cannot be used by a caller that omits
-                                // the agent_id field, which would otherwise bypass holder binding.
-                                let holder_matches_agent =
-                                    context.agent_id.as_ref().is_some_and(|agent_id| {
-                                        // SECURITY (FIND-R213-001): Normalize homoglyphs on both
-                                        // token.holder and agent_id before comparison. The previous
-                                        // eq_ignore_ascii_case was insufficient — Cyrillic/Greek/
-                                        // fullwidth characters that visually resemble Latin chars
-                                        // would bypass holder binding, allowing token theft by an
-                                        // agent with a homoglyph-variant name.
-                                        let holder_norm = normalize_full(&token.holder);
-                                        let agent_norm = normalize_full(agent_id);
-                                        holder_norm == agent_norm
-                                    });
-                                if !verified_capability_context::capability_holder_binding_valid(
-                                    context.agent_id.is_some(),
-                                    holder_matches_agent,
-                                ) {
-                                    if let Some(agent_id) = &context.agent_id {
-                                        // SECURITY (IMP-R218-007): Sanitize attacker-controlled
-                                        // holder and agent_id before embedding in denial reason.
-                                        let safe_holder =
-                                            sanitize_for_log(&token.holder, MAX_CLAIM_DISPLAY_LEN);
-                                        let safe_agent =
-                                            sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
-                                        return Some(Verdict::Deny {
-                                            reason: format!(
-                                                "{deny_reason} (token holder '{safe_holder}' does not match agent_id '{safe_agent}')"
-                                            ),
-                                        });
-                                    }
+                            // Check holder matches agent_id (prevents token theft).
+                            // SECURITY (FIND-R111-001): Fail-closed when agent_id is absent —
+                            // a stolen capability token cannot be used by a caller that omits
+                            // the agent_id field, which would otherwise bypass holder binding.
+                            let holder_matches_agent =
+                                context.agent_id.as_ref().is_some_and(|agent_id| {
+                                    // SECURITY (FIND-R213-001): Normalize homoglyphs on both
+                                    // token.holder and agent_id before comparison. The previous
+                                    // eq_ignore_ascii_case was insufficient — Cyrillic/Greek/
+                                    // fullwidth characters that visually resemble Latin chars
+                                    // would bypass holder binding, allowing token theft by an
+                                    // agent with a homoglyph-variant name.
+                                    let holder_norm = normalize_full(&token.holder);
+                                    let agent_norm = normalize_full(agent_id);
+                                    holder_norm == agent_norm
+                                });
+                            if !verified_capability_context::capability_holder_binding_valid(
+                                context.agent_id.is_some(),
+                                holder_matches_agent,
+                            ) {
+                                if let Some(agent_id) = &context.agent_id {
+                                    // SECURITY (IMP-R218-007): Sanitize attacker-controlled
+                                    // holder and agent_id before embedding in denial reason.
+                                    let safe_holder =
+                                        sanitize_for_log(&token.holder, MAX_CLAIM_DISPLAY_LEN);
+                                    let safe_agent =
+                                        sanitize_for_log(agent_id, MAX_CLAIM_DISPLAY_LEN);
                                     return Some(Verdict::Deny {
                                         reason: format!(
-                                            "{deny_reason} (no agent_id in context — cannot verify token holder binding)"
+                                            "{deny_reason} (token holder '{safe_holder}' does not match agent_id '{safe_agent}')"
                                         ),
                                     });
                                 }
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{deny_reason} (no agent_id in context — cannot verify token holder binding)"
+                                    ),
+                                });
                             }
 
                             // Check issuer allowlist
@@ -1014,19 +1046,16 @@ impl PolicyEngine {
                             }
 
                             // Check remaining delegation depth
-                            if combined_conditions.is_none() {
-                                // Check remaining delegation depth
-                                if !verified_capability_context::capability_remaining_depth_sufficient(
-                                    token.remaining_depth,
-                                    *min_remaining_depth,
-                                ) {
-                                    return Some(Verdict::Deny {
-                                        reason: format!(
-                                            "{} (remaining depth {} below required {})",
-                                            deny_reason, token.remaining_depth, min_remaining_depth
-                                        ),
-                                    });
-                                }
+                            if !verified_capability_context::capability_remaining_depth_sufficient(
+                                token.remaining_depth,
+                                *min_remaining_depth,
+                            ) {
+                                return Some(Verdict::Deny {
+                                    reason: format!(
+                                        "{} (remaining depth {} below required {})",
+                                        deny_reason, token.remaining_depth, min_remaining_depth
+                                    ),
+                                });
                             }
                         }
                         None => {
