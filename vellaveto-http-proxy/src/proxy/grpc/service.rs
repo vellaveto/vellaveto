@@ -29,6 +29,8 @@ use tonic::{Request, Response, Status, Streaming};
 
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
+use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
@@ -1464,10 +1466,22 @@ impl McpGrpcService {
                 }
 
                 // Audit the allow
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
@@ -1475,6 +1489,7 @@ impl McpGrpcService {
                             "session": session_id,
                             "transport": "grpc",
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -1488,10 +1503,22 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -1499,6 +1526,7 @@ impl McpGrpcService {
                             "session": session_id,
                             "transport": "grpc",
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -1514,10 +1542,24 @@ impl McpGrpcService {
             }
             Verdict::RequireApproval { reason, .. } => {
                 let deny_reason = format!("Requires approval: {}", reason);
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    },
+                    DecisionOrigin::ApprovalGate,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Deny {
                             reason: deny_reason.clone(),
@@ -1527,6 +1569,7 @@ impl McpGrpcService {
                             "session": session_id,
                             "transport": "grpc",
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -1926,16 +1969,29 @@ impl McpGrpcService {
                 }
 
                 // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
                             "source": "grpc_proxy", "session": session_id,
                             "transport": "grpc", "uri": uri,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -1948,16 +2004,29 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
                             "source": "grpc_proxy", "session": session_id,
                             "transport": "grpc", "uri": uri,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -1972,16 +2041,29 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::ApprovalGate,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
                             "source": "grpc_proxy", "session": session_id,
                             "transport": "grpc", "uri": uri,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -2733,10 +2815,22 @@ impl McpGrpcService {
                 {
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
@@ -2745,6 +2839,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "task_method": task_method,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -2756,10 +2851,22 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -2768,6 +2875,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "task_method": task_method,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -2783,10 +2891,24 @@ impl McpGrpcService {
             }
             Verdict::RequireApproval { reason, .. } => {
                 let deny_reason = format!("Requires approval: {}", reason);
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Deny {
+                        reason: deny_reason.clone(),
+                    },
+                    DecisionOrigin::ApprovalGate,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Deny {
                             reason: deny_reason.clone(),
@@ -2797,6 +2919,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "task_method": task_method,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -3184,10 +3307,22 @@ impl McpGrpcService {
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
 
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({
@@ -3196,6 +3331,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "extension_id": extension_id,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -3207,10 +3343,22 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -3219,6 +3367,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "extension_id": extension_id,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {
@@ -3236,10 +3385,22 @@ impl McpGrpcService {
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
+                let acis_envelope = build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    DecisionOrigin::ApprovalGate,
+                    "grpc",
+                    &[],
+                    None,
+                    Some(session_id),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -3248,6 +3409,7 @@ impl McpGrpcService {
                             "transport": "grpc",
                             "extension_id": extension_id,
                         }),
+                        acis_envelope,
                     )
                     .await
                 {

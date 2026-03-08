@@ -42,7 +42,9 @@ use vellaveto_mcp::inspection::{
     scan_response_for_secrets, scan_text_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
+use vellaveto_mcp::mediation::build_acis_envelope;
 use vellaveto_mcp::output_validation::ValidationResult;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::auth::{validate_agent_identity, validate_api_key, validate_oauth};
@@ -1480,9 +1482,21 @@ async fn relay_client_to_upstream(
                                 }
 
                                 // Audit the allow
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Allow,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Allow,
                                         json!({
@@ -1490,6 +1504,7 @@ async fn relay_client_to_upstream(
                                             "session": session_id,
                                             "transport": "websocket",
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -1561,9 +1576,21 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::Deny { ref reason } => {
                                 // Audit the denial with detailed reason
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny { reason: reason.clone() },
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         json!({
@@ -1571,6 +1598,7 @@ async fn relay_client_to_upstream(
                                             "session": session_id,
                                             "transport": "websocket",
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -1602,9 +1630,23 @@ async fn relay_client_to_upstream(
                             Verdict::RequireApproval { ref reason, .. } => {
                                 // Treat as deny for audit, but preserve approval semantics.
                                 let deny_reason = format!("Requires approval: {reason}");
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: deny_reason.clone(),
+                                    },
+                                    DecisionOrigin::ApprovalGate,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: deny_reason.clone(),
@@ -1614,6 +1656,7 @@ async fn relay_client_to_upstream(
                                             "session": session_id,
                                             "transport": "websocket",
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2088,9 +2131,21 @@ async fn relay_client_to_upstream(
                                 }
 
                                 // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Allow,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Allow,
                                         json!({
@@ -2099,6 +2154,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "resource_uri": uri,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2157,9 +2213,21 @@ async fn relay_client_to_upstream(
                             // SECURITY (FIND-R116-009): Separate handling for Deny vs RequireApproval
                             // with per-verdict audit logging. Parity with gRPC (service.rs:1051-1076).
                             Verdict::Deny { ref reason } => {
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny { reason: reason.clone() },
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: reason.clone(),
@@ -2170,6 +2238,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "resource_uri": uri,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2196,9 +2265,23 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 let deny_reason = format!("Requires approval: {reason}");
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: deny_reason.clone(),
+                                    },
+                                    DecisionOrigin::ApprovalGate,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: deny_reason,
@@ -2210,6 +2293,7 @@ async fn relay_client_to_upstream(
                                             "resource_uri": uri,
                                             "event": "require_approval",
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2722,9 +2806,21 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Allow,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Allow,
                                         json!({
@@ -2733,6 +2829,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "task_method": task_method,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2773,9 +2870,21 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny { reason: reason.clone() },
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: reason.clone(),
@@ -2786,6 +2895,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "task_method": task_method,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -2814,9 +2924,23 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 let deny_reason = format!("Requires approval: {reason}");
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: deny_reason.clone(),
+                                    },
+                                    DecisionOrigin::ApprovalGate,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: deny_reason,
@@ -2827,6 +2951,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "task_method": task_method,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -3185,9 +3310,21 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Allow,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Allow,
                                         json!({
@@ -3196,6 +3333,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "extension_id": extension_id,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -3248,9 +3386,21 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny { reason: reason.clone() },
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: reason.clone(),
@@ -3261,6 +3411,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "extension_id": extension_id,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
@@ -3290,9 +3441,23 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
                                 let deny_reason = format!("Requires approval: {reason}");
+                                let acis_envelope = build_acis_envelope(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &Verdict::Deny {
+                                        reason: deny_reason.clone(),
+                                    },
+                                    DecisionOrigin::ApprovalGate,
+                                    "websocket",
+                                    &[],
+                                    None,
+                                    Some(&session_id),
+                                    None,
+                                    None,
+                                );
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &Verdict::Deny {
                                             reason: deny_reason,
@@ -3303,6 +3468,7 @@ async fn relay_client_to_upstream(
                                             "transport": "websocket",
                                             "extension_id": extension_id,
                                         }),
+                                        acis_envelope,
                                     )
                                     .await
                                 {
