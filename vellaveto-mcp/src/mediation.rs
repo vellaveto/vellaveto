@@ -112,6 +112,7 @@ impl Default for MediationConfig {
 /// - `config` — Pipeline stage configuration.
 /// - `session_id` — Optional session identifier.
 /// - `tenant_id` — Optional tenant identifier.
+#[allow(clippy::too_many_arguments)]
 pub fn mediate(
     decision_id: &str,
     action: &Action,

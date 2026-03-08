@@ -75,6 +75,7 @@ pub(crate) const fn delegated_capability_issuer_valid(
 /// deputy/capability boundary.
 #[inline]
 #[must_use = "security decisions must not be discarded"]
+#[allow(clippy::too_many_arguments)]
 pub(crate) const fn delegated_capability_context_valid(
     require_principal: bool,
     agent_identity_present: bool,

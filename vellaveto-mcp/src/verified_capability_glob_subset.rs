@@ -47,8 +47,8 @@ impl PatternStateSet {
     }
 
     fn apply_star_epsilon_closure(&mut self, pattern: &[u8]) {
-        for index in 0..pattern.len() {
-            if self.contains(index) && pattern[index] == STAR {
+        for (index, &token) in pattern.iter().enumerate() {
+            if self.contains(index) && token == STAR {
                 self.set(index + 1);
             }
         }
@@ -64,12 +64,11 @@ impl PatternStateSet {
     fn transition(&self, pattern: &[u8], input: u8) -> Self {
         let mut next = Self::new(pattern.len() + 1);
 
-        for index in 0..pattern.len() {
+        for (index, &token) in pattern.iter().enumerate() {
             if !self.contains(index) {
                 continue;
             }
 
-            let token = pattern[index];
             if token == STAR {
                 next.set(index);
             } else if token == QUESTION || byte_eq_ignore_ascii_case(token, input) {
