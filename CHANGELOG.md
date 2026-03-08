@@ -23,8 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     origin before DLP/injection scanning runs. 6 enforcement tests.
   - **Gap 5 (P2 — CLAUDE.md stale counts):** Updated Verus 321→523, total
     545→747+ across CLAUDE.md.
-  - **Remaining:** Gap 2 (DLP/injection ACIS origin wiring, P1), Gap 4
-    (DecisionOrigin variant coverage, P2), Gap 6 (Kani K26-K77 docs, P3).
+  - **Gap 2+4 (P1 — secondary ACIS decision envelopes):**
+    `build_secondary_acis_envelope()` convenience helper in `mediation.rs`.
+    77 secondary security-decision sites in stdio relay wired with ACIS
+    envelopes (DLP→Dlp, injection→InjectionScanner, memory
+    poisoning→MemoryPoisoning, circuit breaker→RateLimiter, shadow
+    agent→InjectionScanner, deputy→CapabilityEnforcement,
+    shield→SessionGuard, rug-pull→CapabilityEnforcement). HTTP, WebSocket,
+    and gRPC transports in progress (~87 additional sites).
+  - **Remaining:** Gap 6 (Kani K26-K77 docs, P3).
 
 ### Fixed
 
