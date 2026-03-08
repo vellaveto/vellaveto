@@ -38,6 +38,7 @@ use crate::verified_capability_grant;
 use crate::verified_capability_identity;
 use crate::verified_capability_literal;
 use crate::verified_capability_pattern;
+use crate::verified_capability_selection;
 use crate::verified_capability_verification;
 
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
@@ -483,12 +484,15 @@ pub fn verify_capability_token(
 /// Returns the index of the first matching grant, or `None` if no grant
 /// covers the action.
 pub fn check_grant_coverage(token: &CapabilityToken, action: &Action) -> Option<usize> {
+    let mut selected_index = None;
     for (i, grant) in token.grants.iter().enumerate() {
-        if grant_covers_action(grant, action) {
-            return Some(i);
-        }
+        selected_index = verified_capability_selection::next_covering_grant_index(
+            selected_index,
+            i,
+            grant_covers_action(grant, action),
+        );
     }
-    None
+    selected_index
 }
 
 /// Normalize a path by resolving `.` and `..` components.
@@ -1003,6 +1007,35 @@ mod tests {
             serde_json::json!({}),
         );
         assert!(check_grant_coverage(&token, &action).is_some());
+    }
+
+    #[test]
+    fn test_grant_coverage_returns_first_matching_index() {
+        let key_hex = test_key_hex();
+        let grants = vec![
+            CapabilityGrant {
+                tool_pattern: "file_*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            },
+            CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            },
+        ];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+        let action = Action::new(
+            "file_system".to_string(),
+            "write_file".to_string(),
+            serde_json::json!({}),
+        );
+
+        assert_eq!(check_grant_coverage(&token, &action), Some(0));
     }
 
     #[test]

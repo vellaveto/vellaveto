@@ -106,6 +106,24 @@ pub fn grant_restrictions_cover_action(
         && (!grant_has_allowed_domains || (action_has_target_domains && all_target_domains_covered))
 }
 
+/// First-match selection kernel from production `check_grant_coverage`.
+pub fn next_covering_grant_index(
+    selected_index: Option<usize>,
+    current_index: usize,
+    current_grant_covers: bool,
+) -> Option<usize> {
+    match selected_index {
+        Some(existing_index) => Some(existing_index),
+        None => {
+            if current_grant_covers {
+                Some(current_index)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 /// Glob match on byte slices. Case-insensitive, supports `*` and `?`.
 ///
 /// Verbatim from production `glob_match`.
@@ -461,6 +479,15 @@ pub fn grant_covers_action(grant: &CapabilityGrant, action: &ActionRef<'_>) -> b
     true
 }
 
+pub fn check_grant_coverage(grants: &[CapabilityGrant], action: &ActionRef<'_>) -> Option<usize> {
+    let mut selected_index = None;
+    for (i, grant) in grants.iter().enumerate() {
+        selected_index =
+            next_covering_grant_index(selected_index, i, grant_covers_action(grant, action));
+    }
+    selected_index
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,6 +655,41 @@ mod tests {
         assert!(grant_restrictions_cover_action(
             true, true, true, true, true, true
         ));
+    }
+
+    #[test]
+    fn test_next_covering_grant_index() {
+        assert_eq!(next_covering_grant_index(None, 2, false), None);
+        assert_eq!(next_covering_grant_index(None, 2, true), Some(2));
+        assert_eq!(next_covering_grant_index(Some(1), 2, false), Some(1));
+        assert_eq!(next_covering_grant_index(Some(1), 2, true), Some(1));
+    }
+
+    #[test]
+    fn test_check_grant_coverage_returns_first_match() {
+        let grants = vec![
+            CapabilityGrant {
+                tool_pattern: "file_*".to_string(),
+                function_pattern: "*".to_string(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            },
+            CapabilityGrant {
+                tool_pattern: "*".to_string(),
+                function_pattern: "*".to_string(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            },
+        ];
+        let action = ActionRef {
+            tool: "file_system",
+            function: "write_file",
+            target_paths: &[],
+            target_domains: &[],
+        };
+        assert_eq!(check_grant_coverage(&grants, &action), Some(0));
     }
 
     #[test]

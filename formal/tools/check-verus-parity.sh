@@ -108,6 +108,7 @@ PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.
 PROD_CAPABILITY_IDENTITY="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_identity.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
+PROD_CAPABILITY_SELECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_selection.rs"
 PROD_CAPABILITY_VERIFICATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_verification.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 PROD_NHI="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_delegation.rs"
@@ -127,6 +128,7 @@ VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_IDENTITY="$PROJECT_DIR/formal/verus/verified_capability_identity.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
+VERUS_CAPABILITY_SELECTION="$PROJECT_DIR/formal/verus/verified_capability_selection.rs"
 VERUS_CAPABILITY_VERIFICATION="$PROJECT_DIR/formal/verus/verified_capability_verification.rs"
 VERUS_NHI="$PROJECT_DIR/formal/verus/verified_nhi_delegation.rs"
 VERUS_NHI_GRAPH="$PROJECT_DIR/formal/verus/verified_nhi_graph.rs"
@@ -172,6 +174,7 @@ for module in \
     verified_capability_identity \
     verified_capability_literal \
     verified_capability_pattern \
+    verified_capability_selection \
     verified_capability_verification \
     verified_constraint_eval \
     verified_cross_call_dlp \
@@ -876,6 +879,25 @@ check_symbol_parity \
     'verified_capability_pattern::has_glob_metacharacters' \
     "$VERUS_CAPABILITY_PATTERN" \
     'pub[[:space:]]+fn[[:space:]]+has_glob_metacharacters'
+echo ""
+
+echo "--- Capability Selection Kernel ---"
+check_file_pair \
+    "verified_capability_selection.rs ↔ vellaveto-mcp/src/verified_capability_selection.rs" \
+    "$PROD_CAPABILITY_SELECTION" \
+    "$VERUS_CAPABILITY_SELECTION"
+check_symbol_parity \
+    "next_covering_grant_index exists in production and Verus" \
+    "$PROD_CAPABILITY_SELECTION" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+next_covering_grant_index' \
+    "$VERUS_CAPABILITY_SELECTION" \
+    'pub[[:space:]]+fn[[:space:]]+next_covering_grant_index'
+check_symbol_parity \
+    "capability grant selection uses verified first-match kernel" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_selection::next_covering_grant_index' \
+    "$VERUS_CAPABILITY_SELECTION" \
+    'pub[[:space:]]+fn[[:space:]]+next_covering_grant_index'
 echo ""
 
 echo "--- Capability Verification Kernel ---"
