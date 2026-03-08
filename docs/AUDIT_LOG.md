@@ -3,10 +3,10 @@
 > **Living document** tracking all adversarial security audit rounds, findings, and fixes.
 > Updated after every audit-fix-commit cycle.
 >
-> **Last updated:** 2026-02-21 (Round 116)
-> **Total audit rounds:** 116+
-> **Total security fix commits:** 154+
-> **Total findings resolved:** 1,411+
+> **Last updated:** 2026-03-08 (Round 246)
+> **Total audit rounds:** 246
+> **Total security fix commits:** 350+
+> **Total findings resolved:** 1,660+
 
 ---
 
@@ -20,6 +20,27 @@ Each audit round follows this lifecycle:
 5. **Commit** — All fixes committed with finding IDs in message
 
 Finding IDs follow the pattern `FIND-R{round}-{number}` (e.g., `FIND-R116-001`).
+
+---
+
+## ACIS Decision Envelopes (E1/E2, Mar 2026)
+
+Every security decision now carries a structured `AcisDecisionEnvelope` in the audit trail, providing:
+
+- **Decision identity** — unique decision ID and SHA-256 action fingerprint
+- **Decision kind** — `Allow`, `Deny`, or `RequireApproval` with structured metadata
+- **Decision origin** — `PolicyEngine` or `ApprovalGate`
+- **Transport label** — `"http"`, `"stdio"`, `"websocket"`, `"grpc"` identifying the interception point
+- **Session and tenant binding** — optional session/tenant context for multi-tenant traceability
+- **Timestamp** — ISO 8601 decision timestamp
+
+ACIS envelopes are wired into:
+- **Server evaluate API** — 7 audit sites (`/api/evaluate`)
+- **Stdio relay** — 4 primary sites (tool call allow/block, resource read allow/block)
+- **HTTP proxy** — 6 primary sites (tool call, resource read, task request verdicts)
+- **ProxyBridge** — via canonical `mediate()` pipeline
+
+The `AuditEntry.acis_envelope` field is `Option<AcisDecisionEnvelope>` for backward compatibility — existing entries without envelopes remain valid.
 
 ---
 

@@ -99,7 +99,7 @@ VellaVeto is not just a proxy or firewall — it is a security control plane for
 **Core guarantees:**
 - **Complete mediation** — request and response paths evaluated before tool execution and before model return
 - **Fail-closed** — errors, missing policies, and unresolved context all produce `Deny`
-- **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs + Ed25519 signed checkpoints
+- **Tamper-evident audit** — SHA-256 hash chain + Merkle proofs + Ed25519 signed checkpoints, with structured ACIS decision envelopes on every verdict
 - **Public security contract** — [Security Guarantees](docs/SECURITY_GUARANTEES.md) + [Assurance Case](docs/ASSURANCE_CASE.md) with reproducible evidence
 
 ## Quick Start
@@ -234,11 +234,13 @@ Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKST
                     |  3. Evaluate     |
                     |     constraints  |
                     |  4. Allow / Deny |
-                    |  5. Audit log    |
+                    |  5. ACIS envelope|
+                    |  6. Audit log    |
                     +--------+---------+
                              |
                     Tamper-evident log
                     (SHA-256 chain +
+                     ACIS envelopes +
                      Ed25519 signatures)
 ```
 
@@ -287,7 +289,7 @@ Lower crates never depend on higher crates. `vellaveto-operator` is standalone (
 | **Threat Detection** | 20+ detection layers: injection (Aho-Corasick + NFKC + obfuscation decode), tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. Maps to [OWASP Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). | [Threat Model](docs/THREAT_MODEL.md) |
 | **Identity & Access** | OAuth 2.1/JWT, OIDC/SAML, RBAC (4 roles, 14 perms), ABAC with forbid-overrides, capability delegation, DPoP (RFC 9449), non-human identity lifecycle. | [IAM](docs/IAM.md) |
 | **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
-| **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Compliance](docs/COMPLIANCE.md) |
+| **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes (structured verdict metadata on every transport), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Compliance](docs/COMPLIANCE.md) |
 | **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), session isolation, credential vault, stylometric fingerprint resistance, warrant canary. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
 

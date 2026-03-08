@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **E1 — ACIS Contract and Boundary Inventory (Sprint 1, Mar 2026):**
+  Defines the Agent-Consumer Interaction Surface (ACIS) as a runtime contract
+  shared by every enforcement path. Every security decision now carries a
+  structured `AcisDecisionEnvelope` in the audit trail.
+  - E1-1: `AcisDecisionEnvelope`, `DecisionKind`, `DecisionOrigin`,
+    `AcisActionSummary` types in `vellaveto-types/src/acis.rs` (16 tests).
+  - E1-2: `AcisConfig` in `vellaveto-config/src/acis.rs` — envelope emission,
+    session/identity binding, transport defaults (11 tests).
+  - E1-3: Full transport interception inventory (stdio relay, HTTP handler,
+    WebSocket, gRPC, server API).
+  - E1-4: `compute_action_fingerprint()` SHA-256 + `fingerprint_action()` in
+    `vellaveto-engine/src/acis.rs` (6 tests).
+  - E1-5: `acis_envelope: Option<AcisDecisionEnvelope>` added to `AuditEntry`
+    (backward-compatible). `log_entry_with_acis()` entrypoint in audit logger.
+    Wired into server evaluate path (7 sites), stdio relay (4 sites: tool call
+    allow/block, resource read allow/block), and HTTP proxy handler (6 sites:
+    tool call deny/require-approval, resource read deny/require-approval, task
+    request allow/deny/require-approval). 33 new tests.
+
+- **E2 — Canonical Mediation Pipeline (Sprint 1, Mar 2026):**
+  Consolidates the ACIS envelope construction into a shared mediation pipeline
+  for the ProxyBridge relay path.
+  - E2-1: `mediate()` function in `vellaveto-mcp/src/mediation.rs` — canonical
+    pipeline that evaluates action, builds ACIS envelope, and returns
+    `MediationResult` with verdict + envelope.
+  - E2-2/3/4: `build_acis_envelope()` shared builder + ProxyBridge integration.
+  - E2-5/E2-6: Cross-transport determinism tests verifying identical actions
+    produce identical ACIS fingerprints regardless of transport.
+
 - **Gap closure — IDNA, Unicode, Lock Safety (K61-K68):**
   Closes the three remaining formal verification gaps (IDNA normalization, Unicode
   homoglyph preprocessing, and async/concurrent wrappers).
