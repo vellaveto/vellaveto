@@ -57,29 +57,39 @@ pub struct SpiffeIdentity {
 }
 
 /// Percent-decode a SPIFFE workload path for security checks.
-/// Returns `Some(decoded)` if decoding changed the string, `None` otherwise.
-fn percent_decode_workload_path(path: &str) -> Option<String> {
+///
+/// Returns:
+/// - `Ok(Some(decoded))` if decoding produced valid UTF-8 that differs from input.
+/// - `Ok(None)` if no percent encoding was present.
+/// - `Err(())` if decoded bytes are not valid UTF-8 — caller MUST reject.
+///
+/// SECURITY (R244-TLS-1): Decodes into a byte buffer and validates via
+/// `std::str::from_utf8()`.  Prevents bypass via bytes like `%AD` (U+00AD
+/// soft hyphen) or `%80` that are not valid single-byte UTF-8.
+fn percent_decode_workload_path(path: &str) -> Result<Option<String>, ()> {
     if !path.contains('%') {
-        return None;
+        return Ok(None);
     }
-    let mut decoded = String::with_capacity(path.len());
+    let mut decoded_bytes: Vec<u8> = Vec::with_capacity(path.len());
     let bytes = path.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             if let (Some(hi), Some(lo)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
-                decoded.push((hi << 4 | lo) as char);
+                decoded_bytes.push(hi << 4 | lo);
                 i += 3;
                 continue;
             }
         }
-        decoded.push(bytes[i] as char);
+        decoded_bytes.push(bytes[i]);
         i += 1;
     }
+    // R244-TLS-1: Fail-closed — reject invalid UTF-8 from percent-decoded bytes.
+    let decoded = std::str::from_utf8(&decoded_bytes).map_err(|_| ())?;
     if decoded == path {
-        None
+        Ok(None)
     } else {
-        Some(decoded)
+        Ok(Some(decoded.to_string()))
     }
 }
 
@@ -135,7 +145,11 @@ impl SpiffeIdentity {
         if !workload_path.is_empty() {
             // SECURITY (R241-TLS-1): Percent-decode before traversal check to prevent
             // bypass via %2e%2e (%2e = '.', %2f = '/') in certificate SANs.
-            let decoded_path = percent_decode_workload_path(&workload_path);
+            // R244-TLS-1: Err means decoded bytes are invalid UTF-8 — reject.
+            let decoded_path = match percent_decode_workload_path(&workload_path) {
+                Ok(d) => d,
+                Err(()) => return None, // fail-closed: invalid UTF-8 in decoded path
+            };
             let check_path = decoded_path.as_deref().unwrap_or(&workload_path);
             // Reject path traversal sequences
             if check_path.contains("/../") || check_path.ends_with("/..") || check_path == "/.." {
@@ -793,6 +807,29 @@ mod tests {
         // Verify clean paths still work
         let result4 = SpiffeIdentity::parse("spiffe://example.org/ns/default/sa/myapp");
         assert!(result4.is_some(), "Clean workload path should be accepted");
+    }
+
+    #[test]
+    fn test_r244_tls1_invalid_utf8_percent_decoded_bytes_rejected() {
+        // %80 is a UTF-8 continuation byte — cannot start a character.
+        // Before R244-TLS-1: cast (0x80 as char) produced invalid Unicode scalar.
+        // After R244-TLS-1: from_utf8() rejects → fail-closed.
+        let result = SpiffeIdentity::parse("spiffe://example.org/%80admin");
+        assert!(
+            result.is_none(),
+            "Percent-encoded invalid UTF-8 byte 0x80 must be rejected"
+        );
+
+        // %FF is never valid in UTF-8.
+        let result2 = SpiffeIdentity::parse("spiffe://example.org/%FFpath");
+        assert!(
+            result2.is_none(),
+            "Percent-encoded 0xFF must be rejected (not valid UTF-8)"
+        );
+
+        // Valid percent-encoded ASCII should still work.
+        let result3 = SpiffeIdentity::parse("spiffe://example.org/%2Fworkload");
+        assert!(result3.is_some(), "Percent-encoded '/' (valid ASCII) should be accepted");
     }
 
     // ── extract_spiffe_ids (merged from vellaveto-server) ────────────

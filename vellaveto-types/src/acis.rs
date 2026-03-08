@@ -51,6 +51,15 @@ const MAX_TENANT_ID_LEN: usize = 256;
 /// Maximum length of `transport` label.
 const MAX_TRANSPORT_LEN: usize = 32;
 
+/// Maximum length of `agent_id` (R244-ACIS-4).
+const MAX_AGENT_ID_LEN: usize = 512;
+
+/// Maximum length of `action_summary.tool` (R244-ACIS-3).
+const MAX_TOOL_LEN: usize = 256;
+
+/// Maximum length of `action_summary.function` (R244-ACIS-3).
+const MAX_FUNCTION_LEN: usize = 256;
+
 /// Maximum number of finding summaries per envelope.
 const MAX_FINDINGS: usize = 64;
 
@@ -254,6 +263,26 @@ impl AcisDecisionEnvelope {
             }
         }
 
+        // agent_id (R244-ACIS-4)
+        if let Some(ref aid) = self.agent_id {
+            if aid.is_empty() {
+                return Err("acis: agent_id must not be empty when present".into());
+            }
+            if aid.len() > MAX_AGENT_ID_LEN {
+                return Err("acis: agent_id exceeds maximum length".into());
+            }
+            if has_dangerous_chars(aid) {
+                return Err("acis: agent_id contains dangerous characters".into());
+            }
+        }
+
+        // agent_identity (R244-ACIS-5): delegate to nested validate()
+        if let Some(ref identity) = self.agent_identity {
+            if let Err(e) = identity.validate() {
+                return Err(format!("acis: agent_identity validation failed: {e}"));
+            }
+        }
+
         // action_fingerprint
         if self.action_fingerprint.is_empty() {
             return Err("acis: action_fingerprint must not be empty".into());
@@ -262,20 +291,32 @@ impl AcisDecisionEnvelope {
             return Err("acis: action_fingerprint exceeds maximum length".into());
         }
 
-        // action_summary
+        // action_summary (R244-ACIS-3: length bounds, R244-ACIS-8: function empty check)
         if self.action_summary.tool.is_empty() {
             return Err("acis: action_summary.tool must not be empty".into());
         }
+        if self.action_summary.tool.len() > MAX_TOOL_LEN {
+            return Err("acis: action_summary.tool exceeds maximum length".into());
+        }
         if has_dangerous_chars(&self.action_summary.tool) {
             return Err("acis: action_summary.tool contains dangerous characters".into());
+        }
+        if self.action_summary.function.is_empty() {
+            return Err("acis: action_summary.function must not be empty".into());
+        }
+        if self.action_summary.function.len() > MAX_FUNCTION_LEN {
+            return Err("acis: action_summary.function exceeds maximum length".into());
         }
         if has_dangerous_chars(&self.action_summary.function) {
             return Err("acis: action_summary.function contains dangerous characters".into());
         }
 
-        // reason
+        // reason (R244-ACIS-2: add dangerous chars check)
         if self.reason.len() > MAX_REASON_LEN {
             return Err("acis: reason exceeds maximum length".into());
+        }
+        if has_dangerous_chars(&self.reason) {
+            return Err("acis: reason contains dangerous characters".into());
         }
 
         // matched_policy_id
@@ -306,6 +347,12 @@ impl AcisDecisionEnvelope {
         for (i, f) in self.findings.iter().enumerate() {
             if f.len() > MAX_FINDING_LEN {
                 return Err(format!("acis: findings[{i}] exceeds maximum length"));
+            }
+            // R244-ACIS-3: findings may echo attacker input; validate chars.
+            if has_dangerous_chars(f) {
+                return Err(format!(
+                    "acis: findings[{i}] contains dangerous characters"
+                ));
             }
         }
 
@@ -484,5 +531,113 @@ mod tests {
         let mut env = minimal_envelope();
         env.timestamp = "2026-03-09T10:00:00+00:00".into();
         assert!(env.validate().is_ok());
+    }
+
+    // ── R244-ACIS-1: agent_id validation ─────────────────────────────────
+
+    #[test]
+    fn test_r244_agent_id_dangerous_chars_rejected() {
+        let mut env = minimal_envelope();
+        env.agent_id = Some("agent\x00id".into());
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("agent_id contains dangerous"));
+    }
+
+    #[test]
+    fn test_r244_agent_id_oversized_rejected() {
+        let mut env = minimal_envelope();
+        env.agent_id = Some("a".repeat(513));
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("agent_id exceeds maximum length"));
+    }
+
+    #[test]
+    fn test_r244_agent_id_valid_accepted() {
+        let mut env = minimal_envelope();
+        env.agent_id = Some("claude-agent-v4".into());
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r244_agent_id_empty_rejected() {
+        let mut env = minimal_envelope();
+        env.agent_id = Some(String::new());
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("agent_id must not be empty"));
+    }
+
+    // ── R244-ACIS-3: tool/function length bounds ────────────────────────
+
+    #[test]
+    fn test_r244_tool_oversized_rejected() {
+        let mut env = minimal_envelope();
+        env.action_summary.tool = "t".repeat(257);
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("action_summary.tool exceeds maximum length"));
+    }
+
+    #[test]
+    fn test_r244_function_oversized_rejected() {
+        let mut env = minimal_envelope();
+        env.action_summary.function = "f".repeat(257);
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("action_summary.function exceeds maximum length"));
+    }
+
+    #[test]
+    fn test_r244_function_empty_rejected() {
+        let mut env = minimal_envelope();
+        env.action_summary.function = String::new();
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("action_summary.function must not be empty"));
+    }
+
+    // ── R244-ACIS-5: agent_identity nested validation ───────────────────
+
+    #[test]
+    fn test_r244_agent_identity_validation_delegated() {
+        let mut env = minimal_envelope();
+        let mut identity = AgentIdentity::default();
+        // Exceed MAX_CLAIMS to trigger AgentIdentity::validate() failure
+        for i in 0..65 {
+            identity
+                .claims
+                .insert(format!("claim_{i}"), serde_json::json!("v"));
+        }
+        env.agent_identity = Some(identity);
+        let err = env.validate().unwrap_err();
+        assert!(
+            err.contains("agent_identity validation failed"),
+            "expected nested validation delegation: {err}"
+        );
+    }
+
+    // ── R244-ACIS-2: reason dangerous chars ──────────────────────────────
+
+    #[test]
+    fn test_r244_reason_dangerous_chars_rejected() {
+        let mut env = minimal_envelope();
+        env.reason = "denied\x07bell".into();
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("reason contains dangerous"));
+    }
+
+    // ── R244-ACIS-3: findings dangerous chars ────────────────────────────
+
+    #[test]
+    fn test_r244_finding_dangerous_chars_rejected() {
+        let mut env = minimal_envelope();
+        env.findings = vec!["DLP: found key\x00 in params".into()];
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("findings[0] contains dangerous"));
+    }
+
+    #[test]
+    fn test_r244_finding_bidi_chars_rejected() {
+        let mut env = minimal_envelope();
+        // U+202E = RIGHT-TO-LEFT OVERRIDE
+        env.findings = vec!["injection: found \u{202E}override".into()];
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("findings[0] contains dangerous"));
     }
 }
