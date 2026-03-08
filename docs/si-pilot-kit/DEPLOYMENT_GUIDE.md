@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide helps System Integrators deploy Vellaveto for enterprise pilots. Vellaveto is an **Agentic Security Control Plane** that intercepts AI agent tool calls, enforces security policies, and maintains tamper-evident audit trails.
+This guide helps System Integrators deploy Vellaveto for enterprise pilots. Vellaveto is an **Agent Interaction Firewall** that intercepts AI agent tool calls, enforces security policies, and maintains tamper-evident audit trails.
 
 **Target deployment time:** < 2 hours for a single-node evaluation.
 

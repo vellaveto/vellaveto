@@ -27,7 +27,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.logging.Logger;
 
 /**
- * Java client for the Vellaveto Agentic Security Control Plane API.
+ * Java client for the Vellaveto Agent Interaction Firewall API.
  *
  * <p>Thread-safe after construction. All fields are read-only post-construction.</p>
  *

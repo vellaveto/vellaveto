@@ -1,6 +1,6 @@
 # Vellaveto TypeScript SDK
 
-TypeScript/JavaScript client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agentic security control plane API.
+TypeScript/JavaScript client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent interaction firewall API.
 
 ## Installation
 

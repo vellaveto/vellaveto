@@ -1,8 +1,8 @@
 openapi: "3.0.3"
 info:
-  title: Vellaveto Control Plane API
+  title: Vellaveto API
   description: |
-    Security-first control plane for MCP and AI agent tool calls.
+    Agent interaction firewall for MCP and AI tool calls.
     Intercepts MCP (Model Context Protocol) and function-calling
     requests, enforces policy on paths/domains/actions, and maintains
     a tamper-evident audit trail.

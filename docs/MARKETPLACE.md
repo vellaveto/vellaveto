@@ -119,8 +119,8 @@ aws ecs create-service \
 ```yaml
 # marketplace-integration.yaml
 product:
-  title: "Vellaveto — Agentic Security Control Plane"
-  short_description: "Security-first control plane for MCP and AI agent tool calls"
+  title: "Vellaveto — Agent Interaction Firewall"
+  short_description: "Agent interaction firewall for MCP and AI tool calls"
   categories:
     - Security
     - AI/ML
@@ -195,7 +195,7 @@ az containerapp create \
 # azure-marketplace-offer.yaml
 offer:
   id: vellaveto-agentic-control-plane
-  display_name: "Vellaveto — Agentic Security Control Plane"
+  display_name: "Vellaveto — Agent Interaction Firewall"
   publisher: vellaveto
   categories:
     - security
@@ -268,8 +268,8 @@ gcloud run deploy vellaveto-server \
 # gcp-marketplace-listing.yaml
 product:
   name: vellaveto-agentic-control-plane
-  title: "Vellaveto — Agentic Security Control Plane"
-  description: "Security-first control plane for MCP and AI agent tool calls"
+  title: "Vellaveto — Agent Interaction Firewall"
+  description: "Agent interaction firewall for MCP and AI tool calls"
   icon: gs://vellaveto-assets/icon-512.png
 
   pricing:

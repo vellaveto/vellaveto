@@ -1,4 +1,4 @@
-// Package vellaveto provides a Go client for the Vellaveto agentic security control plane API.
+// Package vellaveto provides a Go client for the Vellaveto agent interaction firewall API.
 package vellaveto
 
 import (

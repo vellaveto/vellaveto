@@ -24,7 +24,7 @@ This document describes the threat model for Vellaveto, covering attack vectors,
 
 ## Overview
 
-Vellaveto is a runtime security engine for AI agent tool calls. It sits between AI agents (LLMs) and the tools they invoke, enforcing security policies on every action.
+Vellaveto is an agent interaction firewall for AI tool calls. It is the runtime boundary between AI agents (LLMs) and the tools they invoke, enforcing security policies on every action.
 
 **Primary Security Goal:** Prevent AI agents from performing unauthorized or harmful actions while allowing legitimate operations.
 

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Vellaveto** is a runtime security engine for AI agent tool calls. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies, and maintains a tamper-evident audit trail.
+**Vellaveto** is an agent interaction firewall for AI tool calls. It intercepts MCP (Model Context Protocol) and function-calling requests, enforces security policies, and maintains a tamper-evident audit trail with ACIS decision envelopes.
 
 - **Version:** 6.0.0-dev
 - **Language:** Rust (100% safe code in library crates, zero `unwrap()`)

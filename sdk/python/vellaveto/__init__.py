@@ -1,5 +1,5 @@
 """
-Vellaveto agentic security control plane - Python SDK
+Vellaveto agent interaction firewall - Python SDK
 
 Provides native integration with LangChain, LangGraph, and direct API access
 for MCP and AI agent tool-call policy enforcement.

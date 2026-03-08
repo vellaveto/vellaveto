@@ -1,6 +1,6 @@
 # Vellaveto Admin Console
 
-React SPA for managing and monitoring the [Vellaveto](https://github.com/vellaveto/vellaveto) agentic security control plane.
+React SPA for managing and monitoring the [Vellaveto](https://github.com/vellaveto/vellaveto) agent interaction firewall.
 
 ## Features
 

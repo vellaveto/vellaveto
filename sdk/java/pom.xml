@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <name>Vellaveto Java SDK</name>
-    <description>Java client for the Vellaveto Agentic Security Control Plane</description>
+    <description>Java client for the Vellaveto Agent Interaction Firewall</description>
     <url>https://github.com/vellaveto/vellaveto</url>
 
     <licenses>

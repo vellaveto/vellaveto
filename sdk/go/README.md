@@ -1,6 +1,6 @@
 # Vellaveto Go SDK
 
-Go client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agentic security control plane API.
+Go client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent interaction firewall API.
 
 **Zero dependencies** — uses only the Go standard library.
 

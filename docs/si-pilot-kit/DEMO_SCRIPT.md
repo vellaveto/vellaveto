@@ -189,7 +189,7 @@ curl -s http://localhost:3000/api/zk/status | jq .
 ## Closing (2 min)
 
 **Key differentiators:**
-1. **Security-first MCP-native control plane** with 4 transport layers
+1. **Agent interaction firewall** with 4 transport layers
 2. **Deepest compliance coverage** — DORA + NIS2 (unique for EU market)
 3. **Zero-knowledge audit** — Pedersen + Groth16 proofs
 4. **Formal verification** — TLA+ and Alloy proofs

@@ -498,7 +498,7 @@ pub async fn step_welcome(State(state): State<AppState>, req: Request) -> Respon
                 r#"
 <h1>Welcome to Vellaveto Setup</h1>
 <div class="card">
-<p>Vellaveto is a runtime security engine for AI agent tool calls. This wizard will walk you through configuring:</p>
+<p>Vellaveto is an agent interaction firewall for AI tool calls. This wizard will walk you through configuring:</p>
 <ul style="color: #8b949e; margin: 12px 0 12px 24px;">
 <li><strong style="color: #c9d1d9;">Security</strong> &mdash; API key, CORS, authentication</li>
 <li><strong style="color: #c9d1d9;">Policies</strong> &mdash; Allow/deny rules for tool access</li>
@@ -544,7 +544,7 @@ pub async fn step_welcome(State(state): State<AppState>, req: Request) -> Respon
         r#"
 <h1>Welcome to Vellaveto Setup</h1>
 <div class="card">
-<p>Vellaveto is a runtime security engine for AI agent tool calls. This wizard will walk you through configuring:</p>
+<p>Vellaveto is an agent interaction firewall for AI tool calls. This wizard will walk you through configuring:</p>
 <ul style="color: #8b949e; margin: 12px 0 12px 24px;">
 <li><strong style="color: #c9d1d9;">Security</strong> &mdash; API key, CORS, authentication</li>
 <li><strong style="color: #c9d1d9;">Policies</strong> &mdash; Allow/deny rules for tool access</li>

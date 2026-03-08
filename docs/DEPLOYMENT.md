@@ -475,7 +475,7 @@ Create `/etc/systemd/system/vellaveto.service`:
 
 ```ini
 [Unit]
-Description=Vellaveto Agentic Security Control Plane
+Description=Vellaveto Agent Interaction Firewall
 Documentation=https://github.com/vellaveto/vellaveto
 After=network-online.target
 Wants=network-online.target

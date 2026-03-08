@@ -1,6 +1,6 @@
 apiVersion: v2
 name: vellaveto
-description: MCP Tool Firewall - Runtime security engine for AI agent tool calls
+description: Agent Interaction Firewall — runtime boundary enforcement for AI agent tool calls
 type: application
 version: 6.0.0
 appVersion: "6.0.0"
