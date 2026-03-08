@@ -22,6 +22,8 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use vellaveto_approval::ApprovalStatus;
 use vellaveto_engine::acis::fingerprint_action;
+use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport, Action,
     EvaluationContext, Verdict,
@@ -1694,6 +1696,28 @@ fn build_evaluate_audit_metadata(
     metadata
 }
 
+fn build_evaluate_acis_envelope(
+    action: &Action,
+    verdict: &Verdict,
+    context: Option<&EvaluationContext>,
+    tenant_id: &str,
+    origin: DecisionOrigin,
+    evaluation_us: u64,
+) -> AcisDecisionEnvelope {
+    build_acis_envelope(
+        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+        action,
+        verdict,
+        origin,
+        "http",
+        &[],
+        Some(evaluation_us),
+        None,
+        Some(tenant_id),
+        context,
+    )
+}
+
 fn is_valid_tls_metadata_token(value: &str) -> bool {
     value
         .chars()
@@ -2165,7 +2189,7 @@ async fn evaluate(
                         );
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &deny,
                                 build_evaluate_audit_metadata(
@@ -2175,6 +2199,14 @@ async fn evaluate(
                                         "registry": "unknown_tool",
                                         "approval_id": presented_approval_id,
                                     }),
+                                ),
+                                build_evaluate_acis_envelope(
+                                    &action,
+                                    &deny,
+                                    context.as_ref(),
+                                    &tenant_ctx.tenant_id,
+                                    DecisionOrigin::TopologyGuard,
+                                    eval_start.elapsed().as_micros() as u64,
                                 ),
                             )
                             .await
@@ -2237,13 +2269,21 @@ async fn evaluate(
                                 state.metrics.record_evaluation(&deny);
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &deny,
                                         build_evaluate_audit_metadata(
                                             &tenant_ctx.tenant_id,
                                             tls_metadata.as_ref(),
                                             json!({"registry": "unknown_tool"}),
+                                        ),
+                                        build_evaluate_acis_envelope(
+                                            &action,
+                                            &deny,
+                                            context.as_ref(),
+                                            &tenant_ctx.tenant_id,
+                                            DecisionOrigin::TopologyGuard,
+                                            eval_start.elapsed().as_micros() as u64,
                                         ),
                                     )
                                     .await
@@ -2272,13 +2312,21 @@ async fn evaluate(
 
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 build_evaluate_audit_metadata(
                                     &tenant_ctx.tenant_id,
                                     tls_metadata.as_ref(),
                                     json!({"registry": "unknown_tool", "approval_id": approval_id}),
+                                ),
+                                build_evaluate_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    context.as_ref(),
+                                    &tenant_ctx.tenant_id,
+                                    DecisionOrigin::TopologyGuard,
+                                    eval_start.elapsed().as_micros() as u64,
                                 ),
                             )
                             .await
@@ -2321,7 +2369,7 @@ async fn evaluate(
                         );
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &deny,
                                 build_evaluate_audit_metadata(
@@ -2331,6 +2379,14 @@ async fn evaluate(
                                         "registry": "untrusted_tool",
                                         "approval_id": presented_approval_id,
                                     }),
+                                ),
+                                build_evaluate_acis_envelope(
+                                    &action,
+                                    &deny,
+                                    context.as_ref(),
+                                    &tenant_ctx.tenant_id,
+                                    DecisionOrigin::TopologyGuard,
+                                    eval_start.elapsed().as_micros() as u64,
                                 ),
                             )
                             .await
@@ -2390,13 +2446,21 @@ async fn evaluate(
                                 state.metrics.record_evaluation(&deny);
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &deny,
                                         build_evaluate_audit_metadata(
                                             &tenant_ctx.tenant_id,
                                             tls_metadata.as_ref(),
                                             json!({"registry": "untrusted_tool"}),
+                                        ),
+                                        build_evaluate_acis_envelope(
+                                            &action,
+                                            &deny,
+                                            context.as_ref(),
+                                            &tenant_ctx.tenant_id,
+                                            DecisionOrigin::TopologyGuard,
+                                            eval_start.elapsed().as_micros() as u64,
                                         ),
                                     )
                                     .await
@@ -2425,13 +2489,21 @@ async fn evaluate(
 
                         if let Err(e) = state
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 build_evaluate_audit_metadata(
                                     &tenant_ctx.tenant_id,
                                     tls_metadata.as_ref(),
                                     json!({"registry": "untrusted_tool", "approval_id": approval_id}),
+                                ),
+                                build_evaluate_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    context.as_ref(),
+                                    &tenant_ctx.tenant_id,
+                                    DecisionOrigin::TopologyGuard,
+                                    eval_start.elapsed().as_micros() as u64,
                                 ),
                             )
                             .await
@@ -2573,6 +2645,11 @@ async fn evaluate(
 
     let (verdict, opa_metadata) =
         apply_opa_runtime_verdict(&action, context.as_ref(), verdict).await;
+    let mut acis_origin = match &verdict {
+        Verdict::Allow | Verdict::Deny { .. } => DecisionOrigin::PolicyEngine,
+        Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
+        _ => DecisionOrigin::PolicyEngine,
+    };
 
     // If RequireApproval, create a pending approval.
     // Fail-closed: if approval creation fails, convert to Deny so the caller
@@ -2588,13 +2665,19 @@ async fn evaluate(
             )
             .await
             {
-                Ok(Some(id)) => (Verdict::Allow, Some(id)),
-                Err(()) => (
-                    Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    },
-                    None,
-                ),
+                Ok(Some(id)) => {
+                    acis_origin = DecisionOrigin::ApprovalGate;
+                    (Verdict::Allow, Some(id))
+                }
+                Err(()) => {
+                    acis_origin = DecisionOrigin::ApprovalGate;
+                    (
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        },
+                        None,
+                    )
+                }
                 Ok(None) => {
                     // SECURITY (R9-2): Record the requester identity so the approval endpoint
                     // can enforce separation of privilege (different principal must approve).
@@ -2615,7 +2698,10 @@ async fn evaluate(
                         )
                         .await
                     {
-                        Ok(id) => (verdict, Some(id)),
+                        Ok(id) => {
+                            acis_origin = DecisionOrigin::ApprovalGate;
+                            (verdict, Some(id))
+                        }
                         Err(e) => {
                             tracing::error!(
                                 "Failed to create approval (fail-closed → Deny): {:?}",
@@ -2623,6 +2709,7 @@ async fn evaluate(
                             );
                             let deny_reason =
                                 "Approval required but could not be created".to_string();
+                            acis_origin = DecisionOrigin::ApprovalGate;
                             (
                                 Verdict::Deny {
                                     reason: deny_reason,
@@ -2635,6 +2722,9 @@ async fn evaluate(
             }
         }
     } else if matches!(verdict, Verdict::Allow) {
+        if gate_approval_id.is_some() {
+            acis_origin = DecisionOrigin::ApprovalGate;
+        }
         (verdict, gate_approval_id.clone())
     } else {
         (verdict, None)
@@ -2657,6 +2747,7 @@ async fn evaluate(
                         approval_id = %approval_id_to_consume,
                         "Presented approval could not be consumed for this action"
                     );
+                    acis_origin = DecisionOrigin::ApprovalGate;
                     verdict = Verdict::Deny {
                         reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                     };
@@ -2714,10 +2805,18 @@ async fn evaluate(
             obj.insert("opa".to_string(), opa);
         }
     }
+    let acis_envelope = build_evaluate_acis_envelope(
+        &action,
+        &verdict,
+        context.as_ref(),
+        &tenant_ctx.tenant_id,
+        acis_origin,
+        eval_start.elapsed().as_micros() as u64,
+    );
 
     if let Err(e) = state
         .audit
-        .log_entry(&action, &verdict, audit_metadata)
+        .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
         .await
     {
         tracing::error!("AUDIT FAILURE: security decision not recorded: {}", e);

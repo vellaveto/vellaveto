@@ -40,6 +40,7 @@ use vellaveto_approval::ApprovalStatus;
 use vellaveto_config::ToolManifest;
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport,
     sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, EvaluationContext,
@@ -1893,7 +1894,23 @@ impl ProxyBridge {
                         );
                     }
                 }
-                if let Err(e) = self.audit.log_entry(&action, &Verdict::Allow, meta).await {
+                let acis_envelope = crate::mediation::build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "stdio",
+                    &[],
+                    None,
+                    state.agent_id.as_deref(),
+                    None,
+                    None,
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(&action, &Verdict::Allow, meta, acis_envelope)
+                    .await
+                {
                     tracing::warn!("Audit log failed for allowed tool call: {}", e);
                 }
                 // Record tool call in registry on Allow
@@ -1946,7 +1963,27 @@ impl ProxyBridge {
                     }
                 }
                 let meta = Self::tool_call_audit_metadata(&tool_name, ann);
-                if let Err(e) = self.audit.log_entry(&action, &verdict, meta).await {
+                let origin = match &verdict {
+                    Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
+                    _ => DecisionOrigin::PolicyEngine,
+                };
+                let acis_envelope = crate::mediation::build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    origin,
+                    "stdio",
+                    &[],
+                    None,
+                    state.agent_id.as_deref(),
+                    None,
+                    None,
+                );
+                if let Err(e) = self
+                    .audit
+                    .log_entry_with_acis(&action, &verdict, meta, acis_envelope)
+                    .await
+                {
                     tracing::warn!("Audit log failed: {}", e);
                 }
                 write_message(agent_writer, &response)
@@ -2465,9 +2502,21 @@ impl ProxyBridge {
                         );
                     }
                 }
+                let acis_envelope = crate::mediation::build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "stdio",
+                    &[],
+                    None,
+                    state.agent_id.as_deref(),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(&action, &Verdict::Allow, audit_meta)
+                    .log_entry_with_acis(&action, &Verdict::Allow, audit_meta, acis_envelope)
                     .await
                 {
                     tracing::warn!("Audit log failed for allowed resource read: {}", e);
@@ -2512,12 +2561,29 @@ impl ProxyBridge {
                         }
                     }
                 }
+                let origin = match &verdict {
+                    Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
+                    _ => DecisionOrigin::PolicyEngine,
+                };
+                let acis_envelope = crate::mediation::build_acis_envelope(
+                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                    &action,
+                    &verdict,
+                    origin,
+                    "stdio",
+                    &[],
+                    None,
+                    state.agent_id.as_deref(),
+                    None,
+                    None,
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({"source": "proxy", "resource_uri": uri}),
+                        acis_envelope,
                     )
                     .await
                 {

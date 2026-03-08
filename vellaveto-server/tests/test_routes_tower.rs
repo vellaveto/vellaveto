@@ -492,6 +492,52 @@ async fn evaluate_logs_to_audit() {
 }
 
 #[tokio::test]
+async fn evaluate_logs_acis_envelope_to_audit() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist after evaluate");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid audit json"))
+        .expect("expected at least one audit entry");
+
+    assert_eq!(entry["acis_envelope"]["transport"], "http");
+    assert_eq!(entry["acis_envelope"]["origin"], "policy_engine");
+    assert_eq!(entry["acis_envelope"]["decision"], "allow");
+    assert_eq!(entry["acis_envelope"]["tenant_id"], "_default_");
+    assert_eq!(
+        entry["acis_envelope"]["action_fingerprint"],
+        fingerprint_action(&Action::new("file", "read", json!({})))
+    );
+}
+
+#[tokio::test]
 async fn evaluate_audit_includes_forwarded_tls_metadata() {
     let (mut state, tmp) = make_state();
     state.trusted_proxies = Arc::new(vec![std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)]);

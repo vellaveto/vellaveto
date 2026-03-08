@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::Mutex;
 use uuid::Uuid;
-use vellaveto_types::{Action, Verdict};
+use vellaveto_types::{AcisDecisionEnvelope, Action, Verdict};
 
 use crate::pii::CustomPiiPattern;
 use crate::rotation::DEFAULT_MAX_FILE_SIZE;
@@ -316,6 +316,28 @@ impl AuditLogger {
         verdict: &Verdict,
         metadata: serde_json::Value,
     ) -> Result<(), AuditError> {
+        self.log_entry_inner(action, verdict, metadata, None).await
+    }
+
+    /// Log an action-verdict pair with a dedicated ACIS decision envelope.
+    pub async fn log_entry_with_acis(
+        &self,
+        action: &Action,
+        verdict: &Verdict,
+        metadata: serde_json::Value,
+        acis_envelope: AcisDecisionEnvelope,
+    ) -> Result<(), AuditError> {
+        self.log_entry_inner(action, verdict, metadata, Some(acis_envelope))
+            .await
+    }
+
+    async fn log_entry_inner(
+        &self,
+        action: &Action,
+        verdict: &Verdict,
+        metadata: serde_json::Value,
+        acis_envelope: Option<AcisDecisionEnvelope>,
+    ) -> Result<(), AuditError> {
         // Validate input
         self.validate_action(action)?;
 
@@ -456,6 +478,22 @@ impl AuditLogger {
             },
         };
 
+        let logged_acis_envelope = match self.redaction_level {
+            RedactionLevel::Off | RedactionLevel::KeysOnly => acis_envelope,
+            RedactionLevel::KeysAndPatterns => acis_envelope.map(|mut envelope| {
+                envelope.reason = if let Some(ref scanner) = self.pii_scanner {
+                    scanner.redact_string(&envelope.reason)
+                } else {
+                    let mut redacted = envelope.reason.clone();
+                    for re in PII_REGEXES.iter() {
+                        redacted = re.replace_all(&redacted, REDACTED).to_string();
+                    }
+                    redacted
+                };
+                envelope
+            }),
+        };
+
         // SECURITY (FIND-R46-005): Lock-holding duration tradeoff.
         //
         // All data preparation (validation, redaction, PII scanning) is performed
@@ -544,7 +582,7 @@ impl AuditLogger {
             prev_hash: last_hash_guard.clone(),
             commitment: None,
             tenant_id,
-            acis_envelope: None,
+            acis_envelope: logged_acis_envelope,
         };
 
         // Compute hash

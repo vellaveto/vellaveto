@@ -5395,3 +5395,49 @@ async fn test_r238_aud1_tenant_id_valid_passes() {
         "valid metadata.tenant_id should be preserved"
     );
 }
+
+#[tokio::test]
+async fn test_log_entry_with_acis_persists_dedicated_envelope() {
+    use vellaveto_types::acis::{AcisActionSummary, DecisionKind, DecisionOrigin};
+
+    let dir = tempfile::tempdir().unwrap();
+    let log_path = dir.path().join("audit_with_acis.jsonl");
+    let logger = AuditLogger::new(log_path.clone());
+
+    let action = Action::new("file", "read", json!({}));
+    let verdict = Verdict::Allow;
+    let envelope = vellaveto_types::AcisDecisionEnvelope {
+        decision_id: "123456781234123412341234567890ab".to_string(),
+        timestamp: "2026-03-08T12:00:00Z".to_string(),
+        session_id: None,
+        tenant_id: Some("tenant-123".to_string()),
+        agent_identity: None,
+        agent_id: Some("agent-a".to_string()),
+        action_summary: AcisActionSummary {
+            tool: "file".to_string(),
+            function: "read".to_string(),
+            target_path_count: 0,
+            target_domain_count: 0,
+        },
+        action_fingerprint: "abcd1234".repeat(8),
+        decision: DecisionKind::Allow,
+        origin: DecisionOrigin::PolicyEngine,
+        reason: String::new(),
+        matched_policy_id: Some("file:read".to_string()),
+        transport: "http".to_string(),
+        findings: vec![],
+        evaluation_us: Some(42),
+        call_chain_depth: 0,
+    };
+
+    logger
+        .log_entry_with_acis(&action, &verdict, json!({"source": "test"}), envelope)
+        .await
+        .unwrap();
+
+    let content = tokio::fs::read_to_string(&log_path).await.unwrap();
+    let entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+    assert_eq!(entry["acis_envelope"]["transport"], "http");
+    assert_eq!(entry["acis_envelope"]["origin"], "policy_engine");
+    assert_eq!(entry["acis_envelope"]["tenant_id"], "tenant-123");
+}
