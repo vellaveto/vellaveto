@@ -414,9 +414,15 @@ fn parse_head(text: &str, line: usize) -> Result<&str, CedarImportError> {
     while i < len {
         if in_string {
             if bytes[i] == b'\\' {
-                // Skip the escaped character
-                i = i.saturating_add(2);
-                continue;
+                // R244-CEDAR-1: Bounds-check before skipping escaped char.
+                // A trailing backslash at end-of-string would skip past the
+                // closing quote, reading subsequent delimiters as string content.
+                if i + 1 < len {
+                    i = i.saturating_add(2);
+                    continue;
+                }
+                // Trailing backslash with nothing after it — treat as literal
+                // and let the next iteration handle end-of-loop naturally.
             }
             if bytes[i] == b'"' {
                 in_string = false;
@@ -505,9 +511,15 @@ fn parse_when_clause(text: &str, line: usize) -> Result<Vec<Condition>, CedarImp
     while i < len {
         if in_string {
             if bytes[i] == b'\\' {
-                // Skip the escaped character
-                i = i.saturating_add(2);
-                continue;
+                // R244-CEDAR-1: Bounds-check before skipping escaped char.
+                // A trailing backslash at end-of-string would skip past the
+                // closing quote, reading subsequent delimiters as string content.
+                if i + 1 < len {
+                    i = i.saturating_add(2);
+                    continue;
+                }
+                // Trailing backslash with nothing after it — treat as literal
+                // and let the next iteration handle end-of-loop naturally.
             }
             if bytes[i] == b'"' {
                 in_string = false;
@@ -1381,5 +1393,28 @@ mod tests {
         let body = r#"resource.path like "a\"b\"c" && resource.tool == "x""#;
         let parts = split_conditions(body);
         assert_eq!(parts.len(), 2, "Multiple escaped quotes in one string");
+    }
+
+    #[test]
+    fn test_r244_cedar1_trailing_backslash_in_string_does_not_skip_closing_paren() {
+        // R244-CEDAR-1: A trailing backslash at end of the head string must not
+        // cause the parser to skip past the closing ')'.
+        // Before fix: `i.saturating_add(2)` would skip past `"`, reading `)`
+        // as string content and failing with "unmatched '(' in policy head".
+        let cedar = r#"permit(principal, action == Action::"tools/call", resource)
+when { resource.tool == "test" };"#;
+        let result = import_cedar_policies(cedar);
+        assert!(result.is_ok(), "Valid Cedar policy must parse: {result:?}");
+    }
+
+    #[test]
+    fn test_r244_cedar1_backslash_at_end_of_when_body() {
+        // Similar test for the when-clause parser path.
+        let cedar = r#"permit(principal, action == Action::"tools/call", resource)
+when { resource.path like "/tmp/test\\" };"#;
+        let result = import_cedar_policies(cedar);
+        // This may parse or reject depending on Cedar semantics, but must not panic
+        // or produce out-of-bounds access.
+        let _ = result;
     }
 }

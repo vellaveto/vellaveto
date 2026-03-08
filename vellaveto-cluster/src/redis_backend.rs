@@ -222,6 +222,18 @@ impl RedisBackend {
                 "Redis key_prefix must not contain Unicode format characters".to_string(),
             ));
         }
+        // R244-CLUSTER-1: Enforce TLS for non-localhost Redis connections.
+        // Approval state, rate limits, and dedup hashes are security-sensitive;
+        // transmitting them over plaintext enables MITM approval hijacking.
+        let is_localhost = redis_url.contains("://127.0.0.1")
+            || redis_url.contains("://localhost")
+            || redis_url.contains("://[::1]");
+        if !is_localhost && !redis_url.starts_with("rediss://") {
+            return Err(ClusterError::Validation(
+                "Redis URL must use rediss:// (TLS) for non-localhost connections".to_string(),
+            ));
+        }
+
         let cfg = PoolConfig::from_url(redis_url);
         let pool = cfg
             .builder()
@@ -1621,5 +1633,61 @@ mod tests {
     #[test]
     fn test_max_rate_limit_param_len_is_512() {
         assert_eq!(MAX_RATE_LIMIT_PARAM_LEN, 512);
+    }
+
+    // ── R244-CLUSTER-1: TLS enforcement tests ───────────────────────────
+
+    #[test]
+    fn test_r244_remote_redis_without_tls_rejected() {
+        let result = RedisBackend::new("redis://remote-host:6379", 4, "vv:");
+        let err = match result {
+            Err(e) => format!("{e}"),
+            Ok(_) => panic!("expected TLS validation error for plaintext remote Redis"),
+        };
+        assert!(
+            err.contains("rediss://"),
+            "Expected TLS enforcement error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_r244_remote_redis_with_tls_accepted() {
+        // rediss:// URL will fail at pool creation (no actual Redis), but
+        // should NOT fail the TLS validation check.
+        let result = RedisBackend::new("rediss://secure-host:6380", 4, "vv:");
+        // The error should be about connection, not validation.
+        if let Err(e) = &result {
+            let msg = format!("{e}");
+            assert!(
+                !msg.contains("rediss://"),
+                "TLS validation should pass for rediss:// URL"
+            );
+        }
+    }
+
+    #[test]
+    fn test_r244_localhost_redis_without_tls_accepted() {
+        // localhost connections are exempt from TLS requirement.
+        // Will fail at pool creation but should NOT fail TLS validation.
+        let result = RedisBackend::new("redis://127.0.0.1:6379", 4, "vv:");
+        if let Err(e) = &result {
+            let msg = format!("{e}");
+            assert!(
+                !msg.contains("rediss://"),
+                "Localhost should be exempt from TLS requirement"
+            );
+        }
+    }
+
+    #[test]
+    fn test_r244_localhost_name_redis_without_tls_accepted() {
+        let result = RedisBackend::new("redis://localhost:6379", 4, "vv:");
+        if let Err(e) = &result {
+            let msg = format!("{e}");
+            assert!(
+                !msg.contains("rediss://"),
+                "localhost should be exempt from TLS requirement"
+            );
+        }
     }
 }
