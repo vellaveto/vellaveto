@@ -146,7 +146,9 @@ paths:
       description: |
         Core endpoint. Evaluates a tool call action against loaded policies
         and returns a verdict (Allow, Deny, or RequireApproval). The action's
-        parameters are redacted in the response for security.
+        parameters are redacted in the response for security. A caller may
+        optionally present `x-vellaveto-approval-id` to retry the same action
+        with an already approved, scope-matching approval.
       tags: [Evaluation]
       parameters:
         - name: trace
@@ -155,6 +157,15 @@ paths:
             type: boolean
             default: false
           description: Enable detailed evaluation trace in response
+        - name: x-vellaveto-approval-id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: |
+            Previously approved approval ID to reuse for the same action.
+            The server fails closed unless the approval is approved and bound
+            to the current sanitized action fingerprint.
       requestBody:
         required: true
         content:
@@ -2980,8 +2991,9 @@ components:
           properties:
             RequireApproval:
               type: object
+              required: [reason]
               properties:
-                approval_id:
+                reason:
                   type: string
 
     Policy:
@@ -3123,7 +3135,9 @@ components:
           description: Action with parameters redacted
         approval_id:
           type: string
-          description: Present when verdict is RequireApproval
+          description: |
+            Present when verdict is RequireApproval, or when a presented
+            approved approval authorized the action.
         trace:
           type: object
           description: Detailed evaluation trace (when trace=true)

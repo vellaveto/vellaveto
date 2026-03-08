@@ -698,6 +698,48 @@ Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_inactive_delegation_projects_empty_chain` | Inactive delegation always projects an empty call chain |
 | `lemma_active_delegation_preserves_depth` | Active delegation preserves the exact deputy-reported depth |
 
+### Transport Context Projection Guards (`verified_transport_context.rs`) — 10 verified items, TCTX-1–TCTX-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| TCTX-1 | Untrusted identity stripping | An untrusted transport can never preserve a presented `agent_identity` |
+| TCTX-2 | Untrusted token stripping | An untrusted transport can never preserve a presented `capability_token` |
+| TCTX-3 | Trusted identity preservation | A trusted transport preserves `agent_identity` exactly when it is present |
+| TCTX-4 | Trusted token preservation | A trusted transport preserves `capability_token` exactly when it is present |
+
+Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_untrusted_transport_strips_sensitive_fields` | Untrusted transports always strip both sensitive context fields fail-closed |
+| `lemma_trusted_transport_preserves_present_sensitive_fields` | Trusted transports preserve present identity and capability-token fields |
+| `lemma_absent_sensitive_fields_remain_absent_when_projected` | Missing sensitive fields stay absent regardless of transport trust |
+
+### Approval Scope Binding Guards (`verified_approval_scope.rs`) — 9 verified items, APPR-SCOPE-1–APPR-SCOPE-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| APPR-SCOPE-1 | Bound session requires present match | If an approval is bound to a session, missing or mismatched request sessions fail closed |
+| APPR-SCOPE-2 | Unbound session is non-blocking | If no session binding exists, the session dimension cannot reject the approval |
+| APPR-SCOPE-3 | Bound fingerprint requires present match | If an approval is bound to an action fingerprint, missing or mismatched request fingerprints fail closed |
+| APPR-SCOPE-4 | Combined scope is conjunctive | Any bound scope dimension that is absent or mismatched is sufficient to reject approval reuse |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_bound_session_binding_requires_present_match` | Session-scoped approvals only succeed when the request presents the exact bound session |
+| `lemma_bound_fingerprint_binding_requires_present_match` | Fingerprint-scoped approvals only succeed when the request presents the exact bound fingerprint |
+| `lemma_scope_requires_all_bound_dimensions` | Combined scope checking is fail-closed across both bound dimensions |
+
 ### NHI Delegation Guards (`verified_nhi_delegation.rs`) — 19 verified items, NHI-DEL-1–NHI-DEL-8
 
 Properties proven for ALL possible inputs:
@@ -928,6 +970,8 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated delegation depth through the verified projection kernel before the relay populates `EvaluationContext.call_chain` |
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate before the relay consumes it |
 | `formal/verus/verified_evaluation_context_projection.rs` | `vellaveto-mcp/src/verified_evaluation_context_projection.rs` | `relay.rs` routes engine-visible principal selection and synthetic delegation-depth projection through the combined verified evaluation-context gate |
+| `formal/verus/verified_approval_scope.rs` | `vellaveto-approval/src/verified_approval_scope.rs` | `PendingApproval::scope_matches()` routes `session_id` and `action_fingerprint` through the shared fail-closed approval-scope gate before approval reuse decisions |
+| `formal/verus/verified_transport_context.rs` | `vellaveto-types/src/verified_transport_context.rs` | `vellaveto-server/src/routes/main.rs` and `relay.rs` route `agent_identity` and `capability_token` through the shared fail-closed transport projection gate |
 | `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
 | `formal/verus/verified_capability_domain.rs` | `vellaveto-mcp/src/verified_capability_domain.rs` | `capability_token.rs` routes `allowed_domains` coverage and subset checks through the verified domain normalization/matching/containment kernel |
 | `formal/verus/verified_capability_path.rs` | `vellaveto-mcp/src/verified_capability_path.rs` | `capability_token.rs` routes grant/action path normalization through the extracted fail-closed path kernel |
@@ -1016,6 +1060,12 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dep
 # Combined relay projection into engine evaluation context (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_evaluation_context_projection.rs
 
+# Shared approval scope binding gate (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_approval_scope.rs
+
+# Shared fail-closed transport projection for sensitive context fields (10 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_transport_context.rs
+
 # Capability grant-coverage path/domain restriction gate (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_coverage.rs
 
@@ -1096,6 +1146,8 @@ verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
 verus formal/verus/verified_evaluation_context_projection.rs
+verus formal/verus/verified_approval_scope.rs
+verus formal/verus/verified_transport_context.rs
 verus formal/verus/verified_capability_coverage.rs
 verus formal/verus/verified_capability_domain.rs
 verus formal/verus/verified_capability_path.rs
@@ -1133,6 +1185,8 @@ Expected output:
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_evaluation_context_projection.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_approval_scope.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_transport_context.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_domain.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_path.rs`: `verification results:: 9 verified, 0 errors`

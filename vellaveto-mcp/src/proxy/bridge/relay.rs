@@ -37,8 +37,10 @@ use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
 use vellaveto_config::ToolManifest;
+use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
 use vellaveto_types::{
+    project_agent_identity_from_transport, project_capability_token_from_transport,
     sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, EvaluationContext,
     EvaluationTrace, Verdict,
 };
@@ -453,13 +455,13 @@ impl RelayState {
         EvaluationContext {
             timestamp: None,
             agent_id: request_agent_id,
-            agent_identity: None,
+            agent_identity: project_agent_identity_from_transport(false, None),
             call_counts: self.call_counts.clone(),
             previous_actions: self.action_history.iter().cloned().collect(),
             call_chain,
             tenant_id: None,
             verification_tier: None,
-            capability_token: None,
+            capability_token: project_capability_token_from_transport(false, None),
             session_state: None,
         }
     }
@@ -1295,7 +1297,11 @@ impl ProxyBridge {
                     }
                     // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
                     let approval_id = if let Some(ref store) = self.approval_store {
-                        match store.create(action, reason.clone(), None).await {
+                        let action_fingerprint = fingerprint_action(&action);
+                        match store
+                            .create(action, reason.clone(), None, None, Some(action_fingerprint))
+                            .await
+                        {
                             Ok(id) => Some(id),
                             Err(e) => {
                                 tracing::error!("APPROVAL CREATION FAILURE (unknown_tool): {}", e);
@@ -1333,7 +1339,11 @@ impl ProxyBridge {
                     }
                     // SECURITY (SE-005): Log approval creation errors instead of silently swallowing.
                     let approval_id = if let Some(ref store) = self.approval_store {
-                        match store.create(action, reason.clone(), None).await {
+                        let action_fingerprint = fingerprint_action(&action);
+                        match store
+                            .create(action, reason.clone(), None, None, Some(action_fingerprint))
+                            .await
+                        {
                             Ok(id) => Some(id),
                             Err(e) => {
                                 tracing::error!(
@@ -1614,7 +1624,17 @@ impl ProxyBridge {
                 // the JSON-RPC error data.
                 if let Verdict::RequireApproval { ref reason } = verdict {
                     if let Some(ref store) = self.approval_store {
-                        match store.create(action.clone(), reason.clone(), None).await {
+                        let action_fingerprint = fingerprint_action(&action);
+                        match store
+                            .create(
+                                action.clone(),
+                                reason.clone(),
+                                None,
+                                None,
+                                Some(action_fingerprint),
+                            )
+                            .await
+                        {
                             Ok(approval_id) => {
                                 if let Some(data) =
                                     response.get_mut("error").and_then(|e| e.get_mut("data"))
@@ -2108,7 +2128,17 @@ impl ProxyBridge {
             ProxyDecision::Block(mut response, verdict) => {
                 if let Verdict::RequireApproval { ref reason } = verdict {
                     if let Some(ref store) = self.approval_store {
-                        match store.create(action.clone(), reason.clone(), None).await {
+                        let action_fingerprint = fingerprint_action(&action);
+                        match store
+                            .create(
+                                action.clone(),
+                                reason.clone(),
+                                None,
+                                None,
+                                Some(action_fingerprint),
+                            )
+                            .await
+                        {
                             Ok(approval_id) => {
                                 if let Some(data) =
                                     response.get_mut("error").and_then(|e| e.get_mut("data"))
@@ -6259,5 +6289,15 @@ mod tests {
 
         assert_eq!(ctx.agent_id.as_deref(), Some("agent-configured"));
         assert_eq!(ctx.call_chain.len(), 2);
+    }
+
+    #[test]
+    fn test_relay_state_evaluation_context_strips_untrusted_identity_and_capability_token() {
+        let state = RelayState::new(HashSet::new());
+
+        let ctx = state.evaluation_context(&empty_request_principal_binding(), None);
+
+        assert!(ctx.agent_identity.is_none());
+        assert!(ctx.capability_token.is_none());
     }
 }

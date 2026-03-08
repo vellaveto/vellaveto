@@ -43,7 +43,7 @@ const MAX_PENDING_LIST: usize = 1000;
 /// Validate an approval ID from a URL path parameter.
 /// SECURITY (R16-APPR-1): Reject oversized or malformed IDs to prevent
 /// log bloat and provide clean error messages.
-fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+pub(crate) fn validate_approval_id(id: &str) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if id.is_empty() || id.len() > MAX_APPROVAL_ID_LEN {
         return Err((
             StatusCode::BAD_REQUEST,

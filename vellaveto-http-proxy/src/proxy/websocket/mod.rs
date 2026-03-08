@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
+use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -4495,7 +4496,13 @@ async fn create_ws_approval(
             .or_else(|| session.oauth_subject.clone())
     });
     match store
-        .create(action.clone(), reason.to_string(), requested_by)
+        .create(
+            action.clone(),
+            reason.to_string(),
+            requested_by,
+            Some(session_id.to_string()),
+            Some(fingerprint_action(action)),
+        )
         .await
     {
         Ok(id) => Some(id),

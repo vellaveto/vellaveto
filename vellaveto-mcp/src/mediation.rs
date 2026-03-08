@@ -348,8 +348,7 @@ pub fn build_acis_envelope(
             tool: action.tool.clone(),
             function: action.function.clone(),
             target_path_count: u32::try_from(action.target_paths.len()).unwrap_or(u32::MAX),
-            target_domain_count: u32::try_from(action.target_domains.len())
-                .unwrap_or(u32::MAX),
+            target_domain_count: u32::try_from(action.target_domains.len()).unwrap_or(u32::MAX),
         },
         action_fingerprint: fingerprint,
         decision,
@@ -544,8 +543,7 @@ mod tests {
         let r1 = mediate("id-a", &action, &engine, None, "stdio", &config, None, None);
         let r2 = mediate("id-b", &action, &engine, None, "http", &config, None, None);
         assert_eq!(
-            r1.envelope.action_fingerprint,
-            r2.envelope.action_fingerprint,
+            r1.envelope.action_fingerprint, r2.envelope.action_fingerprint,
             "same action must produce same fingerprint across transports"
         );
     }
@@ -561,7 +559,10 @@ mod tests {
         let config = MediationConfig::default();
         let r1 = mediate("id-1", &a1, &engine, None, "stdio", &config, None, None);
         let r2 = mediate("id-2", &a2, &engine, None, "stdio", &config, None, None);
-        assert_ne!(r1.envelope.action_fingerprint, r2.envelope.action_fingerprint);
+        assert_ne!(
+            r1.envelope.action_fingerprint,
+            r2.envelope.action_fingerprint
+        );
     }
 
     #[test]
@@ -735,7 +736,18 @@ mod tests {
 
         let results: Vec<MediationResult> = transports
             .iter()
-            .map(|t| mediate("strict-parity", &action, &engine, None, t, &config, None, None))
+            .map(|t| {
+                mediate(
+                    "strict-parity",
+                    &action,
+                    &engine,
+                    None,
+                    t,
+                    &config,
+                    None,
+                    None,
+                )
+            })
             .collect();
 
         for r in &results {
@@ -757,7 +769,16 @@ mod tests {
         let config = MediationConfig::default();
 
         for t in &transports {
-            let r = mediate("validate-parity", &action, &engine, None, t, &config, None, None);
+            let r = mediate(
+                "validate-parity",
+                &action,
+                &engine,
+                None,
+                t,
+                &config,
+                None,
+                None,
+            );
             assert!(
                 r.envelope.validate().is_ok(),
                 "envelope failed validation on transport {}: {:?}",
@@ -826,7 +847,9 @@ mod tests {
         let engine = test_engine();
         let action = test_action();
         let config = MediationConfig::default();
-        let r = mediate("cmp-id", &action, &engine, None, "stdio", &config, None, None);
+        let r = mediate(
+            "cmp-id", &action, &engine, None, "stdio", &config, None, None,
+        );
         let env = build_acis_envelope(
             "cmp-id",
             &action,

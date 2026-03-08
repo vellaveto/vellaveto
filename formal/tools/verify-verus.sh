@@ -29,6 +29,8 @@ FILES=(
     "formal/verus/verified_delegation_projection.rs"
     "formal/verus/verified_deputy_handoff.rs"
     "formal/verus/verified_evaluation_context_projection.rs"
+    "formal/verus/verified_approval_scope.rs"
+    "formal/verus/verified_transport_context.rs"
     "formal/verus/verified_capability_context.rs"
     "formal/verus/verified_context_delegation.rs"
     "formal/verus/verified_capability_glob.rs"
@@ -54,6 +56,14 @@ FILES=(
 
 MANIFEST="formal/verus/Cargo.toml"
 
+verus_dir_candidates() {
+    printf '%s\n' "$PROJECT_DIR/verus-bin/verus-x86-linux"
+    if [ -n "${HOME:-}" ]; then
+        printf '%s\n' "$HOME/verus/verus-bin/verus-x86-linux"
+        printf '%s\n' "$HOME/verus/source/target-verus/release"
+    fi
+}
+
 find_verus_bin() {
     if [ -n "${VERUS_BIN:-}" ]; then
         printf '%s\n' "$VERUS_BIN"
@@ -65,12 +75,14 @@ find_verus_bin() {
         return
     fi
 
-    if [ -x "$PROJECT_DIR/verus-bin/verus-x86-linux/verus" ]; then
-        printf '%s\n' "$PROJECT_DIR/verus-bin/verus-x86-linux/verus"
-        return
-    fi
+    while IFS= read -r verus_dir; do
+        if [ -x "$verus_dir/verus" ]; then
+            printf '%s\n' "$verus_dir/verus"
+            return
+        fi
+    done < <(verus_dir_candidates)
 
-    echo "FAIL: could not find Verus binary. Set VERUS_BIN or install verus." >&2
+    echo "FAIL: could not find Verus binary. Set VERUS_BIN, install verus, or keep a checkout at ~/verus." >&2
     exit 1
 }
 
@@ -94,10 +106,12 @@ find_cargo_verus_bin() {
         fi
     fi
 
-    if [ -x "$PROJECT_DIR/verus-bin/verus-x86-linux/cargo-verus" ]; then
-        printf '%s\n' "$PROJECT_DIR/verus-bin/verus-x86-linux/cargo-verus"
-        return
-    fi
+    while IFS= read -r verus_dir; do
+        if [ -x "$verus_dir/cargo-verus" ]; then
+            printf '%s\n' "$verus_dir/cargo-verus"
+            return
+        fi
+    done < <(verus_dir_candidates)
 
     return 1
 }

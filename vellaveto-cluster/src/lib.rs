@@ -111,6 +111,8 @@ pub trait ClusterBackend: Send + Sync {
         action: vellaveto_types::Action,
         reason: String,
         requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
     ) -> Result<String, ClusterError>;
 
     /// Get an approval by ID.

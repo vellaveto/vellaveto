@@ -52,6 +52,10 @@ mod verified_dlp_core;
 mod verified_entropy_gate;
 #[path = "../verified_evaluation_context_projection.rs"]
 mod verified_evaluation_context_projection;
+#[path = "../verified_approval_scope.rs"]
+mod verified_approval_scope;
+#[path = "../verified_transport_context.rs"]
+mod verified_transport_context;
 #[path = "../verified_merkle.rs"]
 mod verified_merkle;
 #[path = "../verified_merkle_fold.rs"]

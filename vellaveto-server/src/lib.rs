@@ -1144,13 +1144,18 @@ impl AppState {
         action: vellaveto_types::Action,
         reason: String,
         requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
     ) -> Result<String, ApprovalOpError> {
         if let Some(ref cluster) = self.cluster {
             Ok(cluster
-                .approval_create(action, reason, requested_by)
+                .approval_create(action, reason, requested_by, session_id, action_fingerprint)
                 .await?)
         } else {
-            Ok(self.approvals.create(action, reason, requested_by).await?)
+            Ok(self
+                .approvals
+                .create(action, reason, requested_by, session_id, action_fingerprint)
+                .await?)
         }
     }
 

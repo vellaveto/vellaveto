@@ -20,7 +20,12 @@ use serde_json::json;
 use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use vellaveto_types::{Action, EvaluationContext, Verdict};
+use vellaveto_approval::ApprovalStatus;
+use vellaveto_engine::acis::fingerprint_action;
+use vellaveto_types::{
+    project_agent_identity_from_transport, project_capability_token_from_transport, Action,
+    EvaluationContext, Verdict,
+};
 
 use governor::clock::Clock;
 
@@ -34,6 +39,8 @@ use crate::AppState;
 /// Maximum allowed request body size in bytes (1 MB).
 /// FIND-R56-SRV-005: Extracted from inline magic number for clarity.
 const MAX_REQUEST_BODY_SIZE: usize = 1_048_576;
+const APPROVAL_ID_HEADER: &str = "x-vellaveto-approval-id";
+const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid for this action";
 
 // Phase 15: Observability integration
 #[cfg(feature = "observability-exporters")]
@@ -1331,6 +1338,77 @@ fn redact_response_action(mut action: Action) -> Action {
     action
 }
 
+fn extract_presented_approval_id(
+    headers: &HeaderMap,
+) -> Result<Option<String>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(value) = headers.get(APPROVAL_ID_HEADER) else {
+        return Ok(None);
+    };
+
+    let approval_id = value.to_str().map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Approval ID header must be valid UTF-8".to_string(),
+            }),
+        )
+    })?;
+
+    super::approval::validate_approval_id(approval_id)?;
+    Ok(Some(approval_id.to_string()))
+}
+
+async fn presented_approval_matches_action(
+    state: &AppState,
+    presented_approval_id: Option<&str>,
+    action: &Action,
+) -> Result<Option<String>, ()> {
+    let Some(approval_id) = presented_approval_id else {
+        return Ok(None);
+    };
+
+    let approval = match state.get_approval(approval_id).await {
+        Ok(approval) => approval,
+        Err(e) => {
+            tracing::warn!(
+                approval_id = %approval_id,
+                error = ?e,
+                "Presented approval lookup failed"
+            );
+            return Err(());
+        }
+    };
+
+    if approval.status != ApprovalStatus::Approved {
+        tracing::warn!(
+            approval_id = %approval_id,
+            status = ?approval.status,
+            "Presented approval is not approved"
+        );
+        return Err(());
+    }
+
+    // Fail closed on approvals that predate action-fingerprint binding.
+    if approval.action_fingerprint.is_none() {
+        tracing::warn!(
+            approval_id = %approval_id,
+            "Presented approval missing action fingerprint binding"
+        );
+        return Err(());
+    }
+
+    let action_fingerprint = fingerprint_action(action);
+    if !approval.scope_matches(None, Some(action_fingerprint.as_str())) {
+        tracing::warn!(
+            approval_id = %approval_id,
+            "Presented approval scope does not match the current action"
+        );
+        return Err(());
+    }
+
+    Ok(Some(approval_id.to_string()))
+}
+
 /// QUALITY (FIND-GAP-010): Standard error response format.
 ///
 /// All API endpoints in the Vellaveto server return errors as JSON objects
@@ -1799,16 +1877,17 @@ fn sanitize_context(
             client_agent_id
         };
 
-        // SECURITY (R21-SRV-3): Strip agent_identity — the stateless server
-        // cannot validate JWTs (no JWKS configuration). Passing through an
-        // unvalidated client-supplied agent_identity would let attackers forge
-        // identity claims to match agent-identity-based policy conditions.
-        // Only the HTTP proxy should populate this after JWT verification.
+        // SECURITY (R21-SRV-3): The stateless server does not trust transport-
+        // supplied agent identity or capability tokens. Route both sensitive
+        // fields through the shared fail-closed transport boundary.
+        let agent_identity = project_agent_identity_from_transport(false, ctx.agent_identity);
+        let capability_token = project_capability_token_from_transport(false, ctx.capability_token);
+
         EvaluationContext {
             // Override timestamp with server time — never trust client clocks
             timestamp: None,
             agent_id,
-            agent_identity: None,
+            agent_identity,
             // Strip session-state fields: the stateless server API has no session
             // tracking, so these must not be client-controlled
             call_counts: std::collections::HashMap::new(),
@@ -1817,7 +1896,7 @@ fn sanitize_context(
             // Tenant ID is set by the tenant middleware, not client-controlled
             tenant_id,
             verification_tier: None,
-            capability_token: None,
+            capability_token,
             session_state: None,
         }
     })
@@ -2001,6 +2080,9 @@ async fn evaluate(
     action.target_domains.clear();
     action.resolved_ips.clear();
     auto_extract_targets(&mut action);
+    let presented_approval_id = extract_presented_approval_id(&headers)?;
+    let mut gate_audit_metadata = serde_json::Map::new();
+    let mut gate_approval_id: Option<String> = None;
 
     // SECURITY (R15-CFG-2): Single atomic load of engine + policies.
     // Previously two separate loads had a microsecond-wide race.
@@ -2060,40 +2142,27 @@ async fn evaluate(
             vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
                 // Unknown tool: register it and require approval
                 registry.register_unknown(tool_name).await;
-                let reason = format!(
-                    "Tool '{tool_name}' is not in the registry — requires approval before use"
-                );
-                let verdict = Verdict::RequireApproval {
-                    reason: reason.clone(),
-                };
-                // SECURITY (R30-SRV-3): Defer metrics recording until after
-                // approval creation — if creation fails, the final verdict is
-                // Deny, not RequireApproval. Recording both double-counts.
-
-                // Create pending approval if store available
-                let requester =
-                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
-                let requested_by = if requester != "anonymous" {
-                    Some(requester)
-                } else {
-                    None
-                };
-                let approval_id = match state
-                    .create_approval(action.clone(), reason, requested_by)
-                    .await
+                match presented_approval_matches_action(
+                    &state,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
                 {
-                    Ok(id) => Some(id),
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to create approval for unknown tool (fail-closed → Deny): {:?}",
-                            e
-                        );
+                    Ok(Some(id)) => {
+                        gate_audit_metadata.insert("registry".to_string(), json!("unknown_tool"));
+                        gate_approval_id = Some(id);
+                    }
+                    Err(()) => {
                         let deny = Verdict::Deny {
-                            reason: "Unknown tool requires approval but could not be created"
-                                .to_string(),
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                         };
                         record_usage_deny();
                         state.metrics.record_evaluation(&deny);
+                        crate::metrics::record_evaluation_verdict("deny");
+                        crate::metrics::record_evaluation_duration(
+                            eval_start.elapsed().as_secs_f64(),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry(
@@ -2102,7 +2171,10 @@ async fn evaluate(
                                 build_evaluate_audit_metadata(
                                     &tenant_ctx.tenant_id,
                                     tls_metadata.as_ref(),
-                                    json!({"registry": "unknown_tool"}),
+                                    json!({
+                                        "registry": "unknown_tool",
+                                        "approval_id": presented_approval_id,
+                                    }),
                                 ),
                             )
                             .await
@@ -2119,71 +2191,134 @@ async fn evaluate(
                             inspection: None,
                         }));
                     }
-                };
+                    Ok(None) => {
+                        let reason = format!(
+                            "Tool '{tool_name}' is not in the registry — requires approval before use"
+                        );
+                        let verdict = Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        };
+                        // SECURITY (R30-SRV-3): Defer metrics recording until after
+                        // approval creation — if creation fails, the final verdict is
+                        // Deny, not RequireApproval. Recording both double-counts.
 
-                // Record RequireApproval metrics only on success path
-                record_usage_deny();
-                state.metrics.record_evaluation(&verdict);
-                crate::metrics::record_evaluation_verdict("require_approval");
-                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                        // Create pending approval if store available
+                        let requester = crate::routes::approval::derive_resolver_identity(
+                            &headers,
+                            "anonymous",
+                        );
+                        let requested_by = if requester != "anonymous" {
+                            Some(requester)
+                        } else {
+                            None
+                        };
+                        let approval_id = match state
+                            .create_approval(
+                                action.clone(),
+                                reason,
+                                requested_by,
+                                None,
+                                Some(fingerprint_action(&action)),
+                            )
+                            .await
+                        {
+                            Ok(id) => Some(id),
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to create approval for unknown tool (fail-closed → Deny): {:?}",
+                                    e
+                                );
+                                let deny = Verdict::Deny {
+                                    reason:
+                                        "Unknown tool requires approval but could not be created"
+                                            .to_string(),
+                                };
+                                record_usage_deny();
+                                state.metrics.record_evaluation(&deny);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &deny,
+                                        build_evaluate_audit_metadata(
+                                            &tenant_ctx.tenant_id,
+                                            tls_metadata.as_ref(),
+                                            json!({"registry": "unknown_tool"}),
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                } else {
+                                    crate::metrics::increment_audit_entries();
+                                }
+                                return Ok(Json(EvaluateResponse {
+                                    verdict: deny,
+                                    action: redact_response_action(action),
+                                    approval_id: None,
+                                    trace: None,
+                                    inspection: None,
+                                }));
+                            }
+                        };
 
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &verdict,
-                        build_evaluate_audit_metadata(
-                            &tenant_ctx.tenant_id,
-                            tls_metadata.as_ref(),
-                            json!({"registry": "unknown_tool", "approval_id": approval_id}),
-                        ),
-                    )
-                    .await
-                {
-                    tracing::error!("AUDIT FAILURE: {}", e);
-                } else {
-                    crate::metrics::increment_audit_entries();
+                        // Record RequireApproval metrics only on success path
+                        record_usage_deny();
+                        state.metrics.record_evaluation(&verdict);
+                        crate::metrics::record_evaluation_verdict("require_approval");
+                        crate::metrics::record_evaluation_duration(
+                            eval_start.elapsed().as_secs_f64(),
+                        );
+
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                build_evaluate_audit_metadata(
+                                    &tenant_ctx.tenant_id,
+                                    tls_metadata.as_ref(),
+                                    json!({"registry": "unknown_tool", "approval_id": approval_id}),
+                                ),
+                            )
+                            .await
+                        {
+                            tracing::error!("AUDIT FAILURE: {}", e);
+                        } else {
+                            crate::metrics::increment_audit_entries();
+                        }
+                        return Ok(Json(EvaluateResponse {
+                            verdict,
+                            action: redact_response_action(action),
+                            approval_id,
+                            trace: None,
+                            inspection: None,
+                        }));
+                    }
                 }
-                return Ok(Json(EvaluateResponse {
-                    verdict,
-                    action: redact_response_action(action),
-                    approval_id,
-                    trace: None,
-                    inspection: None,
-                }));
             }
             vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score } => {
-                let reason = format!(
-                    "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
-                );
-                let verdict = Verdict::RequireApproval {
-                    reason: reason.clone(),
-                };
-                // SECURITY (R30-SRV-3): Defer metrics until after approval creation
-
-                let requester =
-                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
-                let requested_by = if requester != "anonymous" {
-                    Some(requester)
-                } else {
-                    None
-                };
-                let approval_id = match state
-                    .create_approval(action.clone(), reason, requested_by)
-                    .await
+                match presented_approval_matches_action(
+                    &state,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
                 {
-                    Ok(id) => Some(id),
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to create approval for untrusted tool (fail-closed → Deny): {:?}",
-                            e
-                        );
+                    Ok(Some(id)) => {
+                        gate_audit_metadata.insert("registry".to_string(), json!("untrusted_tool"));
+                        gate_approval_id = Some(id);
+                    }
+                    Err(()) => {
                         let deny = Verdict::Deny {
-                            reason: "Untrusted tool requires approval but could not be created"
-                                .to_string(),
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                         };
                         record_usage_deny();
                         state.metrics.record_evaluation(&deny);
+                        crate::metrics::record_evaluation_verdict("deny");
+                        crate::metrics::record_evaluation_duration(
+                            eval_start.elapsed().as_secs_f64(),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry(
@@ -2192,7 +2327,10 @@ async fn evaluate(
                                 build_evaluate_audit_metadata(
                                     &tenant_ctx.tenant_id,
                                     tls_metadata.as_ref(),
-                                    json!({"registry": "untrusted_tool"}),
+                                    json!({
+                                        "registry": "untrusted_tool",
+                                        "approval_id": presented_approval_id,
+                                    }),
                                 ),
                             )
                             .await
@@ -2209,38 +2347,108 @@ async fn evaluate(
                             inspection: None,
                         }));
                     }
-                };
+                    Ok(None) => {
+                        let reason = format!(
+                            "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
+                        );
+                        let verdict = Verdict::RequireApproval {
+                            reason: reason.clone(),
+                        };
+                        // SECURITY (R30-SRV-3): Defer metrics until after approval creation
 
-                // Record RequireApproval metrics only on success path
-                record_usage_deny();
-                state.metrics.record_evaluation(&verdict);
-                crate::metrics::record_evaluation_verdict("require_approval");
-                crate::metrics::record_evaluation_duration(eval_start.elapsed().as_secs_f64());
+                        let requester = crate::routes::approval::derive_resolver_identity(
+                            &headers,
+                            "anonymous",
+                        );
+                        let requested_by = if requester != "anonymous" {
+                            Some(requester)
+                        } else {
+                            None
+                        };
+                        let approval_id = match state
+                            .create_approval(
+                                action.clone(),
+                                reason,
+                                requested_by,
+                                None,
+                                Some(fingerprint_action(&action)),
+                            )
+                            .await
+                        {
+                            Ok(id) => Some(id),
+                            Err(e) => {
+                                tracing::error!(
+                                    "Failed to create approval for untrusted tool (fail-closed → Deny): {:?}",
+                                    e
+                                );
+                                let deny = Verdict::Deny {
+                                    reason:
+                                        "Untrusted tool requires approval but could not be created"
+                                            .to_string(),
+                                };
+                                record_usage_deny();
+                                state.metrics.record_evaluation(&deny);
+                                if let Err(e) = state
+                                    .audit
+                                    .log_entry(
+                                        &action,
+                                        &deny,
+                                        build_evaluate_audit_metadata(
+                                            &tenant_ctx.tenant_id,
+                                            tls_metadata.as_ref(),
+                                            json!({"registry": "untrusted_tool"}),
+                                        ),
+                                    )
+                                    .await
+                                {
+                                    tracing::error!("AUDIT FAILURE: {}", e);
+                                } else {
+                                    crate::metrics::increment_audit_entries();
+                                }
+                                return Ok(Json(EvaluateResponse {
+                                    verdict: deny,
+                                    action: redact_response_action(action),
+                                    approval_id: None,
+                                    trace: None,
+                                    inspection: None,
+                                }));
+                            }
+                        };
 
-                if let Err(e) = state
-                    .audit
-                    .log_entry(
-                        &action,
-                        &verdict,
-                        build_evaluate_audit_metadata(
-                            &tenant_ctx.tenant_id,
-                            tls_metadata.as_ref(),
-                            json!({"registry": "untrusted_tool", "approval_id": approval_id}),
-                        ),
-                    )
-                    .await
-                {
-                    tracing::error!("AUDIT FAILURE: {}", e);
-                } else {
-                    crate::metrics::increment_audit_entries();
+                        // Record RequireApproval metrics only on success path
+                        record_usage_deny();
+                        state.metrics.record_evaluation(&verdict);
+                        crate::metrics::record_evaluation_verdict("require_approval");
+                        crate::metrics::record_evaluation_duration(
+                            eval_start.elapsed().as_secs_f64(),
+                        );
+
+                        if let Err(e) = state
+                            .audit
+                            .log_entry(
+                                &action,
+                                &verdict,
+                                build_evaluate_audit_metadata(
+                                    &tenant_ctx.tenant_id,
+                                    tls_metadata.as_ref(),
+                                    json!({"registry": "untrusted_tool", "approval_id": approval_id}),
+                                ),
+                            )
+                            .await
+                        {
+                            tracing::error!("AUDIT FAILURE: {}", e);
+                        } else {
+                            crate::metrics::increment_audit_entries();
+                        }
+                        return Ok(Json(EvaluateResponse {
+                            verdict,
+                            action: redact_response_action(action),
+                            approval_id,
+                            trace: None,
+                            inspection: None,
+                        }));
+                    }
                 }
-                return Ok(Json(EvaluateResponse {
-                    verdict,
-                    action: redact_response_action(action),
-                    approval_id,
-                    trace: None,
-                    inspection: None,
-                }));
             }
             vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
                 // Trusted — proceed to engine evaluation
@@ -2370,33 +2578,56 @@ async fn evaluate(
     // Fail-closed: if approval creation fails, convert to Deny so the caller
     // can't proceed without a resolvable approval_id.
     let (verdict, approval_id) = if let Verdict::RequireApproval { ref reason } = verdict {
-        // SECURITY (R9-2): Record the requester identity so the approval endpoint
-        // can enforce separation of privilege (different principal must approve).
-        let requester = crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
-        let requested_by = if requester != "anonymous" {
-            Some(requester)
-        } else {
-            None
-        };
-        match state
-            .create_approval(action.clone(), reason.clone(), requested_by)
+        match presented_approval_matches_action(&state, presented_approval_id.as_deref(), &action)
             .await
         {
-            Ok(id) => (verdict, Some(id)),
-            Err(e) => {
-                tracing::error!("Failed to create approval (fail-closed → Deny): {:?}", e);
-                let deny_reason = "Approval required but could not be created".to_string();
-                (
-                    Verdict::Deny {
-                        reason: deny_reason,
-                    },
-                    None,
-                )
+            Ok(Some(id)) => (Verdict::Allow, Some(id)),
+            Err(()) => (
+                Verdict::Deny {
+                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                },
+                None,
+            ),
+            Ok(None) => {
+                // SECURITY (R9-2): Record the requester identity so the approval endpoint
+                // can enforce separation of privilege (different principal must approve).
+                let requester =
+                    crate::routes::approval::derive_resolver_identity(&headers, "anonymous");
+                let requested_by = if requester != "anonymous" {
+                    Some(requester)
+                } else {
+                    None
+                };
+                match state
+                    .create_approval(
+                        action.clone(),
+                        reason.clone(),
+                        requested_by,
+                        None,
+                        Some(fingerprint_action(&action)),
+                    )
+                    .await
+                {
+                    Ok(id) => (verdict, Some(id)),
+                    Err(e) => {
+                        tracing::error!("Failed to create approval (fail-closed → Deny): {:?}", e);
+                        let deny_reason = "Approval required but could not be created".to_string();
+                        (
+                            Verdict::Deny {
+                                reason: deny_reason,
+                            },
+                            None,
+                        )
+                    }
+                }
             }
         }
+    } else if matches!(verdict, Verdict::Allow) {
+        (verdict, gate_approval_id.clone())
     } else {
         (verdict, None)
     };
+    let audit_approval_id = approval_id.clone().or(gate_approval_id.clone());
 
     // Record metrics (both internal AtomicU64 and Prometheus)
     state.metrics.record_evaluation(&verdict);
@@ -2428,8 +2659,11 @@ async fn evaluate(
     let mut audit_metadata = build_evaluate_audit_metadata(
         &tenant_ctx.tenant_id,
         tls_metadata.as_ref(),
-        json!({ "approval_id": approval_id }),
+        json!({ "approval_id": audit_approval_id }),
     );
+    if let Some(obj) = audit_metadata.as_object_mut() {
+        obj.extend(gate_audit_metadata);
+    }
     if let Some(opa) = opa_metadata {
         if let Some(obj) = audit_metadata.as_object_mut() {
             obj.insert("opa".to_string(), opa);
@@ -2538,7 +2772,7 @@ async fn evaluate(
         }
 
         // Add approval info if present
-        if let Some(ref id) = approval_id {
+        if let Some(ref id) = audit_approval_id {
             builder = builder.attribute("approval_id", json!(id));
         }
         if let Some(ref tls) = tls_metadata {
@@ -2977,6 +3211,8 @@ fn categorize_rate_limit<'a>(
 mod tests {
     use super::*;
     use axum::http::Request as HttpRequest;
+    use std::collections::HashMap;
+    use vellaveto_types::{AgentIdentity, CapabilityGrant, CapabilityToken};
 
     /// Helper to build a request with specific headers for testing extract_principal_key.
     fn build_request(headers: &[(&str, &str)]) -> Request {
@@ -3386,6 +3622,58 @@ mod tests {
             sanitized.agent_id.is_none(),
             "Empty agent_id should be rejected"
         );
+    }
+
+    fn sample_agent_identity() -> AgentIdentity {
+        AgentIdentity {
+            claims: HashMap::new(),
+            issuer: Some("issuer.example".to_string()),
+            subject: Some("agent-http".to_string()),
+            audience: vec!["vellaveto".to_string()],
+        }
+    }
+
+    fn sample_capability_token() -> CapabilityToken {
+        CapabilityToken {
+            token_id: "token-http".to_string(),
+            parent_token_id: None,
+            issuer: "issuer-1".to_string(),
+            holder: "holder-1".to_string(),
+            grants: vec![CapabilityGrant {
+                tool_pattern: "file_system".to_string(),
+                function_pattern: "read_file".to_string(),
+                allowed_paths: vec!["/tmp/*".to_string()],
+                allowed_domains: Vec::new(),
+                max_invocations: 1,
+            }],
+            remaining_depth: 1,
+            issued_at: "2026-03-08T00:00:00Z".to_string(),
+            expires_at: "2026-03-09T00:00:00Z".to_string(),
+            signature: "deadbeef".to_string(),
+            issuer_public_key: "feedface".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_sanitize_context_strips_untrusted_identity_and_capability_token() {
+        let headers = HeaderMap::new();
+        let ctx = EvaluationContext {
+            timestamp: None,
+            agent_id: Some("agent-a".to_string()),
+            agent_identity: Some(sample_agent_identity()),
+            call_counts: std::collections::HashMap::new(),
+            previous_actions: Vec::new(),
+            call_chain: Vec::new(),
+            tenant_id: None,
+            verification_tier: None,
+            capability_token: Some(sample_capability_token()),
+            session_state: None,
+        };
+
+        let sanitized = sanitize_context(Some(ctx), &headers, None).unwrap();
+
+        assert!(sanitized.agent_identity.is_none());
+        assert!(sanitized.capability_token.is_none());
     }
 
     #[test]

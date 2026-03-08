@@ -41,6 +41,8 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_delegation_projection.rs"]="delegation_projection_kernel_assumptions_registered"
         ["formal/verus/verified_deputy_handoff.rs"]="deputy_handoff_kernel_assumptions_registered"
         ["formal/verus/verified_evaluation_context_projection.rs"]="evaluation_context_projection_kernel_assumptions_registered"
+        ["formal/verus/verified_approval_scope.rs"]="approval_scope_kernel_assumptions_registered"
+        ["formal/verus/verified_transport_context.rs"]="transport_context_kernel_assumptions_registered"
         ["formal/verus/verified_capability_glob.rs"]="capability_glob_kernel_assumptions_registered"
         ["formal/verus/verified_capability_glob_subset.rs"]="capability_glob_subset_kernel_assumptions_registered"
         ["formal/verus/verified_capability_grant.rs"]="capability_grant_kernel_assumptions_registered"

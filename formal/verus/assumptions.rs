@@ -145,6 +145,14 @@ pub open spec fn evaluation_context_projection_kernel_assumptions_registered() -
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn transport_context_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn approval_scope_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_attenuation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

@@ -45,7 +45,7 @@ async fn test_create_and_get_approval() {
     let (backend, _tmp) = make_backend();
 
     let id = backend
-        .approval_create(make_action(), "needs review".to_string(), None)
+        .approval_create(make_action(), "needs review".to_string(), None, None, None)
         .await
         .expect("create should succeed");
 
@@ -66,7 +66,7 @@ async fn test_approve_approval() {
     let (backend, _tmp) = make_backend();
 
     let id = backend
-        .approval_create(make_action(), "needs review".to_string(), None)
+        .approval_create(make_action(), "needs review".to_string(), None, None, None)
         .await
         .unwrap();
 
@@ -86,7 +86,7 @@ async fn test_deny_approval() {
     let (backend, _tmp) = make_backend();
 
     let id = backend
-        .approval_create(make_action(), "needs review".to_string(), None)
+        .approval_create(make_action(), "needs review".to_string(), None, None, None)
         .await
         .unwrap();
 
@@ -128,7 +128,7 @@ async fn test_double_approve_returns_already_resolved() {
     let (backend, _tmp) = make_backend();
 
     let id = backend
-        .approval_create(make_action(), "needs review".to_string(), None)
+        .approval_create(make_action(), "needs review".to_string(), None, None, None)
         .await
         .unwrap();
 
@@ -156,13 +156,15 @@ async fn test_list_pending_approvals() {
 
     // Create two approvals
     backend
-        .approval_create(make_action(), "reason 1".to_string(), None)
+        .approval_create(make_action(), "reason 1".to_string(), None, None, None)
         .await
         .unwrap();
     let id2 = backend
         .approval_create(
             Action::new("tool2", "func2", serde_json::json!({})),
             "reason 2".to_string(),
+            None,
+            None,
             None,
         )
         .await
@@ -184,7 +186,7 @@ async fn test_pending_count() {
     assert_eq!(backend.approval_pending_count().await.unwrap(), 0);
 
     backend
-        .approval_create(make_action(), "reason".to_string(), None)
+        .approval_create(make_action(), "reason".to_string(), None, None, None)
         .await
         .unwrap();
 
@@ -225,7 +227,7 @@ async fn test_expire_stale_approvals() {
     let backend: Arc<dyn ClusterBackend> = Arc::new(LocalBackend::new(store));
 
     backend
-        .approval_create(make_action(), "expiring".to_string(), None)
+        .approval_create(make_action(), "expiring".to_string(), None, None, None)
         .await
         .unwrap();
 
@@ -249,6 +251,8 @@ async fn test_self_approval_prevention() {
             make_action(),
             "needs review".to_string(),
             Some("alice".to_string()),
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -280,11 +284,11 @@ async fn test_deduplication() {
     // Create the same approval twice — should return the same ID (dedup)
     let action = make_action();
     let id1 = backend
-        .approval_create(action.clone(), "reason".to_string(), None)
+        .approval_create(action.clone(), "reason".to_string(), None, None, None)
         .await
         .unwrap();
     let id2 = backend
-        .approval_create(action, "reason".to_string(), None)
+        .approval_create(action, "reason".to_string(), None, None, None)
         .await
         .unwrap();
 

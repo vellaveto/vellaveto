@@ -19,6 +19,8 @@ use uuid::Uuid;
 use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::Action;
 
+pub mod verified_approval_scope;
+
 #[derive(Error, Debug)]
 pub enum ApprovalError {
     /// The requested approval ID does not exist in the store.
@@ -94,6 +96,44 @@ pub struct PendingApproval {
     /// Used to prevent self-approval: the resolver must differ from the requester.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_by: Option<String>,
+    /// SECURITY (E3-1): Session that requested this approval.
+    /// When set, the approval is scoped to this session — approvals from other
+    /// sessions cannot satisfy this request (cross-session replay prevention).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// SECURITY (E3-1): ACIS action fingerprint (SHA-256 of tool+function+paths+domains).
+    /// Binds the approval to a specific action shape. If the action is materially
+    /// modified after approval creation, the fingerprint will not match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_fingerprint: Option<String>,
+}
+
+impl PendingApproval {
+    /// Return true when the provided scope satisfies this approval's bindings.
+    #[must_use = "security decisions must not be discarded"]
+    pub fn scope_matches(
+        &self,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> bool {
+        let request_matches_bound_session = matches!(
+            (self.session_id.as_deref(), session_id),
+            (Some(bound), Some(request)) if request == bound
+        );
+        let request_matches_bound_fingerprint = matches!(
+            (self.action_fingerprint.as_deref(), action_fingerprint),
+            (Some(bound), Some(request)) if request == bound
+        );
+
+        verified_approval_scope::approval_scope_binding_satisfied(
+            self.session_id.is_some(),
+            session_id.is_some(),
+            request_matches_bound_session,
+            self.action_fingerprint.is_some(),
+            action_fingerprint.is_some(),
+            request_matches_bound_fingerprint,
+        )
+    }
 }
 
 /// Default maximum number of pending approvals before rejecting new ones.
@@ -111,6 +151,16 @@ pub const MAX_IDENTITY_LEN: usize = 512;
 /// SECURITY (FIND-R46-011): Prevents unbounded memory usage from arbitrarily long
 /// reason strings passed to the approval store.
 pub const MAX_REASON_LEN: usize = 4096;
+
+/// Maximum length of session ID bound to an approval.
+///
+/// SECURITY (E3-1): Prevents unbounded allocation from arbitrarily long session IDs.
+pub const MAX_SESSION_ID_LEN: usize = 512;
+
+/// Maximum length of action fingerprint bound to an approval.
+///
+/// SECURITY (E3-1): SHA-256 hex = 64 chars; allow headroom for future algorithms.
+pub const MAX_FINGERPRINT_LEN: usize = 128;
 
 /// Compute a deduplication key from an action and reason.
 ///
@@ -132,6 +182,7 @@ fn compute_dedup_key(
     action: &Action,
     reason: &str,
     requested_by: Option<&str>,
+    session_id: Option<&str>,
 ) -> Result<String, ApprovalError> {
     // SECURITY (R33-SUP-4): Include resolved_ips in the dedup key. Without this,
     // two actions targeting the same domain but resolving to different IPs (e.g.,
@@ -170,7 +221,11 @@ fn compute_dedup_key(
     // collision with Some(""). The NUL byte cannot appear in valid identities
     // (control chars are rejected), guaranteeing no false collisions.
     let rb_component = requested_by.unwrap_or("\x00NONE\x00");
-    let input = format!("{canonical_str}||{reason}||{rb_component}");
+    // SECURITY (E3-1): Include session_id in dedup key to scope approvals
+    // to a single session. Without this, an approval created in session A
+    // could be consumed by session B via dedup collision (cross-session replay).
+    let sess_component = session_id.unwrap_or("\x00NOSESS\x00");
+    let input = format!("{canonical_str}||{reason}||{rb_component}||{sess_component}");
     let hash = Sha256::digest(input.as_bytes());
     Ok(format!("{hash:x}"))
 }
@@ -383,6 +438,7 @@ impl ApprovalStore {
                     &approval.action,
                     &approval.reason,
                     approval.requested_by.as_deref(),
+                    approval.session_id.as_deref(),
                 )?;
                 dedup.insert(key, approval.id.clone());
             }
@@ -404,6 +460,8 @@ impl ApprovalStore {
         action: Action,
         reason: String,
         requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
     ) -> Result<String, ApprovalError> {
         // SECURITY (FIND-R46-011): Validate reason length at the store level.
         // SECURITY (R246-APPR-1): Don't expose actual length in error message.
@@ -454,7 +512,49 @@ impl ApprovalStore {
             }
         }
 
-        let dedup_key = compute_dedup_key(&action, &reason, requested_by.as_deref())?;
+        // SECURITY (E3-1): Validate session_id length and content.
+        if let Some(ref sid) = session_id {
+            if sid.is_empty() {
+                return Err(ApprovalError::Validation(
+                    "session_id must not be empty".to_string(),
+                ));
+            }
+            if sid.len() > MAX_SESSION_ID_LEN {
+                return Err(ApprovalError::Validation(format!(
+                    "session_id exceeds maximum length of {MAX_SESSION_ID_LEN} bytes"
+                )));
+            }
+            if sid.chars().any(|c| c.is_control()) {
+                return Err(ApprovalError::Validation(
+                    "session_id contains control characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (E3-1): Validate action_fingerprint length and content.
+        if let Some(ref fp) = action_fingerprint {
+            if fp.is_empty() {
+                return Err(ApprovalError::Validation(
+                    "action_fingerprint must not be empty".to_string(),
+                ));
+            }
+            if fp.len() > MAX_FINGERPRINT_LEN {
+                return Err(ApprovalError::Validation(format!(
+                    "action_fingerprint exceeds maximum length of {MAX_FINGERPRINT_LEN} bytes"
+                )));
+            }
+            if !fp.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ApprovalError::Validation(
+                    "action_fingerprint must be hex-encoded".to_string(),
+                ));
+            }
+        }
+
+        let dedup_key = compute_dedup_key(
+            &action,
+            &reason,
+            requested_by.as_deref(),
+            session_id.as_deref(),
+        )?;
 
         // Check dedup index: if an identical pending approval exists, return its ID
         {
@@ -494,6 +594,8 @@ impl ApprovalStore {
             resolved_by: None,
             resolved_at: None,
             requested_by,
+            session_id,
+            action_fingerprint,
         };
 
         // SECURITY (FIND-029/FIND-030): Acquire both locks in consistent order
@@ -660,6 +762,7 @@ impl ApprovalStore {
             &approval.action,
             &approval.reason,
             approval.requested_by.as_deref(),
+            approval.session_id.as_deref(),
         )?;
 
         if Utc::now() > approval.expires_at {
@@ -808,6 +911,7 @@ impl ApprovalStore {
             &approval.action,
             &approval.reason,
             approval.requested_by.as_deref(),
+            approval.session_id.as_deref(),
         )?;
 
         if Utc::now() > approval.expires_at {
@@ -859,6 +963,21 @@ impl ApprovalStore {
             .get(id)
             .cloned()
             .ok_or_else(|| ApprovalError::NotFound(id.to_string()))
+    }
+
+    /// Return true when the given approval matches the provided scope bindings.
+    ///
+    /// This is the approval-store hook for future replay-safe enforcement paths.
+    pub async fn scope_matches(
+        &self,
+        id: &str,
+        session_id: Option<&str>,
+        action_fingerprint: Option<&str>,
+    ) -> Result<bool, ApprovalError> {
+        Ok(self
+            .get(id)
+            .await?
+            .scope_matches(session_id, action_fingerprint))
     }
 
     /// List all pending (not yet resolved) approvals.
@@ -914,6 +1033,7 @@ impl ApprovalStore {
                     &approval.action,
                     &approval.reason,
                     approval.requested_by.as_deref(),
+                    approval.session_id.as_deref(),
                 ) {
                     Ok(dedup_key) => {
                         dedup.remove(&dedup_key);
@@ -965,6 +1085,7 @@ impl ApprovalStore {
                             &approval.action,
                             &approval.reason,
                             approval.requested_by.as_deref(),
+                            approval.session_id.as_deref(),
                         ) {
                             dedup.insert(key, id.clone());
                         }
@@ -1025,6 +1146,14 @@ mod tests {
         )
     }
 
+    fn sample_session_id() -> String {
+        "session-abc".to_string()
+    }
+
+    fn sample_action_fingerprint() -> String {
+        "a".repeat(64)
+    }
+
     #[tokio::test]
     async fn test_create_approval() {
         let dir = TempDir::new().unwrap();
@@ -1034,7 +1163,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
         assert!(!id.is_empty());
@@ -1053,7 +1182,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1072,7 +1201,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1089,7 +1218,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1119,11 +1248,11 @@ mod tests {
         );
 
         let id1 = store
-            .create(test_action(), "reason1".to_string(), None)
+            .create(test_action(), "reason1".to_string(), None, None, None)
             .await
             .unwrap();
         store
-            .create(test_action(), "reason2".to_string(), None)
+            .create(test_action(), "reason2".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1143,7 +1272,7 @@ mod tests {
         let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(0));
 
         let id = store
-            .create(test_action(), "will expire".to_string(), None)
+            .create(test_action(), "will expire".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1173,7 +1302,7 @@ mod tests {
         let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
 
         store
-            .create(test_action(), "persisted".to_string(), None)
+            .create(test_action(), "persisted".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1197,6 +1326,8 @@ mod tests {
             .create(
                 test_action(),
                 "will expire before approve".to_string(),
+                None,
+                None,
                 None,
             )
             .await
@@ -1227,7 +1358,13 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "will expire before deny".to_string(), None)
+            .create(
+                test_action(),
+                "will expire before deny".to_string(),
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1249,11 +1386,11 @@ mod tests {
         {
             let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
             id1 = store
-                .create(test_action(), "first".to_string(), None)
+                .create(test_action(), "first".to_string(), None, None, None)
                 .await
                 .unwrap();
             id2 = store
-                .create(test_action(), "second".to_string(), None)
+                .create(test_action(), "second".to_string(), None, None, None)
                 .await
                 .unwrap();
             store.approve(&id1, "admin").await.unwrap();
@@ -1285,7 +1422,7 @@ mod tests {
         );
 
         store
-            .create(test_action(), "expire me".to_string(), None)
+            .create(test_action(), "expire me".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1314,8 +1451,14 @@ mod tests {
         let action2 = test_action();
         let reason = "needs review".to_string();
 
-        let id1 = store.create(action1, reason.clone(), None).await.unwrap();
-        let id2 = store.create(action2, reason, None).await.unwrap();
+        let id1 = store
+            .create(action1, reason.clone(), None, None, None)
+            .await
+            .unwrap();
+        let id2 = store
+            .create(action2, reason, None, None, None)
+            .await
+            .unwrap();
 
         // Same action + same reason should return the same pending approval ID
         assert_eq!(
@@ -1348,11 +1491,11 @@ mod tests {
         );
 
         let id1 = store
-            .create(action1, "needs review".to_string(), None)
+            .create(action1, "needs review".to_string(), None, None, None)
             .await
             .unwrap();
         let id2 = store
-            .create(action2, "needs review".to_string(), None)
+            .create(action2, "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1375,13 +1518,16 @@ mod tests {
 
         // Create and approve the first one
         let id1 = store
-            .create(test_action(), reason.clone(), None)
+            .create(test_action(), reason.clone(), None, None, None)
             .await
             .unwrap();
         store.approve(&id1, "admin").await.unwrap();
 
         // Creating the same action+reason after approval should produce a NEW id
-        let id2 = store.create(test_action(), reason, None).await.unwrap();
+        let id2 = store
+            .create(test_action(), reason, None, None, None)
+            .await
+            .unwrap();
         assert_ne!(
             id1, id2,
             "After resolving, a new create should produce a fresh ID"
@@ -1407,14 +1553,22 @@ mod tests {
         let store1 = store.clone();
         let action1 = action.clone();
         let reason1 = reason.clone();
-        let handle1 =
-            tokio::spawn(async move { store1.create(action1, reason1, None).await.unwrap() });
+        let handle1 = tokio::spawn(async move {
+            store1
+                .create(action1, reason1, None, None, None)
+                .await
+                .unwrap()
+        });
 
         let store2 = store.clone();
         let action2 = action.clone();
         let reason2 = reason.clone();
-        let handle2 =
-            tokio::spawn(async move { store2.create(action2, reason2, None).await.unwrap() });
+        let handle2 = tokio::spawn(async move {
+            store2
+                .create(action2, reason2, None, None, None)
+                .await
+                .unwrap()
+        });
 
         let id1 = handle1.await.unwrap();
         let id2 = handle2.await.unwrap();
@@ -1488,7 +1642,13 @@ mod tests {
         // Requester uses normal Latin characters
         let requester = "Admin@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1523,7 +1683,13 @@ mod tests {
 
         let requester = "Id-1@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1550,6 +1716,8 @@ mod tests {
                 test_action(),
                 "needs review".to_string(),
                 Some("alice@corp.com".to_string()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -1577,7 +1745,13 @@ mod tests {
         // Requester uses Latin "admin"
         let requester = "admin@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1612,7 +1786,13 @@ mod tests {
         // Requester uses Latin "password"
         let requester = "password@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1637,7 +1817,13 @@ mod tests {
         // Requester uses Latin "alpha"
         let requester = "alpha@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1665,7 +1851,13 @@ mod tests {
         // Requester uses uppercase Greek Sigma
         let requester = "\u{03A3}igma@corp.com".to_string();
         let id = store
-            .create(test_action(), "needs review".to_string(), Some(requester))
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some(requester),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -1701,6 +1893,8 @@ mod tests {
                 test_action(),
                 "needs review".to_string(),
                 Some("Admin@Corp.com".to_string()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -1735,6 +1929,8 @@ mod tests {
                 test_action(),
                 "needs review".to_string(),
                 Some("Anonymous".to_string()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -1759,7 +1955,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1790,7 +1986,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1813,7 +2009,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1843,7 +2039,7 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -1870,6 +2066,8 @@ mod tests {
                 test_action(),
                 "needs review".to_string(),
                 Some(long_requester),
+                None,
+                None,
             )
             .await;
         assert!(
@@ -1901,6 +2099,8 @@ mod tests {
                 test_action(),
                 "needs review".to_string(),
                 Some(exact_requester),
+                None,
+                None,
             )
             .await;
         assert!(
@@ -1920,7 +2120,7 @@ mod tests {
 
         // None requested_by should always pass the length check
         let result = store
-            .create(test_action(), "needs review".to_string(), None)
+            .create(test_action(), "needs review".to_string(), None, None, None)
             .await;
         assert!(
             result.is_ok(),
@@ -1941,8 +2141,10 @@ mod tests {
         let mut action_b = test_action();
         action_b.resolved_ips = vec!["10.0.0.2".to_string(), "10.0.0.1".to_string()];
 
-        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
-        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        let key_a =
+            compute_dedup_key(&action_a, "test reason", Some("user@corp.com"), None).unwrap();
+        let key_b =
+            compute_dedup_key(&action_b, "test reason", Some("user@corp.com"), None).unwrap();
         assert_eq!(
             key_a, key_b,
             "Dedup keys should match regardless of resolved_ips order"
@@ -1959,8 +2161,10 @@ mod tests {
         let mut action_b = test_action();
         action_b.target_paths = vec!["/etc/shadow".to_string(), "/etc/passwd".to_string()];
 
-        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
-        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        let key_a =
+            compute_dedup_key(&action_a, "test reason", Some("user@corp.com"), None).unwrap();
+        let key_b =
+            compute_dedup_key(&action_b, "test reason", Some("user@corp.com"), None).unwrap();
         assert_eq!(
             key_a, key_b,
             "Dedup keys should match regardless of target_paths order"
@@ -1977,8 +2181,10 @@ mod tests {
         let mut action_b = test_action();
         action_b.target_domains = vec!["bad.com".to_string(), "evil.com".to_string()];
 
-        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
-        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        let key_a =
+            compute_dedup_key(&action_a, "test reason", Some("user@corp.com"), None).unwrap();
+        let key_b =
+            compute_dedup_key(&action_b, "test reason", Some("user@corp.com"), None).unwrap();
         assert_eq!(
             key_a, key_b,
             "Dedup keys should match regardless of target_domains order"
@@ -1994,8 +2200,10 @@ mod tests {
         let mut action_b = test_action();
         action_b.resolved_ips = vec!["10.0.0.2".to_string()];
 
-        let key_a = compute_dedup_key(&action_a, "test reason", Some("user@corp.com")).unwrap();
-        let key_b = compute_dedup_key(&action_b, "test reason", Some("user@corp.com")).unwrap();
+        let key_a =
+            compute_dedup_key(&action_a, "test reason", Some("user@corp.com"), None).unwrap();
+        let key_b =
+            compute_dedup_key(&action_b, "test reason", Some("user@corp.com"), None).unwrap();
         assert_ne!(
             key_a, key_b,
             "Dedup keys should differ when resolved_ips are actually different"
@@ -2023,6 +2231,8 @@ mod tests {
                 action_a,
                 "needs review".to_string(),
                 Some("user@corp.com".to_string()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -2031,6 +2241,8 @@ mod tests {
                 action_b,
                 "needs review".to_string(),
                 Some("user@corp.com".to_string()),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -2051,7 +2263,7 @@ mod tests {
         // Create store, add entries, resolve one with an old timestamp
         let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
         let id_pending = store
-            .create(test_action(), "still pending".to_string(), None)
+            .create(test_action(), "still pending".to_string(), None, None, None)
             .await
             .unwrap();
         let id_old_resolved = store
@@ -2062,6 +2274,8 @@ mod tests {
                     json!({"url": "https://example.com"}),
                 ),
                 "old resolved".to_string(),
+                None,
+                None,
                 None,
             )
             .await
@@ -2135,6 +2349,8 @@ mod tests {
                 test_action(),
                 "reason with \x01 control char".to_string(),
                 None,
+                None,
+                None,
             )
             .await;
         assert!(
@@ -2161,7 +2377,13 @@ mod tests {
         );
 
         let result = store
-            .create(test_action(), "reason with \0 null byte".to_string(), None)
+            .create(
+                test_action(),
+                "reason with \0 null byte".to_string(),
+                None,
+                None,
+                None,
+            )
             .await;
         assert!(result.is_err(), "Reason with null byte should be rejected");
         match result.unwrap_err() {
@@ -2188,6 +2410,8 @@ mod tests {
             .create(
                 test_action(),
                 "reason with \u{200B} zero-width space".to_string(),
+                None,
+                None,
                 None,
             )
             .await;
@@ -2220,6 +2444,8 @@ mod tests {
                 test_action(),
                 "reason with \u{202E} bidi override".to_string(),
                 None,
+                None,
+                None,
             )
             .await;
         assert!(
@@ -2250,6 +2476,8 @@ mod tests {
                 test_action(),
                 "Clean reason with normal text and numbers 123".to_string(),
                 None,
+                None,
+                None,
             )
             .await;
         assert!(
@@ -2273,7 +2501,7 @@ mod tests {
 
         // The store should work — it should accept exactly 1 pending approval
         let id = store
-            .create(test_action(), "should work".to_string(), None)
+            .create(test_action(), "should work".to_string(), None, None, None)
             .await
             .unwrap();
         assert!(!id.is_empty());
@@ -2285,7 +2513,13 @@ mod tests {
             json!({"url": "https://example.com"}),
         );
         let result = store
-            .create(action2, "should fail capacity".to_string(), None)
+            .create(
+                action2,
+                "should fail capacity".to_string(),
+                None,
+                None,
+                None,
+            )
             .await;
         assert!(
             matches!(result, Err(ApprovalError::CapacityExceeded(1))),
@@ -2305,7 +2539,9 @@ mod tests {
         // Should accept 5 distinct approvals
         for i in 0..5 {
             let action = Action::new(format!("tool_{i}"), "exec".to_string(), json!({}));
-            let result = store.create(action, format!("reason_{i}"), None).await;
+            let result = store
+                .create(action, format!("reason_{i}"), None, None, None)
+                .await;
             assert!(
                 result.is_ok(),
                 "Should accept approval {i}: {:?}",
@@ -2315,7 +2551,9 @@ mod tests {
 
         // 6th should fail
         let action6 = Action::new("tool_overflow".to_string(), "exec".to_string(), json!({}));
-        let result = store.create(action6, "overflow".to_string(), None).await;
+        let result = store
+            .create(action6, "overflow".to_string(), None, None, None)
+            .await;
         assert!(
             matches!(result, Err(ApprovalError::CapacityExceeded(5))),
             "Expected CapacityExceeded(5), got: {result:?}"
@@ -2332,7 +2570,13 @@ mod tests {
         );
         let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         let result = store
-            .create(action, "reason".to_string(), Some(String::new()))
+            .create(
+                action,
+                "reason".to_string(),
+                Some(String::new()),
+                None,
+                None,
+            )
             .await;
         assert!(result.is_err());
         let err_msg = format!("{:?}", result.unwrap_err());
@@ -2349,7 +2593,13 @@ mod tests {
         );
         let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         let id = store
-            .create(action, "reason".to_string(), Some("requester".to_string()))
+            .create(
+                action,
+                "reason".to_string(),
+                Some("requester".to_string()),
+                None,
+                None,
+            )
             .await
             .expect("create should succeed");
         let result = store.approve(&id, "").await;
@@ -2368,7 +2618,13 @@ mod tests {
         );
         let action = Action::new("tool".to_string(), "func".to_string(), json!({}));
         let id = store
-            .create(action, "reason".to_string(), Some("requester".to_string()))
+            .create(
+                action,
+                "reason".to_string(),
+                Some("requester".to_string()),
+                None,
+                None,
+            )
             .await
             .expect("create should succeed");
         let result: Result<PendingApproval, ApprovalError> = store.deny(&id, "").await;
@@ -2384,16 +2640,16 @@ mod tests {
     #[test]
     fn test_compute_dedup_key_deterministic() {
         let action = test_action();
-        let key1 = compute_dedup_key(&action, "reason", None).unwrap();
-        let key2 = compute_dedup_key(&action, "reason", None).unwrap();
+        let key1 = compute_dedup_key(&action, "reason", None, None).unwrap();
+        let key2 = compute_dedup_key(&action, "reason", None, None).unwrap();
         assert_eq!(key1, key2, "Same inputs should produce the same dedup key");
     }
 
     #[test]
     fn test_compute_dedup_key_different_reasons_differ() {
         let action = test_action();
-        let key1 = compute_dedup_key(&action, "reason-a", None).unwrap();
-        let key2 = compute_dedup_key(&action, "reason-b", None).unwrap();
+        let key1 = compute_dedup_key(&action, "reason-a", None, None).unwrap();
+        let key2 = compute_dedup_key(&action, "reason-b", None, None).unwrap();
         assert_ne!(
             key1, key2,
             "Different reasons should produce different keys"
@@ -2403,8 +2659,8 @@ mod tests {
     #[test]
     fn test_compute_dedup_key_different_requested_by_differ() {
         let action = test_action();
-        let key1 = compute_dedup_key(&action, "reason", Some("alice")).unwrap();
-        let key2 = compute_dedup_key(&action, "reason", Some("bob")).unwrap();
+        let key1 = compute_dedup_key(&action, "reason", Some("alice"), None).unwrap();
+        let key2 = compute_dedup_key(&action, "reason", Some("bob"), None).unwrap();
         assert_ne!(
             key1, key2,
             "Different requested_by should produce different keys"
@@ -2414,11 +2670,34 @@ mod tests {
     #[test]
     fn test_compute_dedup_key_none_vs_some_requested_by_differ() {
         let action = test_action();
-        let key_none = compute_dedup_key(&action, "reason", None).unwrap();
-        let key_some = compute_dedup_key(&action, "reason", Some("alice")).unwrap();
+        let key_none = compute_dedup_key(&action, "reason", None, None).unwrap();
+        let key_some = compute_dedup_key(&action, "reason", Some("alice"), None).unwrap();
         assert_ne!(
             key_none, key_some,
             "None vs Some(requested_by) should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_different_session_ids_differ() {
+        let action = test_action();
+        let key1 = compute_dedup_key(&action, "reason", Some("alice"), Some("session-a")).unwrap();
+        let key2 = compute_dedup_key(&action, "reason", Some("alice"), Some("session-b")).unwrap();
+        assert_ne!(
+            key1, key2,
+            "Different session_id values should produce different keys"
+        );
+    }
+
+    #[test]
+    fn test_compute_dedup_key_none_vs_some_session_id_differ() {
+        let action = test_action();
+        let key_none = compute_dedup_key(&action, "reason", Some("alice"), None).unwrap();
+        let key_some =
+            compute_dedup_key(&action, "reason", Some("alice"), Some("session-a")).unwrap();
+        assert_ne!(
+            key_none, key_some,
+            "None vs Some(session_id) should produce different keys"
         );
     }
 
@@ -2427,8 +2706,8 @@ mod tests {
         // normalize_identity lowercases and normalizes homoglyphs.
         let action1 = Action::new("File_System".to_string(), "Read".to_string(), json!({}));
         let action2 = Action::new("file_system".to_string(), "read".to_string(), json!({}));
-        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
-        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        let key1 = compute_dedup_key(&action1, "reason", None, None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None, None).unwrap();
         assert_eq!(
             key1, key2,
             "Case-different tool names should produce the same dedup key via normalize_identity"
@@ -2444,8 +2723,8 @@ mod tests {
             json!({}),
         );
         let action2 = Action::new("agent".to_string(), "read".to_string(), json!({}));
-        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
-        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        let key1 = compute_dedup_key(&action1, "reason", None, None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None, None).unwrap();
         assert_eq!(
             key1, key2,
             "Homoglyph-equivalent tool names should produce the same dedup key"
@@ -2458,8 +2737,8 @@ mod tests {
         action1.resolved_ips = vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()];
         let mut action2 = test_action();
         action2.resolved_ips = vec!["5.6.7.8".to_string(), "1.2.3.4".to_string()];
-        let key1 = compute_dedup_key(&action1, "reason", None).unwrap();
-        let key2 = compute_dedup_key(&action2, "reason", None).unwrap();
+        let key1 = compute_dedup_key(&action1, "reason", None, None).unwrap();
+        let key2 = compute_dedup_key(&action2, "reason", None, None).unwrap();
         assert_eq!(
             key1, key2,
             "Same IPs in different order should produce the same key"
@@ -2489,11 +2768,11 @@ mod tests {
         );
 
         let id1 = store
-            .create(test_action(), "first".to_string(), None)
+            .create(test_action(), "first".to_string(), None, None, None)
             .await
             .unwrap();
         store
-            .create(test_action(), "second".to_string(), None)
+            .create(test_action(), "second".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -2521,16 +2800,18 @@ mod tests {
         );
 
         store
-            .create(test_action(), "first".to_string(), None)
+            .create(test_action(), "first".to_string(), None, None, None)
             .await
             .unwrap();
         store
-            .create(test_action(), "second".to_string(), None)
+            .create(test_action(), "second".to_string(), None, None, None)
             .await
             .unwrap();
 
         // Third should fail with CapacityExceeded
-        let result = store.create(test_action(), "third".to_string(), None).await;
+        let result = store
+            .create(test_action(), "third".to_string(), None, None, None)
+            .await;
         assert!(result.is_err());
         assert!(
             matches!(result.unwrap_err(), ApprovalError::CapacityExceeded(2)),
@@ -2548,14 +2829,14 @@ mod tests {
         );
 
         let id = store
-            .create(test_action(), "only one".to_string(), None)
+            .create(test_action(), "only one".to_string(), None, None, None)
             .await
             .unwrap();
         assert!(!id.is_empty());
 
         // Second should fail
         let result = store
-            .create(test_action(), "overflow".to_string(), None)
+            .create(test_action(), "overflow".to_string(), None, None, None)
             .await;
         assert!(matches!(
             result.unwrap_err(),
@@ -2604,7 +2885,9 @@ mod tests {
         );
 
         let long_reason = "x".repeat(MAX_REASON_LEN + 1);
-        let result = store.create(test_action(), long_reason, None).await;
+        let result = store
+            .create(test_action(), long_reason, None, None, None)
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -2622,16 +2905,307 @@ mod tests {
         );
 
         let max_reason = "y".repeat(MAX_REASON_LEN);
-        let result = store.create(test_action(), max_reason, None).await;
+        let result = store
+            .create(test_action(), max_reason, None, None, None)
+            .await;
         assert!(
             result.is_ok(),
             "Reason at exact max length should be accepted"
         );
     }
 
+    #[tokio::test]
+    async fn test_create_scoped_approval_persists_session_and_fingerprint() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+
+        let approval = store.get(&id).await.unwrap();
+        assert_eq!(approval.session_id.as_deref(), Some(session_id.as_str()));
+        assert_eq!(
+            approval.action_fingerprint.as_deref(),
+            Some(action_fingerprint.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dedup_same_action_same_session_returns_existing_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id1 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+        let id2 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id),
+                Some(action_fingerprint),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(id1, id2);
+        assert_eq!(store.pending_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_same_action_different_sessions_create_distinct_ids() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id1 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session-a".to_string()),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+        let id2 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session-b".to_string()),
+                Some(action_fingerprint),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(id1, id2);
+        assert_eq!(store.pending_count().await, 2);
+        assert_eq!(
+            store.get(&id1).await.unwrap().session_id.as_deref(),
+            Some("session-a")
+        );
+        assert_eq!(
+            store.get(&id2).await.unwrap().session_id.as_deref(),
+            Some("session-b")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_persistence_roundtrip_restores_session_scoped_dedup() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("approvals.jsonl");
+        let original_id = {
+            let store = ApprovalStore::new(log_path.clone(), std::time::Duration::from_secs(900));
+            store
+                .create(
+                    test_action(),
+                    "needs review".to_string(),
+                    Some("requester".to_string()),
+                    Some("session-a".to_string()),
+                    Some(sample_action_fingerprint()),
+                )
+                .await
+                .unwrap()
+        };
+
+        let reloaded = ApprovalStore::new(log_path, std::time::Duration::from_secs(900));
+        reloaded.load_from_file().await.unwrap();
+
+        let same_session_id = reloaded
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session-a".to_string()),
+                Some(sample_action_fingerprint()),
+            )
+            .await
+            .unwrap();
+        let different_session_id = reloaded
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session-b".to_string()),
+                Some(sample_action_fingerprint()),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(same_session_id, original_id);
+        assert_ne!(different_session_id, original_id);
+    }
+
+    #[test]
+    fn test_pending_approval_scope_matches_fail_closed_on_mismatched_bound_values() {
+        let action_fingerprint = sample_action_fingerprint();
+        let approval = PendingApproval {
+            id: "approval-1".to_string(),
+            action: test_action(),
+            reason: "needs review".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + Duration::minutes(15),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            requested_by: Some("requester".to_string()),
+            session_id: Some("session-a".to_string()),
+            action_fingerprint: Some(action_fingerprint.clone()),
+        };
+
+        assert!(approval.scope_matches(Some("session-a"), Some(action_fingerprint.as_str())));
+        assert!(!approval.scope_matches(Some("session-b"), Some(action_fingerprint.as_str())));
+        assert!(!approval.scope_matches(Some("session-a"), None));
+    }
+
+    #[tokio::test]
+    async fn test_store_scope_matches_uses_persisted_scope_bindings() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let action_fingerprint = sample_action_fingerprint();
+
+        let id = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(action_fingerprint.clone()),
+            )
+            .await
+            .unwrap();
+
+        assert!(store
+            .scope_matches(
+                &id,
+                Some(session_id.as_str()),
+                Some(action_fingerprint.as_str())
+            )
+            .await
+            .unwrap());
+        assert!(!store
+            .scope_matches(
+                &id,
+                Some("other-session"),
+                Some(action_fingerprint.as_str())
+            )
+            .await
+            .unwrap());
+        assert!(!store
+            .scope_matches(&id, Some(session_id.as_str()), None)
+            .await
+            .unwrap());
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // approve/deny identity validation edge case tests
     // ─────────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_create_rejects_empty_session_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some(String::new()),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ApprovalError::Validation(_))));
+        assert!(
+            format!("{}", result.unwrap_err()).contains("session_id must not be empty"),
+            "Expected empty session_id validation error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_rejects_control_chars_in_session_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some("session\tbad".to_string()),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ApprovalError::Validation(_))));
+        assert!(
+            format!("{}", result.unwrap_err()).contains("session_id contains control characters"),
+            "Expected control-character session_id validation error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_rejects_non_hex_action_fingerprint() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let result = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some(sample_session_id()),
+                Some("not-hex-fingerprint".to_string()),
+            )
+            .await;
+        assert!(matches!(result, Err(ApprovalError::Validation(_))));
+        assert!(
+            format!("{}", result.unwrap_err()).contains("action_fingerprint must be hex-encoded"),
+            "Expected non-hex action_fingerprint validation error"
+        );
+    }
 
     #[tokio::test]
     async fn test_approve_rejects_control_chars_in_by() {
@@ -2641,7 +3215,7 @@ mod tests {
             std::time::Duration::from_secs(900),
         );
         let id = store
-            .create(test_action(), "test".to_string(), None)
+            .create(test_action(), "test".to_string(), None, None, None)
             .await
             .unwrap();
         let result = store.approve(&id, "admin\x00injected").await;
@@ -2661,7 +3235,7 @@ mod tests {
             std::time::Duration::from_secs(900),
         );
         let id = store
-            .create(test_action(), "test".to_string(), None)
+            .create(test_action(), "test".to_string(), None, None, None)
             .await
             .unwrap();
         let result = store.deny(&id, "admin\ttab").await;

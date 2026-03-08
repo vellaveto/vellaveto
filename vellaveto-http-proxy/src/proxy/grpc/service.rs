@@ -27,6 +27,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
+use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -1088,6 +1089,8 @@ impl McpGrpcService {
                                 action.clone(),
                                 "Unknown tool requires approval".to_string(),
                                 requested_by.clone(),
+                                Some(session_id.to_string()),
+                                Some(fingerprint_action(&action)),
                             )
                             .await;
                     }
@@ -1123,6 +1126,8 @@ impl McpGrpcService {
                                 action.clone(),
                                 "Untrusted tool requires approval".to_string(),
                                 requested_by.clone(),
+                                Some(session_id.to_string()),
+                                Some(fingerprint_action(&action)),
                             )
                             .await;
                     }
@@ -1407,7 +1412,13 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), requested_by.clone())
+                        .create(
+                            action.clone(),
+                            reason.clone(),
+                            requested_by.clone(),
+                            Some(session_id.to_string()),
+                            Some(fingerprint_action(&action)),
+                        )
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
@@ -1818,7 +1829,13 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), requested_by.clone())
+                        .create(
+                            action.clone(),
+                            reason.clone(),
+                            requested_by.clone(),
+                            Some(session_id.to_string()),
+                            Some(fingerprint_action(&action)),
+                        )
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
@@ -2587,7 +2604,13 @@ impl McpGrpcService {
                 // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
                 if let Some(ref approval_store) = self.state.approval_store {
                     let _ = approval_store
-                        .create(action.clone(), reason.clone(), requested_by.clone())
+                        .create(
+                            action.clone(),
+                            reason.clone(),
+                            requested_by.clone(),
+                            Some(session_id.to_string()),
+                            Some(fingerprint_action(&action)),
+                        )
                         .await;
                 }
                 // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log

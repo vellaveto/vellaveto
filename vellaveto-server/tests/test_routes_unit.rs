@@ -36,6 +36,8 @@ impl ClusterBackend for UnhealthyClusterBackend {
         _action: Action,
         _reason: String,
         _requested_by: Option<String>,
+        _session_id: Option<String>,
+        _action_fingerprint: Option<String>,
     ) -> Result<String, ClusterError> {
         Err(ClusterError::Connection(
             "mock backend unavailable".to_string(),

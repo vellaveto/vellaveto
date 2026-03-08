@@ -83,11 +83,17 @@ PROD_BRIDGE_PRINCIPAL="$PROJECT_DIR/vellaveto-mcp/src/verified_bridge_principal.
 PROD_DELEGATION_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_delegation_projection.rs"
 PROD_DEPUTY_HANDOFF="$PROJECT_DIR/vellaveto-mcp/src/verified_deputy_handoff.rs"
 PROD_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_evaluation_context_projection.rs"
+PROD_TRANSPORT_CONTEXT="$PROJECT_DIR/vellaveto-types/src/verified_transport_context.rs"
+PROD_APPROVAL_SCOPE="$PROJECT_DIR/vellaveto-approval/src/verified_approval_scope.rs"
 PROD_RELAY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/proxy/bridge/relay.rs"
+PROD_SERVER_CONTEXT_WRAPPER="$PROJECT_DIR/vellaveto-server/src/routes/main.rs"
+PROD_APPROVAL_WRAPPER="$PROJECT_DIR/vellaveto-approval/src/lib.rs"
 VERUS_BRIDGE_PRINCIPAL="$PROJECT_DIR/formal/verus/verified_bridge_principal.rs"
 VERUS_DELEGATION_PROJECTION="$PROJECT_DIR/formal/verus/verified_delegation_projection.rs"
 VERUS_DEPUTY_HANDOFF="$PROJECT_DIR/formal/verus/verified_deputy_handoff.rs"
 VERUS_EVAL_CONTEXT_PROJECTION="$PROJECT_DIR/formal/verus/verified_evaluation_context_projection.rs"
+VERUS_TRANSPORT_CONTEXT="$PROJECT_DIR/formal/verus/verified_transport_context.rs"
+VERUS_APPROVAL_SCOPE="$PROJECT_DIR/formal/verus/verified_approval_scope.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
@@ -177,6 +183,8 @@ for module in \
     verified_delegation_projection \
     verified_deputy_handoff \
     verified_evaluation_context_projection \
+    verified_approval_scope \
+    verified_transport_context \
     verified_capability_context \
     verified_context_delegation \
     verified_capability_glob \
@@ -413,6 +421,81 @@ check_symbol_parity \
     'verified_evaluation_context_projection::project_evaluation_context' \
     "$VERUS_EVAL_CONTEXT_PROJECTION" \
     'pub[[:space:]]+fn[[:space:]]+project_evaluation_context'
+echo ""
+
+echo "--- Approval Scope Kernel ---"
+check_file_pair \
+    "verified_approval_scope.rs ↔ vellaveto-approval/src/verified_approval_scope.rs" \
+    "$PROD_APPROVAL_SCOPE" \
+    "$VERUS_APPROVAL_SCOPE"
+for fn in \
+    approval_session_binding_satisfied \
+    approval_fingerprint_binding_satisfied \
+    approval_scope_binding_satisfied
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_APPROVAL_SCOPE" \
+        "pub[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_APPROVAL_SCOPE" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "PendingApproval::scope_matches uses the verified approval-scope kernel" \
+    "$PROD_APPROVAL_WRAPPER" \
+    'verified_approval_scope::approval_scope_binding_satisfied' \
+    "$VERUS_APPROVAL_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
+check_symbol_parity \
+    "server evaluate route uses approval scope matching for presented approvals" \
+    "$PROD_SERVER_CONTEXT_WRAPPER" \
+    'scope_matches\(None,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    "$VERUS_APPROVAL_SCOPE" \
+    'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
+echo ""
+
+echo "--- Transport Context Projection Kernel ---"
+check_file_pair \
+    "verified_transport_context.rs ↔ vellaveto-types/src/verified_transport_context.rs" \
+    "$PROD_TRANSPORT_CONTEXT" \
+    "$VERUS_TRANSPORT_CONTEXT"
+for fn in \
+    trusted_transport_preserves_agent_identity \
+    trusted_transport_preserves_capability_token \
+    project_agent_identity_from_transport \
+    project_capability_token_from_transport
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_TRANSPORT_CONTEXT" \
+        "pub[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_TRANSPORT_CONTEXT" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "server sanitize_context uses verified agent-identity transport projection" \
+    "$PROD_SERVER_CONTEXT_WRAPPER" \
+    'project_agent_identity_from_transport' \
+    "$VERUS_TRANSPORT_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+project_agent_identity_from_transport'
+check_symbol_parity \
+    "server sanitize_context uses verified capability-token transport projection" \
+    "$PROD_SERVER_CONTEXT_WRAPPER" \
+    'project_capability_token_from_transport' \
+    "$VERUS_TRANSPORT_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+project_capability_token_from_transport'
+check_symbol_parity \
+    "relay uses verified agent-identity transport projection" \
+    "$PROD_RELAY_WRAPPER" \
+    'project_agent_identity_from_transport' \
+    "$VERUS_TRANSPORT_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+project_agent_identity_from_transport'
+check_symbol_parity \
+    "relay uses verified capability-token transport projection" \
+    "$PROD_RELAY_WRAPPER" \
+    'project_capability_token_from_transport' \
+    "$VERUS_TRANSPORT_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+project_capability_token_from_transport'
 echo ""
 
 echo "--- Constraint Evaluation Kernel ---"

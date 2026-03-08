@@ -46,6 +46,7 @@ pub mod transport;
 pub mod unicode;
 pub mod uri_util;
 pub mod verification;
+pub mod verified_transport_context;
 pub mod zk_audit;
 
 #[cfg(test)]
@@ -80,4 +81,5 @@ pub use task::*;
 pub use threat::*;
 pub use transport::*;
 pub use verification::*;
+pub use verified_transport_context::*;
 pub use zk_audit::*;

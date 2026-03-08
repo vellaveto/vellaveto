@@ -42,8 +42,13 @@ impl ClusterBackend for LocalBackend {
         action: vellaveto_types::Action,
         reason: String,
         requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
     ) -> Result<String, ClusterError> {
-        Ok(self.approvals.create(action, reason, requested_by).await?)
+        Ok(self
+            .approvals
+            .create(action, reason, requested_by, session_id, action_fingerprint)
+            .await?)
     }
 
     async fn approval_get(
@@ -180,7 +185,7 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         let id = backend
-            .approval_create(test_action(), "needs review".to_string(), None)
+            .approval_create(test_action(), "needs review".to_string(), None, None, None)
             .await
             .unwrap();
         assert!(!id.is_empty());
@@ -196,7 +201,7 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         let id = backend
-            .approval_create(test_action(), "review this".to_string(), None)
+            .approval_create(test_action(), "review this".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -211,7 +216,7 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         let id = backend
-            .approval_create(test_action(), "deny this".to_string(), None)
+            .approval_create(test_action(), "deny this".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -239,11 +244,11 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         backend
-            .approval_create(test_action(), "first".to_string(), None)
+            .approval_create(test_action(), "first".to_string(), None, None, None)
             .await
             .unwrap();
         backend
-            .approval_create(test_action(), "second".to_string(), None)
+            .approval_create(test_action(), "second".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -259,7 +264,7 @@ mod tests {
         assert_eq!(backend.approval_pending_count().await.unwrap(), 0);
 
         backend
-            .approval_create(test_action(), "test".to_string(), None)
+            .approval_create(test_action(), "test".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -279,7 +284,7 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         backend
-            .approval_create(test_action(), "will expire".to_string(), None)
+            .approval_create(test_action(), "will expire".to_string(), None, None, None)
             .await
             .unwrap();
 
@@ -298,7 +303,7 @@ mod tests {
         let backend = LocalBackend::new(store);
 
         let id = backend
-            .approval_create(test_action(), "test".to_string(), None)
+            .approval_create(test_action(), "test".to_string(), None, None, None)
             .await
             .unwrap();
 

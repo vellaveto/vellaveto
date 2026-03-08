@@ -243,6 +243,8 @@ async fn regression_25_pending_approvals_not_readable_without_auth() {
             ),
             "needs review".to_string(),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -502,7 +504,7 @@ async fn exploit_26_unbounded_approval_creation() {
             }),
         );
         store
-            .create(action, format!("reason_{i}"), None)
+            .create(action, format!("reason_{i}"), None, None, None)
             .await
             .unwrap();
     }
@@ -565,6 +567,8 @@ async fn exploit_27_create_persist_before_lock_ordering() {
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -613,6 +617,8 @@ async fn exploit_28_silent_malformed_jsonl_drop() {
         .create(
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "important approval".to_string(),
+            None,
+            None,
             None,
         )
         .await
@@ -664,6 +670,8 @@ async fn exploit_28_truncated_entry_silently_lost() {
             ),
             "high-value transfer".to_string(),
             None,
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -671,6 +679,8 @@ async fn exploit_28_truncated_entry_silently_lost() {
         .create(
             Action::new("file".to_string(), "delete".to_string(), json!({})),
             "file deletion".to_string(),
+            None,
+            None,
             None,
         )
         .await
@@ -735,6 +745,8 @@ async fn exploit_bonus_resolved_by_unbounded_length() {
         .create(
             Action::new("file".to_string(), "read".to_string(), json!({})),
             "test".to_string(),
+            None,
+            None,
             None,
         )
         .await

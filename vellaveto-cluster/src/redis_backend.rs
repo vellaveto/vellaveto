@@ -306,12 +306,13 @@ impl RedisBackend {
             .map_err(|e| ClusterError::Connection(format!("Failed to get Redis connection: {}", e)))
     }
 
-    /// Compute a dedup key from action + reason + requested_by.
+    /// Compute a dedup key from action + reason + requested_by + session_id.
     /// Mirrors the logic in vellaveto-approval to ensure compatibility.
     fn compute_dedup_hash(
         action: &Action,
         reason: &str,
         requested_by: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<String, ClusterError> {
         use sha2::{Digest, Sha256};
         use unicode_normalization::UnicodeNormalization;
@@ -345,7 +346,14 @@ impl RedisBackend {
         // SECURITY (FIND-R122-003): Use a distinct sentinel for None to avoid
         // collision with Some(""). Mirrors vellaveto-approval parity.
         let rb_component = requested_by.unwrap_or("\x00NONE\x00");
-        let input = format!("{}||{}||{}", canonical_str, reason, rb_component);
+        // SECURITY (E3-1): Session binding must participate in dedup so an
+        // approval created in session A cannot be reused through a collision
+        // with the same action in session B.
+        let sess_component = session_id.unwrap_or("\x00NOSESS\x00");
+        let input = format!(
+            "{}||{}||{}||{}",
+            canonical_str, reason, rb_component, sess_component
+        );
         let hash = Sha256::digest(input.as_bytes());
         Ok(format!("{:x}", hash))
     }
@@ -392,6 +400,8 @@ impl ClusterBackend for RedisBackend {
         action: Action,
         reason: String,
         requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
     ) -> Result<String, ClusterError> {
         // SECURITY (FIND-R111-001): Validate reason length — mirrors vellaveto-approval
         // store-level check. Without this, an attacker can store arbitrarily large strings
@@ -432,6 +442,46 @@ impl ClusterBackend for RedisBackend {
                 ));
             }
         }
+        // SECURITY (E3-1): Validate session_id with the same fail-closed
+        // constraints as the local approval store.
+        if let Some(ref sid) = session_id {
+            if sid.is_empty() {
+                return Err(ClusterError::Validation(
+                    "session_id must not be empty".to_string(),
+                ));
+            }
+            if sid.len() > vellaveto_approval::MAX_SESSION_ID_LEN {
+                return Err(ClusterError::Validation(format!(
+                    "session_id exceeds maximum length of {} bytes",
+                    vellaveto_approval::MAX_SESSION_ID_LEN
+                )));
+            }
+            if sid.chars().any(|c| c.is_control()) {
+                return Err(ClusterError::Validation(
+                    "session_id contains control characters".to_string(),
+                ));
+            }
+        }
+        // SECURITY (E3-1): Validate fingerprint shape with the same constraints
+        // as the local approval store.
+        if let Some(ref fp) = action_fingerprint {
+            if fp.is_empty() {
+                return Err(ClusterError::Validation(
+                    "action_fingerprint must not be empty".to_string(),
+                ));
+            }
+            if fp.len() > vellaveto_approval::MAX_FINGERPRINT_LEN {
+                return Err(ClusterError::Validation(format!(
+                    "action_fingerprint exceeds maximum length of {} bytes",
+                    vellaveto_approval::MAX_FINGERPRINT_LEN
+                )));
+            }
+            if !fp.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ClusterError::Validation(
+                    "action_fingerprint must be hex-encoded".to_string(),
+                ));
+            }
+        }
         // SECURITY (FIND-R122-006, FIND-R126-002): Reject control/format chars in reason field.
         if reason.chars().any(|c| c.is_control()) {
             return Err(ClusterError::Validation(
@@ -444,7 +494,12 @@ impl ClusterBackend for RedisBackend {
             ));
         }
 
-        let dedup_hash = Self::compute_dedup_hash(&action, &reason, requested_by.as_deref())?;
+        let dedup_hash = Self::compute_dedup_hash(
+            &action,
+            &reason,
+            requested_by.as_deref(),
+            session_id.as_deref(),
+        )?;
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
         // SECURITY (R246-CLUST-1): Use try_from for defense-in-depth. The
@@ -465,6 +520,8 @@ impl ClusterBackend for RedisBackend {
             resolved_by: None,
             resolved_at: None,
             requested_by,
+            session_id,
+            action_fingerprint,
         };
 
         let approval_json = serde_json::to_string(&approval)
@@ -933,8 +990,9 @@ impl RedisBackend {
         action: &Action,
         reason: &str,
         requested_by: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<String, ClusterError> {
-        Self::compute_dedup_hash(action, reason, requested_by)
+        Self::compute_dedup_hash(action, reason, requested_by, session_id)
     }
 
     /// Persist an updated approval and cleanup associated indices.
@@ -964,6 +1022,7 @@ impl RedisBackend {
                 &approval.action,
                 &approval.reason,
                 approval.requested_by.as_deref(),
+                approval.session_id.as_deref(),
             ) {
                 let _: () = conn.del(self.dedup_key(&dedup_hash)).await.map_err(|e| {
                     ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
@@ -1270,8 +1329,8 @@ mod tests {
     #[test]
     fn test_compute_dedup_hash_deterministic() {
         let a = make_action("read_file", "read");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "Dedup hash must be deterministic");
     }
 
@@ -1279,8 +1338,8 @@ mod tests {
     fn test_compute_dedup_hash_different_tool_different_hash() {
         let a1 = make_action("read_file", "read");
         let a2 = make_action("write_file", "read");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_ne!(h1, h2);
     }
 
@@ -1288,33 +1347,55 @@ mod tests {
     fn test_compute_dedup_hash_different_function_different_hash() {
         let a1 = make_action("tool", "read");
         let a2 = make_action("tool", "write");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn test_compute_dedup_hash_different_reason_different_hash() {
         let a = make_action("tool", "func");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason1", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason2", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason1", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason2", None, None).unwrap();
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn test_compute_dedup_hash_none_vs_some_empty_different() {
         let a = make_action("tool", "func");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("")).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some(""), None).unwrap();
         assert_ne!(h1, h2, "None vs Some(\"\") must produce different hashes");
     }
 
     #[test]
     fn test_compute_dedup_hash_different_requested_by_different_hash() {
         let a = make_action("tool", "func");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice")).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("bob")).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice"), None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("bob"), None).unwrap();
         assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_different_session_ids_different_hash() {
+        let a = make_action("tool", "func");
+        let h1 =
+            RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice"), Some("s1")).unwrap();
+        let h2 =
+            RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice"), Some("s2")).unwrap();
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_none_vs_some_session_id_different() {
+        let a = make_action("tool", "func");
+        let h1 = RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice"), None).unwrap();
+        let h2 =
+            RedisBackend::test_compute_dedup_hash(&a, "reason", Some("alice"), Some("s1")).unwrap();
+        assert_ne!(
+            h1, h2,
+            "None vs Some(session_id) must produce different hashes"
+        );
     }
 
     #[test]
@@ -1323,8 +1404,8 @@ mod tests {
         a1.target_domains = vec!["b.com".into(), "a.com".into()];
         let mut a2 = make_action("tool", "func");
         a2.target_domains = vec!["a.com".into(), "b.com".into()];
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "Different domain order must produce same hash");
     }
 
@@ -1334,8 +1415,8 @@ mod tests {
         a1.target_paths = vec!["/z/file".into(), "/a/file".into()];
         let mut a2 = make_action("tool", "func");
         a2.target_paths = vec!["/a/file".into(), "/z/file".into()];
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "Different path order must produce same hash");
     }
 
@@ -1345,8 +1426,8 @@ mod tests {
         a1.resolved_ips = vec!["10.0.0.2".into(), "10.0.0.1".into()];
         let mut a2 = make_action("tool", "func");
         a2.resolved_ips = vec!["10.0.0.1".into(), "10.0.0.2".into()];
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "Different IP order must produce same hash");
     }
 
@@ -1354,8 +1435,8 @@ mod tests {
     fn test_compute_dedup_hash_nfkc_normalization() {
         let a1 = make_action("abc", "func");
         let a2 = make_action("\u{FF41}bc", "func"); // fullwidth 'a'
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "NFKC-equivalent tool names must produce same hash");
     }
 
@@ -1363,20 +1444,77 @@ mod tests {
     fn test_compute_dedup_hash_case_insensitive() {
         let a1 = make_action("tool", "func");
         let a2 = make_action("TOOL", "FUNC");
-        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None).unwrap();
-        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None).unwrap();
+        let h1 = RedisBackend::test_compute_dedup_hash(&a1, "reason", None, None).unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash(&a2, "reason", None, None).unwrap();
         assert_eq!(h1, h2, "Case-different names must produce same hash");
     }
 
     #[test]
     fn test_compute_dedup_hash_is_hex_string() {
         let a = make_action("tool", "func");
-        let h = RedisBackend::test_compute_dedup_hash(&a, "reason", None).unwrap();
+        let h = RedisBackend::test_compute_dedup_hash(&a, "reason", None, None).unwrap();
         assert_eq!(h.len(), 64, "SHA-256 hex digest must be 64 chars");
         assert!(
             h.chars().all(|c| c.is_ascii_hexdigit()),
             "Hash must be valid hex"
         );
+    }
+
+    #[tokio::test]
+    async fn test_approval_create_rejects_empty_session_id_before_redis() {
+        let backend = make_backend("vellaveto:");
+        let result = backend
+            .approval_create(
+                make_action("tool", "func"),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(String::new()),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ClusterError::Validation(_))));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("session_id must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn test_approval_create_rejects_control_chars_in_session_id_before_redis() {
+        let backend = make_backend("vellaveto:");
+        let result = backend
+            .approval_create(
+                make_action("tool", "func"),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session\tbad".to_string()),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ClusterError::Validation(_))));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("session_id contains control characters"));
+    }
+
+    #[tokio::test]
+    async fn test_approval_create_rejects_non_hex_fingerprint_before_redis() {
+        let backend = make_backend("vellaveto:");
+        let result = backend
+            .approval_create(
+                make_action("tool", "func"),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some("session-a".to_string()),
+                Some("not-hex".to_string()),
+            )
+            .await;
+        assert!(matches!(result, Err(ClusterError::Validation(_))));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("action_fingerprint must be hex-encoded"));
     }
 
     // Constants sanity checks

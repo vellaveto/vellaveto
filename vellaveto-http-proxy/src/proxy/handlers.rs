@@ -18,6 +18,7 @@ use axum::{
 };
 use bytes::Bytes;
 use serde_json::{json, Value};
+use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, make_denial_response, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -679,7 +680,13 @@ pub async fn handle_mcp_post(
                         // Create pending approval if store is configured
                         let approval_id = if let Some(ref store) = state.approval_store {
                             store
-                                .create(action.clone(), reason.clone(), requested_by.clone())
+                                .create(
+                                    action.clone(),
+                                    reason.clone(),
+                                    requested_by.clone(),
+                                    Some(session_id.clone()),
+                                    Some(fingerprint_action(&action)),
+                                )
                                 .await
                                 .ok()
                         } else {
@@ -709,7 +716,13 @@ pub async fn handle_mcp_post(
                         }
                         let approval_id = if let Some(ref store) = state.approval_store {
                             store
-                                .create(action.clone(), reason.clone(), requested_by.clone())
+                                .create(
+                                    action.clone(),
+                                    reason.clone(),
+                                    requested_by.clone(),
+                                    Some(session_id.clone()),
+                                    Some(fingerprint_action(&action)),
+                                )
                                 .await
                                 .ok()
                         } else {
@@ -1401,7 +1414,13 @@ pub async fn handle_mcp_post(
                     // Create pending approval if store is configured
                     let approval_id = if let Some(ref store) = state.approval_store {
                         match store
-                            .create(action.clone(), reason.clone(), requested_by.clone())
+                            .create(
+                                action.clone(),
+                                reason.clone(),
+                                requested_by.clone(),
+                                Some(session_id.clone()),
+                                Some(fingerprint_action(&action)),
+                            )
                             .await
                         {
                             Ok(id) => {
@@ -1948,7 +1967,13 @@ pub async fn handle_mcp_post(
                     let approval_id = if matches!(&verdict, Verdict::RequireApproval { .. }) {
                         if let Some(ref store) = state.approval_store {
                             match store
-                                .create(action.clone(), reason.clone(), requested_by.clone())
+                                .create(
+                                    action.clone(),
+                                    reason.clone(),
+                                    requested_by.clone(),
+                                    Some(session_id.clone()),
+                                    Some(fingerprint_action(&action)),
+                                )
                                 .await
                             {
                                 Ok(aid) => {

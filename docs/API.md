@@ -226,9 +226,9 @@ Evaluate an action against loaded policies.
 | `tool` | string | Yes | Tool name (e.g., "file_read", "bash", "http_request") |
 | `function` | string | No | Function within the tool (defaults to "*") |
 | `parameters` | object | No | Tool parameters (e.g., path, url, command) |
-| `target_paths` | string[] | No | Explicitly specified target paths |
-| `target_domains` | string[] | No | Explicitly specified target domains |
-| `resolved_ips` | string[] | No | Resolved IP addresses (for DNS rebinding protection) |
+| `target_paths` | string[] | No | Ignored on untrusted client input; derived from `parameters` by the server |
+| `target_domains` | string[] | No | Ignored on untrusted client input; derived from `parameters` by the server |
+| `resolved_ips` | string[] | No | Ignored on untrusted client input; only trusted proxy paths may populate it |
 | `context` | object | No | Evaluation context for context-aware policies |
 
 **Context Fields:**
@@ -245,11 +245,11 @@ Evaluate an action against loaded policies.
 
 ```json
 {
-  "verdict": { "Allow": {} },
+  "verdict": "Allow",
   "action": {
     "tool": "file_read",
     "function": "read",
-    "parameters": "[REDACTED]"
+    "parameters": {}
   }
 }
 ```
@@ -276,7 +276,7 @@ curl -X POST http://localhost:3000/api/evaluate \
 
 # Response: 200 OK
 {
-  "verdict": { "Allow": {} },
+  "verdict": "Allow",
   "action": { "tool": "file_read", "function": "read" }
 }
 ```
@@ -320,10 +320,42 @@ curl -X POST http://localhost:3000/api/evaluate \
 {
   "verdict": {
     "RequireApproval": {
-      "reason": "dangerous command: rm -rf",
-      "approval_id": "apr-abc123"
+      "reason": "dangerous command: rm -rf"
     }
   },
+  "action": { "tool": "bash", "function": "execute" },
+  "approval_id": "apr-abc123"
+}
+```
+
+**Optional Approval Header**
+
+`POST /api/evaluate` accepts an optional `x-vellaveto-approval-id` header. Present a
+previously approved `approval_id` to retry the same action without creating a new
+pending approval.
+
+- The approval must already be `approved`.
+- The approval must be bound to the exact action fingerprint computed from the
+  sanitized request.
+- Pending, denied, expired, legacy-unbound, or mismatched approvals fail closed
+  as `Deny`.
+
+**Example: Reuse an Approved Approval**
+
+```bash
+curl -X POST http://localhost:3000/api/evaluate \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-vellaveto-approval-id: apr-abc123" \
+  -d '{
+    "tool": "bash",
+    "function": "execute",
+    "parameters": {"command": "rm -rf /tmp/build"}
+  }'
+
+# Response: 200 OK
+{
+  "verdict": "Allow",
   "action": { "tool": "bash", "function": "execute" },
   "approval_id": "apr-abc123"
 }
@@ -514,8 +546,8 @@ Approve a pending request.
 
 ```json
 {
-  "approved_by": "operator@example.com",
-  "comment": "Approved for cleanup task"
+  "resolved_by": "operator@example.com",
+  "reason": "Approved for cleanup task"
 }
 ```
 
@@ -525,7 +557,7 @@ Approve a pending request.
 {
   "message": "Approval granted",
   "id": "apr-abc123",
-  "approved_by": "operator@example.com",
+  "resolved_by": "operator@example.com",
   "approved_at": "2026-02-08T10:05:00Z"
 }
 ```
@@ -548,7 +580,7 @@ Deny a pending request.
 
 ```json
 {
-  "denied_by": "operator@example.com",
+  "resolved_by": "operator@example.com",
   "reason": "Not authorized for this operation"
 }
 ```

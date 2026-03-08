@@ -20,9 +20,9 @@ use tempfile::TempDir;
 use tower::ServiceExt;
 use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
-use vellaveto_engine::PolicyEngine;
+use vellaveto_engine::{acis::fingerprint_action, PolicyEngine};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
-use vellaveto_types::{Policy, PolicyType};
+use vellaveto_types::{Action, Policy, PolicyType};
 
 /// Attach a simulated peer connection address to a request so that
 /// `ConnectInfo` is available in handlers.
@@ -1562,15 +1562,22 @@ fn make_approval_state() -> (AppState, TempDir) {
     (state, tmp)
 }
 
+fn sensitive_delete_action(target: &str) -> Action {
+    Action::new("sensitive", "delete", json!({ "target": target }))
+}
+
+fn file_read_action(path: &str) -> Action {
+    Action::new("file", "read", json!({ "path": path }))
+}
+
 /// Helper: evaluate an action that requires approval, return the approval ID.
 async fn create_pending_approval(state: &AppState) -> String {
+    create_pending_approval_for_action(state, &sensitive_delete_action("/important")).await
+}
+
+async fn create_pending_approval_for_action(state: &AppState, action: &Action) -> String {
     let app = routes::build_router(state.clone());
-    let body = serde_json::to_string(&json!({
-        "tool": "sensitive",
-        "function": "delete",
-        "parameters": {"target": "/important"}
-    }))
-    .unwrap();
+    let body = serde_json::to_string(action).unwrap();
 
     let resp = app
         .oneshot(
@@ -1598,6 +1605,52 @@ async fn create_pending_approval(state: &AppState) -> String {
         .to_string()
 }
 
+async fn create_approved_manual_approval(
+    state: &AppState,
+    action: &Action,
+    bind_fingerprint: bool,
+) -> String {
+    let mut fingerprint_action_input = action.clone();
+    fingerprint_action_input.target_paths.clear();
+    fingerprint_action_input.target_domains.clear();
+    fingerprint_action_input.resolved_ips.clear();
+    routes::scan_params_for_targets(
+        &fingerprint_action_input.parameters,
+        &mut fingerprint_action_input.target_paths,
+        &mut fingerprint_action_input.target_domains,
+    );
+    let approval_id = state
+        .create_approval(
+            action.clone(),
+            "test approval".to_string(),
+            None,
+            None,
+            bind_fingerprint.then(|| fingerprint_action(&fingerprint_action_input)),
+        )
+        .await
+        .unwrap();
+    state
+        .approve_approval(&approval_id, "security-team")
+        .await
+        .unwrap();
+    approval_id
+}
+
+async fn approve_pending_approval(state: &AppState, approval_id: &str) {
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 #[tokio::test]
 async fn approval_list_pending_empty() {
     let (state, _tmp) = make_approval_state();
@@ -1619,6 +1672,192 @@ async fn approval_list_pending_empty() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["count"], 0);
     assert!(json["approvals"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn evaluate_with_approved_approval_header_allows_same_action() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+    approve_pending_approval(&state, &approval_id).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&sensitive_delete_action("/important")).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["verdict"], "Allow");
+    assert_eq!(json["approval_id"], approval_id);
+}
+
+#[tokio::test]
+async fn evaluate_with_pending_approval_header_denies_same_action() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&sensitive_delete_action("/important")).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["verdict"].get("Deny").is_some());
+    assert!(json.get("approval_id").is_none() || json["approval_id"].is_null());
+}
+
+#[tokio::test]
+async fn evaluate_with_mismatched_approved_approval_header_denies() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+    approve_pending_approval(&state, &approval_id).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&sensitive_delete_action("/different")).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["verdict"].get("Deny").is_some());
+    assert!(json.get("approval_id").is_none() || json["approval_id"].is_null());
+}
+
+#[tokio::test]
+async fn evaluate_with_legacy_unbound_approval_header_denies() {
+    let (state, _tmp) = make_approval_state();
+    let action = sensitive_delete_action("/important");
+    let approval_id = create_approved_manual_approval(&state, &action, false).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&action).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["verdict"].get("Deny").is_some());
+    assert!(json.get("approval_id").is_none() || json["approval_id"].is_null());
+}
+
+#[tokio::test]
+async fn evaluate_unknown_tool_with_approved_approval_header_allows() {
+    let (mut state, tmp) = make_state();
+    state.tool_registry = Some(Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            tmp.path().join("tool-registry.jsonl"),
+            0.8,
+        ),
+    ));
+    let action = file_read_action("/tmp/test");
+    let approval_id = create_approved_manual_approval(&state, &action, true).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&action).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["verdict"], "Allow");
+    assert_eq!(json["approval_id"], approval_id);
+}
+
+#[tokio::test]
+async fn evaluate_untrusted_tool_with_approved_approval_header_allows() {
+    let (mut state, tmp) = make_state();
+    state.tool_registry = Some(Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            tmp.path().join("tool-registry.jsonl"),
+            0.8,
+        ),
+    ));
+    let action = file_read_action("/tmp/test");
+    let approval_id = create_pending_approval_for_action(&state, &action).await;
+    approve_pending_approval(&state, &approval_id).await;
+
+    let app = routes::build_router(state);
+    let body = serde_json::to_string(&action).unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .header("x-vellaveto-approval-id", &approval_id)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["verdict"], "Allow");
+    assert_eq!(json["approval_id"], approval_id);
 }
 
 #[tokio::test]

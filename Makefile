@@ -109,13 +109,13 @@ verify: ## Run full verification suite and produce evidence bundle
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
 	fi
-	@# Verus (485 verified items on actual Rust)
-	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ]; then \
+	@# Verus (495 verified items on actual Rust)
+	@if [ -n "$$VERUS_BIN" ] || command -v verus >/dev/null 2>&1 || [ -x verus-bin/verus-x86-linux/verus ] || [ -x "$$HOME/verus/verus-bin/verus-x86-linux/verus" ] || [ -x "$$HOME/verus/source/target-verus/release/verus" ]; then \
 		echo "Running Verus deductive verification..."; \
 		bash formal/tools/check-verus-parity.sh; \
 		bash formal/tools/verify-verus.sh; \
 	else \
-		echo "SKIP: Verus (set VERUS_BIN, install verus, or unpack verus-bin/)"; \
+		echo "SKIP: Verus (set VERUS_BIN, install verus, unpack verus-bin/, or keep ~/verus/)"; \
 	fi
 	@echo ""
 	@# Step 5: Benchmark sanity (short run — not full benchmarks)
