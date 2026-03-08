@@ -38,7 +38,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_bridge_principal.rs` | Verus | BRIDGE-PRINC-1–BRIDGE-PRINC-4 | Stdio bridge configured/claimed principal alignment for deputy and engine context on actual Rust |
 | `verus/verified_delegation_projection.rs` | Verus | DEP-PROJ-1–DEP-PROJ-3 | Relay projection of deputy-validated delegation depth into fail-closed engine call-chain length on actual Rust |
 | `verus/verified_deputy_handoff.rs` | Verus | DEP-HANDOFF-1–DEP-HANDOFF-3 | Relay promotion of deputy-validated claimed principals into engine evaluation on actual Rust |
-| `verus/verified_capability_glob.rs` | Verus | CAP-GLOB-1–CAP-GLOB-5 | Capability parent-glob literal-child containment on actual Rust |
+| `verus/verified_capability_glob.rs` | Verus | CAP-GLOB-1–CAP-GLOB-5 | Capability case-insensitive glob matching and parent-glob literal-child containment on actual Rust |
 | `verus/verified_capability_glob_subset.rs` | Verus | CAP-GSUB-1–CAP-GSUB-3 | Capability exact parent-glob/child-glob subset boundary on actual Rust |
 | `verus/verified_capability_grant.rs` | Verus | CAP-GRANT-1–CAP-GRANT-4 | Capability grant restriction-shape and invocation attenuation on actual Rust |
 | `verus/verified_capability_coverage.rs` | Verus | CAP-COV-1–CAP-COV-5 | Capability grant-coverage fail-closed path/domain restriction gate on actual Rust |
@@ -213,7 +213,7 @@ formal/
     verified_bridge_principal.rs     ← Stdio bridge principal-binding alignment (12 verified)
     verified_delegation_projection.rs ← Deputy depth projection into engine call-chain length (7 verified)
     verified_deputy_handoff.rs       ← Deputy-validated claim promotion into engine evaluation (9 verified)
-    verified_capability_glob.rs      ← Capability parent-glob literal-child containment (19 verified)
+    verified_capability_glob.rs      ← Capability case-insensitive glob matching + parent-glob literal-child containment (19 verified)
     verified_capability_glob_subset.rs ← Capability exact parent-glob/child-glob subset boundary (11 verified)
     verified_capability_grant.rs     ← Capability grant restriction/invocation attenuation (10 verified)
     verified_capability_coverage.rs  ← Capability grant-coverage path/domain restriction gate (10 verified)

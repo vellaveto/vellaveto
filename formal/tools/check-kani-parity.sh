@@ -183,7 +183,7 @@ PROD_INJECTION="$PROJECT_DIR/vellaveto-mcp/src/inspection/injection.rs"
 
 check_symbol_parity "cacheability predicate" "$PROD_CACHE" "fn[[:space:]]+is_cacheable_context" "$KANI_DIR/cache.rs" "pub[[:space:]]+fn[[:space:]]+is_cacheable_context"
 check_symbol_parity "capability action coverage" "$PROD_CAPABILITY" "fn[[:space:]]+grant_covers_action" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+grant_covers_action"
-check_symbol_parity "capability glob matcher" "$PROD_CAPABILITY" "fn[[:space:]]+glob_match" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+glob_match"
+check_symbol_parity "capability runtime glob matcher uses verified kernel" "$PROD_CAPABILITY" "verified_capability_glob::literal_child_matches_parent_glob" "$KANI_DIR/capability.rs" "fn[[:space:]]+pattern_matches"
 check_symbol_parity "capability child-glob exact subset kernel" "$PROD_CAPABILITY" "verified_capability_glob_subset::glob_pattern_subset" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+glob_pattern_subset"
 check_symbol_parity "capability metacharacter detector" "$PROD_CAPABILITY" "verified_capability_pattern::has_glob_metacharacters" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+has_glob_metacharacters"
 check_symbol_parity "capability literal matcher" "$PROD_CAPABILITY" "verified_capability_literal::literal_pattern_matches" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+literal_pattern_matches"

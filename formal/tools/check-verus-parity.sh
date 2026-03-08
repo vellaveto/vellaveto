@@ -752,6 +752,12 @@ check_symbol_parity \
     'verified_capability_glob::literal_child_matches_parent_glob' \
     "$VERUS_CAPABILITY_GLOB" \
     'pub[[:space:]]+fn[[:space:]]+literal_child_matches_parent_glob'
+check_symbol_parity \
+    "capability runtime matcher uses verified literal child glob matcher" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_glob::literal_child_matches_parent_glob\(pattern, value\)' \
+    "$VERUS_CAPABILITY_GLOB" \
+    'pub[[:space:]]+fn[[:space:]]+literal_child_matches_parent_glob'
 echo ""
 
 echo "--- Capability Glob-Subset Kernel ---"

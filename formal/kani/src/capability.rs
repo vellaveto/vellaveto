@@ -8,7 +8,7 @@
 //! Capability delegation verification extracted from
 //! `vellaveto-mcp/src/capability_token.rs`.
 //!
-//! Pure functions for grant subset checking, glob matching, path
+//! Pure functions for grant subset checking, runtime glob-match modeling, path
 //! normalization for grants. These enforce monotonic attenuation:
 //! a delegated capability can never exceed its parent's permissions.
 //!
@@ -24,7 +24,7 @@
 //!
 //! # Production Correspondence
 //!
-//! - `glob_match` ↔ `vellaveto-mcp/src/capability_token.rs:555-585`
+//! - `pattern_matches` (metachar branch) ↔ `verified_capability_glob::literal_child_matches_parent_glob`
 //! - `pattern_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:610-630`
 //! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/capability_token.rs:459-482`
 //! - `grant_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:598-696`
@@ -126,7 +126,8 @@ pub fn next_covering_grant_index(
 
 /// Glob match on byte slices. Case-insensitive, supports `*` and `?`.
 ///
-/// Verbatim from production `glob_match`.
+/// This remains the bounded-model witness for the runtime metachar matcher now
+/// routed through `verified_capability_glob::literal_child_matches_parent_glob`.
 pub fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
     let mut pi = 0;
     let mut vi = 0;

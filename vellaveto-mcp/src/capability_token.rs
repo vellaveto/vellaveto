@@ -600,44 +600,7 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
     if !pattern_has_metacharacters {
         return false;
     }
-    // Simple glob matching
-    glob_match(pattern.as_bytes(), value.as_bytes())
-}
-
-/// Case-insensitive glob matching for `*` and `?` on byte slices.
-///
-/// Unlike the shared `crate::util::glob_match_bytes`, this version performs
-/// case-insensitive comparison (used for capability grant pattern matching).
-fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
-    let mut pi = 0;
-    let mut vi = 0;
-    let mut star_pi = usize::MAX;
-    let mut star_vi = 0;
-
-    while vi < value.len() {
-        if pi < pattern.len()
-            && (pattern[pi] == b'?' || pattern[pi].eq_ignore_ascii_case(&value[vi]))
-        {
-            pi += 1;
-            vi += 1;
-        } else if pi < pattern.len() && pattern[pi] == b'*' {
-            star_pi = pi;
-            star_vi = vi;
-            pi += 1;
-        } else if star_pi != usize::MAX {
-            pi = star_pi + 1;
-            star_vi += 1;
-            vi = star_vi;
-        } else {
-            return false;
-        }
-    }
-
-    while pi < pattern.len() && pattern[pi] == b'*' {
-        pi += 1;
-    }
-
-    pi == pattern.len()
+    verified_capability_glob::literal_child_matches_parent_glob(pattern, value)
 }
 
 /// Check if new_grant is a subset of parent_grant.
