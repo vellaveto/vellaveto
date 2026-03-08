@@ -305,6 +305,35 @@ Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_satisfied_restrictions_are_allowed` | Fully satisfied path/domain restrictions are accepted |
 | `lemma_absent_restrictions_impose_no_requirement` | Unrestricted dimensions are ignored by the gate |
 
+### Capability Domain Kernel (`verified_capability_domain.rs`) — 16 verified items, CAP-DOM-1–CAP-DOM-6
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-DOM-1 | Exact domain shape stays valid | An exact domain pattern with no metacharacters is accepted by the shape gate |
+| CAP-DOM-2 | Wildcard domains require a suffix | A `*.` pattern with no domain after the wildcard label is rejected |
+| CAP-DOM-3 | Unsupported metacharacters fail closed | Interior `*` or any `?` metacharacter makes the pattern invalid |
+| CAP-DOM-4 | Normalized suffix match requires exact equality or `.` boundary | Wildcard suffix matching only succeeds on the exact suffix or a real subdomain boundary |
+| CAP-DOM-5 | Wildcard matching routes through suffix containment | After normalization, wildcard domain matching is exactly suffix containment |
+| CAP-DOM-6 | Exact parents cannot be widened by wildcard children | An exact parent domain pattern can only accept an equal exact child pattern |
+
+Verification result: **16 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_exact_domain_pattern_shape_is_valid` | Plain exact-domain patterns are accepted by the shape gate |
+| `lemma_wildcard_domain_pattern_requires_non_empty_suffix` | `*.` without a suffix is rejected while `*.suffix` is allowed |
+| `lemma_other_metacharacters_fail_closed` | Interior wildcard/question-mark metacharacters invalidate the pattern |
+| `lemma_suffix_match_accepts_exact_or_dot_boundary` | Suffix matching only accepts exact equality or a real subdomain boundary |
+| `lemma_exact_patterns_require_exact_domain_match` | Exact patterns route matching to exact normalized equality |
+| `lemma_wildcard_patterns_route_to_suffix_match` | Wildcard patterns route matching to normalized suffix containment |
+| `lemma_exact_parent_rejects_child_wildcards` | Exact parents never accept wildcard child patterns in subset checking |
+| `lemma_exact_parent_accepts_only_exact_equal_child` | Exact-parent subset acceptance requires an equal exact child |
+| `lemma_wildcard_parent_accepts_matching_exact_or_wildcard_child` | Wildcard parents accept only children whose normalized suffix stays contained |
+
 ### Capability Grant Selection (`verified_capability_selection.rs`) — 8 verified items, CAP-SEL-1–CAP-SEL-4
 
 Properties proven for ALL possible inputs:
@@ -854,6 +883,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `relay.rs` routes deputy-validated delegation depth through the verified projection kernel before populating `EvaluationContext.call_chain` |
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `relay.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate |
 | `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
+| `formal/verus/verified_capability_domain.rs` | `vellaveto-mcp/src/verified_capability_domain.rs` | `capability_token.rs` routes `allowed_domains` coverage and subset checks through the verified domain normalization/matching/containment kernel |
 | `formal/verus/verified_capability_path.rs` | `vellaveto-mcp/src/verified_capability_path.rs` | `capability_token.rs` routes grant/action path normalization through the extracted fail-closed path kernel |
 | `formal/verus/verified_capability_selection.rs` | `vellaveto-mcp/src/verified_capability_selection.rs` | `capability_token.rs` routes first-match grant selection in `check_grant_coverage()` through the verified selection kernel |
 | `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes both the runtime metachar matcher branch and the literal-child parent-glob subset branch through the verified recursive matcher |
@@ -937,6 +967,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_dep
 # Capability grant-coverage path/domain restriction gate (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_coverage.rs
 
+# Capability domain normalization/matching/subset gate (16 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_domain.rs
+
 # Capability grant path fail-closed transition gate (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_path.rs
 
@@ -1010,6 +1043,7 @@ verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
 verus formal/verus/verified_capability_coverage.rs
+verus formal/verus/verified_capability_domain.rs
 verus formal/verus/verified_capability_path.rs
 verus formal/verus/verified_capability_selection.rs
 verus formal/verus/verified_capability_context.rs
@@ -1044,6 +1078,7 @@ Expected output:
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
+- `verified_capability_domain.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_path.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_capability_selection.rs`: `verification results:: 8 verified, 0 errors`
 - `verified_capability_context.rs`: `verification results:: 12 verified, 0 errors`
@@ -1076,7 +1111,7 @@ Verus trusts:
 Verus does NOT verify:
 - Cryptographic collision resistance, full Merkle root/proof correctness, or filesystem append/durability semantics for the audit chain / Merkle layers
 - The `HashMap` wrapper in `cross_call_dlp.rs` beyond the extracted field-capacity/update gate
-- Full pattern-language containment in `capability_token.rs` (literal/glob matching and path/domain coverage still rely on runtime checks and tests)
+- Full string-level matcher semantics in `capability_token.rs` beyond the extracted literal/glob/path/domain kernels still rely on runtime checks and tests
 - String operations, glob/regex matching, Unicode normalization
 - HashMap, serde, I/O
 

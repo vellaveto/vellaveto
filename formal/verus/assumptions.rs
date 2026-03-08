@@ -117,6 +117,10 @@ pub open spec fn capability_coverage_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn capability_domain_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn context_delegation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

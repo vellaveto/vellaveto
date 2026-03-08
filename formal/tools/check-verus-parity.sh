@@ -102,6 +102,7 @@ PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_COVERAGE="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_coverage.rs"
+PROD_CAPABILITY_DOMAIN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_domain.rs"
 PROD_CAPABILITY_GLOB="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob.rs"
 PROD_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob_subset.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
@@ -123,6 +124,7 @@ VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_COVERAGE="$PROJECT_DIR/formal/verus/verified_capability_coverage.rs"
+VERUS_CAPABILITY_DOMAIN="$PROJECT_DIR/formal/verus/verified_capability_domain.rs"
 VERUS_CAPABILITY_GLOB="$PROJECT_DIR/formal/verus/verified_capability_glob.rs"
 VERUS_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/formal/verus/verified_capability_glob_subset.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
@@ -166,6 +168,7 @@ for module in \
     verified_capability_attenuation \
     verified_bridge_principal \
     verified_capability_coverage \
+    verified_capability_domain \
     verified_delegation_projection \
     verified_deputy_handoff \
     verified_capability_context \
@@ -734,6 +737,33 @@ check_symbol_parity \
     'verified_capability_coverage::grant_restrictions_cover_action' \
     "$VERUS_CAPABILITY_COVERAGE" \
     'pub[[:space:]]+fn[[:space:]]+grant_restrictions_cover_action'
+echo ""
+
+echo "--- Capability Domain Kernel ---"
+check_file_pair \
+    "verified_capability_domain.rs ↔ vellaveto-mcp/src/verified_capability_domain.rs" \
+    "$PROD_CAPABILITY_DOMAIN" \
+    "$VERUS_CAPABILITY_DOMAIN"
+for fn in domain_pattern_shape_valid normalized_domain_suffix_matches normalized_domain_pattern_matches normalized_domain_pattern_subset; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_DOMAIN" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_DOMAIN" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability domain coverage uses verified matcher" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_domain::domain_matches_pattern' \
+    "$PROD_CAPABILITY_DOMAIN" \
+    'pub\(crate\)[[:space:]]+fn[[:space:]]+domain_matches_pattern'
+check_symbol_parity \
+    "capability domain subset uses verified containment kernel" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_domain::domain_pattern_is_subset' \
+    "$PROD_CAPABILITY_DOMAIN" \
+    'pub\(crate\)[[:space:]]+fn[[:space:]]+domain_pattern_is_subset'
 echo ""
 
 echo "--- Capability Parent-Glob Kernel ---"

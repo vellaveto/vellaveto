@@ -16,6 +16,8 @@ mod verified_capability_attenuation;
 mod verified_bridge_principal;
 #[path = "../verified_capability_coverage.rs"]
 mod verified_capability_coverage;
+#[path = "../verified_capability_domain.rs"]
+mod verified_capability_domain;
 #[path = "../verified_delegation_projection.rs"]
 mod verified_delegation_projection;
 #[path = "../verified_deputy_handoff.rs"]

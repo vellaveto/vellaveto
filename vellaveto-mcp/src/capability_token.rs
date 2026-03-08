@@ -32,6 +32,7 @@ use vellaveto_types::{
 
 use crate::verified_capability_attenuation;
 use crate::verified_capability_coverage;
+use crate::verified_capability_domain;
 use crate::verified_capability_glob;
 use crate::verified_capability_glob_subset;
 use crate::verified_capability_grant;
@@ -539,7 +540,7 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
             grant
                 .allowed_domains
                 .iter()
-                .any(|pattern| pattern_matches(pattern, domain))
+                .any(|pattern| verified_capability_domain::domain_matches_pattern(pattern, domain))
         })
     } else {
         false
@@ -671,7 +672,7 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
             let covered = parent_grant
                 .allowed_domains
                 .iter()
-                .any(|pd| pattern_matches(pd, domain));
+                .any(|pd| verified_capability_domain::domain_pattern_is_subset(pd, domain));
             if !covered {
                 return false;
             }
@@ -1204,6 +1205,23 @@ mod tests {
         assert!(check_grant_coverage(&token, &action2).is_none());
     }
 
+    #[test]
+    fn test_grant_domain_constraint_normalizes_case_and_trailing_dot() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "http".into(),
+            function_pattern: "get".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["API.EXAMPLE.COM.".into(), "*.MÜNCHEN.DE".into()],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        let mut action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
+        action.target_domains = vec!["api.example.com".into(), "service.xn--mnchen-3ya.de".into()];
+        assert!(check_grant_coverage(&token, &action).is_some());
+    }
+
     // SECURITY (FIND-R57-CAP-001): Missing targets must fail-closed when grants
     // define path/domain restrictions.
     #[test]
@@ -1292,6 +1310,23 @@ mod tests {
     }
 
     #[test]
+    fn test_grant_domain_constraint_malformed_action_domain_denied() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "http".into(),
+            function_pattern: "get".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["*.example.com".into()],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        let mut action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
+        action.target_domains = vec!["api.example.com:443".into()];
+        assert!(check_grant_coverage(&token, &action).is_none());
+    }
+
+    #[test]
     fn test_boundary_collision_different_issuer_holder() {
         // "issuerA" + "holderB" should produce different canonical content than
         // "issuer" + "AholderB" due to length prefixing
@@ -1375,6 +1410,111 @@ mod tests {
         assert!(
             result.is_err(),
             "FIND-FV46-001: Child with empty domains when parent restricts must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_attenuation_allows_exact_child_domain_under_parent_wildcard() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec!["*.example.com".into()],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["api.example.com".into()],
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "exact child domain under parent wildcard must succeed"
+        );
+    }
+
+    #[test]
+    fn test_attenuation_allows_narrower_child_domain_wildcard() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec!["*.example.com".into()],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["*.api.example.com".into()],
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "narrower child wildcard domain under parent wildcard must succeed"
+        );
+    }
+
+    #[test]
+    fn test_attenuation_rejects_invalid_child_domain_pattern() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "*".into(),
+                function_pattern: "*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec!["*.example.com".into()],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["api?.example.com".into()],
+            max_invocations: 0,
+        }];
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_err(),
+            "invalid child domain pattern must be rejected"
         );
     }
 

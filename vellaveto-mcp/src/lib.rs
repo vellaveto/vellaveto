@@ -74,6 +74,7 @@ pub(crate) mod util;
 pub(crate) mod verified_bridge_principal;
 pub(crate) mod verified_capability_attenuation;
 pub(crate) mod verified_capability_coverage;
+pub(crate) mod verified_capability_domain;
 pub(crate) mod verified_capability_glob;
 pub(crate) mod verified_capability_glob_subset;
 pub(crate) mod verified_capability_grant;

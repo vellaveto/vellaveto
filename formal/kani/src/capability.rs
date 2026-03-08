@@ -27,6 +27,8 @@
 //!
 //! - `pattern_matches` (metachar branch) ↔ `verified_capability_glob::literal_child_matches_parent_glob`
 //! - `pattern_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:610-630`
+//! - `domain_pattern_shape_valid` ↔ `vellaveto-mcp/src/verified_capability_domain.rs`
+//! - `normalized_domain_pattern_subset` ↔ `vellaveto-mcp/src/verified_capability_domain.rs`
 //! - `path_component_next_depth` ↔ `vellaveto-mcp/src/verified_capability_path.rs`
 //! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/verified_capability_path.rs`
 //! - `grant_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:598-696`
@@ -106,6 +108,29 @@ pub fn grant_restrictions_cover_action(
 ) -> bool {
     (!grant_has_allowed_paths || (action_has_target_paths && all_target_paths_covered))
         && (!grant_has_allowed_domains || (action_has_target_domains && all_target_domains_covered))
+}
+
+/// Capability-domain shape gate from production `verified_capability_domain`.
+pub fn domain_pattern_shape_valid(
+    has_wildcard_prefix: bool,
+    has_other_metacharacters: bool,
+    suffix_is_empty: bool,
+) -> bool {
+    !has_other_metacharacters && (!has_wildcard_prefix || !suffix_is_empty)
+}
+
+/// Capability-domain subset gate on already normalized inputs.
+pub fn normalized_domain_pattern_subset(
+    parent_is_wildcard: bool,
+    child_is_wildcard: bool,
+    child_matches_parent_suffix: bool,
+    exact_patterns_equal: bool,
+) -> bool {
+    if parent_is_wildcard {
+        child_matches_parent_suffix
+    } else {
+        !child_is_wildcard && exact_patterns_equal
+    }
 }
 
 /// First-match selection kernel from production `check_grant_coverage`.
@@ -681,6 +706,23 @@ mod tests {
         assert!(grant_restrictions_cover_action(
             true, true, true, true, true, true
         ));
+    }
+
+    #[test]
+    fn test_domain_pattern_shape_valid() {
+        assert!(domain_pattern_shape_valid(false, false, false));
+        assert!(domain_pattern_shape_valid(true, false, false));
+        assert!(!domain_pattern_shape_valid(true, false, true));
+        assert!(!domain_pattern_shape_valid(false, true, false));
+    }
+
+    #[test]
+    fn test_normalized_domain_pattern_subset() {
+        assert!(normalized_domain_pattern_subset(true, false, true, false));
+        assert!(normalized_domain_pattern_subset(true, true, true, false));
+        assert!(normalized_domain_pattern_subset(false, false, false, true));
+        assert!(!normalized_domain_pattern_subset(false, true, true, true));
+        assert!(!normalized_domain_pattern_subset(true, false, false, true));
     }
 
     #[test]
