@@ -54,6 +54,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     context survives past DashMap shard lock scope. Server routes already wired
     correctly via `build_evaluate_acis_envelope()`. Full transport parity for
     agent identity in ACIS envelopes across all 5 transports.
+  - **Sprint 5 (2 HIGH — config/cluster):**
+    R244-CEDAR-1 — Cedar policy parser `parse_head()` and `parse_when_clause()`
+    escape handling now bounds-checks before advancing past backslash; trailing
+    backslash at string end treated as literal instead of skipping past buffer.
+    R244-CLUSTER-1 — `RedisBackend::new()` enforces `rediss://` (TLS) for
+    non-localhost Redis connections; approval state, rate limits, and dedup
+    hashes no longer exposed to network observers. Localhost exemptions:
+    `127.0.0.1`, `localhost`, `[::1]`. 6 new tests.
+  - **Sprint 6 (1 CRITICAL — TLS):**
+    R244-TLS-1 — SPIFFE workload path percent-decoding changed from
+    `(hi << 4 | lo) as char` to `Vec<u8>` + `std::str::from_utf8()`; invalid
+    UTF-8 sequences (e.g., `%80`) now produce fail-closed rejection instead of
+    invalid Unicode characters. Return type changed from `Option<String>` to
+    `Result<Option<String>, ()>`. 1 new test.
 
 ### Added
 

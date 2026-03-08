@@ -110,6 +110,56 @@ Multi-layer injection scanning:
 - Regional indicator emoji smuggling detection
 - Unicode tag character stripping
 
+### TLS Workload Identity Hardening (R244)
+
+SPIFFE workload path percent-decoding validates UTF-8 after decode. Previously,
+raw decoded bytes were cast to `char` via `(hi << 4 | lo) as char`, which
+produced invalid Unicode for multi-byte sequences (e.g., `%80` → U+0080 is
+valid Latin-1 but invalid stand-alone UTF-8). Now:
+
+- Percent-encoded bytes are collected into a `Vec<u8>`
+- `std::str::from_utf8()` validates the decoded buffer
+- Invalid UTF-8 sequences cause fail-closed rejection (`None`)
+- ASCII-safe paths bypass percent-decoding entirely
+
+### ACIS Envelope Validation (R244)
+
+All ACIS (Agent-Consumer Interaction Surface) decision envelopes are validated
+before audit persistence:
+
+- `agent_id`: length-bounded (512), dangerous character rejection
+- `reason`: length-bounded (4096), dangerous character rejection
+- `findings`: each finding validated for dangerous characters
+- `tool` / `function`: length-bounded (256)
+- `evaluation_us`: capped at 3,600,000,000 µs (1 hour)
+- `call_chain_depth`: capped at 256
+- Construction-time clamping in `build_result()` / `build_acis_envelope()`
+- Post-construction `validate()` with sanitization fallback (clear reason/findings
+  on validation failure rather than rejecting the entire envelope)
+
+### Cedar Policy Parser Hardening (R244)
+
+Escape handling in Cedar `parse_head()` and `parse_when_clause()` now performs
+bounds checking before advancing past a backslash:
+
+```rust
+// Before: unconditional skip could read past buffer end
+if bytes[i] == b'\\' { i = i.saturating_add(2); continue; }
+
+// After: bounds-checked skip with trailing backslash as literal
+if bytes[i] == b'\\' {
+    if i + 1 < len { i = i.saturating_add(2); continue; }
+    // Trailing backslash — treat as literal
+}
+```
+
+### Redis Cluster TLS Enforcement (R244)
+
+`RedisBackend::new()` enforces `rediss://` (TLS) for non-localhost connections.
+Localhost exemptions: `127.0.0.1`, `localhost`, `[::1]`. Approval state, rate
+limits, and dedup hashes transmitted over unencrypted Redis are exposed to
+network observers — TLS enforcement closes this gap.
+
 ### Cryptographic Standards
 
 - **Audit signing**: Ed25519 (ed25519-dalek)

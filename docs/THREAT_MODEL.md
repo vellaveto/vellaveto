@@ -469,6 +469,25 @@ Attacker hosts fake /.well-known/agent.json with manipulated capabilities
 - JSON-RPC batch requests rejected outright (matching MCP security pattern)
 - Each message must be submitted and evaluated individually
 
+**Approval Consumption TOCTOU (R244-TOCTOU-1):**
+```
+Thread A: match_approval(fingerprint) → found
+   ~230 lines of DLP/injection/audit processing
+Thread A: consume_approval(id) → consumed
+Thread B: match_approval(fingerprint) → found (same approval!)
+Thread B: consume_approval(id) → consumed again (replay!)
+```
+
+**Vellaveto Defense (Mar 2026):**
+- Approval consumption moved atomically adjacent to match validation at all 6
+  relay handler sites (tool call ×2, resource read, task request,
+  sampling/elicitation, registry unknown/untrusted)
+- `consume_approval()` transitions approval to `Consumed` status, making
+  subsequent `match_approval()` calls fail-closed
+- Formally verified: Verus `lemma_consumed_status_blocks_re_consumption()`
+  proves that non-Approved status universally blocks consumption regardless
+  of fingerprint or scope match
+
 **Cross-Agent Identity Spoofing:**
 ```
 Agent B claims to be Agent A using forged identity assertions
