@@ -17,8 +17,10 @@ use super::ToolAnnotations;
 use crate::extractor::{
     extract_action, extract_resource_action, make_approval_response, make_denial_response,
 };
+use crate::mediation::build_acis_envelope;
 use crate::proxy::types::ProxyDecision;
 use serde_json::{json, Value};
+use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
 
 /// Log evaluation trace details at debug level.
@@ -54,6 +56,60 @@ impl ProxyBridge {
                     .evaluate_action_with_context(action, &self.policies, context)?;
             Ok((verdict, None))
         }
+    }
+
+    /// Evaluate an action and produce an ACIS decision envelope.
+    ///
+    /// This wraps [`evaluate_action_inner`] and attaches an ACIS envelope to
+    /// every decision. Transports should call this when they want structured
+    /// decision metadata for audit entries.
+    ///
+    /// DLP and injection findings should be passed in from the caller's
+    /// pre-pipeline scanning (the relay runs these before engine evaluation).
+    #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)] // Wiring into relay.rs tracked in E2-2/3/4
+    pub(super) fn evaluate_with_envelope(
+        &self,
+        decision_id: &str,
+        action: &vellaveto_types::Action,
+        context: Option<&EvaluationContext>,
+        transport: &str,
+        findings: &[String],
+        session_id: Option<&str>,
+        tenant_id: Option<&str>,
+    ) -> (Verdict, Option<EvaluationTrace>, AcisDecisionEnvelope) {
+        let start = std::time::Instant::now();
+        let (verdict, trace) = match self.evaluate_action_inner(action, context) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("Policy evaluation error: {e}");
+                let reason = "Policy evaluation failed".to_string();
+                (Verdict::Deny { reason }, None)
+            }
+        };
+
+        let origin = match &verdict {
+            Verdict::Deny { .. } => DecisionOrigin::PolicyEngine,
+            Verdict::Allow => DecisionOrigin::PolicyEngine,
+            Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
+            _ => DecisionOrigin::PolicyEngine,
+        };
+
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        let envelope = build_acis_envelope(
+            decision_id,
+            action,
+            &verdict,
+            origin,
+            transport,
+            findings,
+            Some(elapsed_us),
+            session_id,
+            tenant_id,
+            context,
+        );
+
+        (verdict, trace, envelope)
     }
 
     /// Evaluate a tool call and decide whether to forward or block.

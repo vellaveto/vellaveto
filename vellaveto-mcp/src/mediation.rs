@@ -300,6 +300,69 @@ fn build_result(
     }
 }
 
+// ── Public envelope builder ──────────────────────────────────────────────────
+
+/// Build an ACIS decision envelope from already-resolved decision context.
+///
+/// Use this when the transport has already executed its own DLP / injection /
+/// engine evaluation pipeline and wants to attach an ACIS envelope to the
+/// audit entry without re-running the canonical `mediate()` function.
+///
+/// The `mediate()` function calls this internally; transports that use
+/// `mediate()` do not need to call this separately.
+#[allow(clippy::too_many_arguments)]
+pub fn build_acis_envelope(
+    decision_id: &str,
+    action: &Action,
+    verdict: &Verdict,
+    origin: DecisionOrigin,
+    transport: &str,
+    findings: &[String],
+    evaluation_us: Option<u64>,
+    session_id: Option<&str>,
+    tenant_id: Option<&str>,
+    context: Option<&EvaluationContext>,
+) -> AcisDecisionEnvelope {
+    let fingerprint = fingerprint_action(action);
+    let decision = DecisionKind::from(verdict);
+
+    let reason = match verdict {
+        Verdict::Allow => String::new(),
+        Verdict::Deny { reason } => reason.clone(),
+        Verdict::RequireApproval { reason } => reason.clone(),
+        _ => "unknown verdict variant".to_string(),
+    };
+
+    let call_chain_depth = context
+        .map(|ctx| u32::try_from(ctx.call_chain.len()).unwrap_or(u32::MAX))
+        .unwrap_or(0);
+
+    AcisDecisionEnvelope {
+        decision_id: decision_id.to_string(),
+        timestamp: now_utc(),
+        session_id: session_id.map(|s| s.to_string()),
+        tenant_id: tenant_id.map(|s| s.to_string()),
+        agent_identity: context.and_then(|ctx| ctx.agent_identity.clone()),
+        agent_id: context.and_then(|ctx| ctx.agent_id.clone()),
+        action_summary: AcisActionSummary {
+            tool: action.tool.clone(),
+            function: action.function.clone(),
+            target_path_count: u32::try_from(action.target_paths.len()).unwrap_or(u32::MAX),
+            target_domain_count: u32::try_from(action.target_domains.len())
+                .unwrap_or(u32::MAX),
+        },
+        action_fingerprint: fingerprint,
+        decision,
+        origin,
+        reason,
+        matched_policy_id: None,
+        transport: transport.to_string(),
+        findings: findings.to_vec(),
+        evaluation_us,
+        call_chain_depth,
+    }
+}
+
 /// UTC timestamp in RFC 3339 format (always ends with `Z`).
 fn now_utc() -> String {
     // Use chrono if available; fallback to a simple format.
@@ -702,5 +765,83 @@ mod tests {
                 r.envelope.validate()
             );
         }
+    }
+
+    // ── build_acis_envelope standalone tests ─────────────────────────────
+
+    #[test]
+    fn test_build_acis_envelope_allow() {
+        let action = test_action();
+        let verdict = Verdict::Allow;
+        let env = build_acis_envelope(
+            "env-001",
+            &action,
+            &verdict,
+            DecisionOrigin::PolicyEngine,
+            "http",
+            &[],
+            Some(42),
+            Some("sess-1"),
+            Some("tenant-1"),
+            None,
+        );
+        assert_eq!(env.decision, DecisionKind::Allow);
+        assert_eq!(env.origin, DecisionOrigin::PolicyEngine);
+        assert_eq!(env.transport, "http");
+        assert_eq!(env.session_id, Some("sess-1".into()));
+        assert_eq!(env.tenant_id, Some("tenant-1".into()));
+        assert_eq!(env.evaluation_us, Some(42));
+        assert!(env.reason.is_empty());
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_build_acis_envelope_deny_with_findings() {
+        let action = test_action();
+        let verdict = Verdict::Deny {
+            reason: "DLP: AWS key detected".into(),
+        };
+        let findings = vec!["DLP: aws_access_key".into()];
+        let env = build_acis_envelope(
+            "env-002",
+            &action,
+            &verdict,
+            DecisionOrigin::Dlp,
+            "stdio",
+            &findings,
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(env.decision, DecisionKind::Deny);
+        assert_eq!(env.origin, DecisionOrigin::Dlp);
+        assert_eq!(env.findings.len(), 1);
+        assert!(env.evaluation_us.is_none());
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_build_acis_envelope_fingerprint_matches_mediate() {
+        let engine = test_engine();
+        let action = test_action();
+        let config = MediationConfig::default();
+        let r = mediate("cmp-id", &action, &engine, None, "stdio", &config, None, None);
+        let env = build_acis_envelope(
+            "cmp-id",
+            &action,
+            &r.verdict,
+            r.origin,
+            "stdio",
+            &[],
+            Some(0),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            r.envelope.action_fingerprint, env.action_fingerprint,
+            "fingerprint must match between mediate() and build_acis_envelope()"
+        );
     }
 }
