@@ -12,6 +12,7 @@
 
 use super::*;
 use serde_json::json;
+use vellaveto_types::CallChainEntry;
 
 #[test]
 fn test_empty_policies_deny() {
@@ -8487,6 +8488,147 @@ fn test_require_capability_token_depth_insufficient() {
         matches!(v, Verdict::Deny { .. }),
         "Insufficient depth should deny: {v:?}"
     );
+}
+
+fn make_delegated_capability_token(
+    holder: &str,
+    remaining_depth: u8,
+) -> vellaveto_types::CapabilityToken {
+    vellaveto_types::CapabilityToken {
+        token_id: "tok-delegated".into(),
+        parent_token_id: None,
+        issuer: "root".into(),
+        holder: holder.into(),
+        grants: vec![vellaveto_types::CapabilityGrant {
+            tool_pattern: "*".into(),
+            function_pattern: "*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }],
+        remaining_depth,
+        issued_at: "2026-01-01T00:00:00Z".into(),
+        expires_at: "2027-01-01T00:00:00Z".into(),
+        signature: "sig".into(),
+        issuer_public_key: "pub".into(),
+    }
+}
+
+fn make_delegation_chain(ids: &[&str]) -> Vec<CallChainEntry> {
+    ids.iter()
+        .map(|id| CallChainEntry {
+            agent_id: (*id).to_string(),
+            tool: "deputy".to_string(),
+            function: "delegated".to_string(),
+            timestamp: "2026-03-08T10:00:00Z".to_string(),
+            hmac: None,
+            verified: None,
+        })
+        .collect()
+}
+
+#[test]
+fn test_deputy_validation_and_capability_token_allow_when_both_satisfied() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 2},
+        {"type": "require_capability_token", "min_remaining_depth": 1}
+    ]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(make_delegated_capability_token("agent-a", 3))
+        .call_chain(make_delegation_chain(&["delegator-1"]))
+        .build();
+
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Allow),
+        "paired context should allow: {v:?}"
+    );
+}
+
+#[test]
+fn test_deputy_validation_and_capability_token_missing_token_denied() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 2},
+        {"type": "require_capability_token", "min_remaining_depth": 1}
+    ]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .call_chain(make_delegation_chain(&["delegator-1"]))
+        .build();
+
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "missing token should deny: {v:?}"
+    );
+    if let Verdict::Deny { reason } = v {
+        assert!(reason.contains("no capability token"));
+    }
+}
+
+#[test]
+fn test_deputy_validation_and_capability_token_missing_agent_id_denied() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 2},
+        {"type": "require_capability_token", "min_remaining_depth": 1}
+    ]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let ctx = EvaluationContext::builder()
+        .agent_identity(AgentIdentity {
+            issuer: Some("issuer".into()),
+            subject: Some("agent-a".into()),
+            ..Default::default()
+        })
+        .capability_token(make_delegated_capability_token("agent-a", 3))
+        .call_chain(make_delegation_chain(&["delegator-1"]))
+        .build();
+
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "missing agent_id should deny paired context: {v:?}"
+    );
+    if let Verdict::Deny { reason } = v {
+        assert!(reason.contains("cannot verify token holder binding"));
+    }
+}
+
+#[test]
+fn test_deputy_validation_and_capability_token_delegation_depth_denied() {
+    let policy = make_context_policy(json!([
+        {"type": "deputy_validation", "require_principal": true, "max_delegation_depth": 1},
+        {"type": "require_capability_token", "min_remaining_depth": 1}
+    ]));
+    let engine = make_context_engine(policy.clone());
+    let action = Action::new("read_file".to_string(), "read".to_string(), json!({}));
+    let ctx = EvaluationContext::builder()
+        .agent_id("agent-a")
+        .capability_token(make_delegated_capability_token("agent-a", 3))
+        .call_chain(make_delegation_chain(&["delegator-1", "delegator-2"]))
+        .build();
+
+    let v = engine
+        .evaluate_action_with_context(&action, &[policy], Some(&ctx))
+        .unwrap();
+    assert!(
+        matches!(v, Verdict::Deny { .. }),
+        "delegation depth should deny paired context: {v:?}"
+    );
+    if let Verdict::Deny { reason } = v {
+        assert!(reason.contains("delegation depth"));
+    }
 }
 
 // ════════════════════════════════════════════════════════

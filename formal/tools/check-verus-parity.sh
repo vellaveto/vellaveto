@@ -73,9 +73,11 @@ echo ""
 PROD_CORE="$PROJECT_DIR/vellaveto-engine/src/verified_core.rs"
 VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CAPABILITY_CONTEXT="$PROJECT_DIR/vellaveto-engine/src/verified_capability_context.rs"
+PROD_CAPABILITY_DELEGATION_CONTEXT="$PROJECT_DIR/vellaveto-engine/src/verified_capability_delegation_context.rs"
 PROD_CONTEXT_DELEGATION="$PROJECT_DIR/vellaveto-engine/src/verified_context_delegation.rs"
 PROD_CONTEXT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/context_check.rs"
 VERUS_CAPABILITY_CONTEXT="$PROJECT_DIR/formal/verus/verified_capability_context.rs"
+VERUS_CAPABILITY_DELEGATION_CONTEXT="$PROJECT_DIR/formal/verus/verified_capability_delegation_context.rs"
 VERUS_CONTEXT_DELEGATION="$PROJECT_DIR/formal/verus/verified_context_delegation.rs"
 PROD_BRIDGE_PRINCIPAL="$PROJECT_DIR/vellaveto-mcp/src/verified_bridge_principal.rs"
 PROD_DELEGATION_PROJECTION="$PROJECT_DIR/vellaveto-mcp/src/verified_delegation_projection.rs"
@@ -168,6 +170,7 @@ for module in \
     verified_merkle_path \
     verified_rotation_manifest \
     verified_capability_attenuation \
+    verified_capability_delegation_context \
     verified_bridge_principal \
     verified_capability_coverage \
     verified_capability_domain \
@@ -252,6 +255,27 @@ check_symbol_parity \
     'verified_capability_context::capability_remaining_depth_sufficient' \
     "$VERUS_CAPABILITY_CONTEXT" \
     'pub[[:space:]]+fn[[:space:]]+capability_remaining_depth_sufficient'
+echo ""
+
+echo "--- Capability Delegation Context Kernel ---"
+check_file_pair \
+    "verified_capability_delegation_context.rs ↔ vellaveto-engine/src/verified_capability_delegation_context.rs" \
+    "$PROD_CAPABILITY_DELEGATION_CONTEXT" \
+    "$VERUS_CAPABILITY_DELEGATION_CONTEXT"
+for fn in delegated_capability_principal_and_holder_valid delegated_capability_depths_valid delegated_capability_context_valid; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_DELEGATION_CONTEXT" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_DELEGATION_CONTEXT" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "context checker uses verified combined delegated capability context guard" \
+    "$PROD_CONTEXT_WRAPPER" \
+    'verified_capability_delegation_context::delegated_capability_context_valid' \
+    "$VERUS_CAPABILITY_DELEGATION_CONTEXT" \
+    'pub[[:space:]]+fn[[:space:]]+delegated_capability_context_valid'
 echo ""
 
 echo "--- Context Delegation Kernel ---"

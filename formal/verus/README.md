@@ -5,6 +5,7 @@ evaluation fail-closed control flow, audit append/recovery counter transitions,
 audit-chain verification guards, Merkle append/init/proof-shape guards,
 Merkle fold structure, Merkle proof-path structure, cross-rotation
 manifest linkage/path-safety guards, capability attenuation arithmetic,
+combined deputy/capability context guards,
 stdio bridge principal-binding guards,
 post-deputy evaluation-principal handoff guards,
 capability parent-glob literal-child matching,
@@ -591,6 +592,26 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_chain_depth_limit_is_inclusive` | `max_chain_depth` accepts the exact bound and zero |
 | `lemma_delegation_depth_limit_is_inclusive` | `deputy_validation` accepts the exact bound and zero |
 
+### Combined Delegated Capability Context Guards (`verified_capability_delegation_context.rs`) — 9 verified items, CAP-DEP-CTX-1–CAP-DEP-CTX-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-DEP-CTX-1 | Principal/holder conjunction | The combined delegated-capability precheck passes only when any required principal is present, a capability token exists, an `agent_id` exists, and the normalized token holder matches that agent |
+| CAP-DEP-CTX-2 | Delegation/depth conjunction | The combined depth precheck passes only when deputy delegation depth is within the configured bound, a capability token exists, and the token's remaining depth meets the configured minimum |
+| CAP-DEP-CTX-3 | Combined fail-closed context gate | The extracted combined gate is exactly the conjunction of the principal/holder guard and the delegation/remaining-depth guard |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_missing_capability_token_fails_closed` | The combined delegated-capability gate always fails when the capability token is absent |
+| `lemma_principal_requirement_and_holder_binding_are_conjoined` | The combined principal/holder guard implies both token presence and `agent_id`-backed holder binding |
+| `lemma_delegation_and_remaining_depth_bounds_are_conjoined` | The combined depth guard implies both deputy delegation-depth compliance and capability remaining-depth compliance |
+
 ### Stdio Bridge Principal-Binding Guards (`verified_bridge_principal.rs`) — 12 verified items, BRIDGE-PRINC-1–BRIDGE-PRINC-4
 
 Properties proven for ALL possible inputs:
@@ -901,6 +922,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_context.rs` | `vellaveto-engine/src/verified_capability_context.rs` | `context_check.rs` routes capability-token holder binding, issuer allowlist, and remaining-depth threshold checks through the verified engine gate |
 | `formal/verus/verified_context_delegation.rs` | `vellaveto-engine/src/verified_context_delegation.rs` | `context_check.rs` routes principal presence, required-principal satisfaction, max-chain-depth, and delegation-depth checks through the verified context-delegation gate |
+| `formal/verus/verified_capability_delegation_context.rs` | `vellaveto-engine/src/verified_capability_delegation_context.rs` | `context_check.rs` routes the exact-one deputy-validation + capability-token conjunction through the verified combined engine gate before the residual issuer allowlist check |
 | `formal/verus/verified_bridge_principal.rs` | `vellaveto-mcp/src/verified_bridge_principal.rs` | `relay.rs` routes configured-vs-claimed consistency, deputy principal-source selection, and engine evaluation principal-source selection through the verified bridge gate |
 | `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated delegation depth through the verified projection kernel before the relay populates `EvaluationContext.call_chain` |
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `verified_evaluation_context_projection.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate before the relay consumes it |
@@ -977,6 +999,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 
 # Engine call-chain/principal delegation guards (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_context_delegation.rs
+
+# Engine combined deputy/capability context guard (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_delegation_context.rs
 
 # Stdio bridge principal-binding alignment (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_bridge_principal.rs
@@ -1065,6 +1090,7 @@ verus formal/verus/verified_merkle_path.rs
 verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_context_delegation.rs
+verus formal/verus/verified_capability_delegation_context.rs
 verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
@@ -1101,6 +1127,7 @@ Expected output:
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
 - `verified_context_delegation.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_delegation_context.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_bridge_principal.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
