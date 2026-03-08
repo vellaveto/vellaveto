@@ -31,6 +31,7 @@ use vellaveto_types::{
 };
 
 use crate::verified_capability_attenuation;
+use crate::verified_capability_coverage;
 use crate::verified_capability_glob;
 use crate::verified_capability_glob_subset;
 use crate::verified_capability_grant;
@@ -533,13 +534,12 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
     // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires path restrictions
     // but the action provides no target_paths. Otherwise a missing extraction path
     // would bypass grant constraints.
-    if !grant.allowed_paths.is_empty() {
-        if action.target_paths.is_empty() {
-            return false;
-        }
+    let grant_has_allowed_paths = !grant.allowed_paths.is_empty();
+    let action_has_target_paths = !action.target_paths.is_empty();
+    let all_target_paths_covered = if grant_has_allowed_paths && action_has_target_paths {
         // SECURITY (FIND-083): Normalize action paths before matching to prevent
         // path traversal attacks (e.g., "/safe/../etc/passwd" matching "/safe/**").
-        let all_covered = action.target_paths.iter().all(|path| {
+        action.target_paths.iter().all(|path| {
             // Fail-closed: if normalization fails, deny the grant
             let normalized = match normalize_path_for_grant(path) {
                 Some(n) => n,
@@ -549,27 +549,34 @@ fn grant_covers_action(grant: &CapabilityGrant, action: &Action) -> bool {
                 .allowed_paths
                 .iter()
                 .any(|pattern| pattern_matches(pattern, &normalized))
-        });
-        if !all_covered {
-            return false;
-        }
-    }
+        })
+    } else {
+        false
+    };
     // Check domain constraints (if any)
     // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires domain restrictions
     // but the action provides no target_domains.
-    if !grant.allowed_domains.is_empty() {
-        if action.target_domains.is_empty() {
-            return false;
-        }
-        let all_covered = action.target_domains.iter().all(|domain| {
+    let grant_has_allowed_domains = !grant.allowed_domains.is_empty();
+    let action_has_target_domains = !action.target_domains.is_empty();
+    let all_target_domains_covered = if grant_has_allowed_domains && action_has_target_domains {
+        action.target_domains.iter().all(|domain| {
             grant
                 .allowed_domains
                 .iter()
                 .any(|pattern| pattern_matches(pattern, domain))
-        });
-        if !all_covered {
-            return false;
-        }
+        })
+    } else {
+        false
+    };
+    if !verified_capability_coverage::grant_restrictions_cover_action(
+        grant_has_allowed_paths,
+        action_has_target_paths,
+        all_target_paths_covered,
+        grant_has_allowed_domains,
+        action_has_target_domains,
+        all_target_domains_covered,
+    ) {
+        return false;
     }
     true
 }
@@ -1261,6 +1268,57 @@ mod tests {
 
         // No target_domains present => deny by fail-closed coverage check.
         let action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
+        assert!(check_grant_coverage(&token, &action).is_none());
+    }
+
+    #[test]
+    fn test_grant_path_constraint_malformed_action_path_denied() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "fs".into(),
+            function_pattern: "read".into(),
+            allowed_paths: vec!["/safe/*".into()],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        let mut action = Action::new("fs".to_string(), "read".to_string(), serde_json::json!({}));
+        action.target_paths = vec!["/safe/../../etc/passwd".into()];
+        assert!(check_grant_coverage(&token, &action).is_none());
+    }
+
+    #[test]
+    fn test_grant_path_constraint_requires_all_targets_covered() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "fs".into(),
+            function_pattern: "read".into(),
+            allowed_paths: vec!["/data/*".into()],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        let mut action = Action::new("fs".to_string(), "read".to_string(), serde_json::json!({}));
+        action.target_paths = vec!["/data/file.txt".into(), "/etc/passwd".into()];
+        assert!(check_grant_coverage(&token, &action).is_none());
+    }
+
+    #[test]
+    fn test_grant_domain_constraint_requires_all_targets_covered() {
+        let key_hex = test_key_hex();
+        let grants = vec![CapabilityGrant {
+            tool_pattern: "http".into(),
+            function_pattern: "get".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec!["*.example.com".into()],
+            max_invocations: 0,
+        }];
+        let token = issue_capability_token("issuer", "holder", grants, 5, &key_hex, 3600).unwrap();
+
+        let mut action = Action::new("http".to_string(), "get".to_string(), serde_json::json!({}));
+        action.target_domains = vec!["api.example.com".into(), "evil.com".into()];
         assert!(check_grant_coverage(&token, &action).is_none());
     }
 

@@ -14,6 +14,8 @@ mod verified_rotation_manifest;
 mod verified_capability_attenuation;
 #[path = "../verified_bridge_principal.rs"]
 mod verified_bridge_principal;
+#[path = "../verified_capability_coverage.rs"]
+mod verified_capability_coverage;
 #[path = "../verified_delegation_projection.rs"]
 mod verified_delegation_projection;
 #[path = "../verified_deputy_handoff.rs"]

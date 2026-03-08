@@ -189,6 +189,7 @@ check_symbol_parity "capability metacharacter detector" "$PROD_CAPABILITY" "veri
 check_symbol_parity "capability literal matcher" "$PROD_CAPABILITY" "verified_capability_literal::literal_pattern_matches" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+literal_pattern_matches"
 check_symbol_parity "capability literal child subset" "$PROD_CAPABILITY" "verified_capability_literal::literal_child_pattern_subset" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+literal_child_pattern_subset"
 check_symbol_parity "capability grant attenuation gate" "$PROD_CAPABILITY" "verified_capability_grant::grant_restrictions_attenuated" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+grant_restrictions_attenuated"
+check_symbol_parity "capability grant coverage gate" "$PROD_CAPABILITY" "verified_capability_coverage::grant_restrictions_cover_action" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+grant_restrictions_cover_action"
 check_symbol_parity "capability path normalization" "$PROD_CAPABILITY" "fn[[:space:]]+normalize_path_for_grant" "$KANI_DIR/capability.rs" "pub[[:space:]]+fn[[:space:]]+normalize_path_for_grant"
 check_symbol_parity "rule_check path rules" "$PROD_RULE_CHECK" "fn[[:space:]]+check_path_rules" "$KANI_DIR/rule_check.rs" "pub[[:space:]]+fn[[:space:]]+check_path_rules_decision"
 check_symbol_parity "rule_check network rules" "$PROD_RULE_CHECK" "fn[[:space:]]+check_network_rules" "$KANI_DIR/rule_check.rs" "pub[[:space:]]+fn[[:space:]]+check_network_rules_decision"

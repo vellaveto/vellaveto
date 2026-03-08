@@ -101,6 +101,7 @@ PROD_MERKLE_PATH="$PROJECT_DIR/vellaveto-audit/src/verified_merkle_path.rs"
 PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
+PROD_CAPABILITY_COVERAGE="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_coverage.rs"
 PROD_CAPABILITY_GLOB="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob.rs"
 PROD_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob_subset.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
@@ -119,6 +120,7 @@ VERUS_MERKLE_FOLD="$PROJECT_DIR/formal/verus/verified_merkle_fold.rs"
 VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
+VERUS_CAPABILITY_COVERAGE="$PROJECT_DIR/formal/verus/verified_capability_coverage.rs"
 VERUS_CAPABILITY_GLOB="$PROJECT_DIR/formal/verus/verified_capability_glob.rs"
 VERUS_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/formal/verus/verified_capability_glob_subset.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
@@ -159,6 +161,7 @@ for module in \
     verified_rotation_manifest \
     verified_capability_attenuation \
     verified_bridge_principal \
+    verified_capability_coverage \
     verified_delegation_projection \
     verified_deputy_handoff \
     verified_capability_context \
@@ -706,6 +709,25 @@ check_symbol_parity \
     'verified_capability_attenuation::attenuated_expiry_epoch' \
     "$VERUS_CAPABILITY_ATTENUATION" \
     'pub[[:space:]]+fn[[:space:]]+attenuated_expiry_epoch'
+echo ""
+
+echo "--- Capability Coverage Kernel ---"
+check_file_pair \
+    "verified_capability_coverage.rs ↔ vellaveto-mcp/src/verified_capability_coverage.rs" \
+    "$PROD_CAPABILITY_COVERAGE" \
+    "$VERUS_CAPABILITY_COVERAGE"
+check_symbol_parity \
+    "grant_restrictions_cover_action exists in production and Verus" \
+    "$PROD_CAPABILITY_COVERAGE" \
+    'pub\(crate\)[[:space:]]+const[[:space:]]+fn[[:space:]]+grant_restrictions_cover_action' \
+    "$VERUS_CAPABILITY_COVERAGE" \
+    'pub[[:space:]]+fn[[:space:]]+grant_restrictions_cover_action'
+check_symbol_parity \
+    "capability grant coverage uses verified restriction gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_coverage::grant_restrictions_cover_action' \
+    "$VERUS_CAPABILITY_COVERAGE" \
+    'pub[[:space:]]+fn[[:space:]]+grant_restrictions_cover_action'
 echo ""
 
 echo "--- Capability Parent-Glob Kernel ---"

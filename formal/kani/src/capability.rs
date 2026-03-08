@@ -93,6 +93,19 @@ pub fn grant_restrictions_attenuated(
             || (child_max_invocations > 0 && child_max_invocations <= parent_max_invocations))
 }
 
+/// Restriction coverage gate from production `grant_covers_action`.
+pub fn grant_restrictions_cover_action(
+    grant_has_allowed_paths: bool,
+    action_has_target_paths: bool,
+    all_target_paths_covered: bool,
+    grant_has_allowed_domains: bool,
+    action_has_target_domains: bool,
+    all_target_domains_covered: bool,
+) -> bool {
+    (!grant_has_allowed_paths || (action_has_target_paths && all_target_paths_covered))
+        && (!grant_has_allowed_domains || (action_has_target_domains && all_target_domains_covered))
+}
+
 /// Glob match on byte slices. Case-insensitive, supports `*` and `?`.
 ///
 /// Verbatim from production `glob_match`.
@@ -401,10 +414,9 @@ pub fn grant_covers_action(grant: &CapabilityGrant, action: &ActionRef<'_>) -> b
     // Check path constraints (if any)
     // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires path restrictions
     // but the action provides no target_paths.
-    if !grant.allowed_paths.is_empty() {
-        if action.target_paths.is_empty() {
-            return false;
-        }
+    let grant_has_allowed_paths = !grant.allowed_paths.is_empty();
+    let action_has_target_paths = !action.target_paths.is_empty();
+    let all_target_paths_covered = if grant_has_allowed_paths && action_has_target_paths {
         let all_covered = action.target_paths.iter().all(|path| {
             // Fail-closed: if normalization fails, deny the grant
             let normalized = match normalize_path_for_grant(path) {
@@ -416,26 +428,35 @@ pub fn grant_covers_action(grant: &CapabilityGrant, action: &ActionRef<'_>) -> b
                 .iter()
                 .any(|pattern| pattern_matches(pattern, &normalized))
         });
-        if !all_covered {
-            return false;
-        }
-    }
+        all_covered
+    } else {
+        false
+    };
     // Check domain constraints (if any)
     // SECURITY (FIND-R57-CAP-001): Fail-closed when grant requires domain restrictions
     // but the action provides no target_domains.
-    if !grant.allowed_domains.is_empty() {
-        if action.target_domains.is_empty() {
-            return false;
-        }
+    let grant_has_allowed_domains = !grant.allowed_domains.is_empty();
+    let action_has_target_domains = !action.target_domains.is_empty();
+    let all_target_domains_covered = if grant_has_allowed_domains && action_has_target_domains {
         let all_covered = action.target_domains.iter().all(|domain| {
             grant
                 .allowed_domains
                 .iter()
                 .any(|pattern| pattern_matches(pattern, domain))
         });
-        if !all_covered {
-            return false;
-        }
+        all_covered
+    } else {
+        false
+    };
+    if !grant_restrictions_cover_action(
+        grant_has_allowed_paths,
+        action_has_target_paths,
+        all_target_paths_covered,
+        grant_has_allowed_domains,
+        action_has_target_domains,
+        all_target_domains_covered,
+    ) {
+        return false;
     }
     true
 }
@@ -588,6 +609,25 @@ mod tests {
             target_domains: &[],
         };
         assert!(!grant_covers_action(&g, &action));
+    }
+
+    #[test]
+    fn test_grant_restrictions_cover_action_gate() {
+        assert!(!grant_restrictions_cover_action(
+            true, false, false, false, false, false
+        ));
+        assert!(!grant_restrictions_cover_action(
+            true, true, false, false, false, false
+        ));
+        assert!(!grant_restrictions_cover_action(
+            false, false, false, true, false, false
+        ));
+        assert!(!grant_restrictions_cover_action(
+            false, false, false, true, true, false
+        ));
+        assert!(grant_restrictions_cover_action(
+            true, true, true, true, true, true
+        ));
     }
 
     #[test]

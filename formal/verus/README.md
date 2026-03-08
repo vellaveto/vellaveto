@@ -280,6 +280,31 @@ Verification result: **13 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_ttl_limit_is_fail_closed` | A TTL above policy cannot produce a child expiry |
 | `lemma_expiry_transitive_nonincreasing` | A second attenuation step cannot increase expiry past the first or root parent |
 
+### Capability Grant-Coverage Gate (`verified_capability_coverage.rs`) — 10 verified items, CAP-COV-1–CAP-COV-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-COV-1 | Missing path targets fail closed | If a grant restricts paths but the action has no `target_paths`, coverage fails |
+| CAP-COV-2 | Uncovered path targets fail closed | If any required path target is uncovered after normalization/matching, coverage fails |
+| CAP-COV-3 | Missing domain targets fail closed | If a grant restricts domains but the action has no `target_domains`, coverage fails |
+| CAP-COV-4 | Uncovered domain targets fail closed | If any required domain target is uncovered, coverage fails |
+| CAP-COV-5 | Absent restrictions impose no requirement | If the grant does not restrict a dimension, that dimension cannot block coverage |
+
+Verification result: **10 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_missing_paths_fail_closed` | Missing `target_paths` always deny a path-restricted grant |
+| `lemma_uncovered_paths_fail_closed` | Uncovered path targets always deny a path-restricted grant |
+| `lemma_missing_domains_fail_closed` | Missing `target_domains` always deny a domain-restricted grant |
+| `lemma_uncovered_domains_fail_closed` | Uncovered domain targets always deny a domain-restricted grant |
+| `lemma_satisfied_restrictions_are_allowed` | Fully satisfied path/domain restrictions are accepted |
+| `lemma_absent_restrictions_impose_no_requirement` | Unrestricted dimensions are ignored by the gate |
+
 ### Capability Parent-Glob Matcher (`verified_capability_glob.rs`) — 19 verified items, CAP-GLOB-1–CAP-GLOB-5
 
 Properties proven for ALL possible inputs:
@@ -782,6 +807,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_bridge_principal.rs` | `vellaveto-mcp/src/verified_bridge_principal.rs` | `relay.rs` routes configured-vs-claimed consistency, deputy principal-source selection, and engine evaluation principal-source selection through the verified bridge gate |
 | `formal/verus/verified_delegation_projection.rs` | `vellaveto-mcp/src/verified_delegation_projection.rs` | `relay.rs` routes deputy-validated delegation depth through the verified projection kernel before populating `EvaluationContext.call_chain` |
 | `formal/verus/verified_deputy_handoff.rs` | `vellaveto-mcp/src/verified_deputy_handoff.rs` | `relay.rs` routes deputy-validated claim promotion and post-deputy evaluation principal selection through the verified handoff gate |
+| `formal/verus/verified_capability_coverage.rs` | `vellaveto-mcp/src/verified_capability_coverage.rs` | `capability_token.rs` routes path/domain target-presence and all-targets-covered fail-closed decisions through the verified coverage gate |
 | `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes the literal-child parent-glob subset branch through the verified recursive matcher |
 | `formal/verus/verified_capability_glob_subset.rs` | `vellaveto-mcp/src/verified_capability_glob_subset.rs` | `capability_token.rs` routes the remaining child-glob branch through the exact subset kernel after the wildcard/equality/literal fast paths |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
@@ -860,6 +886,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_del
 # Deputy-validated claim promotion into engine evaluation (9 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy_handoff.rs
 
+# Capability grant-coverage path/domain restriction gate (10 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_coverage.rs
+
 # Engine capability-token holder/issuer/depth guards (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_context.rs
 
@@ -926,6 +955,7 @@ verus formal/verus/verified_context_delegation.rs
 verus formal/verus/verified_bridge_principal.rs
 verus formal/verus/verified_delegation_projection.rs
 verus formal/verus/verified_deputy_handoff.rs
+verus formal/verus/verified_capability_coverage.rs
 verus formal/verus/verified_capability_context.rs
 verus formal/verus/verified_capability_glob.rs
 verus formal/verus/verified_capability_glob_subset.rs
@@ -957,6 +987,7 @@ Expected output:
 - `verified_bridge_principal.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_delegation_projection.rs`: `verification results:: 7 verified, 0 errors`
 - `verified_deputy_handoff.rs`: `verification results:: 9 verified, 0 errors`
+- `verified_capability_coverage.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_context.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_capability_glob_subset.rs`: `verification results:: 11 verified, 0 errors`
