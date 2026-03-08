@@ -926,6 +926,99 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
         }
     }
 
+    // SECURITY (R246-RELAY-5): Scan result.contents[] — MCP resources/read responses.
+    // The MCP spec uses "contents" (not "content") for resource read results.
+    // Without this, resource read responses bypass DLP scanning entirely.
+    if findings.len() < MAX_DLP_FINDINGS {
+        if let Some(contents) = response
+            .get("result")
+            .and_then(|r| r.get("contents"))
+            .and_then(|c| c.as_array())
+        {
+            for (i, item) in contents
+                .iter()
+                .take(MAX_RESPONSE_CONTENT_ITEMS)
+                .enumerate()
+            {
+                if findings.len() >= MAX_DLP_FINDINGS {
+                    break;
+                }
+                // contents[].text — the primary content field
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    scan_string_for_secrets(
+                        text,
+                        &format!("result.contents[{i}].text"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].blob — base64-encoded binary content
+                if let Some(blob) = item.get("blob").and_then(|b| b.as_str()) {
+                    if let Some(decoded) = try_base64_decode(blob) {
+                        scan_string_for_secrets(
+                            &decoded,
+                            &format!("result.contents[{i}].blob(decoded)"),
+                            regexes,
+                            &mut findings,
+                        );
+                    }
+                    scan_string_for_secrets(
+                        blob,
+                        &format!("result.contents[{i}].blob"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].uri — could contain exfiltrated secrets
+                if let Some(uri) = item.get("uri").and_then(|u| u.as_str()) {
+                    scan_string_for_secrets(
+                        uri,
+                        &format!("result.contents[{i}].uri"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].name — metadata field
+                if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
+                    scan_string_for_secrets(
+                        name,
+                        &format!("result.contents[{i}].name"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].description — metadata field
+                if let Some(desc) = item.get("description").and_then(|d| d.as_str()) {
+                    scan_string_for_secrets(
+                        desc,
+                        &format!("result.contents[{i}].description"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].mimeType — metadata field (unlikely but defensive)
+                if let Some(mime) = item.get("mimeType").and_then(|m| m.as_str()) {
+                    scan_string_for_secrets(
+                        mime,
+                        &format!("result.contents[{i}].mimeType"),
+                        regexes,
+                        &mut findings,
+                    );
+                }
+                // contents[].annotations
+                if let Some(annotations) = item.get("annotations") {
+                    scan_value_for_secrets(
+                        annotations,
+                        &format!("result.contents[{i}].annotations"),
+                        regexes,
+                        &mut findings,
+                        0,
+                    );
+                }
+            }
+        }
+    }
+
     // SECURITY (R32-PROXY-3): Scan instructionsForUser — this MCP 2025-06-18 field
     // is displayed to the user and could contain exfiltrated secrets.
     // SECURITY (FIND-R172-001): Check findings cap before each scan block.
@@ -1763,6 +1856,83 @@ mod tests {
                 .any(|f| f.location.contains("resource.text")),
             "Finding location must indicate resource.text. Got: {}",
             findings_summary(&findings)
+        );
+    }
+
+    /// R246-RELAY-5: DLP must scan result.contents[] (resource read responses).
+    /// MCP resources/read uses "contents" (not "content").
+    #[test]
+    fn test_response_dlp_detects_secret_in_resource_read_contents_text() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "contents": [{
+                    "uri": "file:///etc/credentials",
+                    "mimeType": "text/plain",
+                    "text": "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "DLP must scan result.contents[].text for secrets"
+        );
+        assert!(
+            findings.iter().any(|f| f.location.contains("result.contents")),
+            "Finding location must indicate result.contents"
+        );
+    }
+
+    /// R246-RELAY-5: DLP must scan metadata fields (name, description) in
+    /// resource read responses. A malicious server can embed secrets there.
+    #[test]
+    fn test_response_dlp_detects_secret_in_resource_read_metadata() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "contents": [{
+                    "uri": "file:///tmp/report.txt",
+                    "name": "AKIAIOSFODNN7EXAMPLE",
+                    "description": "A safe file",
+                    "text": "nothing here"
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "DLP must scan result.contents[].name for secrets"
+        );
+        assert!(
+            findings.iter().any(|f| f.location.contains("name")),
+            "Finding location must indicate name field"
+        );
+    }
+
+    /// R246-RELAY-5: DLP must scan blob field in resource read responses.
+    #[test]
+    fn test_response_dlp_detects_secret_in_resource_read_blob() {
+        use base64::Engine;
+        let secret = "AKIAIOSFODNN7EXAMPLE";
+        let blob = base64::engine::general_purpose::STANDARD.encode(secret);
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "contents": [{
+                    "uri": "file:///data.bin",
+                    "mimeType": "application/octet-stream",
+                    "blob": blob
+                }]
+            }
+        });
+        let findings = scan_response_for_secrets(&response);
+        assert!(
+            !findings.is_empty(),
+            "DLP must scan result.contents[].blob for secrets"
         );
     }
 

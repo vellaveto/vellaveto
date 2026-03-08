@@ -315,6 +315,49 @@ where
         }
     }
 
+    // SECURITY (R246-RELAY-5): result.contents[] — MCP resources/read responses.
+    // The MCP spec uses "contents" (not "content") for resource read results.
+    // Without this, resource read responses bypass injection scanning entirely.
+    if let Some(contents) = response
+        .get("result")
+        .and_then(|r| r.get("contents"))
+        .and_then(|c| c.as_array())
+    {
+        for (i, item) in contents.iter().enumerate() {
+            // contents[].text
+            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                callback(&format!("result.contents[{i}].text"), text);
+            }
+            // contents[].blob (base64)
+            if let Some(blob) = item.get("blob").and_then(|b| b.as_str()) {
+                if let Some(decoded) = super::util::try_base64_decode(blob) {
+                    callback(&format!("result.contents[{i}].blob"), &decoded);
+                }
+            }
+            // contents[].uri — could contain exfiltrated data
+            if let Some(uri) = item.get("uri").and_then(|u| u.as_str()) {
+                callback(&format!("result.contents[{i}].uri"), uri);
+            }
+            // contents[].name — metadata field
+            if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
+                callback(&format!("result.contents[{i}].name"), name);
+            }
+            // contents[].description — metadata field
+            if let Some(desc) = item.get("description").and_then(|d| d.as_str()) {
+                callback(&format!("result.contents[{i}].description"), desc);
+            }
+            // contents[].mimeType — metadata field
+            if let Some(mime) = item.get("mimeType").and_then(|m| m.as_str()) {
+                callback(&format!("result.contents[{i}].mimeType"), mime);
+            }
+            // contents[].annotations
+            if let Some(annotations) = item.get("annotations") {
+                let raw = annotations.to_string();
+                callback(&format!("result.contents[{i}].annotations"), &raw);
+            }
+        }
+    }
+
     // result.structuredContent
     if let Some(structured) = response
         .get("result")
@@ -619,5 +662,38 @@ mod tests {
         assert_eq!(strings.len(), 1);
         assert_eq!(strings[0].1, "value");
         assert!(!strings.iter().any(|(_, s)| s == "malicious_key"));
+    }
+
+    /// R246-RELAY-5: extract_response_text must cover result.contents[] (resource read).
+    #[test]
+    fn test_extract_response_text_covers_resource_read_contents() {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "contents": [{
+                    "uri": "file:///etc/passwd",
+                    "name": "passwd",
+                    "description": "System password file",
+                    "mimeType": "text/plain",
+                    "text": "root:x:0:0:root"
+                }]
+            }
+        });
+        let mut extracted = Vec::new();
+        extract_response_text(&response, &mut |location, text| {
+            extracted.push((location.to_string(), text.to_string()));
+        });
+        let locations: Vec<&str> = extracted.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(locations.iter().any(|l| l.contains("contents[0].text")),
+            "Must extract text from result.contents[]. Got: {locations:?}");
+        assert!(locations.iter().any(|l| l.contains("contents[0].uri")),
+            "Must extract uri from result.contents[]. Got: {locations:?}");
+        assert!(locations.iter().any(|l| l.contains("contents[0].name")),
+            "Must extract name from result.contents[]. Got: {locations:?}");
+        assert!(locations.iter().any(|l| l.contains("contents[0].description")),
+            "Must extract description from result.contents[]. Got: {locations:?}");
+        assert!(locations.iter().any(|l| l.contains("contents[0].mimeType")),
+            "Must extract mimeType from result.contents[]. Got: {locations:?}");
     }
 }
