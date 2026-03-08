@@ -75,6 +75,9 @@ VERUS_CORE="$PROJECT_DIR/formal/verus/verified_core.rs"
 PROD_CONSTRAINT="$PROJECT_DIR/vellaveto-engine/src/verified_constraint_eval.rs"
 PROD_CONSTRAINT_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/constraint_eval.rs"
 VERUS_CONSTRAINT="$PROJECT_DIR/formal/verus/verified_constraint_eval.rs"
+PROD_DEPUTY="$PROJECT_DIR/vellaveto-engine/src/verified_deputy.rs"
+PROD_DEPUTY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/deputy.rs"
+VERUS_DEPUTY="$PROJECT_DIR/formal/verus/verified_deputy.rs"
 PROD_AUDIT_APPEND="$PROJECT_DIR/vellaveto-audit/src/verified_audit_append.rs"
 PROD_AUDIT_CHAIN="$PROJECT_DIR/vellaveto-audit/src/verified_audit_chain.rs"
 PROD_AUDIT_APPEND_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/logger.rs"
@@ -87,12 +90,14 @@ PROD_MERKLE_WRAPPER="$PROJECT_DIR/vellaveto-audit/src/merkle.rs"
 PROD_ROTATION_MANIFEST="$PROJECT_DIR/vellaveto-audit/src/verified_rotation_manifest.rs"
 PROD_CAPABILITY_ATTENUATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_attenuation.rs"
 PROD_CAPABILITY_GLOB="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob.rs"
+PROD_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_glob_subset.rs"
 PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.rs"
 PROD_CAPABILITY_IDENTITY="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_identity.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 PROD_NHI="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_delegation.rs"
+PROD_NHI_GRAPH="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_graph.rs"
 PROD_NHI_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/nhi.rs"
 VERUS_AUDIT_CHAIN="$PROJECT_DIR/formal/verus/verified_audit_chain.rs"
 VERUS_AUDIT_APPEND="$PROJECT_DIR/formal/verus/verified_audit_append.rs"
@@ -102,11 +107,13 @@ VERUS_MERKLE_PATH="$PROJECT_DIR/formal/verus/verified_merkle_path.rs"
 VERUS_ROTATION_MANIFEST="$PROJECT_DIR/formal/verus/verified_rotation_manifest.rs"
 VERUS_CAPABILITY_ATTENUATION="$PROJECT_DIR/formal/verus/verified_capability_attenuation.rs"
 VERUS_CAPABILITY_GLOB="$PROJECT_DIR/formal/verus/verified_capability_glob.rs"
+VERUS_CAPABILITY_GLOB_SUBSET="$PROJECT_DIR/formal/verus/verified_capability_glob_subset.rs"
 VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_IDENTITY="$PROJECT_DIR/formal/verus/verified_capability_identity.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
 VERUS_NHI="$PROJECT_DIR/formal/verus/verified_nhi_delegation.rs"
+VERUS_NHI_GRAPH="$PROJECT_DIR/formal/verus/verified_nhi_graph.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
 PROD_ENTROPY_WRAPPER="$PROJECT_DIR/vellaveto-engine/src/entropy_gate.rs"
 VERUS_ENTROPY="$PROJECT_DIR/formal/verus/verified_entropy_gate.rs"
@@ -138,6 +145,7 @@ for module in \
     verified_rotation_manifest \
     verified_capability_attenuation \
     verified_capability_glob \
+    verified_capability_glob_subset \
     verified_capability_grant \
     verified_capability_identity \
     verified_capability_literal \
@@ -145,8 +153,10 @@ for module in \
     verified_constraint_eval \
     verified_cross_call_dlp \
     verified_core \
+    verified_deputy \
     verified_entropy_gate \
     verified_nhi_delegation \
+    verified_nhi_graph \
     verified_dlp_core \
     verified_path \
     verified_refinement_safety
@@ -201,6 +211,57 @@ check_symbol_parity \
     'verified_constraint_eval::no_match_verdict' \
     "$VERUS_CONSTRAINT" \
     'pub[[:space:]]+fn[[:space:]]+no_match_verdict'
+echo ""
+
+echo "--- Deputy Delegation Kernel ---"
+check_file_pair \
+    "verified_deputy.rs ↔ vellaveto-engine/src/verified_deputy.rs" \
+    "$PROD_DEPUTY" \
+    "$VERUS_DEPUTY"
+for fn in next_delegation_depth delegation_depth_within_limit redelegation_chain_principal_valid redelegation_tool_allowed delegated_principal_matches delegated_tool_allowed; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_DEPUTY" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_DEPUTY" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "deputy register_delegation uses verified depth increment" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::next_delegation_depth' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+next_delegation_depth'
+check_symbol_parity \
+    "deputy register_delegation uses verified depth-limit guard" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::delegation_depth_within_limit' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_depth_within_limit'
+check_symbol_parity \
+    "deputy register_delegation uses verified chain-principal guard" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::redelegation_chain_principal_valid' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+redelegation_chain_principal_valid'
+check_symbol_parity \
+    "deputy register_delegation uses verified child-tool scope guard" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::redelegation_tool_allowed' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+redelegation_tool_allowed'
+check_symbol_parity \
+    "deputy validate_action uses verified delegate-match guard" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::delegated_principal_matches' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+delegated_principal_matches'
+check_symbol_parity \
+    "deputy validate_action uses verified tool-allowance guard" \
+    "$PROD_DEPUTY_WRAPPER" \
+    'verified_deputy::delegated_tool_allowed' \
+    "$VERUS_DEPUTY" \
+    'pub[[:space:]]+fn[[:space:]]+delegated_tool_allowed'
 echo ""
 
 echo "--- Audit Append Kernel ---"
@@ -497,6 +558,27 @@ check_symbol_parity \
     'pub[[:space:]]+fn[[:space:]]+literal_child_matches_parent_glob'
 echo ""
 
+echo "--- Capability Glob-Subset Kernel ---"
+check_file_pair \
+    "verified_capability_glob_subset.rs ↔ vellaveto-mcp/src/verified_capability_glob_subset.rs" \
+    "$PROD_CAPABILITY_GLOB_SUBSET" \
+    "$VERUS_CAPABILITY_GLOB_SUBSET"
+for fn in glob_subset_accepting_counterexample glob_subset_fast_path representative_other_byte_needed; do
+    check_symbol_parity \
+        "$fn exists in the Verus subset-kernel model" \
+        "$VERUS_CAPABILITY_GLOB_SUBSET" \
+        "pub[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_GLOB_SUBSET" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability subset uses verified child-glob subset kernel" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_glob_subset::glob_pattern_subset' \
+    "$VERUS_CAPABILITY_GLOB_SUBSET" \
+    'pub[[:space:]]+fn[[:space:]]+glob_subset_fast_path'
+echo ""
+
 echo "--- Capability Grant Kernel ---"
 check_file_pair \
     "verified_capability_grant.rs ↔ vellaveto-mcp/src/verified_capability_grant.rs" \
@@ -661,6 +743,33 @@ check_symbol_parity \
     'verified_nhi_delegation::delegation_chain_depth_exceeded' \
     "$VERUS_NHI" \
     'pub[[:space:]]+fn[[:space:]]+delegation_chain_depth_exceeded'
+echo ""
+
+echo "--- NHI Delegation Graph Kernel ---"
+check_file_pair \
+    "verified_nhi_graph.rs ↔ vellaveto-mcp/src/verified_nhi_graph.rs" \
+    "$PROD_NHI_GRAPH" \
+    "$VERUS_NHI_GRAPH"
+for fn in delegation_link_effective_for_successor delegation_edge_preserves_acyclicity; do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_NHI_GRAPH" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_NHI_GRAPH" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "NHI create_delegation uses verified successor-link guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_graph::delegation_link_effective_for_successor' \
+    "$VERUS_NHI_GRAPH" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_link_effective_for_successor'
+check_symbol_parity \
+    "NHI create_delegation uses verified cycle-preservation guard" \
+    "$PROD_NHI_WRAPPER" \
+    'verified_nhi_graph::delegation_edge_preserves_acyclicity' \
+    "$VERUS_NHI_GRAPH" \
+    'pub[[:space:]]+fn[[:space:]]+delegation_edge_preserves_acyclicity'
 echo ""
 
 echo "--- Cross-Call DLP Tracker Gate ---"

@@ -14,6 +14,8 @@ mod verified_rotation_manifest;
 mod verified_capability_attenuation;
 #[path = "../verified_capability_glob.rs"]
 mod verified_capability_glob;
+#[path = "../verified_capability_glob_subset.rs"]
+mod verified_capability_glob_subset;
 #[path = "../verified_capability_grant.rs"]
 mod verified_capability_grant;
 #[path = "../verified_capability_identity.rs"]
@@ -28,10 +30,14 @@ mod verified_constraint_eval;
 mod verified_cross_call_dlp;
 #[path = "../verified_core.rs"]
 mod verified_core;
+#[path = "../verified_deputy.rs"]
+mod verified_deputy;
 #[path = "../verified_entropy_gate.rs"]
 mod verified_entropy_gate;
 #[path = "../verified_nhi_delegation.rs"]
 mod verified_nhi_delegation;
+#[path = "../verified_nhi_graph.rs"]
+mod verified_nhi_graph;
 #[path = "../verified_dlp_core.rs"]
 mod verified_dlp_core;
 #[path = "../verified_path.rs"]

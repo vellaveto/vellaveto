@@ -29,9 +29,27 @@
 //! - `normalize_path_for_grant` ↔ `vellaveto-mcp/src/capability_token.rs:459-482`
 //! - `grant_is_subset` ↔ `vellaveto-mcp/src/capability_token.rs:598-696`
 
+use std::collections::{HashSet, VecDeque};
+
+const ASCII_CASE_OFFSET: u8 = b'a' - b'A';
+const STAR: u8 = b'*';
+const QUESTION: u8 = b'?';
+
 /// Return true when the pattern contains capability delegation metacharacters.
 pub fn has_glob_metacharacters(pattern: &str) -> bool {
     pattern.as_bytes().iter().any(|b| *b == b'*' || *b == b'?')
+}
+
+pub fn ascii_fold_byte(byte: u8) -> u8 {
+    if byte.is_ascii_uppercase() {
+        byte + ASCII_CASE_OFFSET
+    } else {
+        byte
+    }
+}
+
+pub fn byte_eq_ignore_ascii_case(left: u8, right: u8) -> bool {
+    ascii_fold_byte(left) == ascii_fold_byte(right)
 }
 
 /// Literal-only fast path from production `pattern_matches`.
@@ -110,6 +128,117 @@ pub fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
     pi == pattern.len()
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct PatternStateSet {
+    bits: Vec<u64>,
+}
+
+impl PatternStateSet {
+    fn new(state_count: usize) -> Self {
+        Self {
+            bits: vec![0; state_count.div_ceil(64)],
+        }
+    }
+
+    fn set(&mut self, index: usize) {
+        self.bits[index / 64] |= 1u64 << (index % 64);
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        (self.bits[index / 64] & (1u64 << (index % 64))) != 0
+    }
+
+    fn apply_star_epsilon_closure(&mut self, pattern: &[u8]) {
+        for index in 0..pattern.len() {
+            if self.contains(index) && pattern[index] == STAR {
+                self.set(index + 1);
+            }
+        }
+    }
+
+    fn start(pattern: &[u8]) -> Self {
+        let mut state_set = Self::new(pattern.len() + 1);
+        state_set.set(0);
+        state_set.apply_star_epsilon_closure(pattern);
+        state_set
+    }
+
+    fn transition(&self, pattern: &[u8], input: u8) -> Self {
+        let mut next = Self::new(pattern.len() + 1);
+
+        for index in 0..pattern.len() {
+            if !self.contains(index) {
+                continue;
+            }
+
+            let token = pattern[index];
+            if token == STAR {
+                next.set(index);
+            } else if token == QUESTION || byte_eq_ignore_ascii_case(token, input) {
+                next.set(index + 1);
+            }
+        }
+
+        next.apply_star_epsilon_closure(pattern);
+        next
+    }
+
+    fn accepts(&self, pattern: &[u8]) -> bool {
+        self.contains(pattern.len())
+    }
+}
+
+fn collect_representative_bytes(parent_pattern: &[u8], child_pattern: &[u8]) -> Vec<u8> {
+    let mut seen = [false; 256];
+    let mut representatives = Vec::new();
+
+    for &byte in parent_pattern.iter().chain(child_pattern.iter()) {
+        if byte == STAR || byte == QUESTION {
+            continue;
+        }
+
+        let folded = ascii_fold_byte(byte);
+        if !seen[folded as usize] {
+            seen[folded as usize] = true;
+            representatives.push(folded);
+        }
+    }
+
+    if let Some(other) = (u8::MIN..=u8::MAX).find(|byte| !seen[*byte as usize]) {
+        representatives.push(other);
+    }
+
+    representatives
+}
+
+pub fn glob_pattern_subset(parent_pattern: &str, child_pattern: &str) -> bool {
+    let parent = parent_pattern.as_bytes();
+    let child = child_pattern.as_bytes();
+    let representatives = collect_representative_bytes(parent, child);
+
+    let start = (PatternStateSet::start(parent), PatternStateSet::start(child));
+    let mut queue = VecDeque::from([start.clone()]);
+    let mut visited = HashSet::from([start]);
+
+    while let Some((parent_states, child_states)) = queue.pop_front() {
+        if child_states.accepts(child) && !parent_states.accepts(parent) {
+            return false;
+        }
+
+        for &input in &representatives {
+            let next_parent = parent_states.transition(parent, input);
+            let next_child = child_states.transition(child, input);
+            let next = (next_parent.clone(), next_child.clone());
+
+            if visited.insert(next) {
+                queue.push_back((next_parent, next_child));
+            }
+        }
+    }
+
+    true
+}
+
 /// Check if `child` pattern is a subset of `parent` pattern.
 ///
 /// Verbatim from production `pattern_is_subset`.
@@ -118,19 +247,19 @@ pub fn pattern_is_subset(parent: &str, child: &str) -> bool {
     let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
     let child_has_metacharacters = has_glob_metacharacters(child);
 
-    if !pattern_subset_guard(
+    if pattern_subset_guard(
         parent_is_wildcard,
         parent_equals_child_ignore_ascii_case,
         child_has_metacharacters,
     ) {
-        return false;
+        if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+            return true;
+        }
+
+        return literal_child_pattern_subset(child_has_metacharacters, pattern_matches(parent, child));
     }
 
-    if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
-        return true;
-    }
-
-    literal_child_pattern_subset(child_has_metacharacters, pattern_matches(parent, child))
+    glob_pattern_subset(parent, child)
 }
 
 /// Pattern matching helper (delegates to glob_match for glob patterns,
@@ -333,7 +462,8 @@ mod tests {
     fn test_pattern_is_subset() {
         assert!(pattern_is_subset("*", "anything"));
         assert!(pattern_is_subset("fi*", "file"));
-        assert!(!pattern_is_subset("fi*", "f*")); // child is glob, rejected
+        assert!(pattern_is_subset("file_*", "file_read*"));
+        assert!(!pattern_is_subset("fi?", "fi*"));
         assert!(pattern_is_subset("file", "file"));
     }
 
@@ -350,6 +480,13 @@ mod tests {
         assert!(pattern_subset_guard(false, true, true));
         assert!(pattern_subset_guard(false, false, false));
         assert!(!pattern_subset_guard(false, false, true));
+    }
+
+    #[test]
+    fn test_glob_pattern_subset() {
+        assert!(glob_pattern_subset("file_*", "file_read*"));
+        assert!(glob_pattern_subset("report_*", "report_??"));
+        assert!(!glob_pattern_subset("fi?", "fi*"));
     }
 
     #[test]

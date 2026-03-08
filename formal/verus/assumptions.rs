@@ -105,6 +105,10 @@ pub open spec fn path_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn deputy_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn capability_attenuation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
@@ -114,6 +118,10 @@ pub open spec fn capability_grant_kernel_assumptions_registered() -> bool {
 }
 
 pub open spec fn capability_glob_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn capability_glob_subset_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
@@ -130,6 +138,10 @@ pub open spec fn capability_pattern_kernel_assumptions_registered() -> bool {
 }
 
 pub open spec fn nhi_delegation_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
+pub open spec fn nhi_graph_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 

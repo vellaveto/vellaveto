@@ -21,6 +21,7 @@
 use crate::accountability;
 use crate::did_plc;
 use crate::verified_nhi_delegation;
+use crate::verified_nhi_graph;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -91,6 +92,44 @@ pub struct NhiManager {
 // vellaveto-types::uri_util to eliminate divergence risk between oauth.rs
 // and nhi.rs copies.
 use vellaveto_types::uri_util::normalize_dpop_htu;
+
+fn live_delegation_path_exists(
+    delegations: &HashMap<(String, String), NhiDelegationLink>,
+    start_agent: &str,
+    target_agent: &str,
+    now: &chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let mut frontier = VecDeque::from([start_agent.to_string()]);
+    let mut visited = HashSet::from([start_agent.to_string()]);
+
+    while let Some(current) = frontier.pop_front() {
+        for link in delegations.values() {
+            let (expiry_parsed, now_before_expiry) =
+                chrono::DateTime::parse_from_rfc3339(&link.expires_at)
+                    .map(|exp| (true, *now < exp))
+                    .unwrap_or((false, false));
+
+            if !verified_nhi_graph::delegation_link_effective_for_successor(
+                link.from_agent == current,
+                link.active,
+                expiry_parsed,
+                now_before_expiry,
+            ) {
+                continue;
+            }
+
+            if link.to_agent == target_agent {
+                return true;
+            }
+
+            if visited.insert(link.to_agent.clone()) {
+                frontier.push_back(link.to_agent.clone());
+            }
+        }
+    }
+
+    false
+}
 
 impl NhiManager {
     /// Create a new NHI manager with the given configuration.
@@ -947,6 +986,15 @@ impl NhiManager {
         }
 
         let now = chrono::Utc::now();
+        let closes_live_cycle =
+            live_delegation_path_exists(&delegations, to_agent, from_agent, &now);
+        if !verified_nhi_graph::delegation_edge_preserves_acyclicity(closes_live_cycle) {
+            return Err(NhiError::DelegationCycleDetected {
+                from: from_agent.to_string(),
+                to: to_agent.to_string(),
+            });
+        }
+
         let expires_at = now + chrono::Duration::seconds(ttl_secs as i64);
 
         let link = NhiDelegationLink {
@@ -2304,6 +2352,8 @@ pub enum NhiError {
         agent_id: String,
         status: NhiIdentityStatus,
     },
+    /// SECURITY: The requested delegation edge would create a live cycle.
+    DelegationCycleDetected { from: String, to: String },
     /// SECURITY (FIND-R115-025): Input validation failure.
     InputValidation(String),
     /// SECURITY (FIND-R126-005): Structural validation failure from NhiAgentIdentity::validate().
@@ -2356,6 +2406,12 @@ impl std::fmt::Display for NhiError {
                 write!(
                     f,
                     "Agent '{agent_id}' is in terminal state '{status}' and cannot participate in delegation"
+                )
+            }
+            NhiError::DelegationCycleDetected { from, to } => {
+                write!(
+                    f,
+                    "Delegation '{from} -> {to}' would create a live delegation cycle"
                 )
             }
             NhiError::InputValidation(msg) => {
@@ -3513,6 +3569,287 @@ mod tests {
         assert!(
             result.is_ok(),
             "Delegation between two active agents should succeed: {result:?}"
+        );
+    }
+
+    /// SECURITY: Creating a reverse edge over an existing live delegation must
+    /// be rejected to preserve an acyclic delegation graph.
+    #[tokio::test]
+    async fn test_create_delegation_rejects_direct_live_cycle() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Cycle-A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Cycle-B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(
+                &agent_b,
+                &agent_a,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::DelegationCycleDetected { .. })),
+            "reverse live edge must be rejected, got: {result:?}"
+        );
+    }
+
+    /// SECURITY: Multi-hop live back-paths must also be rejected to preserve
+    /// transitive acyclicity.
+    #[tokio::test]
+    async fn test_create_delegation_rejects_multi_hop_live_cycle() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Cycle-Chain-A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Cycle-Chain-B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_c = manager
+            .register_identity(
+                "Cycle-Chain-C",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+        manager
+            .create_delegation(
+                &agent_b,
+                &agent_c,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let result = manager
+            .create_delegation(
+                &agent_c,
+                &agent_a,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(NhiError::DelegationCycleDetected { .. })),
+            "multi-hop live cycle must be rejected, got: {result:?}"
+        );
+    }
+
+    /// SECURITY: Inactive links must not block safe reuse of the edge
+    /// direction, because they are not live delegation paths anymore.
+    #[tokio::test]
+    async fn test_create_delegation_allows_reverse_edge_after_revocation() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Revoked-Cycle-A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Revoked-Cycle-B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+        manager.revoke_delegation(&agent_a, &agent_b).await.unwrap();
+
+        let result = manager
+            .create_delegation(
+                &agent_b,
+                &agent_a,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "inactive reverse edge should be allowed, got: {result:?}"
+        );
+    }
+
+    /// SECURITY: Expired links must not block safe reuse of the edge
+    /// direction, because they are not live delegation paths anymore.
+    #[tokio::test]
+    async fn test_create_delegation_allows_reverse_edge_after_expiry() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Expired-Cycle-A",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Expired-Cycle-B",
+                NhiAttestationType::Jwt,
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await
+            .unwrap();
+
+        {
+            let mut delegations = manager.delegations.write().await;
+            let link = delegations
+                .get_mut(&(agent_a.clone(), agent_b.clone()))
+                .unwrap();
+            link.expires_at = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        }
+
+        let result = manager
+            .create_delegation(
+                &agent_b,
+                &agent_a,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "expired reverse edge should be allowed, got: {result:?}"
         );
     }
 

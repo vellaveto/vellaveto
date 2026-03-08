@@ -36,6 +36,7 @@
 //! assert!(result.is_ok());
 //! ```
 
+use crate::verified_deputy;
 use crate::PatternMatcher;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -250,14 +251,15 @@ impl DeputyValidator {
         })?;
 
         // Get current context if exists
+        let normalized_from = crate::normalize::normalize_full(&from.to_ascii_lowercase());
+        let normalized_to = crate::normalize::normalize_full(&to.to_ascii_lowercase());
         let current_depth = contexts
             .get(session_id)
             .map_or(0, |ctx| ctx.delegation_depth);
 
         // Check depth limit
-        // SECURITY (FIND-R67-SA-001): Use saturating_add to prevent overflow.
-        let new_depth = current_depth.saturating_add(1);
-        if new_depth > self.max_depth {
+        let new_depth = verified_deputy::next_delegation_depth(current_depth);
+        if !verified_deputy::delegation_depth_within_limit(new_depth, self.max_depth) {
             return Err(DeputyError::DelegationDepthExceeded {
                 depth: new_depth,
                 max: self.max_depth,
@@ -267,6 +269,16 @@ impl DeputyValidator {
         // SECURITY (FIND-082): Intersect requested tools with parent's granted scope.
         // Prevents re-delegation from granting tools beyond the parent's authorization.
         let effective_tools = if let Some(parent) = contexts.get(session_id) {
+            if !verified_deputy::redelegation_chain_principal_valid(
+                parent.delegated_to.is_some(),
+                parent.delegated_to.as_deref() == Some(normalized_from.as_str()),
+            ) {
+                return Err(DeputyError::UnauthorizedDelegation {
+                    from: from.to_string(),
+                    to: to.to_string(),
+                });
+            }
+
             if parent.allowed_tools.is_empty() {
                 // Parent has unrestricted access — use child's requested tools
                 allowed_tools.to_vec()
@@ -279,9 +291,13 @@ impl DeputyValidator {
                     .iter()
                     .filter(|t| {
                         let norm_t = crate::normalize::normalize_full(&t.to_ascii_lowercase());
-                        parent.allowed_tools.iter().any(|p| {
+                        let parent_allows_requested_tool = parent.allowed_tools.iter().any(|p| {
                             crate::normalize::normalize_full(&p.to_ascii_lowercase()) == norm_t
-                        })
+                        });
+                        verified_deputy::redelegation_tool_allowed(
+                            false,
+                            parent_allows_requested_tool,
+                        )
                     })
                     .cloned()
                     .collect()
@@ -314,8 +330,8 @@ impl DeputyValidator {
         // Cyrillic/Greek/fullwidth variants of principal names would store differently
         // than they compare, creating an inconsistency that bypasses principal binding.
         let ctx = PrincipalContext {
-            original_principal: crate::normalize::normalize_full(&from.to_ascii_lowercase()),
-            delegated_to: Some(crate::normalize::normalize_full(&to.to_ascii_lowercase())),
+            original_principal: normalized_from,
+            delegated_to: Some(normalized_to),
             delegation_depth: new_depth,
             allowed_tools: effective_tools,
             delegation_expires: None, // Could be set from rule
@@ -387,7 +403,7 @@ impl DeputyValidator {
         if let Some(ref delegate) = ctx.delegated_to {
             let claimed_norm =
                 crate::normalize::normalize_full(&claimed_principal.to_ascii_lowercase());
-            if *delegate != claimed_norm {
+            if !verified_deputy::delegated_principal_matches(*delegate == claimed_norm) {
                 return Err(DeputyError::PrincipalMismatch {
                     expected: delegate.clone(),
                     actual: claimed_principal.to_string(),
@@ -401,12 +417,12 @@ impl DeputyValidator {
         // delegation tool restrictions.
         if !ctx.allowed_tools.is_empty() {
             let tool_norm = crate::normalize::normalize_full(&tool.to_ascii_lowercase());
-            let allowed = ctx
+            let requested_tool_found = ctx
                 .allowed_tools
                 .iter()
                 .any(|t| crate::normalize::normalize_full(&t.to_ascii_lowercase()) == tool_norm);
 
-            if !allowed {
+            if !verified_deputy::delegated_tool_allowed(false, requested_tool_found) {
                 return Err(DeputyError::ToolNotInDelegation {
                     tool: tool.to_string(),
                 });
@@ -465,9 +481,12 @@ impl DeputyValidator {
         // to prevent Cyrillic/Greek/fullwidth characters from bypassing
         // delegation tool restrictions.
         let tool_norm = crate::normalize::normalize_full(&tool.to_ascii_lowercase());
-        ctx.allowed_tools
+        let requested_tool_found = ctx
+            .allowed_tools
             .iter()
-            .any(|t| crate::normalize::normalize_full(&t.to_ascii_lowercase()) == tool_norm)
+            .any(|t| crate::normalize::normalize_full(&t.to_ascii_lowercase()) == tool_norm);
+
+        verified_deputy::delegated_tool_allowed(false, requested_tool_found)
     }
 
     /// Get the current principal context for a session.
@@ -596,6 +615,50 @@ mod tests {
             result,
             Err(DeputyError::DelegationDepthExceeded { .. })
         ));
+    }
+
+    #[test]
+    fn test_redelegation_requires_parent_delegate_continuity() {
+        let validator = DeputyValidator::new(3);
+
+        validator
+            .register_delegation("session-1", "admin", "worker-1", &["read_file".to_string()])
+            .unwrap();
+
+        let result = validator.register_delegation(
+            "session-1",
+            "admin",
+            "worker-2",
+            &["read_file".to_string()],
+        );
+
+        assert!(matches!(
+            result,
+            Err(DeputyError::UnauthorizedDelegation { .. })
+        ));
+    }
+
+    #[test]
+    fn test_redelegation_from_current_delegate_is_allowed() {
+        let validator = DeputyValidator::new(3);
+
+        validator
+            .register_delegation("session-1", "admin", "worker-1", &["read_file".to_string()])
+            .unwrap();
+        validator
+            .register_delegation(
+                "session-1",
+                "worker-1",
+                "worker-2",
+                &["read_file".to_string()],
+            )
+            .unwrap();
+
+        let ctx = validator.get_context("session-1").unwrap();
+        assert_eq!(ctx.original_principal, "worker-1");
+        assert_eq!(ctx.delegated_to, Some("worker-2".to_string()));
+        assert_eq!(ctx.delegation_depth, 2);
+        assert_eq!(ctx.allowed_tools, vec!["read_file".to_string()]);
     }
 
     #[test]

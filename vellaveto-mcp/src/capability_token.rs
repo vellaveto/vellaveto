@@ -32,6 +32,7 @@ use vellaveto_types::{
 
 use crate::verified_capability_attenuation;
 use crate::verified_capability_glob;
+use crate::verified_capability_glob_subset;
 use crate::verified_capability_grant;
 use crate::verified_capability_identity;
 use crate::verified_capability_literal;
@@ -641,34 +642,30 @@ fn grant_is_subset(new_grant: &CapabilityGrant, parent_grant: &CapabilityGrant) 
     // matched against the parent glob. But at runtime, child patterns are used as GLOBS.
     // Example: parent "fi?" matches literal "fi*", but at runtime "fi*" is broader than "fi?".
     //
-    // Fix: When the child pattern contains glob metacharacters (* or ?), we must ensure
-    // it is not broader than the parent. The safe rules are:
-    // 1. parent == "*" → any child is subset (parent allows everything)
-    // 2. parent == child → exact match is always safe
-    // 3. child has metacharacters AND differs from parent → reject (potential escalation)
-    // 4. child has no metacharacters → use pattern_matches (literal child under parent glob)
+    // Fix: Keep the wildcard/equality/literal fast paths, and route the
+    // remaining child-glob branch through the exact subset checker.
     fn pattern_is_subset(parent: &str, child: &str) -> bool {
         let parent_is_wildcard = parent == "*";
         let parent_equals_child_ignore_ascii_case = parent.eq_ignore_ascii_case(child);
         let child_has_metacharacters = verified_capability_pattern::has_glob_metacharacters(child);
 
-        if !verified_capability_pattern::pattern_subset_guard(
+        if verified_capability_pattern::pattern_subset_guard(
             parent_is_wildcard,
             parent_equals_child_ignore_ascii_case,
             child_has_metacharacters,
         ) {
-            return false;
+            if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
+                return true;
+            }
+
+            // Child is a literal value — safe to check against parent glob.
+            return verified_capability_literal::literal_child_pattern_subset(
+                child_has_metacharacters,
+                verified_capability_glob::literal_child_matches_parent_glob(parent, child),
+            );
         }
 
-        if parent_is_wildcard || parent_equals_child_ignore_ascii_case {
-            return true;
-        }
-
-        // Child is a literal value — safe to check against parent glob.
-        verified_capability_literal::literal_child_pattern_subset(
-            child_has_metacharacters,
-            verified_capability_glob::literal_child_matches_parent_glob(parent, child),
-        )
+        verified_capability_glob_subset::glob_pattern_subset(parent, child)
     }
 
     // Tool pattern must be subset of parent
@@ -2036,6 +2033,45 @@ mod tests {
         assert!(
             result.is_ok(),
             "FIND-CREATIVE-002: Literal child 'file_read' under parent 'file_*' must succeed: {:?}",
+            result.err()
+        );
+    }
+
+    /// FIND-CREATIVE-002: Narrower child globs should be accepted when their
+    /// language is truly contained within the parent glob language.
+    #[test]
+    fn test_attenuation_allows_narrower_child_glob_subset() {
+        let parent_key_hex = test_key_hex();
+        let child_key_hex = test_key_hex();
+        let parent = issue_capability_token(
+            "root",
+            "agent-a",
+            vec![CapabilityGrant {
+                tool_pattern: "file_*".into(),
+                function_pattern: "read_*".into(),
+                allowed_paths: vec![],
+                allowed_domains: vec![],
+                max_invocations: 0,
+            }],
+            5,
+            &parent_key_hex,
+            3600,
+        )
+        .unwrap();
+
+        let child_grants = vec![CapabilityGrant {
+            tool_pattern: "file_read*".into(),
+            function_pattern: "read_2026*".into(),
+            allowed_paths: vec![],
+            allowed_domains: vec![],
+            max_invocations: 0,
+        }];
+
+        let result =
+            attenuate_capability_token(&parent, "agent-b", child_grants, &child_key_hex, 1800);
+        assert!(
+            result.is_ok(),
+            "Narrower child globs must be accepted by exact subset checking: {:?}",
             result.err()
         );
     }

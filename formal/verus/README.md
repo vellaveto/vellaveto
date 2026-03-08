@@ -6,6 +6,7 @@ audit-chain verification guards, Merkle append/init/proof-shape guards,
 Merkle fold structure, Merkle proof-path structure, cross-rotation
 manifest linkage/path-safety guards, capability attenuation arithmetic,
 capability parent-glob literal-child matching,
+capability exact parent-glob/child-glob subset checking,
 capability grant attenuation, capability literal matching fast paths,
 capability pattern attenuation, capability holder/issuer identity-chain
 guards, NHI delegation terminal-state/participant/link/depth guards,
@@ -302,6 +303,28 @@ Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_question_rejects_empty_child` | `?` cannot consume an empty child suffix |
 | `lemma_literal_mismatch_is_rejected` | A mismatching literal byte cannot be accepted by the parent-glob matcher |
 
+### Capability Glob-Subset Kernel (`verified_capability_glob_subset.rs`) — 11 verified items, CAP-GSUB-1–CAP-GSUB-3
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-GSUB-1 | Accepting-counterexample predicate | The subset search rejects exactly when a child-accepting / parent-rejecting state pair is found |
+| CAP-GSUB-2 | Fast-path routing | Wildcard/equality short-circuit to `true`, literal children route to the literal subset branch, and remaining child-glob cases route to the exact subset branch |
+| CAP-GSUB-3 | Representative “other byte” condition | The representative alphabet model needs an extra “other” byte iff the literal classes do not already cover all 256 byte values |
+
+Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_counterexample_requires_child_acceptance` | A rejecting counterexample must come from a child-accepting / parent-rejecting pair |
+| `lemma_fast_path_accepts_wildcard_or_equality` | Wildcard parents and exact equality always short-circuit to acceptance |
+| `lemma_fast_path_routes_literal_children` | Literal children route to the literal subset result |
+| `lemma_fast_path_routes_child_globs` | Non-identical child globs route to the exact subset result |
+| `lemma_other_byte_needed_below_full_alphabet` | The representative-alphabet model only needs an extra “other” byte below full literal-class coverage |
+
 ### Capability Grant Attenuation (`verified_capability_grant.rs`) — 10 verified items, CAP-GRANT-1–CAP-GRANT-4
 
 Properties proven for ALL possible inputs:
@@ -350,14 +373,14 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_mismatching_literal_child_is_denied` | A mismatching literal child is rejected by the subset fast path |
 | `lemma_child_glob_cannot_use_literal_subset_branch` | A child glob can never be accepted by the literal-child subset branch |
 
-### Capability Pattern Attenuation (`verified_capability_pattern.rs`) — 12 verified items, CAP-PAT-1–CAP-PAT-4
+### Capability Pattern Fast-Path Guard (`verified_capability_pattern.rs`) — 12 verified items, CAP-PAT-1–CAP-PAT-4
 
 Properties proven for ALL possible inputs:
 
 | ID | Property | Meaning |
 |----|----------|---------|
 | CAP-PAT-1 | Metacharacter detection | `has_glob_metacharacters` precisely detects `*` and `?` bytes |
-| CAP-PAT-2 | Non-identical child glob rejection | A child pattern with `*` or `?` is rejected unless the parent is wildcard or the patterns are equal ignoring ASCII case |
+| CAP-PAT-2 | Non-identical child glob bypasses fast path | A differing child glob does not take the wildcard/equality/literal fast path |
 | CAP-PAT-3 | Wildcard/equality fast path | Wildcard parents and identical patterns always pass the guard |
 | CAP-PAT-4 | Literal-child fallthrough | Literal children always fall through to the runtime matcher instead of being rejected by the guard |
 
@@ -367,10 +390,10 @@ Verification result: **12 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 
 | Lemma | What It Proves |
 |-------|---------------|
-| `lemma_non_identical_child_glob_rejected` | A differing child glob is fail-closed |
+| `lemma_non_identical_child_glob_rejected` | A differing child glob cannot be accepted by the fast-path guard |
 | `lemma_wildcard_parent_allows_child_glob` | A wildcard parent cannot be blocked by the guard |
-| `lemma_identical_child_glob_allowed` | Exact equality bypasses the child-glob rejection |
-| `lemma_literal_child_falls_through` | Literal child patterns are not rejected by the guard |
+| `lemma_identical_child_glob_allowed` | Exact equality bypasses the exact-subset branch and stays in the fast path |
+| `lemma_literal_child_falls_through` | Literal child patterns stay in the fast path instead of routing to the exact subset branch |
 | `lemma_accepted_child_glob_requires_wildcard_or_equality` | An accepted child glob must be justified by wildcard parent or equality |
 
 ### Capability Identity-Chain Guards (`verified_capability_identity.rs`) — 11 verified items, CAP-ID-1–CAP-ID-3
@@ -427,6 +450,53 @@ Verification result: **19 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_chain_stops_at_inactive_link` | Chain traversal cannot advance past an inactive link |
 | `lemma_revocation_disconnects_leaf` | Revoking any link disconnects all downstream agents (inductive proof over chain depth) |
 | `lemma_all_active_chain_is_traversable` | An all-active chain is traversable to its full depth (liveness) |
+
+### Deputy Delegation Guards (`verified_deputy.rs`) — 15 verified items, DEPUTY-1–DEPUTY-6
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| DEPUTY-1 | Saturating depth increment | The next delegation depth is `current + 1` unless already at `u8::MAX`, where it saturates |
+| DEPUTY-2 | Strict depth-limit guard | A delegation is allowed iff `new_depth <= max_depth` |
+| DEPUTY-3 | Root delegation has no parent continuity obligation | Sessions without a current delegate may start a delegation chain |
+| DEPUTY-4 | Re-delegation requires parent delegate continuity | Chained delegations are allowed only when the normalized `from` principal equals the current session delegate |
+| DEPUTY-5 | Restricted parent scope blocks missing tools | A child may receive only tools already granted by the parent, unless the parent is unrestricted |
+| DEPUTY-6 | Delegate and tool checks fail closed | Validation passes only when the claimed delegate matches and the requested tool is in scope (or the scope is unrestricted) |
+
+Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_depth_saturates_at_max` | Delegation depth increments from 0 to 1 and saturates at `u8::MAX` |
+| `lemma_depth_limit_is_strict` | Depth at the bound is allowed, depth at bound+1 is rejected |
+| `lemma_root_delegation_has_no_parent_principal_obligation` | First delegation in a session is not blocked by missing parent context |
+| `lemma_redelegation_requires_parent_delegate_match` | Re-delegation with a mismatching parent delegate is always rejected |
+| `lemma_restricted_parent_scope_blocks_missing_tool` | Restricted parents can only re-delegate tools already in scope |
+| `lemma_delegated_principal_and_tool_guards_are_fail_closed` | Mismatching delegates and out-of-scope tools are rejected |
+
+### NHI Delegation Graph Guards (`verified_nhi_graph.rs`) — 9 verified items, NHI-GRAPH-1–NHI-GRAPH-4
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| NHI-GRAPH-1 | Successor-link guard | A forward graph edge is live iff the source agent matches, the link is active, the expiry parsed, and now is before expiry |
+| NHI-GRAPH-2 | Cycle-preservation guard | A new delegation edge is allowed iff no live back-path from delegatee to delegator already exists |
+| NHI-GRAPH-3 | Live back-path closes a cycle | If a live path already leads from delegatee back to delegator, inserting a live edge from delegator to delegatee forms a cycle |
+| NHI-GRAPH-4 | No live back-path preserves acyclicity | In the absence of a live back-path, the extracted insertion guard accepts the new edge |
+
+Verification result: **9 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_inactive_or_unparseable_successor_link_is_not_effective` | Inactive or unparseable-expiry edges are never live successors |
+| `lemma_live_back_path_with_live_inserted_edge_forms_cycle` | A pre-existing live back-path plus a new live edge creates a delegation cycle |
+| `lemma_no_live_back_path_preserves_acyclicity` | No live back-path means the cycle guard admits the insertion |
 
 ### Safety-Critical Refinement (`verified_refinement_safety.rs`) — 16 verified items
 
@@ -572,11 +642,14 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_rotation_manifest.rs` | `vellaveto-audit/src/verified_rotation_manifest.rs` | `rotation.rs` routes cross-rotation start-hash linkage, rotated filename safety, and the missing-file prune boundary through the verified manifest kernel |
 | `formal/verus/verified_capability_attenuation.rs` | `vellaveto-mcp/src/verified_capability_attenuation.rs` | `capability_token.rs` routes remaining-depth decrement and expiry clamping through the verified arithmetic gate |
 | `formal/verus/verified_capability_glob.rs` | `vellaveto-mcp/src/verified_capability_glob.rs` | `capability_token.rs` routes the literal-child parent-glob subset branch through the verified recursive matcher |
+| `formal/verus/verified_capability_glob_subset.rs` | `vellaveto-mcp/src/verified_capability_glob_subset.rs` | `capability_token.rs` routes the remaining child-glob branch through the exact subset kernel after the wildcard/equality/literal fast paths |
 | `formal/verus/verified_capability_grant.rs` | `vellaveto-mcp/src/verified_capability_grant.rs` | `capability_token.rs` routes required restriction-shape and `max_invocations` attenuation through the verified grant gate |
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
-| `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes child-glob metacharacter rejection through the verified pattern guard |
+| `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes wildcard/equality/literal-child fast-path selection through the verified pattern guard |
 | `formal/verus/verified_capability_identity.rs` | `vellaveto-mcp/src/verified_capability_identity.rs` | `capability_token.rs` routes self-delegation rejection, delegated-child issuer-link validation, and holder-expectation checks through the verified identity-chain gate |
+| `formal/verus/verified_deputy.rs` | `vellaveto-engine/src/verified_deputy.rs` | `deputy.rs` routes re-delegation depth, parent continuity, child tool-scope, delegate match, and tool-allowance checks through the verified deputy gate |
 | `formal/verus/verified_nhi_delegation.rs` | `vellaveto-mcp/src/verified_nhi_delegation.rs` | `nhi.rs` routes terminal-state detection, delegation participant guards, link-effective checks, and chain-depth bounds through the verified NHI delegation gate |
+| `formal/verus/verified_nhi_graph.rs` | `vellaveto-mcp/src/verified_nhi_graph.rs` | `nhi.rs` routes live successor-edge traversal and cycle-free edge insertion through the verified NHI graph gate |
 | `formal/verus/verified_entropy_gate.rs` | `vellaveto-engine/src/verified_entropy_gate.rs` | `entropy_gate.rs` converts `f64` telemetry to millibits, then `collusion.rs` uses the verified integer gate |
 | `formal/verus/verified_cross_call_dlp.rs` | `vellaveto-mcp/src/inspection/verified_cross_call_dlp.rs` | `cross_call_dlp.rs` routes the synthetic capacity finding and overlap-buffer update decision through the verified gate |
 | `formal/verus/verified_dlp_core.rs` | `vellaveto-mcp/src/inspection/verified_dlp_core.rs` | Called by `CrossCallDlpTracker::update_buffer()` |
@@ -636,20 +709,29 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Capability parent-glob literal-child matcher (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_glob.rs
 
+# Capability exact parent-glob/child-glob subset boundary (11 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_glob_subset.rs
+
 # Capability grant restriction/invocation kernel (10 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_grant.rs
 
 # Capability literal fast paths (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_literal.rs
 
-# Capability child-glob rejection guard (12 verified)
+# Capability subset fast-path guard (12 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_pattern.rs
 
 # Capability holder/issuer identity-chain guards (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_identity.rs
 
-# NHI delegation terminal-state/participant/link/depth guards (14 verified)
+# Deputy chain continuity/depth/tool guards (15 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy.rs
+
+# NHI delegation terminal-state/participant/link/depth guards (19 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_nhi_delegation.rs
+
+# NHI delegation live-successor/cycle-free insertion guards (9 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_nhi_graph.rs
 
 # Constraint evaluation fail-closed control flow (14 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_constraint_eval.rs
@@ -681,11 +763,14 @@ verus formal/verus/verified_merkle_path.rs
 verus formal/verus/verified_rotation_manifest.rs
 verus formal/verus/verified_capability_attenuation.rs
 verus formal/verus/verified_capability_glob.rs
+verus formal/verus/verified_capability_glob_subset.rs
 verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
 verus formal/verus/verified_capability_pattern.rs
 verus formal/verus/verified_capability_identity.rs
+verus formal/verus/verified_deputy.rs
 verus formal/verus/verified_nhi_delegation.rs
+verus formal/verus/verified_nhi_graph.rs
 verus formal/verus/verified_constraint_eval.rs
 verus formal/verus/verified_core.rs
 verus formal/verus/verified_entropy_gate.rs
@@ -703,11 +788,14 @@ Expected output:
 - `verified_rotation_manifest.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_capability_attenuation.rs`: `verification results:: 13 verified, 0 errors`
 - `verified_capability_glob.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_capability_glob_subset.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_grant.rs`: `verification results:: 10 verified, 0 errors`
 - `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_identity.rs`: `verification results:: 11 verified, 0 errors`
-- `verified_nhi_delegation.rs`: `verification results:: 14 verified, 0 errors`
+- `verified_deputy.rs`: `verification results:: 15 verified, 0 errors`
+- `verified_nhi_delegation.rs`: `verification results:: 19 verified, 0 errors`
+- `verified_nhi_graph.rs`: `verification results:: 9 verified, 0 errors`
 - `verified_constraint_eval.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_core.rs`: `verification results:: 14 verified, 0 errors`
 - `verified_entropy_gate.rs`: `verification results:: 13 verified, 0 errors`
