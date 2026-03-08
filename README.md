@@ -1,6 +1,6 @@
 <div align="center">
   <br>
-  <img src="vellaveto_brandkit/docs/readme-header.png" alt="VellaVeto — Agentic Security Control Plane" width="720">
+  <img src="docs/readme-header.png" alt="VellaVeto — Agentic Security Control Plane" width="720">
   <br><br>
   <p>
     <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
