@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Gap Analysis — ACIS coverage hardening (Mar 2026):**
+  Expert gap analysis identified 6 gaps across ACIS system; 3 closed:
+  - **Gap 1 (P0 — ACIS test coverage):** 6 server-level tests verifying ACIS
+    envelopes on Allow/Deny/RequireApproval verdicts (fingerprint determinism,
+    decision ID uniqueness, fail-closed empty-policy deny, approval gate origin).
+    5 integration-level tests (serialization roundtrip, audit persistence
+    roundtrip, all 5 transport labels valid, deny reason populated, allow reason
+    empty). Total: 21 ACIS tests across server + integration.
+  - **Gap 3 (P1 — AcisConfig enforcement):** `require_session_id` and
+    `require_agent_identity` wired into `MediationConfig` as Step 0 in the
+    `mediate()` pipeline. Unauthenticated traffic denied with `SessionGuard`
+    origin before DLP/injection scanning runs. 6 enforcement tests.
+  - **Gap 5 (P2 — CLAUDE.md stale counts):** Updated Verus 321→523, total
+    545→747+ across CLAUDE.md.
+  - **Remaining:** Gap 2 (DLP/injection ACIS origin wiring, P1), Gap 4
+    (DecisionOrigin variant coverage, P2), Gap 6 (Kani K26-K77 docs, P3).
+
 ### Fixed
 
 - **R244 adversarial audit — ACIS + formal verification hardening (Mar 2026):**
