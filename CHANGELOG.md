@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `validate()` method (tool/function length+content + target count bounds);
     `AcisDecisionEnvelope::validate()` refactored to delegate to it.
     7 new tests.
+  - **Sprint 2 (1 MEDIUM):**
+    R246-SRV-3 — `retry_after_seconds` removed from JSON response bodies at
+    all 4 rate limit sites (tenant evaluation, per-IP, per-principal, global
+    category). The `Retry-After` HTTP header (RFC 7231) is kept. Body leakage
+    allowed attackers to infer tenant quota capacity and bucket sizes.
   - **Integration tests (R244-INTEGRATION-1):**
     10 end-to-end ACIS integration tests: mediation pipeline envelope
     construction (Allow/Deny), agent identity capture from EvaluationContext,
