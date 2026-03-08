@@ -86,7 +86,7 @@ Current formal suite across 6 tools:
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
 - **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 77 proof harnesses on actual Rust code (bounded) — K1-K77
+- **Kani:** 77 proof harnesses on actual Rust code (bounded) — K1-K82
 
 ## Coverage Matrix
 
@@ -251,7 +251,7 @@ formal/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K77 property catalog)
+      lib.rs                         ← Crate root (K1-K82 property catalog)
       proofs.rs                      ← Proof harnesses (77 harnesses)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
@@ -968,7 +968,7 @@ forward simulation proof.
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **523 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K82)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
