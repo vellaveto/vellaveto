@@ -1482,7 +1482,13 @@ async fn attack_r9_2_self_approval_with_note_suffix() {
     // Requester has a note suffix (as derive_resolver_identity produces)
     let requester = "bearer:abc123def456 (note: agent-bot)".to_string();
     let id = store
-        .create(action, "needs approval".to_string(), Some(requester), None, None)
+        .create(
+            action,
+            "needs approval".to_string(),
+            Some(requester),
+            None,
+            None,
+        )
         .await
         .unwrap();
 
