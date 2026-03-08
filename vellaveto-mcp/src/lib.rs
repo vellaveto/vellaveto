@@ -42,6 +42,7 @@ pub mod fips;
 pub mod framing;
 pub mod goal_tracking;
 pub mod inspection;
+pub mod mediation;
 pub mod memory_security;
 pub mod memory_tracking;
 pub mod nhi;
