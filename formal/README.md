@@ -821,7 +821,7 @@ each by input space coverage:
 
 Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
 stub, not the full production `evaluate_action()`. The production fail-closed
-property is proven by Verus V1/V2 on `compute_verdict` and by 10,550+ tests.
+property is proven by Verus V1/V2 on `compute_verdict` and by 10,890+ tests.
 
 ### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
 
@@ -883,7 +883,7 @@ Context conditions (time windows, call limits, agent identity, etc.) are
 modeled as a single boolean predicate. The specification verifies the
 fail-closed property: `requires_context ∧ ¬has_context → Deny`. It does not
 model each of the 17 condition types individually — those are tested by the
-10,550+ Rust unit tests.
+10,890+ Rust unit tests.
 
 ### Conditional on_no_match="continue"
 
@@ -940,7 +940,7 @@ The Verus core is the strongest verification layer.
 | Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 10,550+ Rust unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 10,890+ Rust unit tests |
 | Lean/Coq grant subset uses exact-pattern + depth preorder | Simpler than Rust glob/path/domain coverage, so it does not prove full runtime containment | Alloy + Kani + Rust tests cover the broader delegation surface |
 | K9 simplified IDNA (lowercase + trim only) | Cannot detect full IDNA normalization bugs | Full IDNA tested by 200+ unit tests and fuzz targets |
 | Kani sort omits production's 3rd ID tiebreaker | Sort order may differ when priority and type are equal | Does not affect V6/V7 safety; determinism tested by unit tests |
@@ -976,7 +976,7 @@ forward simulation proof.
 
 The three-layer verification architecture:
 - **Layer 3 (TLA+):** Proves protocol design is correct (no deadlocks, no safety violations)
-- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,550+ tests)
+- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,890+ tests)
 - **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
 - **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
-- **Tests:** Concrete execution verification (10,550+ tests + 24 fuzz targets)
+- **Tests:** Concrete execution verification (10,890+ tests + 24 fuzz targets)
