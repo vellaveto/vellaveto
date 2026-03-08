@@ -68,6 +68,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     UTF-8 sequences (e.g., `%80`) now produce fail-closed rejection instead of
     invalid Unicode characters. Return type changed from `Option<String>` to
     `Result<Option<String>, ()>`. 1 new test.
+  - **Integration tests (R244-INTEGRATION-1):**
+    10 end-to-end ACIS integration tests: mediation pipeline envelope
+    construction (Allow/Deny), agent identity capture from EvaluationContext,
+    fingerprint determinism across transports, evaluation_us/call_chain_depth
+    validation bounds, depth clamping to 256, audit persistence with
+    `log_entry_with_acis()`, invalid envelope rejection, DLP integration.
 
 ### Added
 

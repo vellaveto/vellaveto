@@ -20,7 +20,7 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_mcp::mediation::{mediate, MediationConfig};
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionKind, DecisionOrigin};
 use vellaveto_types::identity::CallChainEntry;
-use vellaveto_types::{Action, EvaluationContext, Policy, PolicyType, Verdict};
+use vellaveto_types::{Action, EvaluationContext, Policy, PolicyType};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -311,4 +311,167 @@ fn test_acis_mediate_with_dlp_finding_produces_deny() {
         assert_eq!(result.envelope.decision, DecisionKind::Deny);
         assert_eq!(result.envelope.origin, DecisionOrigin::Dlp);
     }
+}
+
+// ═══════════════════════════════════════
+// SERIALIZATION ROUNDTRIP
+// ═══════════════════════════════════════
+
+#[test]
+fn test_acis_envelope_serialization_roundtrip() {
+    let engine = PolicyEngine::with_policies(true, &[deny_policy()]).expect("engine");
+    let action = test_action();
+    let config = MediationConfig::default();
+    let ctx = EvaluationContext {
+        agent_id: Some("agent-42".to_string()),
+        ..Default::default()
+    };
+
+    let result = mediate(
+        "round-1",
+        &action,
+        &engine,
+        Some(&ctx),
+        "grpc",
+        &config,
+        Some("sess-rt"),
+        Some("tenant-rt"),
+    );
+
+    // Serialize to JSON
+    let json_str = serde_json::to_string(&result.envelope).expect("serialize");
+
+    // Deserialize back
+    let deserialized: AcisDecisionEnvelope =
+        serde_json::from_str(&json_str).expect("deserialize");
+
+    // All fields must survive the roundtrip
+    assert_eq!(deserialized.decision_id, result.envelope.decision_id);
+    assert_eq!(deserialized.decision, result.envelope.decision);
+    assert_eq!(deserialized.origin, result.envelope.origin);
+    assert_eq!(deserialized.transport, "grpc");
+    assert_eq!(
+        deserialized.action_fingerprint,
+        result.envelope.action_fingerprint
+    );
+    assert_eq!(deserialized.action_summary.tool, "file_write");
+    assert_eq!(deserialized.action_summary.function, "write");
+    assert_eq!(deserialized.session_id.as_deref(), Some("sess-rt"));
+    assert_eq!(deserialized.tenant_id.as_deref(), Some("tenant-rt"));
+    assert_eq!(deserialized.agent_id.as_deref(), Some("agent-42"));
+    assert!(deserialized.validate().is_ok());
+}
+
+#[test]
+fn test_acis_envelope_persisted_roundtrip_matches_original() {
+    let rt = runtime();
+    rt.block_on(async {
+        let dir = TempDir::new().expect("tempdir");
+        let log_path = dir.path().join("audit.jsonl");
+        let logger = AuditLogger::new(log_path.clone());
+
+        let engine = PolicyEngine::with_policies(true, &[deny_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig::default();
+        let result = mediate("rt-2", &action, &engine, None, "websocket", &config, None, None);
+
+        logger
+            .log_entry_with_acis(
+                &action,
+                &result.verdict,
+                json!({"source": "roundtrip_test"}),
+                result.envelope.clone(),
+            )
+            .await
+            .expect("persist");
+
+        // Read back and deserialize the full audit entry
+        let content = tokio::fs::read_to_string(&log_path).await.expect("read");
+        let entry: serde_json::Value = content
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .expect("entry");
+
+        // Deserialize the nested envelope from the audit entry
+        let env_json = &entry["acis_envelope"];
+        let recovered: AcisDecisionEnvelope =
+            serde_json::from_value(env_json.clone()).expect("deserialize envelope from audit");
+
+        assert_eq!(recovered.decision_id, result.envelope.decision_id);
+        assert_eq!(recovered.decision, result.envelope.decision);
+        assert_eq!(recovered.origin, result.envelope.origin);
+        assert_eq!(recovered.transport, "websocket");
+        assert_eq!(
+            recovered.action_fingerprint,
+            result.envelope.action_fingerprint
+        );
+        assert!(recovered.validate().is_ok());
+    });
+}
+
+// ═══════════════════════════════════════
+// TRANSPORT LABEL EXHAUSTIVENESS
+// ═══════════════════════════════════════
+
+#[test]
+fn test_acis_all_transport_labels_produce_valid_envelopes() {
+    let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+    let action = test_action();
+    let config = MediationConfig::default();
+
+    for transport in &["http", "websocket", "grpc", "stdio", "sse"] {
+        let result = mediate(
+            &format!("transport-{transport}"),
+            &action,
+            &engine,
+            None,
+            transport,
+            &config,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            result.envelope.transport, *transport,
+            "transport label mismatch for {transport}"
+        );
+        assert!(
+            result.envelope.validate().is_ok(),
+            "envelope should validate for transport {transport}: {:?}",
+            result.envelope.validate()
+        );
+    }
+}
+
+#[test]
+fn test_acis_envelope_reason_populated_on_deny() {
+    let engine = PolicyEngine::with_policies(true, &[deny_policy()]).expect("engine");
+    let action = test_action();
+    let config = MediationConfig::default();
+
+    let result = mediate("reason-1", &action, &engine, None, "http", &config, None, None);
+
+    assert_eq!(result.envelope.decision, DecisionKind::Deny);
+    assert!(
+        !result.envelope.reason.is_empty(),
+        "deny envelope should have a non-empty reason"
+    );
+}
+
+#[test]
+fn test_acis_envelope_allow_has_empty_reason() {
+    let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+    let action = test_action();
+    let config = MediationConfig::default();
+
+    let result = mediate("reason-2", &action, &engine, None, "http", &config, None, None);
+
+    assert_eq!(result.envelope.decision, DecisionKind::Allow);
+    assert!(
+        result.envelope.reason.is_empty(),
+        "allow envelope should have empty reason, got: {:?}",
+        result.envelope.reason
+    );
 }
