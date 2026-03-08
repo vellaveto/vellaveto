@@ -2,7 +2,7 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
-> **Status:** Phases 0–72 complete (747+ verification instances across 7 tools)
+> **Status:** Phases 0–72 complete (756+ verification instances across 7 tools)
 > **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the full roadmap
 
 This document defines what Vellaveto formally verifies, what it trusts, and
@@ -210,7 +210,7 @@ MAPS TO:  vellaveto-engine/src/lib.rs (workflow constraint evaluation)
 | ABAC permit requires no forbid | AbacForbidOverride.als | S9 | Verified |
 | ABAC no match → NoMatch | AbacForbidOverride.als | S10 | Verified |
 
-### 1.3 Lean 4 Proofs (5 files, 30 theorems, 0 sorry)
+### 1.3 Lean 4 Proofs (5 files, 32 theorems, 0 sorry)
 
 | File | Key Theorems |
 |------|-------------|
@@ -220,7 +220,7 @@ MAPS TO:  vellaveto-engine/src/lib.rs (workflow constraint evaluation)
 | AbacForbidOverride.lean | forbid_dominance, permit_requires_no_forbid |
 | CapabilityDelegation.lean | 15 theorems on attenuation, depth, expiry |
 
-### 1.4 Coq Proofs (8 files, 43 theorems, 0 Admitted)
+### 1.4 Coq Proofs (8 files, 45 theorems, 0 Admitted)
 
 | File | Key Theorems |
 |------|-------------|
@@ -450,7 +450,7 @@ Kani operates on extracted Rust code verified to match production code via
 - `formal/kani/src/constraint.rs` ↔ `vellaveto-engine/src/constraint_eval.rs`
 - `formal/kani/src/task.rs` ↔ `vellaveto-mcp/src/task_state.rs`
 
-**Total: 747+ verification instances across 7 tools (523 Verus + 77 Kani + 64 TLA+ + 43 Coq + 30 Lean + 10 Alloy).**
+**Total: 756+ verification instances across 7 tools (523 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy).**
 
 ---
 
@@ -608,7 +608,7 @@ PR-level gating on security-critical paths will be added for:
 ## 8. Roadmap
 
 Phases 0–72 are complete. The TCB includes 523 Verus-verified items on actual
-Rust code (deductive, ALL inputs via Z3 SMT), 77 Kani bounded model checking
+Rust code (deductive, ALL inputs via Z3 SMT), 82 Kani bounded model checking
 harnesses, and comprehensive coverage of all security-critical pure functions.
 
 | Phase | Status | What Changed | Properties Added |
@@ -634,7 +634,7 @@ Most security-critical pure functions now have formal coverage with no trusted
 assumptions remaining in the checked suite. The refinement gap between TLA+
 model and Rust code is narrower: Verus proves V1-V12 and D1-D6 on
 actual Rust, Lean and Coq prove path idempotence at the model level, Kani
-bridges the wrapper code with 77 bounded harnesses, and the parity check script
+bridges the wrapper code with 82 bounded harnesses, and the parity check script
 plus filtered parity tests ensure extracted code matches production.
 
 ---

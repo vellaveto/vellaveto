@@ -81,11 +81,11 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Clarification** | These are *internal automated audit iterations*, not external penetration tests by a third-party firm. The badge text reflects this. |
 | **Reproduce** | Finding verification: `cargo test -p vellaveto-integration -- regression` |
 
-### C7. "747+ formally verified properties"
+### C7. "756+ formally verified properties"
 
 | Field | Value |
 |-------|-------|
-| **Scope** | 523 Verus verified items (deductive, ALL inputs via Z3 SMT on actual Rust), 77 Kani bounded model checking harnesses (on actual Rust), 64 TLA+ safety/liveness properties, 43 Coq theorems, 30 Lean 4 theorems, 10 Alloy assertions — across 7 tools. |
+| **Scope** | 523 Verus verified items (deductive, ALL inputs via Z3 SMT on actual Rust), 82 Kani bounded model checking harnesses (on actual Rust), 64 TLA+ safety/liveness properties, 45 Coq theorems, 32 Lean 4 theorems, 10 Alloy assertions — across 7 tools. |
 | **Verus coverage** | 40 verified kernels covering verdict fail-closed (V1-V8), path normalization (V9-V10), rule override (V11-V12), DLP buffer safety (D1-D6), constraint evaluation, audit chain integrity, Merkle proofs, rotation manifests, capability delegation, NHI delegation, approval scope binding, deputy chain, entropy gates, cross-call DLP, and refinement safety obligations. |
 | **Assumptions** | Verus: Z3 SMT-checked for ALL inputs. Kani: bounded model checking (finite state spaces). TLA+: exhaustive within declared bounds. Properties are structural. |
 | **What is NOT verified** | Pattern compilation, cryptographic primitives, timing, concurrency, network properties, serialization. See [FORMAL_SCOPE.md](FORMAL_SCOPE.md). |
@@ -105,8 +105,8 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | Formal — Verus (deductive) | Z3 SMT on actual Rust (ALL inputs) | 523 verified items |
 | Formal — Kani (BMC) | Bounded model checking on actual Rust | 77 harnesses |
 | Formal — TLA+ | Exhaustive model checking | 64 properties |
-| Formal — Coq | Interactive theorem proving | 43 theorems |
-| Formal — Lean 4 | Dependent type checking | 30 theorems |
+| Formal — Coq | Interactive theorem proving | 45 theorems |
+| Formal — Lean 4 | Dependent type checking | 32 theorems |
 | Formal — Alloy | Relational model checking | 10 assertions |
 | Criterion benchmarks | Statistical microbenchmark | 51 benchmarks |
 | Reproducibility kit | Docker + pinned results | `repro/` |

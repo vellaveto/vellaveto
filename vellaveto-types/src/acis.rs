@@ -73,6 +73,9 @@ const MAX_EVALUATION_US: u64 = 3_600_000_000;
 /// Maximum call chain depth (matches existing chain depth limits).
 const MAX_CALL_CHAIN_DEPTH: u32 = 256;
 
+/// Maximum allowed target path/domain count per action summary (R246-ACIS-1).
+const MAX_TARGET_COUNT: u32 = 100_000;
+
 // ── Core types ───────────────────────────────────────────────────────────────
 
 /// The normalized decision kind — a simplified projection of [`Verdict`] for
@@ -144,6 +147,38 @@ pub struct AcisActionSummary {
     pub target_path_count: u32,
     /// Number of target domains.
     pub target_domain_count: u32,
+}
+
+impl AcisActionSummary {
+    /// Validate all fields for length, content, and structural invariants.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool.is_empty() {
+            return Err("action_summary.tool must not be empty".into());
+        }
+        if self.tool.len() > MAX_TOOL_LEN {
+            return Err("action_summary.tool exceeds maximum length".into());
+        }
+        if has_dangerous_chars(&self.tool) {
+            return Err("action_summary.tool contains dangerous characters".into());
+        }
+        if self.function.is_empty() {
+            return Err("action_summary.function must not be empty".into());
+        }
+        if self.function.len() > MAX_FUNCTION_LEN {
+            return Err("action_summary.function exceeds maximum length".into());
+        }
+        if has_dangerous_chars(&self.function) {
+            return Err("action_summary.function contains dangerous characters".into());
+        }
+        // R246-ACIS-1: Bound target counts to prevent metrics overflow.
+        if self.target_path_count > MAX_TARGET_COUNT {
+            return Err("action_summary.target_path_count exceeds maximum".into());
+        }
+        if self.target_domain_count > MAX_TARGET_COUNT {
+            return Err("action_summary.target_domain_count exceeds maximum".into());
+        }
+        Ok(())
+    }
 }
 
 /// The ACIS decision envelope — one per runtime decision.
@@ -298,25 +333,10 @@ impl AcisDecisionEnvelope {
             return Err("acis: action_fingerprint exceeds maximum length".into());
         }
 
-        // action_summary (R244-ACIS-3: length bounds, R244-ACIS-8: function empty check)
-        if self.action_summary.tool.is_empty() {
-            return Err("acis: action_summary.tool must not be empty".into());
-        }
-        if self.action_summary.tool.len() > MAX_TOOL_LEN {
-            return Err("acis: action_summary.tool exceeds maximum length".into());
-        }
-        if has_dangerous_chars(&self.action_summary.tool) {
-            return Err("acis: action_summary.tool contains dangerous characters".into());
-        }
-        if self.action_summary.function.is_empty() {
-            return Err("acis: action_summary.function must not be empty".into());
-        }
-        if self.action_summary.function.len() > MAX_FUNCTION_LEN {
-            return Err("acis: action_summary.function exceeds maximum length".into());
-        }
-        if has_dangerous_chars(&self.action_summary.function) {
-            return Err("acis: action_summary.function contains dangerous characters".into());
-        }
+        // action_summary (R244-ACIS-3/8, R246-ACIS-1): delegate to standalone validate
+        self.action_summary
+            .validate()
+            .map_err(|e| format!("acis: {e}"))?;
 
         // reason (R244-ACIS-2: add dangerous chars check)
         if self.reason.len() > MAX_REASON_LEN {
@@ -690,5 +710,68 @@ mod tests {
         let mut env = minimal_envelope();
         env.call_chain_depth = 256;
         assert!(env.validate().is_ok());
+    }
+
+    // ── R246-ACIS-1: target count bounds ─────────────────────────────────
+
+    #[test]
+    fn test_r246_target_path_count_max_rejected() {
+        let mut env = minimal_envelope();
+        env.action_summary.target_path_count = 100_001;
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("target_path_count exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r246_target_domain_count_max_rejected() {
+        let mut env = minimal_envelope();
+        env.action_summary.target_domain_count = 100_001;
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("target_domain_count exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r246_target_counts_at_max_accepted() {
+        let mut env = minimal_envelope();
+        env.action_summary.target_path_count = 100_000;
+        env.action_summary.target_domain_count = 100_000;
+        assert!(env.validate().is_ok());
+    }
+
+    // ── R246-TYPES-1: standalone AcisActionSummary validate ──────────────
+
+    #[test]
+    fn test_r246_action_summary_standalone_validate_ok() {
+        let summary = AcisActionSummary {
+            tool: "file_write".into(),
+            function: "write".into(),
+            target_path_count: 5,
+            target_domain_count: 0,
+        };
+        assert!(summary.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r246_action_summary_standalone_empty_tool_rejected() {
+        let summary = AcisActionSummary {
+            tool: String::new(),
+            function: "write".into(),
+            target_path_count: 0,
+            target_domain_count: 0,
+        };
+        let err = summary.validate().unwrap_err();
+        assert!(err.contains("tool must not be empty"));
+    }
+
+    #[test]
+    fn test_r246_action_summary_standalone_dangerous_chars_rejected() {
+        let summary = AcisActionSummary {
+            tool: "file\x00write".into(),
+            function: "write".into(),
+            target_path_count: 0,
+            target_domain_count: 0,
+        };
+        let err = summary.validate().unwrap_err();
+        assert!(err.contains("dangerous characters"));
     }
 }

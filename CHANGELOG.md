@@ -94,6 +94,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     paths/domains/authority is now fail-closed (skipped) instead of silently
     substituted with U+FFFD, preventing replacement-character policy bypass
     where lossy decode could produce different strings than downstream consumers.
+    Transport parity: same fix applied to 4 sites in `vellaveto-mcp/src/extractor.rs`.
+- **R246 adversarial audit — ACIS validation + type safety hardening (Mar 2026):**
+  - **Sprint 1 (1 HIGH, 2 MEDIUM):**
+    R246-ENG-1 — policy priority `i32→u32` cast in 3 debug-assert sites changed
+    from fragile `.max(0) as u32` to safe `u32::try_from(...).unwrap_or(0)`;
+    prevents accidental priority inversion if `.max(0)` is ever removed.
+    R246-ACIS-1 — `MAX_TARGET_COUNT` (100,000) constant added;
+    `target_path_count` and `target_domain_count` now bounds-checked in
+    `AcisActionSummary::validate()`, preventing metrics overflow from
+    crafted envelopes. R246-TYPES-1 — `AcisActionSummary` gets standalone
+    `validate()` method (tool/function length+content + target count bounds);
+    `AcisDecisionEnvelope::validate()` refactored to delegate to it.
+    7 new tests.
   - **Integration tests (R244-INTEGRATION-1):**
     10 end-to-end ACIS integration tests: mediation pipeline envelope
     construction (Allow/Deny), agent identity capture from EvaluationContext,

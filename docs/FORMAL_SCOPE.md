@@ -63,7 +63,7 @@ see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
 | ABAC permit requires no forbid | AbacForbidOverride | S9 | Verified |
 | ABAC no match → NoMatch | AbacForbidOverride | S10 | Verified |
 
-### Lean 4 Proofs (5 files, 30 theorems, 0 sorry)
+### Lean 4 Proofs (5 files, 32 theorems, 0 sorry)
 
 | Property | File | Status |
 |----------|------|--------|
@@ -73,7 +73,7 @@ see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
 | ABAC forbid dominance (S7-S10) | AbacForbidOverride.lean | Verified |
 | Capability delegation (S11-S16) | CapabilityDelegation.lean | Verified |
 
-### Coq Proofs (8 files, 43 theorems, 0 Admitted)
+### Coq Proofs (8 files, 45 theorems, 0 Admitted)
 
 | Property | File | Status |
 |----------|------|--------|
@@ -99,7 +99,7 @@ see [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md).
 | Evaluation determinism (K8) | proof_evaluation_deterministic | Verified |
 | Domain normalize idempotent (K9) | proof_domain_normalize_idempotent | Verified |
 
-**Total: 747+ verification instances across 7 tools (523 Verus + 77 Kani + 64 TLA+ + 43 Coq + 30 Lean + 10 Alloy).**
+**Total: 756+ verification instances across 7 tools (523 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy).**
 
 ### Verus Deductive Verification (9 proofs, V1-V8, ALL inputs)
 
