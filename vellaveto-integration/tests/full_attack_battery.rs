@@ -1440,6 +1440,8 @@ async fn attack_r9_2_self_approval_prevention() {
             action,
             "dangerous operation".to_string(),
             Some(requester.clone()),
+            None,
+            None,
         )
         .await
         .unwrap();
@@ -1480,7 +1482,7 @@ async fn attack_r9_2_self_approval_with_note_suffix() {
     // Requester has a note suffix (as derive_resolver_identity produces)
     let requester = "bearer:abc123def456 (note: agent-bot)".to_string();
     let id = store
-        .create(action, "needs approval".to_string(), Some(requester))
+        .create(action, "needs approval".to_string(), Some(requester), None, None)
         .await
         .unwrap();
 
@@ -1507,7 +1509,7 @@ async fn attack_r9_2_anonymous_requester_allows_any_approver() {
 
     // Anonymous requester (no auth) — cannot enforce separation
     let id = store
-        .create(action, "review needed".to_string(), None)
+        .create(action, "review needed".to_string(), None, None, None)
         .await
         .unwrap();
 

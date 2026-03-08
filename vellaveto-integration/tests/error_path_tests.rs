@@ -551,6 +551,8 @@ mod approval_concurrency {
                                 action,
                                 "test reason".to_string(),
                                 Some("tester".to_string()),
+                                None,
+                                None,
                             )
                             .await;
                         assert!(result.is_ok(), "Approval creation should succeed");
@@ -591,7 +593,7 @@ mod approval_concurrency {
                 resolved_ips: vec![],
             };
             let id = store
-                .create(action, "test".to_string(), None)
+                .create(action, "test".to_string(), None, None, None)
                 .await
                 .unwrap();
             approval_ids.push(id);
@@ -663,7 +665,7 @@ mod approval_concurrency {
         };
 
         let id = store
-            .create(action, "test".to_string(), None)
+            .create(action, "test".to_string(), None, None, None)
             .await
             .unwrap();
 

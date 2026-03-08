@@ -867,7 +867,7 @@ async fn finding_10_approvals_survive_restart() {
         vellaveto_approval::ApprovalStore::new(path.clone(), std::time::Duration::from_secs(900));
     let action = Action::new("dangerous".to_string(), "exec".to_string(), json!({}));
     let id = store
-        .create(action.clone(), "needs review".to_string(), None)
+        .create(action.clone(), "needs review".to_string(), None, None, None)
         .await
         .unwrap();
 
