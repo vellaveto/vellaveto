@@ -92,7 +92,7 @@ VellaVeto enforces four boundary invariants at the runtime surface where agents 
 1. **No tool invocation without capability** — every side-effecting call is mediated through a shared evaluation pipeline, producing a structured ACIS decision envelope regardless of transport
 2. **Delegated capability is monotonic** — capability grants can only attenuate, never escalate; formally verified in Verus and Coq
 3. **Irreversible actions require signed approvals** — bound, replay-safe, single-use approvals with session and fingerprint binding
-4. **No cross-session leakage** — session isolation is a product invariant, not best-effort; credential rotation, context window isolation, and stylometric normalization enforce unlinkability
+4. **No cross-session leakage, coherent cross-session work** — session isolation is a product invariant, not best-effort; credential rotation, context window isolation, and stylometric normalization enforce unlinkability. Users maintain full workflow continuity across sessions — their context stays intact and safe, while deterministic action fingerprinting enables cross-session audit coherence without compromising session boundaries
 
 These invariants are enforced by concrete runtime capabilities:
 
@@ -300,7 +300,7 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 | **Approval Gates** | Bound, replay-safe, single-use approvals with session + fingerprint binding. Irreversible actions classified and gated. Self-approval prevention. | [Security Model](docs/SECURITY_MODEL.md) |
 | **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
 | **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes (structured verdict metadata on every transport), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Compliance](docs/COMPLIANCE.md) |
-| **Session Isolation** | Per-session credential rotation, context window isolation, stylometric normalization, traffic padding. Cross-session correlation is structurally prevented. | [Consumer Shield](examples/presets/consumer-shield.toml) |
+| **Session Isolation** | Per-session credential rotation, context window isolation, stylometric normalization, traffic padding. Cross-session correlation is structurally prevented while users maintain full workflow continuity — context stays coherent and safe across sessions via deterministic action fingerprinting without leaking session boundaries. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), credential vault, warrant canary. All boundary enforcement running client-side. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
 
