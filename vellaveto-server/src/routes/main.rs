@@ -1514,9 +1514,10 @@ fn scan_params_for_targets_inner(
                 if !file_path.is_empty() {
                     // SECURITY (R29-SRV-2): Percent-decode file:// paths to prevent
                     // bypass via encoding (e.g., file:///etc/%70asswd → /etc/passwd).
-                    let decoded =
-                        percent_encoding::percent_decode_str(file_path).decode_utf8_lossy();
-                    paths.push(decoded.into_owned());
+                    // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
+                    if let Ok(decoded) = percent_encoding::percent_decode_str(file_path).decode_utf8() {
+                        paths.push(decoded.into_owned());
+                    }
                 }
             } else if let Some(lower_scheme_end) = lower.find("://") {
                 // SECURITY (R15-EVAL-15): Extract domains from all schemes
@@ -1555,19 +1556,20 @@ fn scan_params_for_targets_inner(
                             .unwrap_or(&authority_normalized);
                         // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                         // Without this, http://evil.com%40blocked.com bypasses domain matching.
-                        let decoded =
-                            percent_encoding::percent_decode_str(host_raw).decode_utf8_lossy();
-                        let host = decoded.as_ref();
-                        let host = host.split(':').next().unwrap_or(host);
-                        let host = host.split('?').next().unwrap_or(host);
-                        let host = host.split('#').next().unwrap_or(host);
-                        let host = if let Some(pos) = host.rfind('@') {
-                            &host[pos + 1..]
-                        } else {
-                            host
-                        };
-                        if !host.is_empty() {
-                            domains.push(host.to_lowercase());
+                        // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed authority.
+                        if let Ok(decoded) = percent_encoding::percent_decode_str(host_raw).decode_utf8() {
+                            let host = decoded.as_ref();
+                            let host = host.split(':').next().unwrap_or(host);
+                            let host = host.split('?').next().unwrap_or(host);
+                            let host = host.split('#').next().unwrap_or(host);
+                            let host = if let Some(pos) = host.rfind('@') {
+                                &host[pos + 1..]
+                            } else {
+                                host
+                            };
+                            if !host.is_empty() {
+                                domains.push(host.to_lowercase());
+                            }
                         }
                     }
                 }
@@ -1578,8 +1580,10 @@ fn scan_params_for_targets_inner(
                     // SECURITY (R30-SRV-6): Percent-decode absolute paths for
                     // consistency with file:// URL handling (R29-SRV-2). Without
                     // this, /etc/%70asswd bypasses path policy checks.
-                    let decoded = percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
-                    paths.push(decoded.into_owned());
+                    // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
+                    if let Ok(decoded) = percent_encoding::percent_decode_str(clean).decode_utf8() {
+                        paths.push(decoded.into_owned());
+                    }
                 }
             } else if looks_like_relative_path(s) {
                 // SECURITY (R11-PATH-3): Catch relative paths containing ..
@@ -1588,8 +1592,10 @@ fn scan_params_for_targets_inner(
                 let clean = strip_query_and_fragment(s);
                 if !clean.is_empty() {
                     // SECURITY (R30-SRV-6): Percent-decode relative paths too.
-                    let decoded = percent_encoding::percent_decode_str(clean).decode_utf8_lossy();
-                    paths.push(format!("/{decoded}"));
+                    // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
+                    if let Ok(decoded) = percent_encoding::percent_decode_str(clean).decode_utf8() {
+                        paths.push(format!("/{decoded}"));
+                    }
                 }
             }
         }
@@ -1623,7 +1629,11 @@ fn looks_like_relative_path(s: &str) -> bool {
         return false; // Likely not a path
     }
     // SECURITY (R34-SRV-6): Percent-decode before checking to catch ..%2F evasion.
-    let decoded = percent_encoding::percent_decode_str(s).decode_utf8_lossy();
+    // SECURITY (R245-SRV-4): Strict UTF-8 — treat malformed as non-path (return false).
+    let decoded = match percent_encoding::percent_decode_str(s).decode_utf8() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
     let d = decoded.as_ref();
     // Also normalize backslashes for Windows-style traversals.
     let d_normalized = d.replace('\\', "/");

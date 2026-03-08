@@ -87,6 +87,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     UTF-8 sequences (e.g., `%80`) now produce fail-closed rejection instead of
     invalid Unicode characters. Return type changed from `Option<String>` to
     `Result<Option<String>, ()>`. 1 new test.
+- **R245 adversarial audit — strict UTF-8 percent-decode (Mar 2026):**
+  - **R245-SRV-4 (MEDIUM):** All 5 `percent_decode_str().decode_utf8_lossy()`
+    sites in `scan_params_for_targets_inner()` and `looks_like_relative_path()`
+    replaced with strict `decode_utf8()`. Malformed UTF-8 in percent-encoded
+    paths/domains/authority is now fail-closed (skipped) instead of silently
+    substituted with U+FFFD, preventing replacement-character policy bypass
+    where lossy decode could produce different strings than downstream consumers.
   - **Integration tests (R244-INTEGRATION-1):**
     10 end-to-end ACIS integration tests: mediation pipeline envelope
     construction (Allow/Deny), agent identity capture from EvaluationContext,
