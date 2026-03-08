@@ -4245,3 +4245,364 @@ async fn approval_deny_rejects_oversized_id() {
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ACIS Envelope Coverage Tests (Gap 1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn acis_envelope_deny_verdict_has_correct_fields() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    // bash:execute is denied by the "bash:*" Deny policy
+    let body = serde_json::to_string(&json!({
+        "tool": "bash",
+        "function": "execute",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid json"))
+        .expect("expected at least one audit entry");
+
+    let env = &entry["acis_envelope"];
+    assert_eq!(env["transport"], "http", "transport must be http");
+    assert_eq!(env["origin"], "policy_engine", "deny from policy engine");
+    assert_eq!(env["decision"], "deny", "verdict must be deny");
+    assert_eq!(env["tenant_id"], "_default_");
+    assert_eq!(
+        env["action_fingerprint"],
+        fingerprint_action(&Action::new("bash", "execute", json!({})))
+    );
+    assert_eq!(env["action_summary"]["tool"], "bash");
+    assert_eq!(env["action_summary"]["function"], "execute");
+    // decision_id must be a non-empty hex string
+    assert!(
+        env["decision_id"].as_str().map_or(false, |s| !s.is_empty()),
+        "decision_id must be non-empty"
+    );
+    // timestamp must be present and UTC
+    let ts = env["timestamp"].as_str().expect("timestamp required");
+    assert!(
+        ts.ends_with('Z') || ts.ends_with("+00:00"),
+        "timestamp must be UTC, got: {ts}"
+    );
+}
+
+#[tokio::test]
+async fn acis_envelope_require_approval_has_approval_gate_origin() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    // sensitive:action triggers RequireApproval via conditional policy
+    let body = serde_json::to_string(&json!({
+        "tool": "sensitive",
+        "function": "action",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entry = content
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).expect("valid json"))
+        .expect("expected at least one audit entry");
+
+    let env = &entry["acis_envelope"];
+    assert_eq!(env["transport"], "http");
+    assert_eq!(
+        env["origin"], "approval_gate",
+        "RequireApproval must have approval_gate origin"
+    );
+    assert_eq!(env["decision"], "require_approval");
+    assert_eq!(env["action_summary"]["tool"], "sensitive");
+    assert_eq!(env["action_summary"]["function"], "action");
+    assert_eq!(
+        env["action_fingerprint"],
+        fingerprint_action(&Action::new("sensitive", "action", json!({})))
+    );
+}
+
+#[tokio::test]
+async fn acis_envelope_fingerprint_is_deterministic() {
+    // Evaluate the same action twice — fingerprints must match
+    let (state1, tmp1) = make_state();
+    let audit_path1 = tmp1.path().join("audit.log");
+    let app1 = routes::build_router(state1);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {"path": "/etc/hosts"}
+    }))
+    .unwrap();
+
+    let _ = app1
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let (state2, tmp2) = make_state();
+    let audit_path2 = tmp2.path().join("audit.log");
+    let app2 = routes::build_router(state2);
+
+    let _ = app2
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let fp1 = {
+        let content = tokio::fs::read_to_string(&audit_path1).await.unwrap();
+        let entry: serde_json::Value = content
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .unwrap();
+        entry["acis_envelope"]["action_fingerprint"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let fp2 = {
+        let content = tokio::fs::read_to_string(&audit_path2).await.unwrap();
+        let entry: serde_json::Value = content
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .unwrap();
+        entry["acis_envelope"]["action_fingerprint"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    assert_eq!(fp1, fp2, "same action must produce identical fingerprints");
+    assert_eq!(fp1.len(), 64, "fingerprint must be 64-char SHA-256 hex");
+}
+
+#[tokio::test]
+async fn acis_envelope_decision_ids_are_unique() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    // First request (allow)
+    let body1 = serde_json::to_string(&json!({
+        "tool": "file",
+        "function": "read",
+        "parameters": {}
+    }))
+    .unwrap();
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body1))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Second request (deny)
+    let body2 = serde_json::to_string(&json!({
+        "tool": "bash",
+        "function": "execute",
+        "parameters": {}
+    }))
+    .unwrap();
+    let _ = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body2))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path).await.unwrap();
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("valid json"))
+        .collect();
+
+    assert!(entries.len() >= 2, "expected at least 2 audit entries");
+
+    let ids: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| e["acis_envelope"]["decision_id"].as_str())
+        .collect();
+    assert!(ids.len() >= 2, "expected at least 2 ACIS envelopes");
+
+    // All decision IDs must be unique
+    let mut unique = ids.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(
+        ids.len(),
+        unique.len(),
+        "every ACIS envelope must have a unique decision_id"
+    );
+}
+
+#[tokio::test]
+async fn acis_envelope_allow_and_deny_have_different_decisions() {
+    let (state, tmp) = make_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    // Allow: file:read
+    let _ = app
+        .clone()
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "tool": "file", "function": "read", "parameters": {}
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Deny: bash:execute
+    let _ = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&json!({
+                        "tool": "bash", "function": "execute", "parameters": {}
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path).await.unwrap();
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("valid json"))
+        .collect();
+
+    let decisions: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| e["acis_envelope"]["decision"].as_str())
+        .collect();
+
+    assert!(
+        decisions.contains(&"allow"),
+        "expected at least one allow decision"
+    );
+    assert!(
+        decisions.contains(&"deny"),
+        "expected at least one deny decision"
+    );
+}
+
+#[tokio::test]
+async fn acis_envelope_empty_policies_deny_has_envelope() {
+    // Fail-closed: no policies → Deny → must still emit ACIS envelope
+    let (state, tmp) = make_empty_state();
+    let audit_path = tmp.path().join("audit.log");
+    let app = routes::build_router(state);
+
+    let body = serde_json::to_string(&json!({
+        "tool": "any",
+        "function": "thing",
+        "parameters": {}
+    }))
+    .unwrap();
+
+    let _ = app
+        .oneshot(
+            Request::post("/api/evaluate")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path).await.unwrap();
+    let entry = content
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .expect("expected audit entry even with empty policies");
+
+    let env = &entry["acis_envelope"];
+    assert!(
+        !env.is_null(),
+        "fail-closed deny must still produce ACIS envelope"
+    );
+    assert_eq!(env["decision"], "deny");
+    assert_eq!(env["transport"], "http");
+    assert_eq!(env["origin"], "policy_engine");
+}
