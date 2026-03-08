@@ -37,6 +37,7 @@ use crate::verified_capability_grant;
 use crate::verified_capability_identity;
 use crate::verified_capability_literal;
 use crate::verified_capability_pattern;
+use crate::verified_capability_verification;
 
 /// SECURITY (FIND-R74-002): Maximum TTL for capability tokens (1 year).
 /// Prevents `ttl_secs as i64` overflow on u64 values > i64::MAX.
@@ -344,7 +345,7 @@ pub fn verify_capability_token(
     // Check expiration
     let expires = chrono::DateTime::parse_from_rfc3339(&token.expires_at)
         .map_err(|e| CapabilityError::VerificationFailed(format!("invalid expires_at: {e}")))?;
-    if *now >= expires {
+    if !verified_capability_verification::capability_not_expired(*now < expires) {
         return Ok(CapabilityVerification {
             valid: false,
             failure_reason: Some("token has expired".to_string()),
@@ -362,7 +363,10 @@ pub fn verify_capability_token(
     let issued_at = chrono::DateTime::parse_from_rfc3339(&token.issued_at)
         .map_err(|e| CapabilityError::VerificationFailed(format!("invalid issued_at: {e}")))?;
     let skew = issued_at.signed_duration_since(*now).num_seconds();
-    if skew > MAX_ISSUED_AT_SKEW_SECS {
+    if !verified_capability_verification::capability_issued_at_within_skew(
+        skew,
+        MAX_ISSUED_AT_SKEW_SECS,
+    ) {
         return Ok(CapabilityVerification {
             valid: false,
             failure_reason: Some(format!(
@@ -400,9 +404,9 @@ pub fn verify_capability_token(
             .map_err(|e| CapabilityError::InvalidKey(format!("invalid expected key hex: {e}")))?;
         let actual_bytes = hex::decode(&token.issuer_public_key)
             .map_err(|e| CapabilityError::InvalidKey(format!("invalid token key hex: {e}")))?;
-        if expected_bytes.ct_eq(&actual_bytes).into() {
-            // Keys match
-        } else {
+        if !verified_capability_verification::capability_expected_public_key_matches(
+            expected_bytes.ct_eq(&actual_bytes).into(),
+        ) {
             return Ok(CapabilityVerification {
                 valid: false,
                 failure_reason: Some("public key mismatch".to_string()),
@@ -413,7 +417,7 @@ pub fn verify_capability_token(
     // Verify Ed25519 signature
     let pub_key_bytes = hex::decode(&token.issuer_public_key)
         .map_err(|e| CapabilityError::InvalidKey(format!("public key hex decode: {e}")))?;
-    if pub_key_bytes.len() != 32 {
+    if !verified_capability_verification::capability_public_key_length_valid(pub_key_bytes.len()) {
         return Ok(CapabilityVerification {
             valid: false,
             failure_reason: Some(format!(
@@ -431,7 +435,7 @@ pub fn verify_capability_token(
 
     let sig_bytes = hex::decode(&token.signature)
         .map_err(|e| CapabilityError::VerificationFailed(format!("signature hex decode: {e}")))?;
-    if sig_bytes.len() != 64 {
+    if !verified_capability_verification::capability_signature_length_valid(sig_bytes.len()) {
         return Ok(CapabilityVerification {
             valid: false,
             failure_reason: Some(format!(
@@ -912,6 +916,40 @@ mod tests {
         let result = verify_capability_token(&token, None, Some(&wrong_pub), &now).unwrap();
         assert!(!result.valid);
         assert!(result.failure_reason.unwrap().contains("key mismatch"));
+    }
+
+    #[test]
+    fn test_verify_rejects_wrong_public_key_length() {
+        let key_hex = test_key_hex();
+        let mut token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
+        token.issuer_public_key = hex::encode([0xabu8; 31]);
+
+        let now = chrono::Utc::now();
+        let result = verify_capability_token(&token, None, None, &now).unwrap();
+        assert!(!result.valid);
+        assert!(result
+            .failure_reason
+            .unwrap()
+            .contains("public key wrong length"));
+    }
+
+    #[test]
+    fn test_verify_rejects_wrong_signature_length() {
+        let key_hex = test_key_hex();
+        let mut token =
+            issue_capability_token("issuer-1", "holder-1", test_grants(), 5, &key_hex, 3600)
+                .unwrap();
+        token.signature = hex::encode([0xcdu8; 63]);
+
+        let now = chrono::Utc::now();
+        let result = verify_capability_token(&token, None, None, &now).unwrap();
+        assert!(!result.valid);
+        assert!(result
+            .failure_reason
+            .unwrap()
+            .contains("signature wrong length"));
     }
 
     #[test]

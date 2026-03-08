@@ -33,6 +33,7 @@ FILES=(
     "formal/verus/verified_capability_identity.rs"
     "formal/verus/verified_capability_literal.rs"
     "formal/verus/verified_capability_pattern.rs"
+    "formal/verus/verified_capability_verification.rs"
     "formal/verus/verified_constraint_eval.rs"
     "formal/verus/verified_cross_call_dlp.rs"
     "formal/verus/verified_core.rs"

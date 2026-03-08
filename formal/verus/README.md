@@ -420,6 +420,32 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `lemma_delegated_child_requires_parent_holder_issuer` | A delegated child with a mismatching issuer is rejected |
 | `lemma_matching_holder_expectation_is_required` | Both directions of the holder-expectation identity are proved |
 
+### Capability Verification Precheck Guards (`verified_capability_verification.rs`) — 15 verified items, CAP-VER-1–CAP-VER-5
+
+Properties proven for ALL possible inputs:
+
+| ID | Property | Meaning |
+|----|----------|---------|
+| CAP-VER-1 | Expiry fail-closed | Verification passes the temporal expiry gate iff `now < expires` |
+| CAP-VER-2 | Future-issued-at skew bound | Verification accepts future `issued_at` values only when `skew <= max_skew` |
+| CAP-VER-3 | Expected-key identity | The expected issuer-public-key gate passes iff the caller's equality check says the keys match |
+| CAP-VER-4 | Public-key length exactness | The decoded issuer public key is accepted iff it is exactly 32 bytes |
+| CAP-VER-5 | Signature length exactness | The decoded signature is accepted iff it is exactly 64 bytes |
+
+Verification result: **15 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
+
+#### Proof Lemmas
+
+| Lemma | What It Proves |
+|-------|---------------|
+| `lemma_expired_tokens_are_rejected` | An elapsed expiry window always fails the verification gate |
+| `lemma_unexpired_tokens_are_allowed` | A still-valid expiry window passes the verification gate |
+| `lemma_future_issued_at_beyond_skew_is_rejected` | Future-issued tokens beyond the configured skew are rejected |
+| `lemma_issued_at_within_skew_is_allowed` | Issued-at values within the configured skew remain admissible |
+| `lemma_public_key_expectation_is_identity` | The expected-key guard is exactly the caller-supplied equality bit |
+| `lemma_public_key_length_must_match_exactly` | Only 32-byte decoded public keys satisfy the length gate |
+| `lemma_signature_length_must_match_exactly` | Only 64-byte decoded signatures satisfy the length gate |
+
 ### Capability Context Guards (`verified_capability_context.rs`) — 12 verified items, CAP-CTX-1–CAP-CTX-3
 
 Properties proven for ALL possible inputs:
@@ -762,6 +788,7 @@ Verification result: **11 verified, 0 errors** (Verus 0.2026.03.01, Z3 4.12.5).
 | `formal/verus/verified_capability_literal.rs` | `vellaveto-mcp/src/verified_capability_literal.rs` | `capability_token.rs` routes literal pattern equality and literal-child subset fallthrough through the verified literal gate |
 | `formal/verus/verified_capability_pattern.rs` | `vellaveto-mcp/src/verified_capability_pattern.rs` | `capability_token.rs` routes wildcard/equality/literal-child fast-path selection through the verified pattern guard |
 | `formal/verus/verified_capability_identity.rs` | `vellaveto-mcp/src/verified_capability_identity.rs` | `capability_token.rs` routes self-delegation rejection, delegated-child issuer-link validation, and holder-expectation checks through the verified identity-chain gate |
+| `formal/verus/verified_capability_verification.rs` | `vellaveto-mcp/src/verified_capability_verification.rs` | `capability_token.rs` routes expiry, future-issued-at skew, expected-key, and decoded key/signature length checks through the verified verification-precheck gate |
 | `formal/verus/verified_deputy.rs` | `vellaveto-engine/src/verified_deputy.rs` | `deputy.rs` routes re-delegation depth, parent continuity, child tool-scope, delegate match, and tool-allowance checks through the verified deputy gate |
 | `formal/verus/verified_nhi_delegation.rs` | `vellaveto-mcp/src/verified_nhi_delegation.rs` | `nhi.rs` routes terminal-state detection, delegation participant guards, link-effective checks, and chain-depth bounds through the verified NHI delegation gate |
 | `formal/verus/verified_nhi_graph.rs` | `vellaveto-mcp/src/verified_nhi_graph.rs` | `nhi.rs` routes live successor-edge traversal and cycle-free edge insertion through the verified NHI graph gate |
@@ -854,6 +881,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Capability holder/issuer identity-chain guards (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_identity.rs
 
+# Capability verification temporal/expected-key/length guards (15 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_verification.rs
+
 # Deputy chain continuity/depth/tool guards (15 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy.rs
 
@@ -903,6 +933,7 @@ verus formal/verus/verified_capability_grant.rs
 verus formal/verus/verified_capability_literal.rs
 verus formal/verus/verified_capability_pattern.rs
 verus formal/verus/verified_capability_identity.rs
+verus formal/verus/verified_capability_verification.rs
 verus formal/verus/verified_deputy.rs
 verus formal/verus/verified_nhi_delegation.rs
 verus formal/verus/verified_nhi_graph.rs
@@ -933,6 +964,7 @@ Expected output:
 - `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_identity.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_verification.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_deputy.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_nhi_delegation.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_nhi_graph.rs`: `verification results:: 9 verified, 0 errors`

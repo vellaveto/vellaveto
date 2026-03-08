@@ -30,6 +30,8 @@ mod verified_capability_identity;
 mod verified_capability_literal;
 #[path = "../verified_capability_pattern.rs"]
 mod verified_capability_pattern;
+#[path = "../verified_capability_verification.rs"]
+mod verified_capability_verification;
 #[path = "../verified_constraint_eval.rs"]
 mod verified_constraint_eval;
 #[path = "../verified_cross_call_dlp.rs"]

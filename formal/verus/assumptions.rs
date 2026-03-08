@@ -157,6 +157,10 @@ pub open spec fn capability_pattern_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn capability_verification_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn nhi_delegation_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

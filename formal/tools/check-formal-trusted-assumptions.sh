@@ -43,6 +43,7 @@ check_verus_kernel_assumption_bindings() {
         ["formal/verus/verified_capability_identity.rs"]="capability_identity_kernel_assumptions_registered"
         ["formal/verus/verified_capability_literal.rs"]="capability_literal_kernel_assumptions_registered"
         ["formal/verus/verified_capability_pattern.rs"]="capability_pattern_kernel_assumptions_registered"
+        ["formal/verus/verified_capability_verification.rs"]="capability_verification_kernel_assumptions_registered"
         ["formal/verus/verified_context_delegation.rs"]="context_delegation_kernel_assumptions_registered"
         ["formal/verus/verified_constraint_eval.rs"]="constraint_eval_kernel_assumptions_registered"
         ["formal/verus/verified_core.rs"]="engine_core_kernel_assumptions_registered"

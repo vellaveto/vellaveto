@@ -44,6 +44,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_capability_literal.rs` | Verus | CAP-LIT-1–CAP-LIT-4 | Capability literal fast paths for matching and subset fallthrough on actual Rust |
 | `verus/verified_capability_pattern.rs` | Verus | CAP-PAT-1–CAP-PAT-4 | Capability subset fast-path guard on actual Rust |
 | `verus/verified_capability_identity.rs` | Verus | CAP-ID-1–CAP-ID-3 | Capability holder/issuer identity-chain guards on actual Rust |
+| `verus/verified_capability_verification.rs` | Verus | CAP-VER-1–CAP-VER-5 | Capability verification temporal, expected-key, and decoded-length fail-closed guards on actual Rust |
 | `verus/verified_deputy.rs` | Verus | DEPUTY-1–DEPUTY-6 | Deputy chain continuity, depth, and tool-scope guards on actual Rust |
 | `verus/verified_nhi_delegation.rs` | Verus | NHI-DEL-1–NHI-DEL-8 | NHI delegation terminal-state, participant, link-effective, depth, and revocation chain propagation guards on actual Rust |
 | `verus/verified_nhi_graph.rs` | Verus | NHI-GRAPH-1–NHI-GRAPH-4 | NHI live-successor traversal and cycle-free delegation insertion guards on actual Rust |
@@ -69,7 +70,7 @@ Current formal suite across 6 tools:
 - `formal/verus/Cargo.toml` now provides the canonical version-pinned
   `cargo-verus` entrypoint, while `formal/tools/verify-verus.sh` keeps the
   direct per-file `verus` fallback for offline/local runs
-- **Verus:** 28 verified files / 407 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 12 verified (`verified_capability_context.rs`), 11 verified (`verified_context_delegation.rs`), 12 verified (`verified_bridge_principal.rs`), 7 verified (`verified_delegation_projection.rs`), 9 verified (`verified_deputy_handoff.rs`), 19 verified (`verified_capability_glob.rs`), 11 verified (`verified_capability_glob_subset.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 15 verified (`verified_deputy.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 9 verified (`verified_nhi_graph.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), and 16 verified (`verified_refinement_safety.rs`)
+- **Verus:** 29 verified files / 422 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 12 verified (`verified_capability_context.rs`), 11 verified (`verified_context_delegation.rs`), 12 verified (`verified_bridge_principal.rs`), 7 verified (`verified_delegation_projection.rs`), 9 verified (`verified_deputy_handoff.rs`), 19 verified (`verified_capability_glob.rs`), 11 verified (`verified_capability_glob_subset.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 15 verified (`verified_capability_verification.rs`), 15 verified (`verified_deputy.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 9 verified (`verified_nhi_graph.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), and 16 verified (`verified_refinement_safety.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 30 theorems (5 files, no `sorry`)
@@ -216,6 +217,7 @@ formal/
     verified_capability_literal.rs   ← Capability literal matching/subset fast paths (11 verified)
     verified_capability_pattern.rs   ← Capability subset fast-path guard (12 verified)
     verified_capability_identity.rs  ← Capability holder/issuer identity-chain guards (11 verified)
+    verified_capability_verification.rs ← Capability verification temporal/expected-key/length guards (15 verified)
     verified_deputy.rs               ← Deputy chain continuity/depth/tool guards (15 verified)
     verified_nhi_delegation.rs       ← NHI delegation terminal/participant/link/depth/revocation guards (19 verified)
     verified_nhi_graph.rs            ← NHI delegation live-successor/cycle-free insertion guards (9 verified)
@@ -490,6 +492,9 @@ verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_cap
 # Capability holder/issuer identity-chain guards (11 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_identity.rs
 
+# Capability verification temporal/expected-key/length guards (15 verified)
+verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_capability_verification.rs
+
 # Deputy chain continuity/depth/tool guards (15 verified)
 verus-bin/verus-x86-linux/verus --triggers-mode silent formal/verus/verified_deputy.rs
 
@@ -540,6 +545,7 @@ Expected output:
 - `verified_capability_literal.rs`: `verification results:: 11 verified, 0 errors`
 - `verified_capability_pattern.rs`: `verification results:: 12 verified, 0 errors`
 - `verified_capability_identity.rs`: `verification results:: 11 verified, 0 errors`
+- `verified_capability_verification.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_deputy.rs`: `verification results:: 15 verified, 0 errors`
 - `verified_nhi_delegation.rs`: `verification results:: 19 verified, 0 errors`
 - `verified_nhi_graph.rs`: `verification results:: 9 verified, 0 errors`
@@ -916,7 +922,7 @@ forward simulation proof.
 | Unit tests | Rust `#[test]` | 10,366+ |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
-| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **407 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH)** |
+| **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **422 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH)** |
 | **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K77)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |

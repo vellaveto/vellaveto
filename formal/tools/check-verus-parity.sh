@@ -107,6 +107,7 @@ PROD_CAPABILITY_GRANT="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_grant.
 PROD_CAPABILITY_IDENTITY="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_identity.rs"
 PROD_CAPABILITY_LITERAL="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_literal.rs"
 PROD_CAPABILITY_PATTERN="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_pattern.rs"
+PROD_CAPABILITY_VERIFICATION="$PROJECT_DIR/vellaveto-mcp/src/verified_capability_verification.rs"
 PROD_CAPABILITY_WRAPPER="$PROJECT_DIR/vellaveto-mcp/src/capability_token.rs"
 PROD_NHI="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_delegation.rs"
 PROD_NHI_GRAPH="$PROJECT_DIR/vellaveto-mcp/src/verified_nhi_graph.rs"
@@ -124,6 +125,7 @@ VERUS_CAPABILITY_GRANT="$PROJECT_DIR/formal/verus/verified_capability_grant.rs"
 VERUS_CAPABILITY_IDENTITY="$PROJECT_DIR/formal/verus/verified_capability_identity.rs"
 VERUS_CAPABILITY_LITERAL="$PROJECT_DIR/formal/verus/verified_capability_literal.rs"
 VERUS_CAPABILITY_PATTERN="$PROJECT_DIR/formal/verus/verified_capability_pattern.rs"
+VERUS_CAPABILITY_VERIFICATION="$PROJECT_DIR/formal/verus/verified_capability_verification.rs"
 VERUS_NHI="$PROJECT_DIR/formal/verus/verified_nhi_delegation.rs"
 VERUS_NHI_GRAPH="$PROJECT_DIR/formal/verus/verified_nhi_graph.rs"
 PROD_ENTROPY="$PROJECT_DIR/vellaveto-engine/src/verified_entropy_gate.rs"
@@ -167,6 +169,7 @@ for module in \
     verified_capability_identity \
     verified_capability_literal \
     verified_capability_pattern \
+    verified_capability_verification \
     verified_constraint_eval \
     verified_cross_call_dlp \
     verified_core \
@@ -851,6 +854,57 @@ check_symbol_parity \
     'verified_capability_pattern::has_glob_metacharacters' \
     "$VERUS_CAPABILITY_PATTERN" \
     'pub[[:space:]]+fn[[:space:]]+has_glob_metacharacters'
+echo ""
+
+echo "--- Capability Verification Kernel ---"
+check_file_pair \
+    "verified_capability_verification.rs ↔ vellaveto-mcp/src/verified_capability_verification.rs" \
+    "$PROD_CAPABILITY_VERIFICATION" \
+    "$VERUS_CAPABILITY_VERIFICATION"
+for fn in \
+    capability_not_expired \
+    capability_issued_at_within_skew \
+    capability_expected_public_key_matches \
+    capability_public_key_length_valid \
+    capability_signature_length_valid
+do
+    check_symbol_parity \
+        "$fn exists in production and Verus" \
+        "$PROD_CAPABILITY_VERIFICATION" \
+        "pub\\(crate\\)[[:space:]]+const[[:space:]]+fn[[:space:]]+$fn|pub\\(crate\\)[[:space:]]+fn[[:space:]]+$fn" \
+        "$VERUS_CAPABILITY_VERIFICATION" \
+        "pub[[:space:]]+fn[[:space:]]+$fn"
+done
+check_symbol_parity \
+    "capability verification uses verified expiry gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_verification::capability_not_expired' \
+    "$VERUS_CAPABILITY_VERIFICATION" \
+    'pub[[:space:]]+fn[[:space:]]+capability_not_expired'
+check_symbol_parity \
+    "capability verification uses verified issued-at skew gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_verification::capability_issued_at_within_skew' \
+    "$VERUS_CAPABILITY_VERIFICATION" \
+    'pub[[:space:]]+fn[[:space:]]+capability_issued_at_within_skew'
+check_symbol_parity \
+    "capability verification uses verified expected-key gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_verification::capability_expected_public_key_matches' \
+    "$VERUS_CAPABILITY_VERIFICATION" \
+    'pub[[:space:]]+fn[[:space:]]+capability_expected_public_key_matches'
+check_symbol_parity \
+    "capability verification uses verified public-key length gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_verification::capability_public_key_length_valid' \
+    "$VERUS_CAPABILITY_VERIFICATION" \
+    'pub[[:space:]]+fn[[:space:]]+capability_public_key_length_valid'
+check_symbol_parity \
+    "capability verification uses verified signature length gate" \
+    "$PROD_CAPABILITY_WRAPPER" \
+    'verified_capability_verification::capability_signature_length_valid' \
+    "$VERUS_CAPABILITY_VERIFICATION" \
+    'pub[[:space:]]+fn[[:space:]]+capability_signature_length_valid'
 echo ""
 
 echo "--- Entropy Alert Gate ---"
