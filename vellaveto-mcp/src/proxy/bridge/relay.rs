@@ -962,12 +962,16 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                let itn_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(audit_err) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({"source": "proxy", "event": "invalid_tool_name"}),
+                        itn_envelope,
                     )
                     .await
                 {
@@ -990,12 +994,16 @@ impl ProxyBridge {
             let verdict = Verdict::Deny {
                 reason: reason.clone(),
             };
+            let rp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &verdict,
                     json!({"source": "proxy", "tool": tool_name, "event": "rug_pull_tool_blocked"}),
+                    rp_envelope,
                 )
                 .await
             {
@@ -1027,9 +1035,12 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                let cb_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -1037,6 +1048,7 @@ impl ProxyBridge {
                             "event": "circuit_breaker_blocked",
                             "tool": tool_name,
                         }),
+                        cb_envelope,
                     )
                     .await
                 {
@@ -1067,9 +1079,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let sa_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -1080,6 +1095,7 @@ impl ProxyBridge {
                                     "actual_summary": alert.actual_fingerprint.summary(),
                                     "severity": format!("{:?}", alert.severity),
                                 }),
+                                sa_envelope,
                             )
                             .await
                         {
@@ -1110,9 +1126,12 @@ impl ProxyBridge {
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let pm_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &verdict, DecisionOrigin::SessionGuard, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({
@@ -1121,6 +1140,7 @@ impl ProxyBridge {
                                 "session": "stdio-session",
                                 "tool": tool_name,
                             }),
+                            pm_envelope,
                         )
                         .await
                     {
@@ -1156,9 +1176,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let dv_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -1168,6 +1191,7 @@ impl ProxyBridge {
                                     "principal": principal,
                                     "tool": tool_name,
                                 }),
+                                dv_envelope,
                             )
                             .await
                         {
@@ -1251,19 +1275,24 @@ impl ProxyBridge {
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
             let audit_reason = format!("DLP: secrets detected in parameters: {patterns:?}");
+            let dlp_verdict = Verdict::Deny {
+                reason: audit_reason.clone(),
+            };
+            let dlp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &dlp_verdict, DecisionOrigin::Dlp, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
-                    &Verdict::Deny {
-                        reason: audit_reason.clone(),
-                    },
+                    &dlp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "dlp_secret_blocked",
                         "tool": tool_name,
                         "findings": patterns,
                     }),
+                    dlp_envelope,
                 )
                 .await
             {
@@ -1321,9 +1350,12 @@ impl ProxyBridge {
                 } else {
                     Verdict::Allow
                 };
+                let inj_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -1333,6 +1365,7 @@ impl ProxyBridge {
                             "patterns": injection_matches,
                             "blocked": self.injection_blocking,
                         }),
+                        inj_envelope,
                     )
                     .await
                 {
@@ -1373,19 +1406,24 @@ impl ProxyBridge {
                 poisoning_matches.len(),
                 tool_name
             );
+            let mp_verdict = Verdict::Deny {
+                reason: deny_reason.clone(),
+            };
+            let mp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
-                    &Verdict::Deny {
-                        reason: deny_reason.clone(),
-                    },
+                    &mp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "memory_poisoning_detected",
                         "matches": poisoning_matches.len(),
                         "tool": tool_name,
                     }),
+                    mp_envelope,
                 )
                 .await
             {
@@ -2082,9 +2120,12 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                let cb_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -2092,6 +2133,7 @@ impl ProxyBridge {
                             "event": "circuit_breaker_blocked",
                             "handler": "resources/read",
                         }),
+                        cb_envelope,
                     )
                     .await
                 {
@@ -2122,9 +2164,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let sa_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -2134,6 +2179,7 @@ impl ProxyBridge {
                                     "expected_summary": alert.expected_fingerprint.summary(),
                                     "actual_summary": alert.actual_fingerprint.summary(),
                                 }),
+                                sa_envelope,
                             )
                             .await
                         {
@@ -2161,9 +2207,12 @@ impl ProxyBridge {
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let pm_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &verdict, DecisionOrigin::SessionGuard, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({
@@ -2172,6 +2221,7 @@ impl ProxyBridge {
                                 "session": "stdio-session",
                                 "handler": "resources/read",
                             }),
+                            pm_envelope,
                         )
                         .await
                     {
@@ -2205,9 +2255,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let dv_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -2217,6 +2270,7 @@ impl ProxyBridge {
                                     "principal": principal,
                                     "handler": "resources/read",
                                 }),
+                                dv_envelope,
                             )
                             .await
                         {
@@ -2298,19 +2352,24 @@ impl ProxyBridge {
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
             let audit_reason = format!("DLP: secrets detected in resource URI: {patterns:?}");
+            let dlp_verdict = Verdict::Deny {
+                reason: audit_reason.clone(),
+            };
+            let dlp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &dlp_verdict, DecisionOrigin::Dlp, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
-                    &Verdict::Deny {
-                        reason: audit_reason.clone(),
-                    },
+                    &dlp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "dlp_resource_blocked",
                         "uri": uri,
                         "findings": patterns,
                     }),
+                    dlp_envelope,
                 )
                 .await
             {
@@ -2352,19 +2411,24 @@ impl ProxyBridge {
                 "Memory poisoning detected: {} replayed data fragment(s) in resource read",
                 poisoning_matches.len(),
             );
+            let mp_verdict = Verdict::Deny {
+                reason: deny_reason.clone(),
+            };
+            let mp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
-                    &Verdict::Deny {
-                        reason: deny_reason.clone(),
-                    },
+                    &mp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "memory_poisoning_detected",
                         "matches": poisoning_matches.len(),
                         "uri": uri,
                     }),
+                    mp_envelope,
                 )
                 .await
             {
@@ -2421,9 +2485,12 @@ impl ProxyBridge {
                 } else {
                     Verdict::Allow
                 };
+                let inj_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &res_action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &res_action,
                         &verdict,
                         json!({
@@ -2432,6 +2499,7 @@ impl ProxyBridge {
                             "patterns": injection_matches,
                             "blocked": self.injection_blocking,
                         }),
+                        inj_envelope,
                     )
                     .await
                 {
@@ -2670,17 +2738,22 @@ impl ProxyBridge {
                     "sampling_circuit_breaker_blocked",
                     json!({"reason": &reason}),
                 );
+                let cb_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let cb_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &cb_verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: reason.clone(),
-                        },
+                        &cb_verdict,
                         json!({
                             "source": "proxy",
                             "event": "circuit_breaker_blocked_sampling",
                         }),
+                        cb_envelope,
                     )
                     .await
                 {
@@ -2709,18 +2782,23 @@ impl ProxyBridge {
                             "sampling_shadow_agent_detected",
                             json!({"claimed_id": &claimed_id}),
                         );
+                        let sa_verdict = Verdict::Deny {
+                            reason: "Shadow agent detected".to_string(),
+                        };
+                        let sa_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &sa_verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         let _ = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
-                                &Verdict::Deny {
-                                    reason: "Shadow agent detected".to_string(),
-                                },
+                                &sa_verdict,
                                 json!({
                                     "source": "proxy",
                                     "event": "shadow_agent_detected_sampling",
                                     "severity": format!("{:?}", alert.severity),
                                 }),
+                                sa_envelope,
                             )
                             .await;
                         let response =
@@ -2747,14 +2825,19 @@ impl ProxyBridge {
                         "sampling_principal_mismatch",
                         json!({}),
                     );
+                    let pm_verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    let pm_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &pm_verdict, DecisionOrigin::SessionGuard, "stdio", state.agent_id.as_deref(),
+                    );
                     let _ = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: reason.clone(),
-                        },
+                        &pm_verdict,
                         json!({"source": "proxy", "event": "request_principal_mismatch_sampling"}),
+                        pm_envelope,
                     )
                     .await;
                     let response =
@@ -2779,14 +2862,19 @@ impl ProxyBridge {
                         "sampling_deputy_validation_failed",
                         json!({"principal": principal}),
                     );
+                    let dv_verdict = Verdict::Deny {
+                        reason: err.to_string(),
+                    };
+                    let dv_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &dv_verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+                    );
                     let _ = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: err.to_string(),
-                            },
+                            &dv_verdict,
                             json!({"source": "proxy", "event": "deputy_validation_failed_sampling"}),
+                            dv_envelope,
                         )
                         .await;
                     let response =
@@ -2823,14 +2911,19 @@ impl ProxyBridge {
                         "sampling_blocked",
                         json!({"reason": &reason, "tool": &tool_name}),
                     );
+                    let rl_verdict = Verdict::Deny {
+                        reason: reason.clone(),
+                    };
+                    let rl_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &rl_verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: reason.clone(),
-                            },
+                            &rl_verdict,
                             json!({"source": "proxy", "event": "sampling_per_tool_rate_limit"}),
+                            rl_envelope,
                         )
                         .await
                     {
@@ -2865,17 +2958,22 @@ impl ProxyBridge {
                             "matches": poisoning_matches.len(),
                         }),
                     );
+                    let mp_verdict = Verdict::Deny {
+                        reason: format!(
+                            "Sampling blocked: memory poisoning ({} matches)",
+                            poisoning_matches.len()
+                        ),
+                    };
+                    let mp_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "Sampling blocked: memory poisoning ({} matches)",
-                                    poisoning_matches.len()
-                                ),
-                            },
+                            &mp_verdict,
                             json!({"source": "proxy", "event": "sampling_memory_poisoning"}),
+                            mp_envelope,
                         )
                         .await
                     {
@@ -2955,16 +3053,21 @@ impl ProxyBridge {
                         "sampling_dlp_blocked",
                         json!({"findings": patterns, "tool": &tool_name}),
                     );
+                    let dlp_verdict = Verdict::Deny {
+                        reason: format!(
+                            "Sampling blocked: secrets detected in request ({patterns:?})"
+                        ),
+                    };
+                    let dlp_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &dlp_action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "Sampling blocked: secrets detected in request ({patterns:?})"
-                                ),
-                            },
+                            &dlp_verdict,
                             json!({"source": "proxy", "event": "sampling_dlp_blocked"}),
+                            dlp_envelope,
                         )
                         .await
                     {
@@ -3025,9 +3128,12 @@ impl ProxyBridge {
                                 "patterns": &injection_matches,
                             }),
                         );
+                        let inj_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &audit_action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &audit_action,
                                 &verdict,
                                 json!({
@@ -3036,6 +3142,7 @@ impl ProxyBridge {
                                     "tool": &tool_name,
                                     "blocked": self.injection_blocking,
                                 }),
+                                inj_envelope,
                             )
                             .await
                         {
@@ -3066,12 +3173,16 @@ impl ProxyBridge {
                     "sampling_allowed",
                     json!({"source": "proxy", "count": state.sampling_count, "tool": &tool_name}),
                 );
+                let allow_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({"source": "proxy", "event": "sampling_allowed"}),
+                        allow_envelope,
                     )
                     .await
                 {
@@ -3090,14 +3201,19 @@ impl ProxyBridge {
                     "sampling_blocked",
                     json!({"reason": &reason}),
                 );
+                let deny_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let deny_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &deny_verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: reason.clone(),
-                        },
+                        &deny_verdict,
                         json!({"source": "proxy", "event": "sampling_blocked"}),
+                        deny_envelope,
                     )
                     .await
                 {
@@ -3129,17 +3245,22 @@ impl ProxyBridge {
                     "elicitation_circuit_breaker_blocked",
                     json!({"reason": &reason}),
                 );
+                let cb_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let cb_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &cb_verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: reason.clone(),
-                        },
+                        &cb_verdict,
                         json!({
                             "source": "proxy",
                             "event": "circuit_breaker_blocked_elicitation",
                         }),
+                        cb_envelope,
                     )
                     .await
                 {
@@ -3168,18 +3289,23 @@ impl ProxyBridge {
                             "elicitation_shadow_agent_detected",
                             json!({"claimed_id": &claimed_id}),
                         );
+                        let sa_verdict = Verdict::Deny {
+                            reason: "Shadow agent detected".to_string(),
+                        };
+                        let sa_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &sa_verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         let _ = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
-                                &Verdict::Deny {
-                                    reason: "Shadow agent detected".to_string(),
-                                },
+                                &sa_verdict,
                                 json!({
                                     "source": "proxy",
                                     "event": "shadow_agent_detected_elicitation",
                                     "severity": format!("{:?}", alert.severity),
                                 }),
+                                sa_envelope,
                             )
                             .await;
                         let response =
@@ -3207,14 +3333,19 @@ impl ProxyBridge {
                     "elicitation_principal_mismatch",
                     json!({}),
                 );
+                let pm_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let pm_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &pm_verdict, DecisionOrigin::SessionGuard, "stdio", state.agent_id.as_deref(),
+                );
                 let _ = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: reason.clone(),
-                            },
+                            &pm_verdict,
                             json!({"source": "proxy", "event": "request_principal_mismatch_elicitation"}),
+                            pm_envelope,
                         )
                         .await;
                 let response =
@@ -3242,14 +3373,19 @@ impl ProxyBridge {
                         "elicitation_deputy_validation_failed",
                         json!({"principal": principal}),
                     );
+                    let dv_verdict = Verdict::Deny {
+                        reason: err.to_string(),
+                    };
+                    let dv_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &dv_verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+                    );
                     let _ = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: err.to_string(),
-                            },
+                            &dv_verdict,
                             json!({"source": "proxy", "event": "deputy_validation_failed_elicitation"}),
+                            dv_envelope,
                         )
                         .await;
                     let response =
@@ -3294,17 +3430,22 @@ impl ProxyBridge {
                             "matches": poisoning_matches.len(),
                         }),
                     );
+                    let mp_verdict = Verdict::Deny {
+                        reason: format!(
+                            "Elicitation blocked: memory poisoning ({} matches)",
+                            poisoning_matches.len()
+                        ),
+                    };
+                    let mp_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "Elicitation blocked: memory poisoning ({} matches)",
-                                    poisoning_matches.len()
-                                ),
-                            },
+                            &mp_verdict,
                             json!({"source": "proxy", "event": "elicitation_memory_poisoning"}),
+                            mp_envelope,
                         )
                         .await
                     {
@@ -3364,9 +3505,12 @@ impl ProxyBridge {
                                 "patterns": &injection_matches,
                             }),
                         );
+                        let inj_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &audit_action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &audit_action,
                                 &verdict,
                                 json!({
@@ -3375,6 +3519,7 @@ impl ProxyBridge {
                                     "tool": &tool_name,
                                     "blocked": self.injection_blocking,
                                 }),
+                                inj_envelope,
                             )
                             .await
                         {
@@ -3464,16 +3609,21 @@ impl ProxyBridge {
                         "elicitation_dlp_blocked",
                         json!({"findings": patterns, "tool": &tool_name}),
                     );
+                    let dlp_verdict = Verdict::Deny {
+                        reason: format!(
+                            "Elicitation blocked: secrets detected ({patterns:?})"
+                        ),
+                    };
+                    let dlp_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &dlp_action,
-                            &Verdict::Deny {
-                                reason: format!(
-                                    "Elicitation blocked: secrets detected ({patterns:?})"
-                                ),
-                            },
+                            &dlp_verdict,
                             json!({"source": "proxy", "event": "elicitation_dlp_blocked"}),
+                            dlp_envelope,
                         )
                         .await
                     {
@@ -3496,12 +3646,16 @@ impl ProxyBridge {
                     "elicitation_allowed",
                     json!({"source": "proxy", "count": state.elicitation_count}),
                 );
+                let allow_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &Verdict::Allow,
                         json!({"source": "proxy", "event": "elicitation_allowed"}),
+                        allow_envelope,
                     )
                     .await
                 {
@@ -3517,14 +3671,19 @@ impl ProxyBridge {
                     "elicitation_intercepted",
                     json!({"reason": &reason}),
                 );
+                let deny_verdict = Verdict::Deny {
+                    reason: reason.clone(),
+                };
+                let deny_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &deny_verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: reason.clone(),
-                        },
+                        &deny_verdict,
                         json!({"source": "proxy", "event": "elicitation_intercepted"}),
+                        deny_envelope,
                     )
                     .await
                 {
@@ -3581,9 +3740,12 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                let cb_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
                         &verdict,
                         json!({
@@ -3591,6 +3753,7 @@ impl ProxyBridge {
                             "event": "circuit_breaker_blocked",
                             "handler": safe_task_method,
                         }),
+                        cb_envelope,
                     )
                     .await
                 {
@@ -3622,9 +3785,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let sa_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -3634,6 +3800,7 @@ impl ProxyBridge {
                                     "expected_summary": alert.expected_fingerprint.summary(),
                                     "actual_summary": alert.actual_fingerprint.summary(),
                                 }),
+                                sa_envelope,
                             )
                             .await
                         {
@@ -3662,9 +3829,12 @@ impl ProxyBridge {
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let pm_envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action, &verdict, DecisionOrigin::SessionGuard, "stdio", state.agent_id.as_deref(),
+                    );
                     if let Err(e) = self
                         .audit
-                        .log_entry(
+                        .log_entry_with_acis(
                             &action,
                             &verdict,
                             json!({
@@ -3673,6 +3843,7 @@ impl ProxyBridge {
                                 "session": "stdio-session",
                                 "handler": safe_task_method,
                             }),
+                            pm_envelope,
                         )
                         .await
                     {
@@ -3707,9 +3878,12 @@ impl ProxyBridge {
                         let verdict = Verdict::Deny {
                             reason: reason.clone(),
                         };
+                        let dv_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::CapabilityEnforcement, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({
@@ -3719,6 +3893,7 @@ impl ProxyBridge {
                                     "principal": principal,
                                     "handler": safe_task_method,
                                 }),
+                                dv_envelope,
                             )
                             .await
                         {
@@ -3801,19 +3976,24 @@ impl ProxyBridge {
                 .map(|f| format!("{} at {}", f.pattern_name, f.location))
                 .collect();
             let audit_reason = format!("DLP: secrets detected in task request: {patterns:?}");
+            let dlp_verdict = Verdict::Deny {
+                reason: audit_reason.clone(),
+            };
+            let dlp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &dlp_action,
-                    &Verdict::Deny {
-                        reason: audit_reason.clone(),
-                    },
+                    &dlp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "dlp_secret_blocked_task",
                         "task_method": safe_task_method,
                         "findings": patterns,
                     }),
+                    dlp_envelope,
                 )
                 .await
             {
@@ -3851,19 +4031,24 @@ impl ProxyBridge {
                 poisoning_matches.len(),
                 task_method
             );
+            let mp_verdict = Verdict::Deny {
+                reason: deny_reason.clone(),
+            };
+            let mp_envelope = crate::mediation::build_secondary_acis_envelope(
+                &action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "stdio", state.agent_id.as_deref(),
+            );
             if let Err(e) = self
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
-                    &Verdict::Deny {
-                        reason: deny_reason.clone(),
-                    },
+                    &mp_verdict,
                     json!({
                         "source": "proxy",
                         "event": "memory_poisoning_detected",
                         "matches": poisoning_matches.len(),
                         "task_method": safe_task_method,
                     }),
+                    mp_envelope,
                 )
                 .await
             {
@@ -3922,9 +4107,12 @@ impl ProxyBridge {
                 } else {
                     Verdict::Allow
                 };
+                let inj_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &task_action, &verdict, DecisionOrigin::InjectionScanner, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &task_action,
                         &verdict,
                         json!({
@@ -3934,6 +4122,7 @@ impl ProxyBridge {
                             "patterns": injection_matches,
                             "blocked": self.injection_blocking,
                         }),
+                        inj_envelope,
                     )
                     .await
                 {
@@ -4016,9 +4205,12 @@ impl ProxyBridge {
                             let verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let abac_envelope = crate::mediation::build_secondary_acis_envelope(
+                                &action, &verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                            );
                             if let Err(e) = self
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -4028,6 +4220,7 @@ impl ProxyBridge {
                                         "task_method": safe_task_method,
                                         "task_id": safe_task_id,
                                     }),
+                                    abac_envelope,
                                 )
                                 .await
                             {

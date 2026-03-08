@@ -433,6 +433,34 @@ pub fn build_acis_envelope(
     }
 }
 
+/// Convenience builder for secondary security decisions (DLP, injection,
+/// memory poisoning, circuit breaker, shield failures, etc.) that occur
+/// outside the primary policy-engine evaluation path.
+///
+/// Uses a fresh UUID decision ID, no findings list, and no evaluation context.
+/// The `session_id` parameter binds the decision to a session for audit
+/// traceability without leaking cross-session context.
+pub fn build_secondary_acis_envelope(
+    action: &Action,
+    verdict: &Verdict,
+    origin: DecisionOrigin,
+    transport: &str,
+    session_id: Option<&str>,
+) -> AcisDecisionEnvelope {
+    build_acis_envelope(
+        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+        action,
+        verdict,
+        origin,
+        transport,
+        &[],
+        None,
+        session_id,
+        None,
+        None,
+    )
+}
+
 /// UTC timestamp in RFC 3339 format (always ends with `Z`).
 fn now_utc() -> String {
     // Use chrono if available; fallback to a simple format.
