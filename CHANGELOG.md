@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     R244-FINDINGS-1 — findings dedup confirmed non-issue: DLP findings use
     `"DLP: "` prefix, injection findings use `"injection: "` prefix, making
     collision impossible. 4 new tests.
+  - **Sprint 4 (1 HIGH — transport parity):**
+    R244-PROXY-1 — `EvaluationContext` now passed to all `build_acis_envelope()`
+    calls across HTTP proxy (6 sites in handlers.rs — tool call, resource read,
+    sampling/task request), gRPC proxy (12 sites in service.rs — tool call,
+    resource read, task request, extension method × 3 verdicts each), and
+    WebSocket proxy (12 sites in websocket/mod.rs — same handler matrix).
+    HTTP handler closures refactored to return `(result, eval_ctx)` tuples so
+    context survives past DashMap shard lock scope. Server routes already wired
+    correctly via `build_evaluate_acis_envelope()`. Full transport parity for
+    agent identity in ACIS envelopes across all 5 transports.
 
 ### Added
 

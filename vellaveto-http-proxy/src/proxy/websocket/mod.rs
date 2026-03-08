@@ -1492,7 +1492,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1586,7 +1586,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1642,7 +1642,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2141,7 +2141,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2223,7 +2223,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2277,7 +2277,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2816,7 +2816,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&task_eval_ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2880,7 +2880,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&task_eval_ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2936,7 +2936,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&task_eval_ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3320,7 +3320,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3396,7 +3396,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3453,7 +3453,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     Some(&session_id),
                                     None,
-                                    None,
+                                    Some(&ctx),
                                 );
                                 if let Err(e) = state
                                     .audit

@@ -1476,7 +1476,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -1513,7 +1513,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -1554,7 +1554,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -1979,7 +1979,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -2014,7 +2014,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -2051,7 +2051,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -2825,7 +2825,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -2861,7 +2861,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -2903,7 +2903,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -3317,7 +3317,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -3353,7 +3353,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state
@@ -3395,7 +3395,7 @@ impl McpGrpcService {
                     None,
                     Some(session_id),
                     None,
-                    None,
+                    Some(&ctx),
                 );
                 if let Err(e) = self
                     .state

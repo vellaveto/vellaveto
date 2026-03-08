@@ -860,7 +860,10 @@ pub async fn handle_mcp_post(
             //
             // This is safe because engine evaluation is synchronous (no await) and
             // fast (<5ms). The shard lock is released when `session` drops.
-            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            // R244-PROXY-1: Return eval_ctx from closure so ACIS envelope gets agent identity.
+            let (eval_result, eval_ctx) = if let Some(mut session) =
+                state.sessions.get_mut(&session_id)
+            {
                 let eval_ctx = EvaluationContext {
                     timestamp: None,
                     agent_id: session.oauth_subject.clone(),
@@ -903,10 +906,10 @@ pub async fn handle_mcp_post(
                     session.action_history.push_back(tool_name.clone());
                 }
 
-                result
+                (result, eval_ctx)
             } else {
                 // No session found: evaluate without context
-                if params.trace && state.trace_enabled {
+                let result = if params.trace && state.trace_enabled {
                     state
                         .engine
                         .evaluate_action_traced_with_context(&action, None)
@@ -916,7 +919,8 @@ pub async fn handle_mcp_post(
                         .engine
                         .evaluate_action_with_context(&action, &state.policies, None)
                         .map(|v| (v, None))
-                }
+                };
+                (result, EvaluationContext::default())
             };
 
             let eval_result = match eval_result {
@@ -1524,7 +1528,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
@@ -1623,7 +1627,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
@@ -1958,7 +1962,10 @@ pub async fn handle_mcp_post(
             // Without this, concurrent requests clone the same call_counts snapshot, all pass
             // max_calls evaluation, and all increment — bypassing rate limits.
             // Mirror the ToolCall TOCTOU fix (R19-TOCTOU).
-            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
+            let (eval_result, eval_ctx) = if let Some(mut session) =
+                state.sessions.get_mut(&session_id)
+            {
                 let eval_ctx = EvaluationContext {
                     timestamp: None,
                     agent_id: session.oauth_subject.clone(),
@@ -2004,10 +2011,10 @@ pub async fn handle_mcp_post(
                         .push_back("resources/read".to_string());
                 }
 
-                result
+                (result, eval_ctx)
             } else {
                 // No session found: evaluate without context
-                if params.trace && state.trace_enabled {
+                let result = if params.trace && state.trace_enabled {
                     state
                         .engine
                         .evaluate_action_traced_with_context(&action, None)
@@ -2017,7 +2024,8 @@ pub async fn handle_mcp_post(
                         .engine
                         .evaluate_action_with_context(&action, &state.policies, None)
                         .map(|v| (v, None))
-                }
+                };
+                (result, EvaluationContext::default())
             };
 
             let eval_result = match eval_result {
@@ -2248,7 +2256,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
@@ -3047,7 +3055,10 @@ pub async fn handle_mcp_post(
             // Read context and evaluate inside a single DashMap shard lock, matching
             // the ToolCall pattern (line 725-789). Without this, concurrent TaskRequests
             // can bypass max_calls_in_window by reading stale call_counts.
-            let eval_result = if let Some(mut session) = state.sessions.get_mut(&session_id) {
+            // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
+            let (eval_result, eval_ctx) = if let Some(mut session) =
+                state.sessions.get_mut(&session_id)
+            {
                 let eval_ctx = EvaluationContext {
                     timestamp: None,
                     agent_id: session.oauth_subject.clone(),
@@ -3088,10 +3099,10 @@ pub async fn handle_mcp_post(
                     session.action_history.push_back(task_method.clone());
                 }
 
-                result
+                (result, eval_ctx)
             } else {
                 // No session: evaluate without context
-                if params.trace && state.trace_enabled {
+                let result = if params.trace && state.trace_enabled {
                     state
                         .engine
                         .evaluate_action_traced_with_context(&action, None)
@@ -3101,7 +3112,8 @@ pub async fn handle_mcp_post(
                         .engine
                         .evaluate_action_with_context(&action, &state.policies, None)
                         .map(|v| (v, None))
-                }
+                };
+                (result, EvaluationContext::default())
             };
 
             let eval_result = match eval_result {
@@ -3227,7 +3239,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
@@ -3301,7 +3313,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
@@ -3387,7 +3399,7 @@ pub async fn handle_mcp_post(
                         None,
                         Some(&session_id),
                         None,
-                        None,
+                        Some(&eval_ctx),
                     );
                     if let Err(e) = state
                         .audit
