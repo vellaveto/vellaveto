@@ -1,6 +1,6 @@
 <div align="center">
   <br>
-  <img src="docs/readme-header.png" alt="VellaVeto — Agentic Security Control Plane" width="720">
+  <img src="docs/readme-header.png" alt="VellaVeto — Agent Interaction Firewall" width="720">
   <br><br>
   <p>
     <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
@@ -30,7 +30,7 @@
 
 ---
 
-**VellaVeto is a runtime security engine for AI agent tool calls.** It intercepts [MCP](https://modelcontextprotocol.io/) and function-calling requests, enforces security policies on paths, domains, and actions, and maintains a tamper-evident audit trail. Deploy it as a stdio proxy, HTTP gateway, multi-tenant control plane, or consumer-side privacy shield.
+**VellaVeto is an agent interaction firewall** — the runtime boundary where AI agents interact with tools, services, and users. Every side-effecting decision crosses this boundary: tool calls are evaluated against policy, irreversible actions require bound approvals, sessions are isolated by design, and every verdict is recorded in a tamper-evident audit trail with a structured [ACIS decision envelope](docs/SECURITY_MODEL.md). Deploy it as a stdio proxy, HTTP gateway, or consumer-side privacy shield.
 
 ## The Problem
 
@@ -45,7 +45,7 @@ Agent receives prompt injection
 
 This is not hypothetical. The MCP ecosystem has accumulated [30+ CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) in 15 months: command injection in `mcp-remote` ([CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514)), path traversal in Anthropic's official Git MCP server ([CVE-2025-68143/44/45](https://github.com/anthropics/anthropic-cookbook/security/advisories)), [SANDWORM](docs/THREAT_MODEL.md) npm supply-chain worms injecting rogue MCP servers into AI configs, and [SmartLoader](https://blog.morphisec.com/smartloader-malware-targets-manufacturing) trojans distributed as MCP packages. [8,000+ MCP servers](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks) have been found exposed with no authentication.
 
-VellaVeto sits between AI agents and tool servers. Every tool call is evaluated against policy before execution. No policy match, missing context, or evaluation error results in `Deny`. Every decision is logged in a tamper-evident chain.
+VellaVeto is the runtime boundary between AI agents and tool servers. Every side-effecting call is evaluated against policy before execution. No policy match, missing context, or evaluation error results in `Deny`. Every decision is logged in a tamper-evident chain with a structured ACIS decision envelope.
 
 ```
 Agent attempts: read_file("/home/user/.aws/credentials")
@@ -87,13 +87,20 @@ vellaveto-shield --config consumer-shield.toml -- npx @anthropic/claude-desktop
 
 ## What It Does
 
-VellaVeto is not just a proxy or firewall — it is a security control plane for agentic systems:
+VellaVeto enforces four boundary invariants at the runtime surface where agents act on the world:
+
+1. **No tool invocation without capability** — every side-effecting call is mediated through a shared evaluation pipeline, producing a structured ACIS decision envelope regardless of transport
+2. **Delegated capability is monotonic** — capability grants can only attenuate, never escalate; formally verified in Verus and Coq
+3. **Irreversible actions require signed approvals** — bound, replay-safe, single-use approvals with session and fingerprint binding
+4. **No cross-session leakage** — session isolation is a product invariant, not best-effort; credential rotation, context window isolation, and stylometric normalization enforce unlinkability
+
+These invariants are enforced by concrete runtime capabilities:
 
 - **Policy engine** — glob/regex/domain matching, parameter constraints, time windows, call limits, Cedar-style ABAC, Wasm plugins. <5ms P99 evaluation.
 - **Threat detection** — injection, tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. 20+ detection layers, not just regex.
 - **Identity and access** — OAuth 2.1/JWT, OIDC/SAML, RBAC, capability delegation, DPoP (RFC 9449), non-human identity lifecycle.
 - **Topology discovery** — auto-discover MCP servers, tools, and resources. Detect drift, tool shadowing, and namespace collisions.
-- **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more frameworks.
+- **Audit and compliance** — tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes, ZK proofs, evidence packs mapped to EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more frameworks.
 - **Consumer shield** — all of the above, running user-side. See [Consumer Shield](#consumer-shield--protect-users-from-ai-providers).
 
 **Core guarantees:**
@@ -225,24 +232,26 @@ Replace `shield`/`fortress` with `vault` for maximum security. See [docs/QUICKST
 
 ## How It Works
 
+Every side-effecting decision crosses VellaVeto's runtime boundary:
+
 ```
-                    +------------------+
-  AI Agent -------->|    VellaVeto     |--------> Tool Server
-                    |                  |
-                    |  1. Parse action |
-                    |  2. Match policy |
-                    |  3. Evaluate     |
-                    |     constraints  |
-                    |  4. Allow / Deny |
-                    |  5. ACIS envelope|
-                    |  6. Audit log    |
-                    +--------+---------+
-                             |
-                    Tamper-evident log
-                    (SHA-256 chain +
-                     ACIS envelopes +
-                     Ed25519 signatures)
+                    ┌──────────────────────────────────┐
+  AI Agent ────────>│     VellaVeto Runtime Boundary    │────────> Tool Server
+                    │                                  │
+                    │  1. Parse action + fingerprint   │
+                    │  2. Match policy (fail-closed)   │
+                    │  3. Evaluate constraints + ABAC  │
+                    │  4. Check approval (if required) │
+                    │  5. Allow / Deny verdict         │
+                    │  6. ACIS decision envelope       │
+                    │  7. Tamper-evident audit log      │
+                    └────────────────┬─────────────────┘
+                                     │
+                    Audit trail: SHA-256 chain +
+                    ACIS envelopes + Ed25519 signatures
 ```
+
+The same mediation pipeline runs across all transports (stdio, HTTP, WebSocket, gRPC, SSE) — transport parity is enforced, not assumed.
 
 ## Architecture
 
@@ -279,29 +288,31 @@ graph TD
     VC --> VA
 ```
 
-Lower crates never depend on higher crates. `vellaveto-operator` is standalone (kube-rs, no internal deps). License tiers are documented separately in [LICENSING.md](LICENSING.md).
+Lower crates never depend on higher crates. The boundary contract (`vellaveto-types` ACIS envelope) flows down from the leaf; runtime surfaces (`proxy`, `http-proxy`, `shield`) enforce the same mediation pipeline at the top. `vellaveto-operator` is standalone (kube-rs, no internal deps). License tiers are documented separately in [LICENSING.md](LICENSING.md).
 
-## Key Capabilities
+## Boundary Capabilities
 
-| | What It Does | Docs |
+| | What It Enforces | Docs |
 |---|---|---|
 | **Policy Engine** | Glob/regex/domain matching, parameter constraints, time windows, call limits, action sequences, Cedar-style ABAC, Wasm plugins. Pre-compiled patterns, <5ms P99, decision cache. | [Policy](docs/POLICY.md) |
 | **Threat Detection** | 20+ detection layers: injection (Aho-Corasick + NFKC + obfuscation decode), tool squatting, rug pulls, schema poisoning, DLP, memory poisoning, multi-agent collusion. Maps to [OWASP Agentic Top 10](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). | [Threat Model](docs/THREAT_MODEL.md) |
 | **Identity & Access** | OAuth 2.1/JWT, OIDC/SAML, RBAC (4 roles, 14 perms), ABAC with forbid-overrides, capability delegation, DPoP (RFC 9449), non-human identity lifecycle. | [IAM](docs/IAM.md) |
+| **Approval Gates** | Bound, replay-safe, single-use approvals with session + fingerprint binding. Irreversible actions classified and gated. Self-approval prevention. | [Security Model](docs/SECURITY_MODEL.md) |
 | **Discovery** | Auto-discover MCP servers, tools, resources via topology graph. Detect drift, tool shadowing, namespace collisions. Topology guard as pre-policy filter. | [Architecture](#architecture) |
 | **Audit & Compliance** | Tamper-evident logs (SHA-256 + Merkle + Ed25519), ACIS decision envelopes (structured verdict metadata on every transport), ZK proofs (Pedersen + Groth16), evidence packs for EU AI Act, SOC 2, DORA, NIS2, NIST AI 600-1, ISO 42001, and 6 more. | [Compliance](docs/COMPLIANCE.md) |
-| **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), session isolation, credential vault, stylometric fingerprint resistance, warrant canary. | [Consumer Shield](examples/presets/consumer-shield.toml) |
+| **Session Isolation** | Per-session credential rotation, context window isolation, stylometric normalization, traffic padding. Cross-session correlation is structurally prevented. | [Consumer Shield](examples/presets/consumer-shield.toml) |
+| **Consumer Shield** | User-side PII sanitization, encrypted local audit (XChaCha20-Poly1305), credential vault, warrant canary. All boundary enforcement running client-side. | [Consumer Shield](examples/presets/consumer-shield.toml) |
 | **Deployment** | 6 modes: HTTP, stdio, WebSocket, gRPC, gateway, consumer shield. K8s operator (3 CRDs), Helm chart, Terraform provider, VS Code extension. | [Deployment](docs/DEPLOYMENT.md) |
 
 ## Security
 
 ### Internal Adversarial Auditing
 
-VellaVeto has undergone **246 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,660+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
+VellaVeto has undergone **248 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,680+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **10,550+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, VS Code + 24 fuzz targets, zero warnings
+- **10,890+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, VS Code + 24 fuzz targets, zero warnings
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
 ### Formal Verification
@@ -361,7 +372,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Language** | Rust | Rust | Python | Python |
 | **Backing** | Independent | Linux Foundation / Solo.io | Snyk (acquired Invariant Labs) | Lasso Security (~$28M raised) |
 | **Stars** | New | ~1,800 | ~1,700 | ~349 |
-| **Primary role** | Runtime policy engine + firewall | Connectivity proxy / gateway | Scanner + monitor | Security gateway (plugin-based) |
+| **Primary role** | Agent interaction firewall (runtime boundary) | Connectivity proxy / gateway | Scanner + monitor | Security gateway (plugin-based) |
 | **Evaluation latency** | <5ms P99 | Not published | N/A (scan-time) | Not published |
 | **Policy engine** | Glob/regex/domain, ABAC, Cedar, Wasm plugins, time windows, call sequences | OPA / OpenFGA / CEL | Guardrailing policies | Plugin-based guardrails |
 | **Injection detection** | 20+ layers (Aho-Corasick, NFKC, ROT13, base64, math symbols, leetspeak, emoji smuggling, FlipAttack, memory poisoning, schema poisoning, ...) | AI Prompt Guard (LLM-based) | Tool description scanning + LLM judges | Guardrail plugins |
@@ -376,7 +387,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 
-**Trade-offs:** AgentGateway and MCP-Scan have strong institutional backing (Linux Foundation, Snyk) and larger communities. AgentGateway excels as a connectivity and observability layer with external policy engine integration (OPA, OpenFGA); MCP-Scan excels at scanning MCP server configurations and now includes a runtime proxy mode. Both have solid security features. Lasso Gateway and [PipeLock](https://github.com/luckyPipewrench/pipelock) (Go, single binary) are closer in scope but lighter on depth. VellaVeto differentiates on integrated policy evaluation (<5ms P99), multi-transport parity, compliance evidence, and formal verification — the table above is our honest best-effort comparison, but we encourage you to evaluate each tool against your own requirements.
+**Trade-offs:** AgentGateway and MCP-Scan have strong institutional backing (Linux Foundation, Snyk) and larger communities. AgentGateway excels as a connectivity and observability layer with external policy engine integration (OPA, OpenFGA); MCP-Scan excels at scanning MCP server configurations and now includes a runtime proxy mode. Both have solid security features. Lasso Gateway and [PipeLock](https://github.com/luckyPipewrench/pipelock) (Go, single binary) are closer in scope but lighter on depth. VellaVeto differentiates as a runtime boundary enforcer: integrated policy evaluation (<5ms P99), structured ACIS decision envelopes on every verdict, multi-transport parity, session isolation as a product invariant, compliance evidence, and formal verification of boundary properties. The table above is our honest best-effort comparison — we encourage you to evaluate each tool against your own requirements.
 
 ## Deployment Modes
 
