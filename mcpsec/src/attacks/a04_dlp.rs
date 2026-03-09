@@ -7,7 +7,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-//! A4: Encoded Exfiltration / DLP Evasion — 8 tests
+//! A4: Encoded Exfiltration / DLP Evasion — 9 tests
 //!
 //! Tests the gateway's ability to detect secrets in tool responses,
 //! including multi-layer encoding bypass attempts.
@@ -126,6 +126,20 @@ pub fn tests() -> Vec<AttackTest> {
                 }
             }),
             check_fn: is_clean,
+        },
+        AttackTest {
+            id: "A4.9",
+            name: "Hex-encoded secret (AWS key)",
+            class: "Encoded Exfiltration (DLP)",
+            payload: json!({
+                "tool": "file", "function": "read",
+                "parameters": {"path": "/tmp/config"},
+                "_test_response": {
+                    // hex("AKIAIOSFODNN7EXAMPLE") = "414b4941494f53464f444e4e374558414d504c45"
+                    "content": [{"type": "text", "text": "414b4941494f53464f444e4e374558414d504c45"}]
+                }
+            }),
+            check_fn: has_dlp,
         },
     ]
 }

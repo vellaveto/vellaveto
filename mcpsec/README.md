@@ -1,8 +1,8 @@
 # MCPSEC: MCP Security Benchmark Framework
 
-**Version 1.0.0** | **Apache-2.0 License**
+**Version 1.1.0** | **Apache-2.0 License**
 
-MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 64 reproducible attack test cases across 12 attack classes, derived from real-world penetration testing of MCP deployments.
+MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 82 reproducible attack test cases across 14 attack classes, derived from real-world penetration testing of MCP deployments.
 
 ## Why MCPSEC?
 
@@ -42,24 +42,26 @@ cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
 
 See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 
-### 12 Attack Classes (A1-A12)
+### 14 Attack Classes (A1-A14)
 
 | # | Class | Tests | OWASP Ref |
 |---|-------|-------|-----------|
-| A1 | Prompt Injection Evasion | 8 | ASI01 |
+| A1 | Prompt Injection Evasion | 15 | ASI01 |
 | A2 | Tool Poisoning & Rug-Pull | 7 | ASI03 |
 | A3 | Parameter Constraint Bypass | 6 | ASI01 |
-| A4 | Encoded Exfiltration (DLP) | 8 | ASI04 |
+| A4 | Encoded Exfiltration (DLP) | 9 | ASI04 |
 | A5 | Confused Deputy | 5 | ASI02 |
 | A6 | Memory Poisoning (MINJA) | 5 | ASI06 |
 | A7 | Tool Squatting | 5 | ASI03 |
 | A8 | Audit Tampering | 4 | MCP08 |
-| A9 | SSRF & Domain Bypass | 6 | MCP05 |
+| A9 | SSRF & Domain Bypass | 8 | MCP05 |
 | A10 | DoS & Resource Exhaustion | 4 | MCP10 |
 | A11 | Credential Elicitation | 3 | - |
 | A12 | Sampling & Covert Channels | 3 | - |
+| A13 | Cross-Call Secret Splitting | 4 | - |
+| A14 | Schema Pattern Bypass | 4 | - |
 
-**Total: 64 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
+**Total: 82 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
 
 ## Scoring
 
@@ -93,7 +95,7 @@ The gateway should return a JSON response with a `verdict` field indicating `All
 mcpsec/
 ├── README.md              # This file
 ├── PROPERTIES.md          # 10 formal security properties
-├── ATTACKS.md             # 12 attack classes, 64 test cases
+├── ATTACKS.md             # 14 attack classes, 82 test cases
 ├── METHODOLOGY.md         # How to run, how to score
 ├── SCORING.md             # Scoring rubric and tiers
 ├── Cargo.toml             # Standalone Rust crate
@@ -102,7 +104,7 @@ mcpsec/
 │   ├── runner.rs          # HTTP client for gateway testing
 │   ├── report.rs          # JSON/Markdown report generation
 │   ├── scoring.rs         # Score calculation
-│   └── attacks/           # 12 attack modules (a01-a12)
+│   └── attacks/           # 14 attack modules (a01-a14)
 ├── tests/
 │   └── self_test.rs       # Validate harness logic
 └── results/               # Reference benchmark results

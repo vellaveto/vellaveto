@@ -101,8 +101,15 @@ The gateway must detect known prompt injection patterns in tool responses, inclu
 - Fullwidth Unicode evasion → detected after NFKC normalization
 - Tag character evasion → detected after stripping
 - Base64-encoded injection in resource blob → detected after decoding
+- ROT13 obfuscation → detected after ROT13 decode pass
+- HTML entity obfuscation (`&lt;` → `<`) → detected after entity decode
+- Policy Puppetry (`<override>`, `[SYSTEM]`) → detected
+- FlipAttack word reversal → detected via character-level reversal check
+- Leetspeak substitution (1gn0r3 → ignore) → detected after normalization
+- Math alphanumeric symbols → NFKC normalized
+- Emoji regional indicator smuggling → detected after stripping
 
-**Test IDs:** A1.1-A1.8
+**Test IDs:** A1.1-A1.15
 
 ---
 
@@ -126,7 +133,7 @@ The gateway must detect when an MCP server changes a tool's schema (input parame
 - Schema hash is canonical (key order independent, RFC 8785) → same hash
 - Description injection detected in tool descriptions → flagged
 
-**Test IDs:** A2.1-A2.7
+**Test IDs:** A2.1-A2.7, A14.1-A14.4
 
 ---
 
@@ -152,7 +159,7 @@ The gateway must detect secrets (API keys, tokens, credentials, private keys) in
 - Clean response with no secrets → no flag
 - Secret in error message → detected
 
-**Test IDs:** A4.1-A4.8
+**Test IDs:** A4.1-A4.9, A13.1-A13.4
 
 ---
 
@@ -218,7 +225,7 @@ The gateway must normalize Unicode input before policy evaluation. This includes
 - Mixed-script tool name (Latin + Cyrillic) → flagged
 - Mathematical Bold characters → NFKC normalized
 
-**Test IDs:** A7.1-A7.5, A1.3, A1.6
+**Test IDs:** A7.1-A7.5, A1.3, A1.6, A1.14, A1.15
 
 ---
 

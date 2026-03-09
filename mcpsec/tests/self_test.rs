@@ -17,12 +17,12 @@ use mcpsec::scoring;
 use mcpsec::{AttackResult, BenchmarkResult, BenchmarkSummary, PropertyScore};
 
 #[test]
-fn test_attack_registry_has_72_tests() {
+fn test_attack_registry_has_82_tests() {
     let tests = attacks::all_tests();
     assert_eq!(
         tests.len(),
-        72,
-        "Expected 72 test cases, got {}",
+        82,
+        "Expected 82 test cases, got {}",
         tests.len()
     );
 }

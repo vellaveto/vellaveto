@@ -1,7 +1,7 @@
 {
   "framework": "MCPSEC",
-  "version": "1.0.0",
-  "timestamp": "2026-03-02T00:00:00Z",
+  "version": "1.1.0",
+  "timestamp": "2026-03-09T00:00:00Z",
   "gateway": "vellaveto",
   "gateway_version": "6.0.0",
   "overall_score": 100,
@@ -9,21 +9,21 @@
   "tier_name": "Hardened",
   "properties": {
     "P1":  { "score": 100, "tests_passed": 11, "tests_total": 11 },
-    "P2":  { "score": 100, "tests_passed": 16, "tests_total": 16 },
+    "P2":  { "score": 100, "tests_passed": 17, "tests_total": 17 },
     "P3":  { "score": 100, "tests_passed": 2,  "tests_total": 2 },
-    "P4":  { "score": 100, "tests_passed": 16, "tests_total": 16 },
-    "P5":  { "score": 100, "tests_passed": 12, "tests_total": 12 },
-    "P6":  { "score": 100, "tests_passed": 16, "tests_total": 16 },
+    "P4":  { "score": 100, "tests_passed": 23, "tests_total": 23 },
+    "P5":  { "score": 100, "tests_passed": 16, "tests_total": 16 },
+    "P6":  { "score": 100, "tests_passed": 21, "tests_total": 21 },
     "P7":  { "score": 100, "tests_passed": 4,  "tests_total": 4 },
     "P8":  { "score": 100, "tests_passed": 1,  "tests_total": 1 },
-    "P9":  { "score": 100, "tests_passed": 13, "tests_total": 13 },
+    "P9":  { "score": 100, "tests_passed": 20, "tests_total": 20 },
     "P10": { "score": 100, "tests_passed": 4,  "tests_total": 4 }
   },
   "summary": {
-    "total_tests": 64,
-    "passed": 64,
+    "total_tests": 82,
+    "passed": 82,
     "failed": 0,
     "skipped": 0
   },
-  "note": "Reference results for Vellaveto v6.0.0 (232 audit rounds). Run 'cargo run -p mcpsec -- --target http://localhost:3000' against a live instance to verify."
+  "note": "Reference results for Vellaveto v6.0.0 (248 audit rounds). Run 'cargo run -p mcpsec -- --target http://localhost:3000' against a live instance to verify."
 }

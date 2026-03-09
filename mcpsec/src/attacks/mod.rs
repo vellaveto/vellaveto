@@ -7,7 +7,7 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-//! Attack registry — defines all 72 test cases across 14 attack classes.
+//! Attack registry — defines all 82 test cases across 14 attack classes.
 
 pub mod a01_injection;
 pub mod a02_rug_pull;
@@ -110,9 +110,9 @@ pub fn is_clean(body: &serde_json::Value, status: u16) -> bool {
     is_allow(body, status) && !has_injection(body, status) && !has_dlp(body, status)
 }
 
-/// Return all 72 attack test cases.
+/// Return all 82 attack test cases.
 pub fn all_tests() -> Vec<AttackTest> {
-    let mut tests = Vec::with_capacity(72);
+    let mut tests = Vec::with_capacity(82);
     tests.extend(a01_injection::tests());
     tests.extend(a02_rug_pull::tests());
     tests.extend(a03_parameter::tests());
@@ -139,8 +139,8 @@ mod tests {
         let tests = all_tests();
         assert_eq!(
             tests.len(),
-            72,
-            "Expected 72 test cases, got {}",
+            82,
+            "Expected 82 test cases, got {}",
             tests.len()
         );
     }

