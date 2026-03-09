@@ -1515,7 +1515,9 @@ fn scan_params_for_targets_inner(
                     // SECURITY (R29-SRV-2): Percent-decode file:// paths to prevent
                     // bypass via encoding (e.g., file:///etc/%70asswd → /etc/passwd).
                     // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed sequences.
-                    if let Ok(decoded) = percent_encoding::percent_decode_str(file_path).decode_utf8() {
+                    if let Ok(decoded) =
+                        percent_encoding::percent_decode_str(file_path).decode_utf8()
+                    {
                         paths.push(decoded.into_owned());
                     }
                 }
@@ -1557,7 +1559,9 @@ fn scan_params_for_targets_inner(
                         // SECURITY (R12-EXT-2): Percent-decode authority before splitting on '@'.
                         // Without this, http://evil.com%40blocked.com bypasses domain matching.
                         // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed authority.
-                        if let Ok(decoded) = percent_encoding::percent_decode_str(host_raw).decode_utf8() {
+                        if let Ok(decoded) =
+                            percent_encoding::percent_decode_str(host_raw).decode_utf8()
+                        {
                             let host = decoded.as_ref();
                             let host = host.split(':').next().unwrap_or(host);
                             let host = host.split('?').next().unwrap_or(host);

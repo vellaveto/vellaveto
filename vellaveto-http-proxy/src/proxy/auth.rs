@@ -145,15 +145,16 @@ async fn audit_dpop_validation_failure(
     let verdict = Verdict::Deny {
         reason: format!("OAuth DPoP validation failed: {}", params.dpop_reason),
     };
-    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", params.session_hint);
+    let envelope = build_secondary_acis_envelope(
+        &action,
+        &verdict,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        params.session_hint,
+    );
     state
         .audit
-        .log_entry_with_acis(
-            &action,
-            &verdict,
-            Value::Object(metadata),
-            envelope,
-        )
+        .log_entry_with_acis(&action, &verdict, Value::Object(metadata), envelope)
         .await
 }
 

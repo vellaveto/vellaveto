@@ -175,10 +175,7 @@ fn print_test_list(class_filter: &[String]) {
     let all = mcpsec::attacks::all_tests();
     let tests = mcpsec::runner::filter_tests_by_class(all, class_filter);
 
-    println!(
-        "{:<8} {:<16} {:<50} CHECK",
-        "ID", "CLASS PREFIX", "NAME"
-    );
+    println!("{:<8} {:<16} {:<50} CHECK", "ID", "CLASS PREFIX", "NAME");
     println!("{}", "-".repeat(100));
 
     let mut current_class = String::new();
@@ -229,7 +226,10 @@ fn format_ns(ns: u64) -> String {
 fn check_fn_name(f: fn(&serde_json::Value, u16) -> bool) -> &'static str {
     // Use std::ptr::fn_addr_eq to avoid unpredictable_function_pointer_comparisons warnings.
     // This is a best-effort label for display purposes only.
-    if std::ptr::fn_addr_eq(f, mcpsec::attacks::is_deny as fn(&serde_json::Value, u16) -> bool) {
+    if std::ptr::fn_addr_eq(
+        f,
+        mcpsec::attacks::is_deny as fn(&serde_json::Value, u16) -> bool,
+    ) {
         "is_deny"
     } else if std::ptr::fn_addr_eq(
         f,

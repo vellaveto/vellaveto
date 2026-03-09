@@ -2501,7 +2501,10 @@ fn test_r250_nhi3_reclaim_orphaned_active_credentials() {
     // Reclaim immediately — nothing should be reclaimed since they were
     // just activated (timestamp is fresh)
     let reclaimed = vault.reclaim_orphaned_active().unwrap();
-    assert_eq!(reclaimed, 0, "freshly activated credentials should not be reclaimed");
+    assert_eq!(
+        reclaimed, 0,
+        "freshly activated credentials should not be reclaimed"
+    );
 
     // Force-expire Active credentials via the public test helper
     vault.force_expire_active_for_test();
