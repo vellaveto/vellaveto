@@ -911,14 +911,19 @@ impl ProxyBridge {
                 // SECURITY (FIND-R92-002): Audit batch rejection for parity with
                 // HTTP proxy (handlers.rs:2331-2351).
                 let batch_action = extract_action("vellaveto", &json!({"event": "batch_rejected"}));
+                let batch_verdict = Verdict::Deny {
+                    reason: "JSON-RPC batching not supported".to_string(),
+                };
+                let batch_envelope = crate::mediation::build_secondary_acis_envelope(
+                    &batch_action, &batch_verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                );
                 if let Err(e) = self
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &batch_action,
-                        &Verdict::Deny {
-                            reason: "JSON-RPC batching not supported".to_string(),
-                        },
+                        &batch_verdict,
                         json!({"source": "proxy", "event": "batch_rejected"}),
+                        batch_envelope,
                     )
                     .await
                 {
@@ -1494,9 +1499,12 @@ impl ProxyBridge {
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
+                                let acf_envelope = crate::mediation::build_secondary_acis_envelope(
+                                    &action, &verdict, DecisionOrigin::ApprovalGate, "stdio", state.agent_id.as_deref(),
+                                );
                                 if let Err(e) = self
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         json!({
@@ -1505,6 +1513,7 @@ impl ProxyBridge {
                                             "tool": tool_name,
                                             "event": "approval_consume_failed",
                                         }),
+                                        acf_envelope,
                                     )
                                     .await
                                 {
@@ -1525,9 +1534,12 @@ impl ProxyBridge {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
+                            let amf_envelope = crate::mediation::build_secondary_acis_envelope(
+                                &action, &verdict, DecisionOrigin::ApprovalGate, "stdio", state.agent_id.as_deref(),
+                            );
                             if let Err(e) = self
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1536,6 +1548,7 @@ impl ProxyBridge {
                                         "tool": tool_name,
                                         "approval_id": presented_approval_id,
                                     }),
+                                    amf_envelope,
                                 )
                                 .await
                             {
@@ -1557,12 +1570,16 @@ impl ProxyBridge {
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
+                        let ra_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::TopologyGuard, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({"source": "proxy", "registry": "unknown_tool", "tool": tool_name}),
+                                ra_envelope,
                             )
                             .await
                         {
@@ -1626,9 +1643,12 @@ impl ProxyBridge {
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
+                                let ut_acf_envelope = crate::mediation::build_secondary_acis_envelope(
+                                    &action, &verdict, DecisionOrigin::ApprovalGate, "stdio", state.agent_id.as_deref(),
+                                );
                                 if let Err(e) = self
                                     .audit
-                                    .log_entry(
+                                    .log_entry_with_acis(
                                         &action,
                                         &verdict,
                                         json!({
@@ -1637,6 +1657,7 @@ impl ProxyBridge {
                                             "tool": tool_name,
                                             "event": "approval_consume_failed",
                                         }),
+                                        ut_acf_envelope,
                                     )
                                     .await
                                 {
@@ -1657,9 +1678,12 @@ impl ProxyBridge {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
+                            let ut_amf_envelope = crate::mediation::build_secondary_acis_envelope(
+                                &action, &verdict, DecisionOrigin::ApprovalGate, "stdio", state.agent_id.as_deref(),
+                            );
                             if let Err(e) = self
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1668,6 +1692,7 @@ impl ProxyBridge {
                                         "tool": tool_name,
                                         "approval_id": presented_approval_id,
                                     }),
+                                    ut_amf_envelope,
                                 )
                                 .await
                             {
@@ -1689,12 +1714,16 @@ impl ProxyBridge {
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
+                        let ut_ra_envelope = crate::mediation::build_secondary_acis_envelope(
+                            &action, &verdict, DecisionOrigin::ApprovalGate, "stdio", state.agent_id.as_deref(),
+                        );
                         if let Err(e) = self
                             .audit
-                            .log_entry(
+                            .log_entry_with_acis(
                                 &action,
                                 &verdict,
                                 json!({"source": "proxy", "registry": "untrusted_tool", "tool": tool_name}),
+                                ut_ra_envelope,
                             )
                             .await
                         {
@@ -1813,9 +1842,12 @@ impl ProxyBridge {
                             let verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let abac_deny_envelope = crate::mediation::build_secondary_acis_envelope(
+                                &action, &verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                            );
                             if let Err(e) = self
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1824,6 +1856,7 @@ impl ProxyBridge {
                                         "abac_policy": policy_id,
                                         "tool": tool_name,
                                     }),
+                                    abac_deny_envelope,
                                 )
                                 .await
                             {
@@ -1858,9 +1891,12 @@ impl ProxyBridge {
                             let verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
+                            let abac_unk_envelope = crate::mediation::build_secondary_acis_envelope(
+                                &action, &verdict, DecisionOrigin::PolicyEngine, "stdio", state.agent_id.as_deref(),
+                            );
                             if let Err(e) = self
                                 .audit
-                                .log_entry(
+                                .log_entry_with_acis(
                                     &action,
                                     &verdict,
                                     json!({
@@ -1868,6 +1904,7 @@ impl ProxyBridge {
                                         "event": "abac_unknown_variant_deny",
                                         "tool": tool_name,
                                     }),
+                                    abac_unk_envelope,
                                 )
                                 .await
                             {
