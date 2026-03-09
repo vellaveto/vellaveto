@@ -4300,7 +4300,7 @@ async fn acis_envelope_deny_verdict_has_correct_fields() {
     assert_eq!(env["action_summary"]["function"], "execute");
     // decision_id must be a non-empty hex string
     assert!(
-        env["decision_id"].as_str().map_or(false, |s| !s.is_empty()),
+        env["decision_id"].as_str().is_some_and(|s| !s.is_empty()),
         "decision_id must be non-empty"
     );
     // timestamp must be present and UTC
