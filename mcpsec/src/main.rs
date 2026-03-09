@@ -52,6 +52,10 @@ struct Cli {
     /// Compare results against a baseline JSON file and report regressions
     #[arg(long)]
     compare: Option<String>,
+
+    /// Minimum overall score (0-100). Exits with status 1 if score is below this threshold.
+    #[arg(long)]
+    fail_under: Option<f64>,
 }
 
 #[tokio::main]
@@ -130,6 +134,17 @@ async fn main() {
     }
 
     write_output(&result, format, cli.output.as_deref());
+
+    // --fail-under: exit 1 if score is below threshold
+    if let Some(threshold) = cli.fail_under {
+        if result.overall_score < threshold {
+            eprintln!(
+                "Score {:.1}% is below --fail-under threshold {:.1}%",
+                result.overall_score, threshold
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 fn write_output(result: &BenchmarkResult, format: OutputFormat, path: Option<&str>) {

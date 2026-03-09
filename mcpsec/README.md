@@ -30,6 +30,15 @@ cargo run -p mcpsec -- --target http://localhost:3000 --classes A1,A4,A9
 
 # Compare against a baseline (exits with status 1 on regressions)
 cargo run -p mcpsec -- --target http://localhost:3000 --compare results/baseline.json
+
+# CI gate: fail if score is below 80%
+cargo run -p mcpsec -- --target http://localhost:3000 --fail-under 80
+
+# OCSF output for SIEM ingestion (Splunk, QRadar, CrowdStrike)
+cargo run -p mcpsec -- --target http://localhost:3000 --format ocsf
+
+# JUnit XML for CI dashboards (Jenkins, GitLab CI, GitHub Actions)
+cargo run -p mcpsec -- --target http://localhost:3000 --format junit --output results.xml
 ```
 
 ## What It Tests
