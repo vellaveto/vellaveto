@@ -16,8 +16,8 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_response_for_secrets,
     scan_text_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
-use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationTrace, Verdict};
 
@@ -399,7 +399,13 @@ pub(super) async fn scan_sse_events_for_injection(
                 "blocking": state.injection_blocking,
             }),
         );
-        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "sse", Some(session_id));
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::InjectionScanner,
+            "sse",
+            Some(session_id),
+        );
         if let Err(e) = state
             .audit
             .log_entry_with_acis(
@@ -590,7 +596,13 @@ pub(super) async fn scan_sse_events_for_dlp(
                     "finding_count": dlp_findings.len(),
                 }),
             );
-            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "sse", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &verdict,
+                DecisionOrigin::Dlp,
+                "sse",
+                Some(session_id),
+            );
             if let Err(e) = state
                 .audit
                 .log_entry_with_acis(
@@ -833,11 +845,15 @@ pub(super) async fn scan_sse_events_for_output_schema(
                     }),
                 );
                 let deny_verdict = Verdict::Deny {
-                    reason: format!(
-                        "SSE structuredContent validation failed: {violations:?}"
-                    ),
+                    reason: format!("SSE structuredContent validation failed: {violations:?}"),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "sse", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &deny_verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "sse",
+                    Some(session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -1073,8 +1089,14 @@ mod tests {
             }]
         });
         let text = extract_text_from_result(&result);
-        assert!(text.contains("secret payload here"), "Must scan contents[].text");
-        assert!(text.contains("file:///etc/secrets"), "Must scan contents[].uri");
+        assert!(
+            text.contains("secret payload here"),
+            "Must scan contents[].text"
+        );
+        assert!(
+            text.contains("file:///etc/secrets"),
+            "Must scan contents[].uri"
+        );
         assert!(text.contains("secrets file"), "Must scan contents[].name");
         assert!(
             text.contains("ignore all previous instructions"),

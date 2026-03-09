@@ -353,7 +353,13 @@ pub async fn handle_mcp_post(
         let verdict = Verdict::Deny {
             reason: format!("Invalid upstream call chain header: {reason}"),
         };
-        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::PolicyEngine,
+            "http",
+            Some(&session_id),
+        );
         if let Err(e) = state
             .audit
             .log_entry_with_acis(
@@ -469,7 +475,13 @@ pub async fn handle_mcp_post(
                         "Tool '{tool_name}' blocked: annotations changed since initial tools/list (rug-pull detected)"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "http", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::CapabilityEnforcement,
+                    "http",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -531,7 +543,13 @@ pub async fn handle_mcp_post(
                 let dlp_verdict = Verdict::Deny {
                     reason: audit_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &dlp_action,
+                    &dlp_verdict,
+                    DecisionOrigin::Dlp,
+                    "http",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -590,7 +608,13 @@ pub async fn handle_mcp_post(
                     let poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &poison_verdict,
+                        DecisionOrigin::MemoryPoisoning,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -645,7 +669,13 @@ pub async fn handle_mcp_post(
                         reason: format!("Circuit breaker open: {reason}"),
                     };
                     // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::CircuitBreaker,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -703,7 +733,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -742,7 +778,13 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "http",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
                                 &verdict,
@@ -791,7 +833,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -831,7 +879,13 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "http",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
                                 &verdict,
@@ -882,67 +936,66 @@ pub async fn handle_mcp_post(
             // This is safe because engine evaluation is synchronous (no await) and
             // fast (<5ms). The shard lock is released when `session` drops.
             // R244-PROXY-1: Return eval_ctx from closure so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) = if let Some(mut session) =
-                state.sessions.get_mut(&session_id)
-            {
-                let eval_ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
+            let (eval_result, eval_ctx) =
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    let eval_ctx = EvaluationContext {
+                        timestamp: None,
+                        agent_id: session.oauth_subject.clone(),
+                        agent_identity: session.agent_identity.clone(),
+                        call_counts: session.call_counts.clone(),
+                        previous_actions: session.action_history.iter().cloned().collect(),
+                        call_chain: session.current_call_chain.clone(),
+                        tenant_id: None,
+                        verification_tier: None,
+                        capability_token: None,
+                        session_state: None,
+                    };
 
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                        .map(|(v, t)| (v, Some(t)))
-                } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                        .map(|v| (v, None))
-                };
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
+                            .map(|v| (v, None))
+                    };
 
-                // Atomically update session while still holding the shard lock
-                if let Ok((Verdict::Allow, _)) = &result {
-                    // SECURITY (FIND-045): Cap call_counts to prevent unbounded HashMap growth.
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&tool_name)
-                    {
-                        // SECURITY (FIND-R108-003): Use saturating_add to prevent
-                        // wrapping to zero which would bypass call-limit policies.
-                        let count = session.call_counts.entry(tool_name.clone()).or_insert(0);
-                        *count = count.saturating_add(1);
+                    // Atomically update session while still holding the shard lock
+                    if let Ok((Verdict::Allow, _)) = &result {
+                        // SECURITY (FIND-045): Cap call_counts to prevent unbounded HashMap growth.
+                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                            || session.call_counts.contains_key(&tool_name)
+                        {
+                            // SECURITY (FIND-R108-003): Use saturating_add to prevent
+                            // wrapping to zero which would bypass call-limit policies.
+                            let count = session.call_counts.entry(tool_name.clone()).or_insert(0);
+                            *count = count.saturating_add(1);
+                        }
+                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                            session.action_history.pop_front();
+                        }
+                        session.action_history.push_back(tool_name.clone());
                     }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back(tool_name.clone());
-                }
 
-                (result, eval_ctx)
-            } else {
-                // No session found: evaluate without context
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, None)
-                        .map(|(v, t)| (v, Some(t)))
+                    (result, eval_ctx)
                 } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, None)
-                        .map(|v| (v, None))
+                    // No session found: evaluate without context
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, None)
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, None)
+                            .map(|v| (v, None))
+                    };
+                    (result, EvaluationContext::default())
                 };
-                (result, EvaluationContext::default())
-            };
 
             let eval_result = match eval_result {
                 Ok((Verdict::RequireApproval { reason }, trace)) => {
@@ -1005,7 +1058,13 @@ pub async fn handle_mcp_post(
                         };
 
                         // Audit the privilege escalation with full details
-                        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "http",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -1068,7 +1127,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1171,7 +1236,13 @@ pub async fn handle_mcp_post(
                                 let gw_verdict = Verdict::Deny {
                                     reason: "No healthy backend available".into(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &gw_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &gw_verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 let _ = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1296,7 +1367,13 @@ pub async fn handle_mcp_post(
                                         }
                                         // Audit if fallback occurred (>1 attempt).
                                         if result.history.attempts.len() > 1 {
-                                            let fallback_envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                            let fallback_envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &Verdict::Allow,
+                                                DecisionOrigin::PolicyEngine,
+                                                "http",
+                                                Some(&session_id),
+                                            );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1353,7 +1430,14 @@ pub async fn handle_mcp_post(
                                                                 "Smart-fallback response DLP blocked: {patterns:?}"
                                                             ),
                                                         };
-                                                        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                                                        let envelope =
+                                                            build_secondary_acis_envelope(
+                                                                &action,
+                                                                &verdict,
+                                                                DecisionOrigin::Dlp,
+                                                                "http",
+                                                                Some(&session_id),
+                                                            );
                                                         let _ = state
                                                             .audit
                                                             .log_entry_with_acis(
@@ -1453,7 +1537,13 @@ pub async fn handle_mcp_post(
                                             let verdict = Verdict::Deny {
                                                 reason: "Smart-fallback response is not valid JSON — blocked (fail-closed)".to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "http",
+                                                Some(&session_id),
+                                            );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1498,7 +1588,13 @@ pub async fn handle_mcp_post(
                                         let fallback_fail_verdict = Verdict::Deny {
                                             reason: format!("all transports failed: {e}"),
                                         };
-                                        let envelope = build_secondary_acis_envelope(&action, &fallback_fail_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                        let envelope = build_secondary_acis_envelope(
+                                            &action,
+                                            &fallback_fail_verdict,
+                                            DecisionOrigin::PolicyEngine,
+                                            "http",
+                                            Some(&session_id),
+                                        );
                                         let _ = state
                                             .audit
                                             .log_entry_with_acis(
@@ -1819,7 +1915,13 @@ pub async fn handle_mcp_post(
                     let poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &poison_verdict,
+                        DecisionOrigin::MemoryPoisoning,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -1873,7 +1975,13 @@ pub async fn handle_mcp_post(
                         "Resource '{uri}' blocked: server flagged by rug-pull detection"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "http", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::CapabilityEnforcement,
+                    "http",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -1934,7 +2042,13 @@ pub async fn handle_mcp_post(
                     let dlp_verdict = Verdict::Deny {
                         reason: audit_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &dlp_action,
+                        &dlp_verdict,
+                        DecisionOrigin::Dlp,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -1993,7 +2107,13 @@ pub async fn handle_mcp_post(
                         reason: format!("Circuit breaker open: {reason}"),
                     };
                     // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::CircuitBreaker,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2034,70 +2154,69 @@ pub async fn handle_mcp_post(
             // max_calls evaluation, and all increment — bypassing rate limits.
             // Mirror the ToolCall TOCTOU fix (R19-TOCTOU).
             // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) = if let Some(mut session) =
-                state.sessions.get_mut(&session_id)
-            {
-                let eval_ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
+            let (eval_result, eval_ctx) =
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    let eval_ctx = EvaluationContext {
+                        timestamp: None,
+                        agent_id: session.oauth_subject.clone(),
+                        agent_identity: session.agent_identity.clone(),
+                        call_counts: session.call_counts.clone(),
+                        previous_actions: session.action_history.iter().cloned().collect(),
+                        call_chain: session.current_call_chain.clone(),
+                        tenant_id: None,
+                        verification_tier: None,
+                        capability_token: None,
+                        session_state: None,
+                    };
 
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                        .map(|(v, t)| (v, Some(t)))
-                } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                        .map(|v| (v, None))
-                };
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
+                            .map(|v| (v, None))
+                    };
 
-                // Atomically update session while still holding the shard lock
-                if let Ok((Verdict::Allow, _)) = &result {
-                    let resource_key = format!(
-                        "resources/read:{}",
-                        uri.chars().take(128).collect::<String>()
-                    );
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&resource_key)
-                    {
-                        let count = session.call_counts.entry(resource_key).or_insert(0);
-                        *count = count.saturating_add(1);
+                    // Atomically update session while still holding the shard lock
+                    if let Ok((Verdict::Allow, _)) = &result {
+                        let resource_key = format!(
+                            "resources/read:{}",
+                            uri.chars().take(128).collect::<String>()
+                        );
+                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                            || session.call_counts.contains_key(&resource_key)
+                        {
+                            let count = session.call_counts.entry(resource_key).or_insert(0);
+                            *count = count.saturating_add(1);
+                        }
+                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                            session.action_history.pop_front();
+                        }
+                        session
+                            .action_history
+                            .push_back("resources/read".to_string());
                     }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session
-                        .action_history
-                        .push_back("resources/read".to_string());
-                }
 
-                (result, eval_ctx)
-            } else {
-                // No session found: evaluate without context
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, None)
-                        .map(|(v, t)| (v, Some(t)))
+                    (result, eval_ctx)
                 } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, None)
-                        .map(|v| (v, None))
+                    // No session found: evaluate without context
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, None)
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, None)
+                            .map(|v| (v, None))
+                    };
+                    (result, EvaluationContext::default())
                 };
-                (result, EvaluationContext::default())
-            };
 
             let eval_result = match eval_result {
                 Ok((Verdict::RequireApproval { reason }, trace)) => {
@@ -2151,7 +2270,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2474,7 +2599,13 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2524,7 +2655,13 @@ pub async fn handle_mcp_post(
                     "session": &session_id,
                 }),
             );
-            let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &Verdict::Allow,
+                DecisionOrigin::PolicyEngine,
+                "http",
+                Some(&session_id),
+            );
             if let Err(e) = state
                 .audit
                 .log_entry_with_acis(
@@ -2588,7 +2725,13 @@ pub async fn handle_mcp_post(
                             "session": session_id,
                         }),
                     );
-                    let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &n_action,
+                        &verdict,
+                        DecisionOrigin::Dlp,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2664,7 +2807,13 @@ pub async fn handle_mcp_post(
                                 "session": session_id,
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &inj_action,
+                            &verdict,
+                            DecisionOrigin::InjectionScanner,
+                            "http",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -2730,7 +2879,13 @@ pub async fn handle_mcp_post(
                             poisoning_matches.len()
                         ),
                     };
-                    let envelope = build_secondary_acis_envelope(&poison_action, &pt_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &poison_action,
+                        &pt_poison_verdict,
+                        DecisionOrigin::MemoryPoisoning,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2875,7 +3030,13 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2959,7 +3120,13 @@ pub async fn handle_mcp_post(
                     let task_poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &task_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &task_poison_verdict,
+                        DecisionOrigin::MemoryPoisoning,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -3042,7 +3209,13 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &inj_action,
+                            &verdict,
+                            DecisionOrigin::InjectionScanner,
+                            "http",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -3107,7 +3280,13 @@ pub async fn handle_mcp_post(
                 let task_dlp_verdict = Verdict::Deny {
                     reason: audit_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&dlp_action, &task_dlp_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &dlp_action,
+                    &task_dlp_verdict,
+                    DecisionOrigin::Dlp,
+                    "http",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -3150,65 +3329,64 @@ pub async fn handle_mcp_post(
             // the ToolCall pattern (line 725-789). Without this, concurrent TaskRequests
             // can bypass max_calls_in_window by reading stale call_counts.
             // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) = if let Some(mut session) =
-                state.sessions.get_mut(&session_id)
-            {
-                let eval_ctx = EvaluationContext {
-                    timestamp: None,
-                    agent_id: session.oauth_subject.clone(),
-                    agent_identity: session.agent_identity.clone(),
-                    call_counts: session.call_counts.clone(),
-                    previous_actions: session.action_history.iter().cloned().collect(),
-                    call_chain: session.current_call_chain.clone(),
-                    tenant_id: None,
-                    verification_tier: None,
-                    capability_token: None,
-                    session_state: None,
-                };
+            let (eval_result, eval_ctx) =
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    let eval_ctx = EvaluationContext {
+                        timestamp: None,
+                        agent_id: session.oauth_subject.clone(),
+                        agent_identity: session.agent_identity.clone(),
+                        call_counts: session.call_counts.clone(),
+                        previous_actions: session.action_history.iter().cloned().collect(),
+                        call_chain: session.current_call_chain.clone(),
+                        tenant_id: None,
+                        verification_tier: None,
+                        capability_token: None,
+                        session_state: None,
+                    };
 
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                        .map(|(v, t)| (v, Some(t)))
-                } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                        .map(|v| (v, None))
-                };
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
+                            .map(|v| (v, None))
+                    };
 
-                // Atomically update session on Allow while holding shard lock
-                if let Ok((Verdict::Allow, _)) = &result {
-                    session.touch();
-                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                        || session.call_counts.contains_key(&task_method)
-                    {
-                        let count = session.call_counts.entry(task_method.clone()).or_insert(0);
-                        *count = count.saturating_add(1);
+                    // Atomically update session on Allow while holding shard lock
+                    if let Ok((Verdict::Allow, _)) = &result {
+                        session.touch();
+                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                            || session.call_counts.contains_key(&task_method)
+                        {
+                            let count = session.call_counts.entry(task_method.clone()).or_insert(0);
+                            *count = count.saturating_add(1);
+                        }
+                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                            session.action_history.pop_front();
+                        }
+                        session.action_history.push_back(task_method.clone());
                     }
-                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                        session.action_history.pop_front();
-                    }
-                    session.action_history.push_back(task_method.clone());
-                }
 
-                (result, eval_ctx)
-            } else {
-                // No session: evaluate without context
-                let result = if params.trace && state.trace_enabled {
-                    state
-                        .engine
-                        .evaluate_action_traced_with_context(&action, None)
-                        .map(|(v, t)| (v, Some(t)))
+                    (result, eval_ctx)
                 } else {
-                    state
-                        .engine
-                        .evaluate_action_with_context(&action, &state.policies, None)
-                        .map(|v| (v, None))
+                    // No session: evaluate without context
+                    let result = if params.trace && state.trace_enabled {
+                        state
+                            .engine
+                            .evaluate_action_traced_with_context(&action, None)
+                            .map(|(v, t)| (v, Some(t)))
+                    } else {
+                        state
+                            .engine
+                            .evaluate_action_with_context(&action, &state.policies, None)
+                            .map(|v| (v, None))
+                    };
+                    (result, EvaluationContext::default())
                 };
-                (result, EvaluationContext::default())
-            };
 
             let eval_result = match eval_result {
                 Ok((Verdict::RequireApproval { reason }, trace)) => {
@@ -3261,7 +3439,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3606,7 +3790,13 @@ pub async fn handle_mcp_post(
             let batch_verdict = Verdict::Deny {
                 reason: "JSON-RPC batching not supported".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(&batch_action, &batch_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+            let envelope = build_secondary_acis_envelope(
+                &batch_action,
+                &batch_verdict,
+                DecisionOrigin::PolicyEngine,
+                "http",
+                Some(&session_id),
+            );
             if let Err(e) = state
                 .audit
                 .log_entry_with_acis(
@@ -3690,7 +3880,13 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &inj_action,
+                            &verdict,
+                            DecisionOrigin::InjectionScanner,
+                            "http",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -3740,7 +3936,13 @@ pub async fn handle_mcp_post(
                         "DLP blocked: secret detected in extension parameters: {patterns:?}"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "http", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &audit_verdict,
+                    DecisionOrigin::Dlp,
+                    "http",
+                    Some(&session_id),
+                );
                 if let Err(e) = state.audit.log_entry_with_acis(
                     &action, &audit_verdict,
                     build_audit_context(&session_id, json!({
@@ -3778,7 +3980,13 @@ pub async fn handle_mcp_post(
                     let ext_poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &ext_poison_verdict, DecisionOrigin::MemoryPoisoning, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &ext_poison_verdict,
+                        DecisionOrigin::MemoryPoisoning,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -3879,7 +4087,13 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "http",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3978,7 +4192,13 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(ext_key.clone());
                     }
 
-                    let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &Verdict::Allow,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4025,7 +4245,13 @@ pub async fn handle_mcp_post(
                     let ext_deny_verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &ext_deny_verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &ext_deny_verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4078,7 +4304,13 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::ApprovalGate, "http", Some(&session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "http",
+                        Some(&session_id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4267,7 +4499,13 @@ pub async fn handle_mcp_delete(
                         target_domains: Vec::new(),
                         resolved_ips: Vec::new(),
                     };
-                    let envelope = build_secondary_acis_envelope(&audit_action, &vellaveto_types::Verdict::Allow, DecisionOrigin::SessionGuard, "http", Some(id));
+                    let envelope = build_secondary_acis_envelope(
+                        &audit_action,
+                        &vellaveto_types::Verdict::Allow,
+                        DecisionOrigin::SessionGuard,
+                        "http",
+                        Some(id),
+                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4729,7 +4967,13 @@ pub async fn handle_mcp_get(
         let verdict = Verdict::Deny {
             reason: format!("Invalid upstream call chain header: {reason}"),
         };
-        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+        let envelope = build_secondary_acis_envelope(
+            &action,
+            &verdict,
+            DecisionOrigin::PolicyEngine,
+            "http",
+            Some(&session_id),
+        );
         if let Err(e) = state
             .audit
             .log_entry_with_acis(
@@ -4841,7 +5085,13 @@ pub async fn handle_mcp_get(
             "has_last_event_id": last_event_id.is_some(),
         }),
     );
-    let envelope = build_secondary_acis_envelope(&sse_action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+    let envelope = build_secondary_acis_envelope(
+        &sse_action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&session_id),
+    );
     if let Err(e) = state
         .audit
         .log_entry_with_acis(

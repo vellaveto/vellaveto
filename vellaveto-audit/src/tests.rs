@@ -5483,7 +5483,10 @@ async fn test_log_entry_with_acis_rejects_invalid_envelope() {
     let result = logger
         .log_entry_with_acis(&action, &verdict, json!({}), bad_envelope)
         .await;
-    assert!(result.is_err(), "should reject envelope with empty tool name");
+    assert!(
+        result.is_err(),
+        "should reject envelope with empty tool name"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("ACIS envelope validation failed"),
@@ -5597,7 +5600,10 @@ async fn test_r253_aud6_target_path_too_long_rejected() {
         .await;
     assert!(result.is_err(), "5000-byte target path should be rejected");
     assert!(
-        result.unwrap_err().to_string().contains("Target path too long"),
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Target path too long"),
         "error should mention path length"
     );
 }

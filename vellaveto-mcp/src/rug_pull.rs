@@ -24,8 +24,8 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use vellaveto_audit::AuditLogger;
-use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::acis::DecisionOrigin;
+use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::{Action, Verdict};
 
 // ── Tool Squatting Detection Types ─────────────────────
@@ -383,7 +383,11 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             ),
         };
         let envelope = crate::mediation::build_secondary_acis_envelope(
-            &action, &verdict, DecisionOrigin::CapabilityEnforcement, source, None,
+            &action,
+            &verdict,
+            DecisionOrigin::CapabilityEnforcement,
+            source,
+            None,
         );
         if let Err(e) = audit
             .log_entry_with_acis(
@@ -411,7 +415,11 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             reason: format!("Tool removal detected: {}", result.removed_tools.join(", ")),
         };
         let envelope = crate::mediation::build_secondary_acis_envelope(
-            &action, &verdict, DecisionOrigin::CapabilityEnforcement, source, None,
+            &action,
+            &verdict,
+            DecisionOrigin::CapabilityEnforcement,
+            source,
+            None,
         );
         if let Err(e) = audit
             .log_entry_with_acis(
@@ -442,7 +450,11 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             ),
         };
         let envelope = crate::mediation::build_secondary_acis_envelope(
-            &action, &verdict, DecisionOrigin::CapabilityEnforcement, source, None,
+            &action,
+            &verdict,
+            DecisionOrigin::CapabilityEnforcement,
+            source,
+            None,
         );
         if let Err(e) = audit
             .log_entry_with_acis(
@@ -482,7 +494,11 @@ pub async fn audit_rug_pull_events(result: &RugPullResult, audit: &AuditLogger, 
             reason: format!("Tool squatting detected: {}", squatting_names.join(", ")),
         };
         let envelope = crate::mediation::build_secondary_acis_envelope(
-            &action, &verdict, DecisionOrigin::InjectionScanner, source, None,
+            &action,
+            &verdict,
+            DecisionOrigin::InjectionScanner,
+            source,
+            None,
         );
         if let Err(e) = audit
             .log_entry_with_acis(

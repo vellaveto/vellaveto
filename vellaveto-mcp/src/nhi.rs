@@ -2328,11 +2328,8 @@ impl DpopNonceTracker {
         // attacker flooding), the tracker is permanently stuck. Evict oldest 10%.
         if self.nonces.len() >= MAX_DPOP_NONCES {
             let evict_count = MAX_DPOP_NONCES / 10;
-            let mut entries: Vec<(String, u64)> = self
-                .nonces
-                .iter()
-                .map(|(k, v)| (k.clone(), *v))
-                .collect();
+            let mut entries: Vec<(String, u64)> =
+                self.nonces.iter().map(|(k, v)| (k.clone(), *v)).collect();
             entries.sort_by_key(|&(_, ts)| ts);
             for (key, _) in entries.iter().take(evict_count) {
                 self.nonces.remove(key);
@@ -5334,7 +5331,12 @@ mod tests {
             .register_identity(
                 "Agent A",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5342,14 +5344,26 @@ mod tests {
             .register_identity(
                 "Agent B",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
 
         // Create delegation A -> B
         let link = manager
-            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
         assert!(link.active, "delegation should be active initially");
@@ -5362,10 +5376,7 @@ mod tests {
 
         // Delegation should now be inactive
         let delegation = manager.get_delegation(&agent_a, &agent_b).await;
-        assert!(
-            delegation.is_some(),
-            "delegation entry should still exist"
-        );
+        assert!(delegation.is_some(), "delegation entry should still exist");
         assert!(
             !delegation.unwrap().active,
             "SECURITY (R250-NHI-1): delegation FROM revoked agent must be deactivated"
@@ -5380,7 +5391,12 @@ mod tests {
             .register_identity(
                 "Agent A",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5388,14 +5404,26 @@ mod tests {
             .register_identity(
                 "Agent B",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
 
         // Create delegation A -> B
         manager
-            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
 
@@ -5425,7 +5453,12 @@ mod tests {
             .register_identity(
                 "Agent A",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5433,7 +5466,12 @@ mod tests {
             .register_identity(
                 "Agent B",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5441,24 +5479,47 @@ mod tests {
             .register_identity(
                 "Agent C",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
 
         // Create chain: A -> B -> C
         manager
-            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
         manager
-            .create_delegation(&agent_b, &agent_c, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_b,
+                &agent_c,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
 
         // Full chain before revocation: [A->B, B->C]
         let chain = manager.resolve_delegation_chain(&agent_c).await;
-        assert_eq!(chain.chain.len(), 2, "chain should have 2 links before revocation");
+        assert_eq!(
+            chain.chain.len(),
+            2,
+            "chain should have 2 links before revocation"
+        );
 
         // Revoke origin agent A (cascades deactivation to A->B via R250-NHI-1)
         manager
@@ -5469,7 +5530,8 @@ mod tests {
         // Chain should now only have B->C (A->B is deactivated)
         let chain = manager.resolve_delegation_chain(&agent_c).await;
         assert_eq!(
-            chain.chain.len(), 1,
+            chain.chain.len(),
+            1,
             "chain should be shortened after origin revocation"
         );
         assert_eq!(chain.chain[0].from_agent, agent_b);
@@ -5485,7 +5547,12 @@ mod tests {
             .register_identity(
                 "Agent A",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5493,13 +5560,25 @@ mod tests {
             .register_identity(
                 "Agent B",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
 
         manager
-            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
 
@@ -5530,7 +5609,12 @@ mod tests {
             .register_identity(
                 "Agent A",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
@@ -5538,13 +5622,25 @@ mod tests {
             .register_identity(
                 "Agent B",
                 NhiAttestationType::Jwt,
-                None, None, None, None, vec![], HashMap::new(),
+                None,
+                None,
+                None,
+                None,
+                vec![],
+                HashMap::new(),
             )
             .await
             .unwrap();
 
         manager
-            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .create_delegation(
+                &agent_a,
+                &agent_b,
+                vec!["read".to_string()],
+                vec![],
+                3600,
+                None,
+            )
             .await
             .unwrap();
 
