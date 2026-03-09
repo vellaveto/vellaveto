@@ -542,7 +542,14 @@ impl SessionStore {
     pub fn get_or_create(&self, client_session_id: Option<&str>) -> String {
         // SECURITY (R39-PROXY-7): Reject oversized session IDs — treat as invalid
         // to prevent memory abuse. Server-generated IDs are UUIDs (36 chars).
-        let client_session_id = client_session_id.filter(|id| id.len() <= MAX_SESSION_ID_LEN);
+        // SECURITY (R253-SESS-1): Also reject control/Unicode format characters,
+        // matching parity with HTTP proxy handler validation.
+        let client_session_id = client_session_id.filter(|id| {
+            id.len() <= MAX_SESSION_ID_LEN
+                && !id
+                    .chars()
+                    .any(|c| c.is_control() || vellaveto_types::is_unicode_format_char(c))
+        });
 
         // Try to reuse existing session if client provided an ID
         if let Some(id) = client_session_id {
@@ -1420,5 +1427,26 @@ mod tests {
             .unwrap_or_else(|| store.is_tool_globally_flagged("globally_flagged"));
 
         assert!(is_flagged, "global fallback should catch flagged tool");
+    }
+
+    #[test]
+    fn test_r253_get_or_create_rejects_control_chars_in_session_id() {
+        let store = SessionStore::new(Duration::from_secs(300), 100);
+
+        // Create a session first
+        let id = store.get_or_create(None);
+
+        // Reuse with valid ID works
+        let reused = store.get_or_create(Some(&id));
+        assert_eq!(id, reused);
+
+        // Control character in session ID — should be treated as invalid
+        // and create a new session instead of looking up
+        let new_id = store.get_or_create(Some("session\x00id"));
+        assert_ne!(new_id, "session\x00id");
+
+        // Zero-width space U+200B — Unicode format character
+        let new_id2 = store.get_or_create(Some("session\u{200B}id"));
+        assert_ne!(new_id2, "session\u{200B}id");
     }
 }
