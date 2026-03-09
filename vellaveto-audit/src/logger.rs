@@ -353,9 +353,15 @@ impl AuditLogger {
         // SECURITY (R9-4): Validate metadata size to prevent oversized entries
         // from exhausting disk space or pushing the log past the load limit.
         const MAX_METADATA_SIZE: usize = 65536; // 64 KB
+        // SECURITY (R253-AUD-1): Fail-closed on serialization failure instead of
+        // defaulting to 0 bytes, which would bypass the size check entirely.
         let metadata_size = serde_json::to_string(&metadata)
-            .map(|s| s.len())
-            .unwrap_or(0);
+            .map_err(|e| {
+                AuditError::Validation(format!(
+                    "Metadata serialization failed (fail-closed): {e}"
+                ))
+            })?
+            .len();
         if metadata_size > MAX_METADATA_SIZE {
             return Err(AuditError::Validation(format!(
                 "Metadata too large: {metadata_size} bytes (max {MAX_METADATA_SIZE} bytes)"

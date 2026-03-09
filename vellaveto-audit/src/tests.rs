@@ -5535,3 +5535,27 @@ async fn test_log_entry_with_acis_rejects_dangerous_chars_in_decision_id() {
         "should reject envelope with dangerous chars"
     );
 }
+
+/// R253-AUD-1: Metadata that fails serialization must be rejected (fail-closed),
+/// not silently treated as 0 bytes which bypasses the MAX_METADATA_SIZE check.
+#[tokio::test]
+async fn test_r253_aud1_metadata_size_check_rejects_oversized() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let log_path = dir.path().join("aud1-test.jsonl");
+
+    let logger = crate::AuditLogger::new(log_path.clone());
+    let action = vellaveto_types::Action::new("tool", "func", serde_json::json!({}));
+    let verdict = vellaveto_types::Verdict::Allow;
+
+    // Create metadata exceeding 64 KB.
+    let big_value = "x".repeat(70_000);
+    let metadata = serde_json::json!({ "big": big_value });
+
+    let result = logger.log_entry(&action, &verdict, metadata).await;
+    assert!(result.is_err(), "oversized metadata must be rejected");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("too large") || err.contains("Metadata"),
+        "error should mention metadata size, got: {err}"
+    );
+}
