@@ -7,9 +7,10 @@
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
 
-//! JSON and Markdown report generation.
+//! JSON, Markdown, and OCSF report generation.
 
 use crate::BenchmarkResult;
+use serde_json::json;
 
 /// Generate a JSON report string.
 pub fn to_json(result: &BenchmarkResult) -> String {
@@ -125,6 +126,68 @@ pub fn to_markdown(result: &BenchmarkResult) -> String {
     md
 }
 
+/// Generate an OCSF (Open Cybersecurity Schema Framework) report.
+///
+/// Each attack result maps to an OCSF Security Finding (class_uid=2001).
+/// The overall benchmark maps to a Detection Finding activity.
+/// See <https://schema.ocsf.io/1.1.0/classes/security_finding>
+pub fn to_ocsf(result: &BenchmarkResult) -> String {
+    let findings: Vec<serde_json::Value> = result
+        .attacks
+        .iter()
+        .map(|attack| {
+            let severity_id: u8 = if attack.passed { 1 } else { 4 }; // 1=Info, 4=High
+            let status_id: u8 = if attack.passed { 1 } else { 2 }; // 1=New, 2=InProgress
+            json!({
+                "class_uid": 2001,
+                "class_name": "Security Finding",
+                "category_uid": 2,
+                "category_name": "Findings",
+                "activity_id": 1,
+                "activity_name": "Create",
+                "severity_id": severity_id,
+                "status_id": status_id,
+                "time": result.timestamp,
+                "finding_info": {
+                    "uid": attack.attack_id,
+                    "title": attack.name,
+                    "desc": attack.details,
+                    "types": [attack.class.as_str()],
+                    "data_sources": ["MCPSEC Benchmark"]
+                },
+                "metadata": {
+                    "product": {
+                        "name": "MCPSEC",
+                        "version": result.version,
+                        "vendor_name": "Vellaveto"
+                    },
+                    "version": "1.1.0"
+                },
+                "resources": [{
+                    "name": result.gateway,
+                    "type": "MCP Gateway"
+                }],
+                "unmapped": {
+                    "attack_id": attack.attack_id,
+                    "passed": attack.passed,
+                    "latency_ns": attack.latency_ns,
+                    "overall_score": result.overall_score,
+                    "tier": result.tier,
+                    "tier_name": result.tier_name
+                }
+            })
+        })
+        .collect();
+
+    match serde_json::to_string_pretty(&findings) {
+        Ok(json) => json,
+        Err(e) => {
+            let escaped = e.to_string().replace('\\', "\\\\").replace('"', "\\\"");
+            format!("{{\"error\":\"failed to serialize OCSF report\",\"details\":\"{escaped}\"}}")
+        }
+    }
+}
+
 fn format_latency(ns: u64) -> String {
     if ns < 1_000 {
         format!("{ns}ns")
@@ -205,6 +268,30 @@ mod tests {
         assert!(md.contains("## Remediation Guidance"));
         assert!(md.contains("PASS"));
         assert!(md.contains("**FAIL**"));
+    }
+
+    #[test]
+    fn test_ocsf_output_structure() {
+        let result = sample_result();
+        let ocsf = to_ocsf(&result);
+        let findings: Vec<serde_json::Value> = serde_json::from_str(&ocsf).unwrap();
+        assert_eq!(findings.len(), 2);
+
+        // Check OCSF class_uid = 2001 (Security Finding)
+        assert_eq!(findings[0]["class_uid"], 2001);
+        assert_eq!(findings[0]["class_name"], "Security Finding");
+
+        // Passed test should have severity_id=1 (Info)
+        assert_eq!(findings[0]["severity_id"], 1);
+        // Failed test should have severity_id=4 (High)
+        assert_eq!(findings[1]["severity_id"], 4);
+
+        // Check finding_info
+        assert_eq!(findings[0]["finding_info"]["uid"], "A1.1");
+        assert_eq!(findings[1]["finding_info"]["uid"], "A1.2");
+
+        // Check metadata
+        assert_eq!(findings[0]["metadata"]["product"]["name"], "MCPSEC");
     }
 
     #[test]

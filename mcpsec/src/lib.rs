@@ -52,6 +52,7 @@ pub struct GatewayConfig {
 pub enum OutputFormat {
     Json,
     Markdown,
+    Ocsf,
 }
 
 /// Result of a single attack test.

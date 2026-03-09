@@ -29,7 +29,7 @@ struct Cli {
     #[arg(long, short)]
     output: Option<String>,
 
-    /// Output format: json or markdown
+    /// Output format: json, markdown, or ocsf
     #[arg(long, default_value = "json")]
     format: String,
 
@@ -74,6 +74,7 @@ async fn main() {
 
     let format = match cli.format.as_str() {
         "markdown" | "md" => OutputFormat::Markdown,
+        "ocsf" => OutputFormat::Ocsf,
         _ => OutputFormat::Json,
     };
 
@@ -130,6 +131,7 @@ fn write_output(result: &BenchmarkResult, format: OutputFormat, path: Option<&st
     let output = match format {
         OutputFormat::Json => mcpsec::report::to_json(result),
         OutputFormat::Markdown => mcpsec::report::to_markdown(result),
+        OutputFormat::Ocsf => mcpsec::report::to_ocsf(result),
     };
 
     if let Some(path) = path {
