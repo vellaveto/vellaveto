@@ -25,12 +25,17 @@ use super::{ProxyState, MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE,
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Extract text content from an MCP result for injection inspection.
+///
+/// SECURITY (R249-PROXY-1): Content array iteration is bounded to prevent
+/// CPU/memory exhaustion from responses with excessive content items.
+/// Total text is also bounded by upstream's `max_response_body_bytes`.
 pub(super) fn extract_text_from_result(result: &Value) -> String {
+    const MAX_CONTENT_ITEMS: usize = 1000;
     let mut text_parts = Vec::new();
 
     // Extract from content array
     if let Some(content) = result.get("content").and_then(|c| c.as_array()) {
-        for item in content {
+        for item in content.iter().take(MAX_CONTENT_ITEMS) {
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 text_parts.push(text.to_string());
             }
@@ -78,7 +83,7 @@ pub(super) fn extract_text_from_result(result: &Value) -> String {
     // responses use "contents" (not "content"). Without this, resource read responses
     // bypass injection scanning on HTTP/WS/gRPC transports. Parity with scanner_base.rs.
     if let Some(contents) = result.get("contents").and_then(|c| c.as_array()) {
-        for item in contents {
+        for item in contents.iter().take(MAX_CONTENT_ITEMS) {
             if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
                 text_parts.push(text.to_string());
             }
