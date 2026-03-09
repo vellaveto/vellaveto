@@ -574,6 +574,17 @@ impl ApprovalStore {
                     "session_id contains control characters".to_string(),
                 ));
             }
+            // SECURITY (R253-APPR-2): Parity with requested_by and resolved_by
+            // Unicode format character validation. Without this, invisible chars
+            // (zero-width spaces, bidi overrides) could bypass session binding.
+            if sid
+                .chars()
+                .any(vellaveto_types::is_unicode_format_char)
+            {
+                return Err(ApprovalError::Validation(
+                    "session_id contains Unicode format characters".to_string(),
+                ));
+            }
         }
         // SECURITY (E3-1): Validate action_fingerprint length and content.
         if let Some(ref fp) = action_fingerprint {
@@ -1041,13 +1052,31 @@ impl ApprovalStore {
             return Ok(false);
         }
 
+        // SECURITY (R253-APPR-1): Compute dedup key before mutating the approval.
+        // Parity with approve() and deny() — consumed approvals must be removed
+        // from dedup_index to prevent unbounded memory growth.
+        let dedup_key = compute_dedup_key(
+            &approval.action,
+            &approval.reason,
+            approval.requested_by.as_deref(),
+            approval.session_id.as_deref(),
+        )?;
+
         approval.status = ApprovalStatus::Consumed;
         approval.consumed_at = Some(Utc::now());
 
         let result = approval.clone();
+        // Remove from dedup index since it's no longer pending
+        let mut dedup = self.dedup_index.write().await;
+        dedup.remove(&dedup_key);
+        drop(dedup);
+
         if let Err(e) = self.persist_approval(&result).await {
             approval.status = ApprovalStatus::Approved;
             approval.consumed_at = None;
+            // Restore dedup key on rollback
+            let mut dedup = self.dedup_index.write().await;
+            dedup.insert(dedup_key, id.to_string());
             return Err(e);
         }
 
@@ -3505,5 +3534,88 @@ mod tests {
             matches!(err, ApprovalError::Validation(_)),
             "Expected Validation error for control chars, got: {err:?}"
         );
+    }
+
+    // ── R253-APPR-2: Unicode format char validation on session_id ──
+
+    #[tokio::test]
+    async fn test_r253_create_rejects_unicode_format_chars_in_session_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // Zero-width space U+200B
+        let result = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some("session\u{200B}id".to_string()),
+                None,
+            )
+            .await;
+        assert!(matches!(result, Err(ApprovalError::Validation(_))));
+        assert!(
+            format!("{}", result.unwrap_err())
+                .contains("session_id contains Unicode format characters"),
+        );
+
+        // Bidi override U+2066
+        let result2 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some("session\u{2066}id".to_string()),
+                None,
+            )
+            .await;
+        assert!(matches!(result2, Err(ApprovalError::Validation(_))));
+    }
+
+    // ── R253-APPR-1: dedup_index cleanup on consume ──
+
+    #[tokio::test]
+    async fn test_r253_consume_cleans_dedup_index_allows_recreate() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+        let session_id = sample_session_id();
+        let fp = sample_action_fingerprint();
+
+        // Create + approve + consume
+        let id1 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(fp.clone()),
+            )
+            .await
+            .unwrap();
+        store.approve(&id1, "reviewer").await.unwrap();
+        assert!(store
+            .consume_approved(&id1, Some(&session_id), Some(&fp))
+            .await
+            .unwrap());
+
+        // After consume, creating an identical approval should produce a NEW id,
+        // not return the consumed one. This proves dedup_index was cleaned.
+        let id2 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                Some("requester".to_string()),
+                Some(session_id.clone()),
+                Some(fp.clone()),
+            )
+            .await
+            .unwrap();
+        assert_ne!(id1, id2, "consumed approval should not be returned by dedup");
     }
 }
