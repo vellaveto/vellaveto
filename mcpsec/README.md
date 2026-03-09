@@ -1,8 +1,8 @@
 # MCPSEC: MCP Security Benchmark Framework
 
-**Version 1.1.0** | **Apache-2.0 License**
+**Version 1.2.0** | **Apache-2.0 License**
 
-MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 91 reproducible attack test cases across 16 attack classes, derived from real-world penetration testing of MCP deployments.
+MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 100 reproducible attack test cases across 16 attack classes, derived from real-world penetration testing of MCP deployments.
 
 ## Why MCPSEC?
 
@@ -62,17 +62,17 @@ See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 | A5 | Confused Deputy | 5 | ASI02 |
 | A6 | Memory Poisoning (MINJA) | 5 | ASI06 |
 | A7 | Tool Squatting | 5 | ASI03 |
-| A8 | Audit Tampering | 4 | MCP08 |
+| A8 | Audit Tampering | 7 | MCP08 |
 | A9 | SSRF & Domain Bypass | 8 | MCP05 |
 | A10 | DoS & Resource Exhaustion | 4 | MCP10 |
-| A11 | Credential Elicitation | 3 | - |
-| A12 | Sampling & Covert Channels | 3 | - |
+| A11 | Credential Elicitation | 6 | - |
+| A12 | Sampling & Covert Channels | 6 | - |
 | A13 | Cross-Call Secret Splitting | 4 | - |
 | A14 | Schema Pattern Bypass | 4 | - |
 | A15 | Agent Identity Spoofing | 5 | ASI02 |
 | A16 | Circuit Breaker Evasion | 4 | MCP10 |
 
-**Total: 91 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
+**Total: 100 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
 
 ## Scoring
 

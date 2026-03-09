@@ -39,7 +39,7 @@ The harness produces a JSON report with:
 - **Overall score** (0-100%)
 - **Tier** (0-5)
 - **Per-property scores** (P1-P10, each 0-100%)
-- **Per-attack results** (91 tests, each pass/fail with latency)
+- **Per-attack results** (100 tests, each pass/fail with latency)
 
 ### Step 3: Generate Report
 
@@ -139,8 +139,8 @@ If your gateway uses a different API format, implement a response adapter. The h
     }
   ],
   "summary": {
-    "total_tests": 91,
-    "passed": 89,
+    "total_tests": 100,
+    "passed": 98,
     "failed": 2,
     "skipped": 0
   }

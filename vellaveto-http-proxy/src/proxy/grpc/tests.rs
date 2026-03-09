@@ -119,6 +119,38 @@ fn test_r245_grpc_config_validate_clean_url_accepted() {
     assert!(config.validate().is_ok());
 }
 
+// R251: stream_message_rate_limit validation
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r251_grpc_config_validate_zero_rate_limit_rejected() {
+    let config = GrpcConfig {
+        stream_message_rate_limit: 0,
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("stream_message_rate_limit"));
+}
+
+#[test]
+fn test_r251_grpc_config_validate_excessive_rate_limit_rejected() {
+    let config = GrpcConfig {
+        stream_message_rate_limit: 100_000, // > 10,000 limit
+        ..Default::default()
+    };
+    let err = config.validate().unwrap_err();
+    assert!(err.contains("stream_message_rate_limit"));
+}
+
+#[test]
+fn test_r251_grpc_config_validate_valid_rate_limit_accepted() {
+    let config = GrpcConfig {
+        stream_message_rate_limit: 500,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Proto ↔ JSON conversion: proto_request_to_json
 // ═══════════════════════════════════════════════════════════════════════

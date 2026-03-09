@@ -104,6 +104,9 @@ impl Default for GrpcConfig {
 /// Maximum allowed gRPC message size (256 MB).
 const MAX_GRPC_MESSAGE_SIZE: usize = 256 * 1024 * 1024;
 
+/// Maximum allowed stream message rate limit (10,000 msg/s).
+const MAX_STREAM_MESSAGE_RATE_LIMIT: u32 = 10_000;
+
 impl GrpcConfig {
     /// Validate the gRPC configuration for security constraints.
     ///
@@ -116,6 +119,16 @@ impl GrpcConfig {
             return Err(format!(
                 "grpc max_message_size must be in [1, {}], got {}",
                 MAX_GRPC_MESSAGE_SIZE, self.max_message_size
+            ));
+        }
+        // SECURITY (R251-GRPC-1): Reject stream_message_rate_limit=0 (fail-closed).
+        if self.stream_message_rate_limit == 0 {
+            return Err("grpc stream_message_rate_limit must be > 0".to_string());
+        }
+        if self.stream_message_rate_limit > MAX_STREAM_MESSAGE_RATE_LIMIT {
+            return Err(format!(
+                "grpc stream_message_rate_limit must be <= {}, got {}",
+                MAX_STREAM_MESSAGE_RATE_LIMIT, self.stream_message_rate_limit
             ));
         }
         if let Some(ref url) = self.upstream_grpc_url {

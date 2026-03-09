@@ -181,7 +181,7 @@ The audit log must form a tamper-evident hash chain. Every entry includes a cryp
 - All entries have entry_hash and prev_hash fields
 - Length-prefixed encoding prevents hash collision (tool="ab",func="cd" ≠ tool="abc",func="d")
 
-**Test IDs:** A8.1-A8.4
+**Test IDs:** A8.1-A8.7
 
 ---
 

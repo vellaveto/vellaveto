@@ -62,11 +62,11 @@ The tier is determined by the overall score using the thresholds defined above.
 | A5.1-A5.5 | P1, P2, P3, P8 |
 | A6.1-A6.5 | P4, P6 |
 | A7.1-A7.5 | P5, P9 |
-| A8.1-A8.4 | P7 |
+| A8.1-A8.7 | P7 |
 | A9.1-A9.8 | P2 |
 | A10.1-A10.4 | P10 |
-| A11.1-A11.3 | P2, P6 |
-| A12.1-A12.3 | P1, P4 |
+| A11.1-A11.6 | P2, P6 |
+| A12.1-A12.6 | P1, P4 |
 | A13.1-A13.4 | P6 |
 | A14.1-A14.4 | P5 |
 | A15.1-A15.5 | P1, P9 |
