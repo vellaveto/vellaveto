@@ -71,7 +71,7 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Test evidence** | `vellaveto-mcp/src/transparency.rs` — Art 50(1) tests; `vellaveto-server/src/routes/compliance.rs` — API tests; `vellaveto-audit/src/eu_ai_act.rs` — registry tests; `vellaveto-audit/src/data_governance.rs` — Art 10 tests |
 | **Reproduce** | `cargo test -p vellaveto-audit -- eu_ai_act && cargo test -p vellaveto-audit -- data_governance && cargo test -p vellaveto-mcp -- transparency` |
 
-### C6. "248 audit rounds, 1,680+ findings"
+### C6. "250 audit rounds, 1,700+ findings"
 
 | Field | Value |
 |-------|-------|

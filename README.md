@@ -8,9 +8,9 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-10%2C890%2B_passing-brightgreen.svg" alt="Tests: 10,930+ passing">
+    <img src="https://img.shields.io/badge/tests-10%2C930%2B_passing-brightgreen.svg" alt="Tests: 10,930+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-248_rounds-orange.svg" alt="248 Internal Security Audit Rounds"></a>
+    <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-250_rounds-orange.svg" alt="250 Internal Security Audit Rounds"></a>
     <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-756%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 756+ properties | 7 tools"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
@@ -308,7 +308,7 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 
 ### Internal Adversarial Auditing
 
-VellaVeto has undergone **248 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,680+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
+VellaVeto has undergone **250 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,700+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
