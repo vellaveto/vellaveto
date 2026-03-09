@@ -104,10 +104,7 @@ pub fn format_comparison(cmp: &ComparisonResult) -> String {
 
     // Score delta
     let arrow = if cmp.score_delta > 0.0 { "+" } else { "" };
-    out.push_str(&format!(
-        "Score: {arrow}{:.1}%",
-        cmp.score_delta
-    ));
+    out.push_str(&format!("Score: {arrow}{:.1}%", cmp.score_delta));
     if cmp.tier_delta != 0 {
         let tier_arrow = if cmp.tier_delta > 0 { "+" } else { "" };
         out.push_str(&format!(" (tier {tier_arrow}{})", cmp.tier_delta));
@@ -118,7 +115,10 @@ pub fn format_comparison(cmp: &ComparisonResult) -> String {
     if !cmp.regressions.is_empty() {
         out.push_str(&format!("\nRegressions ({}):\n", cmp.regressions.len()));
         for r in &cmp.regressions {
-            out.push_str(&format!("  REGRESSED  {} — {} ({})\n", r.attack_id, r.name, r.class));
+            out.push_str(&format!(
+                "  REGRESSED  {} — {} ({})\n",
+                r.attack_id, r.name, r.class
+            ));
         }
     }
 
@@ -126,13 +126,20 @@ pub fn format_comparison(cmp: &ComparisonResult) -> String {
     if !cmp.improvements.is_empty() {
         out.push_str(&format!("\nImprovements ({}):\n", cmp.improvements.len()));
         for i in &cmp.improvements {
-            out.push_str(&format!("  FIXED      {} — {} ({})\n", i.attack_id, i.name, i.class));
+            out.push_str(&format!(
+                "  FIXED      {} — {} ({})\n",
+                i.attack_id, i.name, i.class
+            ));
         }
     }
 
     // New tests
     if !cmp.new_tests.is_empty() {
-        out.push_str(&format!("\nNew tests ({}): {}\n", cmp.new_tests.len(), cmp.new_tests.join(", ")));
+        out.push_str(&format!(
+            "\nNew tests ({}): {}\n",
+            cmp.new_tests.len(),
+            cmp.new_tests.join(", ")
+        ));
     }
 
     // Removed tests
@@ -156,7 +163,11 @@ mod tests {
     use super::*;
     use crate::{AttackResult, BenchmarkResult, BenchmarkSummary};
 
-    fn make_result(attacks: Vec<(&str, &str, &str, bool)>, score: f64, tier: u8) -> BenchmarkResult {
+    fn make_result(
+        attacks: Vec<(&str, &str, &str, bool)>,
+        score: f64,
+        tier: u8,
+    ) -> BenchmarkResult {
         let attack_results: Vec<AttackResult> = attacks
             .iter()
             .map(|(id, name, class, passed)| AttackResult {
@@ -193,12 +204,20 @@ mod tests {
     #[test]
     fn test_compare_no_changes() {
         let a = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.2", "Test2", "Class", false)],
-            50.0, 2,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.2", "Test2", "Class", false),
+            ],
+            50.0,
+            2,
         );
         let b = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.2", "Test2", "Class", false)],
-            50.0, 2,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.2", "Test2", "Class", false),
+            ],
+            50.0,
+            2,
         );
         let cmp = compare(&a, &b);
         assert!(cmp.regressions.is_empty());
@@ -210,12 +229,20 @@ mod tests {
     #[test]
     fn test_compare_regression() {
         let baseline = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.2", "Test2", "Class", true)],
-            100.0, 5,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.2", "Test2", "Class", true),
+            ],
+            100.0,
+            5,
         );
         let current = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.2", "Test2", "Class", false)],
-            50.0, 2,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.2", "Test2", "Class", false),
+            ],
+            50.0,
+            2,
         );
         let cmp = compare(&baseline, &current);
         assert_eq!(cmp.regressions.len(), 1);
@@ -227,14 +254,8 @@ mod tests {
 
     #[test]
     fn test_compare_improvement() {
-        let baseline = make_result(
-            vec![("A1.1", "Test", "Class", false)],
-            0.0, 0,
-        );
-        let current = make_result(
-            vec![("A1.1", "Test", "Class", true)],
-            100.0, 5,
-        );
+        let baseline = make_result(vec![("A1.1", "Test", "Class", false)], 0.0, 0);
+        let current = make_result(vec![("A1.1", "Test", "Class", true)], 100.0, 5);
         let cmp = compare(&baseline, &current);
         assert!(cmp.regressions.is_empty());
         assert_eq!(cmp.improvements.len(), 1);
@@ -244,12 +265,20 @@ mod tests {
     #[test]
     fn test_compare_new_and_removed_tests() {
         let baseline = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.2", "Old", "Class", true)],
-            100.0, 5,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.2", "Old", "Class", true),
+            ],
+            100.0,
+            5,
         );
         let current = make_result(
-            vec![("A1.1", "Test", "Class", true), ("A1.3", "New", "Class", true)],
-            100.0, 5,
+            vec![
+                ("A1.1", "Test", "Class", true),
+                ("A1.3", "New", "Class", true),
+            ],
+            100.0,
+            5,
         );
         let cmp = compare(&baseline, &current);
         assert_eq!(cmp.new_tests, vec!["A1.3"]);
@@ -259,8 +288,12 @@ mod tests {
     #[test]
     fn test_format_comparison_output() {
         let baseline = make_result(
-            vec![("A1.1", "Test", "Injection", true), ("A1.2", "Test2", "Injection", false)],
-            50.0, 2,
+            vec![
+                ("A1.1", "Test", "Injection", true),
+                ("A1.2", "Test2", "Injection", false),
+            ],
+            50.0,
+            2,
         );
         let current = make_result(
             vec![
@@ -268,7 +301,8 @@ mod tests {
                 ("A1.2", "Test2", "Injection", true),
                 ("A1.3", "New", "Injection", true),
             ],
-            75.0, 3,
+            75.0,
+            3,
         );
         let cmp = compare(&baseline, &current);
         let output = format_comparison(&cmp);

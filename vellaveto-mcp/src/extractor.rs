@@ -362,7 +362,9 @@ fn extract_targets_from_params_inner(
                     // Without this, http://evil.com%40blocked.com bypasses domain matching
                     // because the encoded '@' hides the userinfo/host boundary.
                     // SECURITY (R245-SRV-4): Strict UTF-8 — skip malformed authority.
-                    if let Ok(decoded) = percent_encoding::percent_decode_str(host_raw).decode_utf8() {
+                    if let Ok(decoded) =
+                        percent_encoding::percent_decode_str(host_raw).decode_utf8()
+                    {
                         let host = decoded.as_ref();
                         let host = host.split(':').next().unwrap_or(host);
                         let host = host.split('?').next().unwrap_or(host);

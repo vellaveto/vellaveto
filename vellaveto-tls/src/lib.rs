@@ -829,7 +829,10 @@ mod tests {
 
         // Valid percent-encoded ASCII should still work.
         let result3 = SpiffeIdentity::parse("spiffe://example.org/%2Fworkload");
-        assert!(result3.is_some(), "Percent-encoded '/' (valid ASCII) should be accepted");
+        assert!(
+            result3.is_some(),
+            "Percent-encoded '/' (valid ASCII) should be accepted"
+        );
     }
 
     // ── extract_spiffe_ids (merged from vellaveto-server) ────────────

@@ -135,9 +135,10 @@ pub fn tests() -> Vec<AttackTest> {
                 if status == 200 {
                     if let Some(entries) = body.get("entries").and_then(|e| e.as_array()) {
                         // Every entry after the first must have prev_hash
-                        return entries.iter().skip(1).all(|e| {
-                            e.get("prev_hash").is_some_and(|h| h.is_string())
-                        });
+                        return entries
+                            .iter()
+                            .skip(1)
+                            .all(|e| e.get("prev_hash").is_some_and(|h| h.is_string()));
                     }
                     return true; // Gateway has audit capability
                 }

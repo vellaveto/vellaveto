@@ -29,13 +29,13 @@ use tonic::{Request, Response, Status, Streaming};
 
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
-use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
-use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
+use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
 use vellaveto_mcp::output_validation::ValidationResult;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
 
 use super::convert::{
@@ -320,7 +320,13 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &n_action,
+                            &verdict,
+                            DecisionOrigin::Dlp,
+                            "grpc",
+                            Some(session_id),
+                        );
                         if let Err(e) = self
                             .state
                             .audit
@@ -403,7 +409,13 @@ impl McpGrpcService {
                                     "message_type": "progress_notification",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &inj_action,
+                                &verdict,
+                                DecisionOrigin::InjectionScanner,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -479,7 +491,13 @@ impl McpGrpcService {
                                 poisoning_matches.len()
                             ),
                         };
-                        let envelope = build_secondary_acis_envelope(&poison_action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &poison_action,
+                            &poison_verdict,
+                            DecisionOrigin::MemoryPoisoning,
+                            "grpc",
+                            Some(session_id),
+                        );
                         if let Err(e) = self
                             .state
                             .audit
@@ -519,7 +537,13 @@ impl McpGrpcService {
 
                 // Audit log the forwarded ProgressNotification.
                 let action = Action::new("progress_notification", method_name, json!({}));
-                let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -632,7 +656,13 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &n_action,
+                            &verdict,
+                            DecisionOrigin::Dlp,
+                            "grpc",
+                            Some(session_id),
+                        );
                         if let Err(e) = self
                             .state
                             .audit
@@ -715,7 +745,13 @@ impl McpGrpcService {
                                     "transport": "grpc",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &inj_action,
+                                &verdict,
+                                DecisionOrigin::InjectionScanner,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -789,7 +825,13 @@ impl McpGrpcService {
                                 poisoning_matches.len()
                             ),
                         };
-                        let envelope = build_secondary_acis_envelope(&poison_action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &poison_action,
+                            &poison_verdict,
+                            DecisionOrigin::MemoryPoisoning,
+                            "grpc",
+                            Some(session_id),
+                        );
                         if let Err(e) = self
                             .state
                             .audit
@@ -832,7 +874,13 @@ impl McpGrpcService {
                 // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
                 // but must have an audit trail for observability.
                 let action = Action::new("passthrough", method_name, json!({}));
-                let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &Verdict::Allow,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -910,7 +958,13 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: format!("DLP blocked: secret detected in parameters: {:?}", patterns),
             };
-            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &audit_verdict,
+                DecisionOrigin::Dlp,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -956,7 +1010,13 @@ impl McpGrpcService {
                     tool_name
                 ),
             };
-            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &verdict,
+                DecisionOrigin::CapabilityEnforcement,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -1010,7 +1070,13 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &mp_verdict,
+                    DecisionOrigin::MemoryPoisoning,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -1076,7 +1142,13 @@ impl McpGrpcService {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::CircuitBreaker,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -1122,7 +1194,13 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Unknown tool requires approval".to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -1163,7 +1241,13 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             let _ = self
                                 .state
                                 .audit
@@ -1199,7 +1283,13 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Untrusted tool requires approval".to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -1240,7 +1330,13 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             let _ = self
                                 .state
                                 .audit
@@ -1384,7 +1480,13 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &deny_verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -1460,7 +1562,13 @@ impl McpGrpcService {
                         let priv_verdict = Verdict::Deny {
                             reason: internal_reason,
                         };
-                        let envelope = build_secondary_acis_envelope(&action, &priv_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &action,
+                            &priv_verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "grpc",
+                            Some(session_id),
+                        );
                         if let Err(e) = self
                             .state
                             .audit
@@ -1691,7 +1799,13 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &mp_verdict,
+                    DecisionOrigin::MemoryPoisoning,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -1739,7 +1853,13 @@ impl McpGrpcService {
                     uri
                 ),
             };
-            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &verdict,
+                DecisionOrigin::CapabilityEnforcement,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -1786,7 +1906,13 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: "DLP blocked: secret detected in resource URI".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &audit_verdict,
+                DecisionOrigin::Dlp,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -1824,7 +1950,13 @@ impl McpGrpcService {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::CircuitBreaker,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -1962,7 +2094,13 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &deny_verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -2210,7 +2348,13 @@ impl McpGrpcService {
                         "transport": "grpc",
                     }),
                 );
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &verdict,
+                    DecisionOrigin::Dlp,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -2284,7 +2428,13 @@ impl McpGrpcService {
                             "transport": "grpc",
                         }),
                     );
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::InjectionScanner,
+                        "grpc",
+                        Some(session_id),
+                    );
                     if let Err(e) = self
                         .state
                         .audit
@@ -2377,7 +2527,13 @@ impl McpGrpcService {
                             finding.tool_name, finding.matched_patterns
                         ),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &desc_verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &action,
+                        &desc_verdict,
+                        DecisionOrigin::InjectionScanner,
+                        "grpc",
+                        Some(session_id),
+                    );
                     if let Err(e) = self
                         .state
                         .audit
@@ -2460,7 +2616,13 @@ impl McpGrpcService {
                                     violations
                                 ),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &schema_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &schema_verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -2584,7 +2746,13 @@ impl McpGrpcService {
                     };
 
                     let inj_action = extractor::extract_task_action(task_method, task_id);
-                    let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &inj_action,
+                        &verdict,
+                        DecisionOrigin::InjectionScanner,
+                        "grpc",
+                        Some(session_id),
+                    );
                     if let Err(e) = self
                         .state
                         .audit
@@ -2649,7 +2817,13 @@ impl McpGrpcService {
                     patterns
                 ),
             };
-            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &verdict,
+                DecisionOrigin::Dlp,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -2703,7 +2877,13 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &mp_verdict,
+                    DecisionOrigin::MemoryPoisoning,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -2829,7 +3009,13 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &deny_verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit
@@ -3082,7 +3268,13 @@ impl McpGrpcService {
 
                     let inj_action =
                         extractor::extract_extension_action(extension_id, method, &json!({}));
-                    let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "grpc", Some(session_id));
+                    let envelope = build_secondary_acis_envelope(
+                        &inj_action,
+                        &verdict,
+                        DecisionOrigin::InjectionScanner,
+                        "grpc",
+                        Some(session_id),
+                    );
                     if let Err(e) = self
                         .state
                         .audit
@@ -3143,7 +3335,13 @@ impl McpGrpcService {
                     patterns
                 ),
             };
-            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "grpc", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &audit_verdict,
+                DecisionOrigin::Dlp,
+                "grpc",
+                Some(session_id),
+            );
             if let Err(e) = self
                 .state
                 .audit
@@ -3188,7 +3386,13 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &mp_verdict, DecisionOrigin::MemoryPoisoning, "grpc", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &mp_verdict,
+                    DecisionOrigin::MemoryPoisoning,
+                    "grpc",
+                    Some(session_id),
+                );
                 if let Err(e) = self
                     .state
                     .audit
@@ -3327,7 +3531,13 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "grpc", Some(session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &deny_verdict,
+                                DecisionOrigin::PolicyEngine,
+                                "grpc",
+                                Some(session_id),
+                            );
                             if let Err(e) = self
                                 .state
                                 .audit

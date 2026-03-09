@@ -548,7 +548,10 @@ impl PluginManager {
                             let raw = format!("plugin '{name}' returned invalid verdict: {e}");
                             PluginVerdict {
                                 allow: false,
-                                reason: Some(vellaveto_types::sanitize_for_log(&raw, MAX_REASON_LEN)),
+                                reason: Some(vellaveto_types::sanitize_for_log(
+                                    &raw,
+                                    MAX_REASON_LEN,
+                                )),
                             }
                         }
                     }

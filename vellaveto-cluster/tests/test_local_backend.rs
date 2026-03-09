@@ -342,7 +342,11 @@ async fn test_consume_approved_wrong_fingerprint_fails() {
     backend.approval_approve(&id, "admin").await.unwrap();
 
     let consumed = backend
-        .approval_consume_approved(&id, None, Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+        .approval_consume_approved(
+            &id,
+            None,
+            Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        )
         .await
         .expect("should return Ok(false) for wrong fingerprint");
     assert!(!consumed, "wrong fingerprint should not consume");
@@ -364,7 +368,11 @@ async fn test_consume_approved_not_approved_fails() {
 
     // Don't approve — try to consume a Pending approval
     let consumed = backend
-        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .approval_consume_approved(
+            &id,
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        )
         .await
         .expect("should return Ok(false) for non-Approved");
     assert!(!consumed, "pending approval should not be consumable");
@@ -388,14 +396,22 @@ async fn test_consume_approved_double_consume_fails() {
 
     // First consume succeeds
     let first = backend
-        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .approval_consume_approved(
+            &id,
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        )
         .await
         .unwrap();
     assert!(first);
 
     // Second consume must fail (already consumed)
     let second = backend
-        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .approval_consume_approved(
+            &id,
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        )
         .await
         .unwrap();
     assert!(!second, "double-consume must be prevented");
@@ -419,7 +435,11 @@ async fn test_consume_approved_dedup_cleared() {
 
     backend.approval_approve(&id, "admin").await.unwrap();
     let consumed = backend
-        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .approval_consume_approved(
+            &id,
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+        )
         .await
         .unwrap();
     assert!(consumed);

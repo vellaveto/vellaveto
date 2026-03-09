@@ -127,9 +127,13 @@ pub struct BenchmarkSummary {
 /// Run the full benchmark suite against a gateway.
 pub async fn run_benchmark(config: &BenchmarkConfig) -> BenchmarkResult {
     let tests = runner::filter_tests_by_class(attacks::all_tests(), &config.class_filter);
-    let attack_results =
-        runner::run_tests(&tests, &config.gateway, config.timeout_secs, config.concurrency)
-            .await;
+    let attack_results = runner::run_tests(
+        &tests,
+        &config.gateway,
+        config.timeout_secs,
+        config.concurrency,
+    )
+    .await;
     let properties = scoring::calculate_property_scores(&attack_results);
     let overall_score = scoring::calculate_overall_score(&properties);
     let tier = scoring::score_to_tier(overall_score);
