@@ -107,7 +107,8 @@ build_secondary_acis_envelope(action, verdict, origin, transport, session_id)
 | `MemoryPoisoning` | MINJA-style memory poisoning detected in tool responses |
 | `ApprovalGate` | `RequireApproval` verdict, approval timeout, or consumption failure |
 | `CapabilityEnforcement` | Capability token validation failure |
-| `RateLimiter` | Rate limit exhaustion or circuit breaker trip |
+| `RateLimiter` | Rate limit exhaustion |
+| `CircuitBreaker` | Tool failure threshold exceeded (circuit breaker open) |
 | `TopologyGuard` | Unknown tool denial by topology guard |
 | `SessionGuard` | Session isolation or identity requirement violation |
 
