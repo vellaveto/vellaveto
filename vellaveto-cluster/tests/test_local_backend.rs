@@ -294,3 +294,148 @@ async fn test_deduplication() {
 
     assert_eq!(id1, id2, "duplicate approval should return same ID");
 }
+
+// ── R254: Consume-approved flow tests ────────────────────────────────
+
+#[tokio::test]
+async fn test_consume_approved_succeeds() {
+    let (backend, _tmp) = make_backend();
+    let action = make_action();
+    let fingerprint = "abc123def456abc123def456abc123def456abc123def456abc123def456abcd";
+
+    let id = backend
+        .approval_create(
+            action,
+            "needs review".to_string(),
+            Some("requester".to_string()),
+            Some("sess-1".to_string()),
+            Some(fingerprint.to_string()),
+        )
+        .await
+        .unwrap();
+
+    // Approve with a different user
+    backend.approval_approve(&id, "admin").await.unwrap();
+
+    // Consume should succeed with matching fingerprint and session
+    let consumed = backend
+        .approval_consume_approved(&id, Some("sess-1"), Some(fingerprint))
+        .await
+        .expect("consume should succeed");
+    assert!(consumed, "approved approval should be consumable");
+}
+
+#[tokio::test]
+async fn test_consume_approved_wrong_fingerprint_fails() {
+    let (backend, _tmp) = make_backend();
+    let id = backend
+        .approval_create(
+            make_action(),
+            "reason".to_string(),
+            Some("requester".to_string()),
+            None,
+            Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6abcd".to_string()),
+        )
+        .await
+        .unwrap();
+
+    backend.approval_approve(&id, "admin").await.unwrap();
+
+    let consumed = backend
+        .approval_consume_approved(&id, None, Some("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
+        .await
+        .expect("should return Ok(false) for wrong fingerprint");
+    assert!(!consumed, "wrong fingerprint should not consume");
+}
+
+#[tokio::test]
+async fn test_consume_approved_not_approved_fails() {
+    let (backend, _tmp) = make_backend();
+    let id = backend
+        .approval_create(
+            make_action(),
+            "reason".to_string(),
+            None,
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string()),
+        )
+        .await
+        .unwrap();
+
+    // Don't approve — try to consume a Pending approval
+    let consumed = backend
+        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .await
+        .expect("should return Ok(false) for non-Approved");
+    assert!(!consumed, "pending approval should not be consumable");
+}
+
+#[tokio::test]
+async fn test_consume_approved_double_consume_fails() {
+    let (backend, _tmp) = make_backend();
+    let id = backend
+        .approval_create(
+            make_action(),
+            "reason".to_string(),
+            Some("req".to_string()),
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string()),
+        )
+        .await
+        .unwrap();
+
+    backend.approval_approve(&id, "admin").await.unwrap();
+
+    // First consume succeeds
+    let first = backend
+        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .await
+        .unwrap();
+    assert!(first);
+
+    // Second consume must fail (already consumed)
+    let second = backend
+        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .await
+        .unwrap();
+    assert!(!second, "double-consume must be prevented");
+}
+
+#[tokio::test]
+async fn test_consume_approved_dedup_cleared() {
+    let (backend, _tmp) = make_backend();
+    let action = make_action();
+
+    let id = backend
+        .approval_create(
+            action.clone(),
+            "reason".to_string(),
+            Some("req".to_string()),
+            None,
+            Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef".to_string()),
+        )
+        .await
+        .unwrap();
+
+    backend.approval_approve(&id, "admin").await.unwrap();
+    let consumed = backend
+        .approval_consume_approved(&id, None, Some("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"))
+        .await
+        .unwrap();
+    assert!(consumed);
+
+    // After consumption, creating the same approval again should get a NEW id
+    // (not the consumed one), proving dedup entry was cleaned up.
+    let id2 = backend
+        .approval_create(
+            action,
+            "reason".to_string(),
+            Some("req".to_string()),
+            None,
+            Some("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(id, id2, "consumed approval dedup entry should be cleared");
+}

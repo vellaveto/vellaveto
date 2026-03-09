@@ -5559,3 +5559,45 @@ async fn test_r253_aud1_metadata_size_check_rejects_oversized() {
         "error should mention metadata size, got: {err}"
     );
 }
+
+// ── R253-AUD-6: Target array bounds checked before redaction ──
+
+#[tokio::test]
+async fn test_r253_aud6_too_many_targets_rejected() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    let mut action = test_action();
+    action.target_paths = (0..257).map(|i| format!("/path/{i}")).collect();
+
+    let verdict = Verdict::Allow;
+    let result = logger
+        .log_entry(&action, &verdict, json!({"source": "test"}))
+        .await;
+    assert!(result.is_err(), "257 targets should be rejected");
+    assert!(
+        result.unwrap_err().to_string().contains("Too many targets"),
+        "error should mention target count"
+    );
+}
+
+#[tokio::test]
+async fn test_r253_aud6_target_path_too_long_rejected() {
+    let dir = TempDir::new().unwrap();
+    let log_path = dir.path().join("audit.jsonl");
+    let logger = AuditLogger::new(log_path);
+
+    let mut action = test_action();
+    action.target_paths = vec!["x".repeat(5000)];
+
+    let verdict = Verdict::Allow;
+    let result = logger
+        .log_entry(&action, &verdict, json!({"source": "test"}))
+        .await;
+    assert!(result.is_err(), "5000-byte target path should be rejected");
+    assert!(
+        result.unwrap_err().to_string().contains("Target path too long"),
+        "error should mention path length"
+    );
+}

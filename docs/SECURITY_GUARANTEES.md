@@ -35,11 +35,14 @@ produce `Deny`. An `Allow` verdict requires an explicit matching `Allow` policy.
 The audit trail provides tamper *detection*, not tamper *prevention*. Each entry
 is linked to the previous via SHA-256 hash chain. Ed25519 checkpoint signatures
 are applied every N entries (configurable). Merkle inclusion proofs allow
-independent verification of individual entries. Every engine verdict carries an
+independent verification of individual entries. Every security decision carries an
 ACIS (Agent-Consumer Interaction Surface) decision envelope — a structured
 record of the decision ID, action fingerprint, verdict kind, origin
-(PolicyEngine or ApprovalGate), transport label, and optional session/tenant
-binding — persisted alongside the audit entry for cross-transport traceability.
+(PolicyEngine, Dlp, InjectionScanner, MemoryPoisoning, ApprovalGate,
+CapabilityEnforcement, RateLimiter, CircuitBreaker, TopologyGuard, or
+SessionGuard), transport label, and optional session/tenant binding —
+persisted alongside the audit entry for cross-transport traceability.
+See [ACIS Contract](ACIS_CONTRACT.md) for the full envelope specification.
 
 - **Evidence:** `vellaveto-audit/src/lib.rs` (hash chain, `log_entry_with_acis`),
   `checkpoint.rs` (Ed25519 signatures), `merkle.rs` (inclusion proofs);

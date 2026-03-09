@@ -424,11 +424,17 @@ impl SessionGuard {
     }
 
     /// Get the current timestamp (Unix seconds).
+    ///
+    /// SECURITY (R253-GUARD-1): Returns a minimum of 1 second to prevent
+    /// clock-rollback attacks. If the system clock is before Unix epoch,
+    /// `unwrap_or_default()` returns 0, which causes `saturating_sub` in
+    /// expiry checks to silently pass — allowing sessions to live forever.
     fn now() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+            .max(1)
     }
 
     /// Process an event for a session, returning the transition result.

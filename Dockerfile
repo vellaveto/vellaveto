@@ -11,7 +11,7 @@
 #   docker run -p 3000:3000 -v ./policy.toml:/etc/vellaveto/config.toml:ro ghcr.io/vellaveto/vellaveto:latest
 
 # Build stage: Compile Rust binaries with musl for static linking
-FROM rust:1.93-alpine AS builder
+FROM rust:1.93-alpine@sha256:4fec02de605563c297c78a31064c8335bc004fa2b0bf406b1b99441da64e2d2d AS builder
 
 # Resolve target triple from Docker's TARGETARCH (amd64 or arm64)
 ARG TARGETARCH
