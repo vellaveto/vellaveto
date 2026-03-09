@@ -31,7 +31,6 @@ jobs:
         run: |
           cd sdk/python
           pip install --require-hashes --no-deps -r requirements-dev.txt
-          pip install --no-deps -e .
 
       - name: Run tests
         run: |

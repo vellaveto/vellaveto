@@ -28,6 +28,7 @@ ENV TLA_VERSION="v1.8.0"
 ENV TLA_SHA256="11535876a02412e28b3d093f7fa25455c8fe2cdef1602da4d189ac1688d77b3e"
 ENV ELAN_VERSION="v4.2.0"
 ENV ELAN_SHA256="620db834935d0da55ac9cda207b2e370e8034061cbb0228af5eb6c14b02f0c0c"
+ENV RUSTUP_INIT_SHA256="17247e4bcacf6027ec2e11c79a72c494c9af69ac8d1abcc1b271fa4375a106c2"
 ENV RUST_WORKSPACE_TOOLCHAIN="1.94.0"
 ENV RUST_VERUS_TOOLCHAIN="1.93.1"
 
@@ -48,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ── Rust (workspace toolchain + Verus toolchain) ──
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
+    && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init.sh" | sha256sum -c - \
     && sh /tmp/rustup-init.sh -y --default-toolchain "${RUST_WORKSPACE_TOOLCHAIN}" \
     && rm /tmp/rustup-init.sh \
     && /root/.cargo/bin/rustup install "${RUST_VERUS_TOOLCHAIN}-x86_64-unknown-linux-gnu" \

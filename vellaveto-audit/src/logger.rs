@@ -14,6 +14,7 @@ use crate::redaction::{
 use crate::types::{AuditEntry, AuditError, RedactionLevel};
 use chrono::Utc;
 use ed25519_dalek::SigningKey;
+use rand::rngs::OsRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -252,7 +253,7 @@ impl AuditLogger {
 
     /// Generate a new random Ed25519 signing key.
     pub fn generate_signing_key() -> SigningKey {
-        SigningKey::generate(&mut rand::thread_rng())
+        SigningKey::generate(&mut OsRng)
     }
 
     /// Load an Ed25519 signing key from raw 32-byte seed.
@@ -352,14 +353,12 @@ impl AuditLogger {
 
         // SECURITY (R9-4): Validate metadata size to prevent oversized entries
         // from exhausting disk space or pushing the log past the load limit.
-        const MAX_METADATA_SIZE: usize = 65536; // 64 KB
         // SECURITY (R253-AUD-1): Fail-closed on serialization failure instead of
         // defaulting to 0 bytes, which would bypass the size check entirely.
+        const MAX_METADATA_SIZE: usize = 65536; // 64 KB
         let metadata_size = serde_json::to_string(&metadata)
             .map_err(|e| {
-                AuditError::Validation(format!(
-                    "Metadata serialization failed (fail-closed): {e}"
-                ))
+                AuditError::Validation(format!("Metadata serialization failed (fail-closed): {e}"))
             })?
             .len();
         if metadata_size > MAX_METADATA_SIZE {
