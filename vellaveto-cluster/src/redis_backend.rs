@@ -800,7 +800,32 @@ impl ClusterBackend for RedisBackend {
             })?;
 
         match result {
-            Some(1) => Ok(true),
+            Some(1) => {
+                // R254-CLUS-1: Best-effort dedup key cleanup on consumption.
+                // The Lua script atomically set status=Consumed (no double-consume).
+                // We now remove the dedup key and pending-set entry to match local
+                // ApprovalStore behavior (lib.rs:1079). Failure here is non-critical
+                // — the dedup key has a TTL and will expire regardless.
+                if let Ok(Some(json)) = conn
+                    .get::<_, Option<String>>(self.approval_key(id))
+                    .await
+                {
+                    if let Ok(approval) = serde_json::from_str::<PendingApproval>(&json) {
+                        let _: Result<(), _> =
+                            conn.zrem(self.pending_set_key(), &approval.id).await;
+                        if let Ok(dedup_hash) = Self::compute_dedup_hash(
+                            &approval.action,
+                            &approval.reason,
+                            approval.requested_by.as_deref(),
+                            approval.session_id.as_deref(),
+                        ) {
+                            let _: Result<(), _> =
+                                conn.del(self.dedup_key(&dedup_hash)).await;
+                        }
+                    }
+                }
+                Ok(true)
+            }
             Some(0) => Ok(false),
             Some(other) => Err(ClusterError::Backend(format!(
                 "Unexpected Redis approval consume result: {}",
