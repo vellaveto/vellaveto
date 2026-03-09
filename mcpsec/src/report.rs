@@ -188,6 +188,87 @@ pub fn to_ocsf(result: &BenchmarkResult) -> String {
     }
 }
 
+/// Generate a JUnit XML report for CI integration.
+///
+/// Maps attack tests to JUnit test cases. Failed attacks include the
+/// failure details. Compatible with Jenkins, GitLab CI, GitHub Actions,
+/// and other CI systems that parse JUnit XML.
+pub fn to_junit(result: &BenchmarkResult) -> String {
+    let mut xml = String::new();
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    xml.push_str(&format!(
+        "<testsuites name=\"MCPSEC\" tests=\"{}\" failures=\"{}\" time=\"{:.3}\">\n",
+        result.summary.total_tests,
+        result.summary.failed,
+        total_time_secs(&result.attacks),
+    ));
+
+    // Group by class
+    let mut current_class = String::new();
+    let mut class_tests: Vec<&crate::AttackResult> = Vec::new();
+
+    for attack in &result.attacks {
+        if attack.class != current_class {
+            if !class_tests.is_empty() {
+                write_testsuite(&mut xml, &current_class, &class_tests);
+                class_tests.clear();
+            }
+            current_class = attack.class.clone();
+        }
+        class_tests.push(attack);
+    }
+    if !class_tests.is_empty() {
+        write_testsuite(&mut xml, &current_class, &class_tests);
+    }
+
+    xml.push_str("</testsuites>\n");
+    xml
+}
+
+fn write_testsuite(xml: &mut String, class: &str, tests: &[&crate::AttackResult]) {
+    let failures = tests.iter().filter(|t| !t.passed).count();
+    let time = total_time_secs(tests.iter().copied());
+    xml.push_str(&format!(
+        "  <testsuite name=\"{class}\" tests=\"{}\" failures=\"{failures}\" time=\"{time:.3}\">\n",
+        tests.len(),
+    ));
+    for test in tests {
+        let time_s = test.latency_ns as f64 / 1_000_000_000.0;
+        xml.push_str(&format!(
+            "    <testcase name=\"{} — {}\" classname=\"mcpsec.{}\" time=\"{time_s:.6}\"",
+            xml_escape(&test.attack_id),
+            xml_escape(&test.name),
+            xml_escape(&test.class),
+        ));
+        if test.passed {
+            xml.push_str(" />\n");
+        } else {
+            xml.push_str(">\n");
+            xml.push_str(&format!(
+                "      <failure message=\"Attack not detected\">{}</failure>\n",
+                xml_escape(&test.details),
+            ));
+            xml.push_str("    </testcase>\n");
+        }
+    }
+    xml.push_str("  </testsuite>\n");
+}
+
+fn total_time_secs<'a>(attacks: impl IntoIterator<Item = &'a crate::AttackResult>) -> f64 {
+    attacks
+        .into_iter()
+        .map(|a| a.latency_ns as f64 / 1_000_000_000.0)
+        .sum()
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn format_latency(ns: u64) -> String {
     if ns < 1_000 {
         format!("{ns}ns")
@@ -268,6 +349,20 @@ mod tests {
         assert!(md.contains("## Remediation Guidance"));
         assert!(md.contains("PASS"));
         assert!(md.contains("**FAIL**"));
+    }
+
+    #[test]
+    fn test_junit_output_structure() {
+        let result = sample_result();
+        let junit = to_junit(&result);
+        assert!(junit.starts_with("<?xml version=\"1.0\""));
+        assert!(junit.contains("<testsuites name=\"MCPSEC\""));
+        assert!(junit.contains("tests=\"2\""));
+        assert!(junit.contains("failures=\"1\""));
+        assert!(junit.contains("<testsuite name=\"Prompt Injection Evasion\""));
+        assert!(junit.contains("A1.1"));
+        assert!(junit.contains("<failure message=\"Attack not detected\">"));
+        assert!(junit.contains("</testsuites>"));
     }
 
     #[test]

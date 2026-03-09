@@ -53,6 +53,7 @@ pub enum OutputFormat {
     Json,
     Markdown,
     Ocsf,
+    Junit,
 }
 
 /// Result of a single attack test.
