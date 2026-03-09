@@ -36,6 +36,10 @@ struct Cli {
     /// Per-request timeout in seconds
     #[arg(long, default_value = "30")]
     timeout: u64,
+
+    /// Number of concurrent test requests (1 = sequential, recommended for stateful tests)
+    #[arg(long, default_value = "1")]
+    concurrency: usize,
 }
 
 #[tokio::main]
@@ -55,7 +59,7 @@ async fn main() {
         },
         format,
         timeout_secs: cli.timeout,
-        concurrency: 1,
+        concurrency: cli.concurrency,
     };
 
     let result = run_benchmark(&config).await;

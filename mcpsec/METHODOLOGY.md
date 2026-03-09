@@ -36,7 +36,7 @@ The harness produces a JSON report with:
 - **Overall score** (0-100%)
 - **Tier** (0-5)
 - **Per-property scores** (P1-P10, each 0-100%)
-- **Per-attack results** (82 tests, each pass/fail with latency)
+- **Per-attack results** (91 tests, each pass/fail with latency)
 
 ### Step 3: Generate Report
 
@@ -110,7 +110,7 @@ If your gateway uses a different API format, implement a response adapter. The h
 ```json
 {
   "framework": "MCPSEC",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "timestamp": "2026-02-15T12:00:00Z",
   "gateway": {
     "name": "gateway-name",
@@ -136,8 +136,8 @@ If your gateway uses a different API format, implement a response adapter. The h
     }
   ],
   "summary": {
-    "total_tests": 82,
-    "passed": 80,
+    "total_tests": 91,
+    "passed": 89,
     "failed": 2,
     "skipped": 0
   }

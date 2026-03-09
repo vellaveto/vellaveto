@@ -11,6 +11,7 @@
 
 use crate::attacks::{self, AttackTest};
 use crate::{AttackResult, GatewayConfig};
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Send an evaluate request to the gateway and return the parsed response.
@@ -55,8 +56,22 @@ struct EvaluateResponse {
     body: serde_json::Value,
 }
 
-/// Run all attack tests against the gateway.
+/// Run all attack tests against the gateway sequentially.
 pub async fn run_all(config: &GatewayConfig, timeout_secs: u64) -> Vec<AttackResult> {
+    run_all_concurrent(config, timeout_secs, 1).await
+}
+
+/// Run all attack tests against the gateway with configurable concurrency.
+///
+/// When `concurrency` is 1, tests run sequentially (preserving ordering for
+/// stateful tests like rate limiting and cross-call DLP). Higher values use
+/// a semaphore to bound parallel requests, which is faster but may cause
+/// stateful tests (A10.4, A13.*) to produce unreliable results.
+pub async fn run_all_concurrent(
+    config: &GatewayConfig,
+    timeout_secs: u64,
+    concurrency: usize,
+) -> Vec<AttackResult> {
     let all_tests = attacks::all_tests();
     let client = match reqwest::Client::builder()
         .danger_accept_invalid_certs(false)
@@ -79,37 +94,81 @@ pub async fn run_all(config: &GatewayConfig, timeout_secs: u64) -> Vec<AttackRes
         }
     };
 
-    let mut results = Vec::with_capacity(all_tests.len());
+    let concurrency = concurrency.max(1);
 
-    for test in &all_tests {
-        let start = Instant::now();
-        let passed = run_single_test(&client, config, test, timeout_secs).await;
-        let latency_ns = start.elapsed().as_nanos() as u64;
+    if concurrency == 1 {
+        // Sequential: preserves ordering for stateful tests.
+        let mut results = Vec::with_capacity(all_tests.len());
+        for test in &all_tests {
+            results.push(run_and_record(&client, config, test, timeout_secs).await);
+        }
+        results
+    } else {
+        // Concurrent: use a semaphore to bound parallel requests.
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
+        let client = Arc::new(client);
+        let config = Arc::new(config.clone());
 
-        results.push(AttackResult {
-            attack_id: test.id.to_string(),
-            name: test.name.to_string(),
-            class: test.class.to_string(),
-            passed,
-            latency_ns,
-            details: if passed {
-                "Gateway correctly handled the attack".to_string()
-            } else {
-                "Gateway did not detect or block the attack".to_string()
-            },
-        });
+        let mut handles = Vec::with_capacity(all_tests.len());
+        for test in all_tests {
+            let sem = Arc::clone(&semaphore);
+            let cl = Arc::clone(&client);
+            let cfg = Arc::clone(&config);
+            handles.push(tokio::spawn(async move {
+                let _permit = sem
+                    .acquire()
+                    .await
+                    .expect("semaphore closed unexpectedly");
+                run_and_record(&cl, &cfg, &test, timeout_secs).await
+            }));
+        }
+
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.await {
+                Ok(result) => results.push(result),
+                Err(e) => results.push(AttackResult {
+                    attack_id: "unknown".to_string(),
+                    name: "Task join error".to_string(),
+                    class: "Internal".to_string(),
+                    passed: false,
+                    latency_ns: 0,
+                    details: format!("Task panicked: {e}"),
+                }),
+            }
+        }
+        results
     }
-
-    results
 }
 
-/// Run a single attack test and return whether the gateway passed.
+/// Execute a single test and build an AttackResult.
+async fn run_and_record(
+    client: &reqwest::Client,
+    config: &GatewayConfig,
+    test: &AttackTest,
+    timeout_secs: u64,
+) -> AttackResult {
+    let start = Instant::now();
+    let (passed, details) = run_single_test(client, config, test, timeout_secs).await;
+    let latency_ns = start.elapsed().as_nanos() as u64;
+
+    AttackResult {
+        attack_id: test.id.to_string(),
+        name: test.name.to_string(),
+        class: test.class.to_string(),
+        passed,
+        latency_ns,
+        details,
+    }
+}
+
+/// Run a single attack test and return (passed, details).
 async fn run_single_test(
     client: &reqwest::Client,
     config: &GatewayConfig,
     test: &AttackTest,
     timeout_secs: u64,
-) -> bool {
+) -> (bool, String) {
     // Handle rapid-fire tests: if the payload contains `_test_rapid_requests`,
     // send that many requests and check if any later ones trigger rate limiting.
     if let Some(count) = test
@@ -123,23 +182,45 @@ async fn run_single_test(
             obj.remove("_test_rapid_requests");
         }
 
-        let mut any_passed = false;
-        for _ in 0..count {
+        for i in 0..count {
             let result = send_evaluate(client, config, &clean_payload, timeout_secs).await;
             if let Ok(resp) = result {
                 if (test.check_fn)(&resp.body, resp.status) {
-                    any_passed = true;
-                    break;
+                    return (
+                        true,
+                        format!("Rate limiting triggered after {i} requests (status {})", resp.status),
+                    );
                 }
             }
         }
-        return any_passed;
+        return (
+            false,
+            format!("Sent {count} rapid requests but rate limiting was not triggered"),
+        );
     }
 
     let result = send_evaluate(client, config, &test.payload, timeout_secs).await;
 
     match result {
-        Ok(resp) => (test.check_fn)(&resp.body, resp.status),
-        Err(_) => false,
+        Ok(resp) => {
+            let passed = (test.check_fn)(&resp.body, resp.status);
+            let details = if passed {
+                format!("Gateway correctly handled the attack (status {})", resp.status)
+            } else {
+                // Include a truncated response snippet for debugging.
+                let snippet = resp.body.to_string();
+                let truncated = if snippet.len() > 200 {
+                    format!("{}...", &snippet[..200])
+                } else {
+                    snippet
+                };
+                format!(
+                    "Gateway did not detect or block the attack (status {}, response: {truncated})",
+                    resp.status
+                )
+            };
+            (passed, details)
+        }
+        Err(e) => (false, format!("Request error: {e}")),
     }
 }

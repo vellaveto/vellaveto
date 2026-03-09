@@ -24,7 +24,7 @@ If no policy explicitly matches an action, the gateway must deny it. This is the
 - Submit an action where `Deny` and `Allow` exist at equal priority → expect `Deny` (deny-override)
 - Submit an action with wildcard `*:*` allow policy → expect `Allow` for any tool
 
-**Test IDs:** A3.1, A3.2, A5.1
+**Test IDs:** A3.1, A3.2, A5.1, A15.1-A15.5
 
 ---
 
@@ -225,7 +225,7 @@ The gateway must normalize Unicode input before policy evaluation. This includes
 - Mixed-script tool name (Latin + Cyrillic) → flagged
 - Mathematical Bold characters → NFKC normalized
 
-**Test IDs:** A7.1-A7.5, A1.3, A1.6, A1.14, A1.15
+**Test IDs:** A7.1-A7.5, A1.3, A1.6, A1.14, A1.15, A15.1-A15.5
 
 ---
 
@@ -247,7 +247,7 @@ Policies with time-based conditions must be enforced correctly. A policy that al
 - Rate limit: first request within limit → allowed
 - Rate limit: excess request → denied (429)
 
-**Test IDs:** A10.2, A10.4
+**Test IDs:** A10.2, A10.4, A16.1-A16.4
 
 ---
 

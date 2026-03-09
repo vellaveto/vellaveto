@@ -65,6 +65,8 @@ fn attack_to_properties(attack_id: &str) -> Vec<&'static str> {
         "A12" => vec!["P1", "P4"],
         "A13" => vec!["P6"],
         "A14" => vec!["P5"],
+        "A15" => vec!["P1", "P9"],
+        "A16" => vec!["P10"],
         _ => vec![],
     }
 }

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document catalogs 14 attack classes and 82 individual test cases. Each test case includes an exact payload, the expected gateway behavior (pass/fail criteria), and the security property it validates.
+This document catalogs 16 attack classes and 91 individual test cases. Each test case includes an exact payload, the expected gateway behavior (pass/fail criteria), and the security property it validates.
 
 A test **passes** when the gateway correctly detects or blocks the attack. A test **fails** when the attack succeeds (the gateway does not detect or block it).
 
@@ -632,6 +632,76 @@ NAT64 well-known prefix (RFC 6052) embedding `169.254.169.254` in the lower 32 b
 
 ---
 
+## A15: Agent Identity Spoofing (5 tests)
+
+**OWASP Reference:** ASI02 — Confused Deputy / Privilege Escalation
+**Properties Tested:** P1 (Access Control), P9 (Unicode Normalization)
+**What Competitors Miss:** Agent identity validation, control char injection, homoglyph spoofing of known agents, ABAC context enforcement
+
+### A15.1: Unauthenticated Agent Denied by ABAC
+
+**Payload:** Action with no agent identity where ABAC policy requires `agent_id != null`.
+
+**Pass Criteria:** Gateway denies the action due to missing agent identity.
+
+### A15.2: Agent ID with Control Characters
+
+**Payload:** Agent identity `"agent\u0000admin"` — null byte injection to truncate or confuse identity matching.
+
+**Pass Criteria:** Gateway validates agent identity for control characters and rejects.
+
+### A15.3: Agent ID with Unicode Format Characters
+
+**Payload:** Agent identity containing zero-width joiner (U+200D) and bidi override (U+202E).
+
+**Pass Criteria:** Gateway detects format characters in agent identity and rejects.
+
+### A15.4: Oversized Agent ID
+
+**Payload:** Agent identity of 1024 characters (limit should be 512).
+
+**Pass Criteria:** Gateway rejects agent identity exceeding maximum length.
+
+### A15.5: Agent Homoglyph Spoofing
+
+**Payload:** Agent identity `"\u{0430}dmin-agent"` (Cyrillic 'а' instead of Latin 'a') when `admin-agent` is a known agent.
+
+**Pass Criteria:** Gateway normalizes homoglyphs and detects spoofing of known agent identities.
+
+---
+
+## A16: Circuit Breaker Evasion (4 tests)
+
+**OWASP Reference:** MCP10 — Denial of Service
+**Properties Tested:** P10 (Temporal Consistency)
+**What Competitors Miss:** Cascading failure protection, counter overflow via saturating arithmetic, recovery state transitions
+
+### A16.1: Circuit Breaker Trips After Repeated Failures
+
+**Payload:** Tool that has failed 10 consecutive times against a threshold of 5.
+
+**Pass Criteria:** Gateway returns 503/429 or Deny (circuit breaker open).
+
+### A16.2: Circuit Breaker Resets After Cooldown
+
+**Payload:** Tool that failed before but cooldown (60s) has elapsed.
+
+**Pass Criteria:** Gateway allows probe request (half-open state).
+
+### A16.3: Cascading Failure Protection
+
+**Payload:** Upstream tool circuit is open; downstream dependents should also be protected.
+
+**Pass Criteria:** Gateway prevents cascade — dependents also denied or circuit-protected.
+
+### A16.4: Counter Overflow Resistance
+
+**Payload:** Failure count set to `u64::MAX` to test for arithmetic overflow.
+
+**Pass Criteria:** Gateway handles maximum values without overflow, panic, or unexpected behavior (saturating arithmetic).
+
+---
+
 ## Summary
 
 | Class | Tests | Properties | OWASP |
@@ -650,4 +720,6 @@ NAT64 well-known prefix (RFC 6052) embedding `169.254.169.254` in the lower 32 b
 | A12: Covert Channels | 3 | P1, P4 | - |
 | A13: Cross-Call Splitting | 4 | P6 | - |
 | A14: Schema Bypass | 4 | P5 | - |
-| **Total** | **82** | | |
+| A15: Identity Spoofing | 5 | P1, P9 | ASI02 |
+| A16: Circuit Breaker | 4 | P10 | MCP10 |
+| **Total** | **91** | | |

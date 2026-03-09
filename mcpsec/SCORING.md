@@ -69,6 +69,8 @@ The tier is determined by the overall score using the thresholds defined above.
 | A12.1-A12.3 | P1, P4 |
 | A13.1-A13.4 | P6 |
 | A14.1-A14.4 | P5 |
+| A15.1-A15.5 | P1, P9 |
+| A16.1-A16.4 | P10 |
 
 When a test maps to multiple properties, a pass counts toward all mapped properties.
 

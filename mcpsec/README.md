@@ -2,7 +2,7 @@
 
 **Version 1.1.0** | **Apache-2.0 License**
 
-MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 82 reproducible attack test cases across 14 attack classes, derived from real-world penetration testing of MCP deployments.
+MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 91 reproducible attack test cases across 16 attack classes, derived from real-world penetration testing of MCP deployments.
 
 ## Why MCPSEC?
 
@@ -42,7 +42,7 @@ cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
 
 See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 
-### 14 Attack Classes (A1-A14)
+### 16 Attack Classes (A1-A16)
 
 | # | Class | Tests | OWASP Ref |
 |---|-------|-------|-----------|
@@ -60,8 +60,10 @@ See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 | A12 | Sampling & Covert Channels | 3 | - |
 | A13 | Cross-Call Secret Splitting | 4 | - |
 | A14 | Schema Pattern Bypass | 4 | - |
+| A15 | Agent Identity Spoofing | 5 | ASI02 |
+| A16 | Circuit Breaker Evasion | 4 | MCP10 |
 
-**Total: 82 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
+**Total: 91 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
 
 ## Scoring
 
@@ -95,7 +97,7 @@ The gateway should return a JSON response with a `verdict` field indicating `All
 mcpsec/
 ├── README.md              # This file
 ├── PROPERTIES.md          # 10 formal security properties
-├── ATTACKS.md             # 14 attack classes, 82 test cases
+├── ATTACKS.md             # 16 attack classes, 91 test cases
 ├── METHODOLOGY.md         # How to run, how to score
 ├── SCORING.md             # Scoring rubric and tiers
 ├── Cargo.toml             # Standalone Rust crate
@@ -104,7 +106,7 @@ mcpsec/
 │   ├── runner.rs          # HTTP client for gateway testing
 │   ├── report.rs          # JSON/Markdown report generation
 │   ├── scoring.rs         # Score calculation
-│   └── attacks/           # 14 attack modules (a01-a14)
+│   └── attacks/           # 16 attack modules (a01-a16)
 ├── tests/
 │   └── self_test.rs       # Validate harness logic
 └── results/               # Reference benchmark results

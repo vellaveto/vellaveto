@@ -10,7 +10,7 @@
 //! MCPSEC: MCP Security Benchmark Framework
 //!
 //! Vendor-neutral security evaluation for MCP gateways.
-//! Tests 10 security properties across 14 attack classes.
+//! Tests 10 security properties across 16 attack classes.
 
 pub mod attacks;
 pub mod report;
@@ -120,7 +120,9 @@ pub struct BenchmarkSummary {
 
 /// Run the full benchmark suite against a gateway.
 pub async fn run_benchmark(config: &BenchmarkConfig) -> BenchmarkResult {
-    let attack_results = runner::run_all(&config.gateway, config.timeout_secs).await;
+    let attack_results =
+        runner::run_all_concurrent(&config.gateway, config.timeout_secs, config.concurrency)
+            .await;
     let properties = scoring::calculate_property_scores(&attack_results);
     let overall_score = scoring::calculate_overall_score(&properties);
     let tier = scoring::score_to_tier(overall_score);
