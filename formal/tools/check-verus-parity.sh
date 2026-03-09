@@ -544,7 +544,7 @@ check_symbol_parity \
 check_symbol_parity \
     "relay final-allow path consumes presented approvals" \
     "$PROD_RELAY_WRAPPER" \
-    '\.consume_presented_approval\(matched_approval_id\.as_deref\(\),[[:space:]]*&action\)' \
+    '\.consume_presented_approval\(Some\(approval_id\.as_str\(\)\),[[:space:]]*&action' \
     "$VERUS_APPROVAL_CONSUMPTION" \
     'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
 check_symbol_parity \
@@ -615,9 +615,9 @@ check_symbol_parity \
     "$VERUS_APPROVAL_SCOPE" \
     'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
 check_symbol_parity \
-    "relay presented approval matcher uses approval scope matching" \
+    "relay presented approval matcher uses session-bound approval scope matching" \
     "$PROD_RELAY_WRAPPER" \
-    'scope_matches\(None,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    'scope_matches\(session_id,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
     "$VERUS_APPROVAL_SCOPE" \
     'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
 check_symbol_parity \

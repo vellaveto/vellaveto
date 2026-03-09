@@ -339,7 +339,7 @@ All four previously documented limitations have been addressed:
 - **TLS termination** — Built-in rustls-based TLS/mTLS via the [`vellaveto-tls`](vellaveto-tls/) crate. Supports SPIFFE identity extraction, post-quantum key exchange policies, and automatic ALPN negotiation. External reverse proxy remains optional.
 - **Independent verification** — [Bug bounty program](SECURITY_BOUNTY.md) (HackerOne + Huntr), [OSTIF audit scope](docs/OSTIF_AUDIT_SCOPE.md), Codecov integration, and OpenSSF Best Practices Badge enrollment.
 
-Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md)
+Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model](docs/THREAT_MODEL.md) | [Assurance Case](docs/ASSURANCE_CASE.md) | [ACIS Contract](docs/ACIS_CONTRACT.md)
 
 ### MCPSEC Benchmark
 
@@ -421,6 +421,8 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 | [Security Guarantees](docs/SECURITY_GUARANTEES.md) | Normative, falsifiable security contract |
 | [Threat Model](docs/THREAT_MODEL.md) | Trust boundaries, attack surfaces, mitigations |
 | [Assurance Case](docs/ASSURANCE_CASE.md) | Claim -> evidence -> reproduce map |
+| [ACIS Contract](docs/ACIS_CONTRACT.md) | Decision envelope structure, builder selection, transport parity |
+| [Boundary Inventory](docs/BOUNDARY_INVENTORY.md) | Transport interception surface map (E1-3) |
 | [Security Hardening](docs/SECURITY.md) | Security configuration best practices |
 | [Quantum Migration](docs/quantum-migration.md) | PQC rollout and rollback gates |
 
