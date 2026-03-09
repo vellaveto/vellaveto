@@ -645,7 +645,7 @@ fn test_acis_secondary_all_origins_same_action_same_fingerprint() {
     let fingerprints: Vec<String> = origins
         .iter()
         .map(|o| {
-            build_secondary_acis_envelope(&action, &verdict, o.clone(), "http", None)
+            build_secondary_acis_envelope(&action, &verdict, *o, "http", None)
                 .action_fingerprint
         })
         .collect();
@@ -687,7 +687,7 @@ fn test_acis_secondary_all_origins_persist_to_audit() {
                 reason: format!("{origin:?} blocked"),
             };
             let envelope = build_secondary_acis_envelope(
-                &action, &verdict, origin.clone(), "http", Some("persist-sess"),
+                &action, &verdict, *origin, "http", Some("persist-sess"),
             );
 
             logger
@@ -765,7 +765,7 @@ fn test_acis_secondary_transport_parity_all_origins() {
         };
         for transport in &transports {
             let env = build_secondary_acis_envelope(
-                &action, &verdict, origin.clone(), transport, Some("parity-sess"),
+                &action, &verdict, *origin, transport, Some("parity-sess"),
             );
             assert_eq!(env.transport, *transport, "transport mismatch for {origin:?}/{transport}");
             assert!(env.validate().is_ok(), "validation failed for {origin:?}/{transport}");
