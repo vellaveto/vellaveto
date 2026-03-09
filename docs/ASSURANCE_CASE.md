@@ -98,7 +98,7 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit + integration tests | Rust `#[test]` | 10,890+ |
+| Unit + integration tests | Rust `#[test]` | 10,930+ |
 | SDK tests | Python / Go / TypeScript / Java | 855 |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
