@@ -41,6 +41,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **R249 adversarial audit — transport parity + ACIS wiring (Mar 2026):**
+  3 findings (1 CRITICAL, 1 HIGH, 1 MEDIUM).
+  - R249-PROXY-PARITY-1 (CRITICAL) — `extract_text_from_result()` in
+    http-proxy inspection only scanned `result.content[]` (tool call
+    responses) but not `result.contents[]` (MCP resources/read responses).
+    Resource read responses bypassed injection scanning on HTTP/WS/gRPC
+    transports. Added all `contents[]` fields: text, blob, uri, name,
+    description, mimeType, annotations. 1 new test.
+  - R249-PROXY-1 (MEDIUM) — Content iteration bounded to 1000 items in
+    `extract_text_from_result()` to prevent CPU exhaustion from
+    pathologically structured JSON responses.
+  - Gap 2/4 completion — Wired ACIS envelopes into remaining 10 secondary
+    sites in http-proxy (upstream, SSE inspection, auth, helpers) and 11
+    server route handlers (approval, auth_level, billing, circuit_breaker,
+    deputy, policy, policy_lifecycle, registry, schema_lineage, shadow_agent).
+    28 new integration tests for ACIS envelope coverage.
+
+- **R246 adversarial audit — DLP/injection resource read gap (Mar 2026):**
+  6 findings (2 CRITICAL, 2 HIGH, 2 MEDIUM). Genuine fixes:
+  - R246-RELAY-5 (HIGH) — `scan_response_for_secrets()` (DLP) and
+    `extract_response_text()` (injection) only scanned `result.content[]`
+    but not `result.contents[]` (MCP resources/read response format).
+    Resource read responses bypassed both DLP and injection scanning in
+    the stdio relay response path. Added all `contents[]` fields:
+    text, blob (base64-decoded), uri, name, description, mimeType,
+    annotations. 4 new tests.
+  - R246-RELAY-1/2 — Session binding added to approval matching and
+    consumption methods (20 call sites updated for new `session_id`
+    parameter). Prevents cross-session approval replay.
+  - R246-SRV-3 — `retry_after_seconds` removed from rate limit JSON
+    response bodies (kept in Retry-After header per RFC 7231).
+  - R246-ENG-1 — Priority i32→u32 cast uses `u32::try_from().unwrap_or(0)`
+    instead of `.max(0) as u32`.
+  - R246-ACIS-1 — `AcisActionSummary::validate()` standalone method with
+    `MAX_TARGET_COUNT` (100K) bounds on path/domain counts.
+  - False positives closed: R246-RELAY-3 (DLP exists in handler),
+    R246-RELAY-6 (dlp_findings checked), R246-RELAY-7 (tainted data
+    skip is intentional per FIND-R79-001), R246-SRV-1 (Duration overflow
+    requires 585K+ years).
+
 - **R244 adversarial audit — ACIS + formal verification hardening (Mar 2026):**
   19 findings (2 CRITICAL, 5 HIGH, 7 MEDIUM, 5 LOW) across ACIS envelope
   validation, approval TOCTOU, formal proof completeness, and field bounds.
