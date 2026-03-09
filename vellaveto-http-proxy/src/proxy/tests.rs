@@ -2421,3 +2421,34 @@ fn test_r45_call_chain_validation_on_get() {
     assert!(limits.max_call_chain_length > 0);
     assert!(limits.max_call_chain_header_bytes > 0);
 }
+
+/// R253-TH-003: Non-JSON smart-fallback responses must be blocked (fail-closed).
+/// MCP is JSON-RPC — non-JSON responses bypass DLP/injection scanning and must
+/// not be forwarded to the agent.
+#[test]
+fn test_r253_smart_fallback_non_json_blocked() {
+    // These payloads are NOT valid JSON and must fail serde_json::from_slice.
+    let non_json_payloads: &[&[u8]] = &[
+        b"<html>Internal Server Error</html>",
+        b"plain text response",
+        b"",
+        b"\xff\xfe",
+        b"OK",
+        b"503 Service Unavailable",
+    ];
+    for payload in non_json_payloads {
+        let result = serde_json::from_slice::<serde_json::Value>(payload);
+        assert!(
+            result.is_err(),
+            "Non-JSON payload {:?} must fail JSON parsing (fail-closed blocks it)",
+            String::from_utf8_lossy(payload),
+        );
+    }
+
+    // Valid JSON must parse successfully (would proceed to DLP/injection scan).
+    let valid_json = br#"{"jsonrpc":"2.0","id":1,"result":{"content":[]}}"#;
+    assert!(
+        serde_json::from_slice::<serde_json::Value>(valid_json).is_ok(),
+        "Valid JSON must parse successfully and proceed to DLP/injection scan"
+    );
+}

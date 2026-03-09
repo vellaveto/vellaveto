@@ -1441,12 +1441,35 @@ pub async fn handle_mcp_post(
                                                 }
                                             }
                                         } else {
-                                            // Non-JSON response from smart fallback — log warning
-                                            // but still forward (some responses may be non-JSON).
+                                            // SECURITY (R253-TH-003): Non-JSON response from smart
+                                            // fallback — fail-closed. MCP is JSON-RPC, so non-JSON
+                                            // is protocol-invalid and bypasses DLP/injection scanning.
+                                            // Block rather than forward unscanned content.
                                             tracing::warn!(
-                                                "Smart-fallback response is not valid JSON — \
-                                                 DLP/injection scanning skipped (session: {})",
+                                                "SECURITY: Smart-fallback response is not valid JSON — \
+                                                 blocking unscanned response (session: {})",
                                                 session_id,
+                                            );
+                                            let verdict = Verdict::Deny {
+                                                reason: "Smart-fallback response is not valid JSON — blocked (fail-closed)".to_string(),
+                                            };
+                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", Some(&session_id));
+                                            let _ = state
+                                                .audit
+                                                .log_entry_with_acis(
+                                                    &action,
+                                                    &verdict,
+                                                    json!({
+                                                        "source": "http_proxy",
+                                                        "event": "smart_fallback_non_json_blocked",
+                                                        "session": session_id,
+                                                    }),
+                                                    envelope,
+                                                )
+                                                .await;
+                                            return attach_session_header(
+                                                StatusCode::BAD_GATEWAY.into_response(),
+                                                &session_id,
                                             );
                                         }
 
