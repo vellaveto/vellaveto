@@ -776,4 +776,122 @@ mod tests {
         let err = summary.validate().unwrap_err();
         assert!(err.contains("dangerous characters"));
     }
+
+    // ── R254: DecisionOrigin serialization roundtrip ──────────────────────
+
+    #[test]
+    fn test_r254_decision_origin_all_variants_roundtrip() {
+        let origins = [
+            DecisionOrigin::PolicyEngine,
+            DecisionOrigin::Dlp,
+            DecisionOrigin::InjectionScanner,
+            DecisionOrigin::MemoryPoisoning,
+            DecisionOrigin::ApprovalGate,
+            DecisionOrigin::CapabilityEnforcement,
+            DecisionOrigin::RateLimiter,
+            DecisionOrigin::CircuitBreaker,
+            DecisionOrigin::TopologyGuard,
+            DecisionOrigin::SessionGuard,
+        ];
+        for origin in &origins {
+            let json = serde_json::to_string(origin).expect("serialize");
+            let decoded: DecisionOrigin =
+                serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(
+                *origin, decoded,
+                "roundtrip failed for {origin:?}: serialized as {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_r254_decision_origin_snake_case_format() {
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::PolicyEngine).unwrap(),
+            "\"policy_engine\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::InjectionScanner).unwrap(),
+            "\"injection_scanner\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::CircuitBreaker).unwrap(),
+            "\"circuit_breaker\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::SessionGuard).unwrap(),
+            "\"session_guard\""
+        );
+    }
+
+    // ── R254: boundary tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_r254_findings_exactly_at_max_accepted() {
+        let mut env = minimal_envelope();
+        env.findings = vec!["f".into(); 64];
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r254_session_id_exactly_at_max_accepted() {
+        let mut env = minimal_envelope();
+        env.session_id = Some("s".repeat(512));
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r254_session_id_over_max_rejected() {
+        let mut env = minimal_envelope();
+        env.session_id = Some("s".repeat(513));
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("session_id exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r254_decision_id_exactly_at_max_accepted() {
+        let mut env = minimal_envelope();
+        env.decision_id = "d".repeat(64);
+        assert!(env.validate().is_ok());
+    }
+
+    #[test]
+    fn test_r254_decision_id_over_max_rejected() {
+        let mut env = minimal_envelope();
+        env.decision_id = "d".repeat(65);
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("decision_id exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r254_matched_policy_id_dangerous_chars_rejected() {
+        let mut env = minimal_envelope();
+        env.matched_policy_id = Some("policy\x00id".into());
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("matched_policy_id contains dangerous"));
+    }
+
+    #[test]
+    fn test_r254_transport_dangerous_chars_rejected() {
+        let mut env = minimal_envelope();
+        env.transport = "http\x07".into();
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("transport contains dangerous"));
+    }
+
+    #[test]
+    fn test_r254_transport_oversized_rejected() {
+        let mut env = minimal_envelope();
+        env.transport = "x".repeat(33);
+        let err = env.validate().unwrap_err();
+        assert!(err.contains("transport exceeds maximum"));
+    }
+
+    #[test]
+    fn test_r254_both_target_counts_at_max_accepted() {
+        let mut env = minimal_envelope();
+        env.action_summary.target_path_count = 100_000;
+        env.action_summary.target_domain_count = 100_000;
+        assert!(env.validate().is_ok());
+    }
 }
