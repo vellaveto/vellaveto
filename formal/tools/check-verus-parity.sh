@@ -67,6 +67,38 @@ check_symbol_parity() {
     pass "$label"
 }
 
+check_multiline_symbol_parity() {
+    local label="$1"
+    local prod_file="$2"
+    local prod_pattern="$3"
+    local verus_file="$4"
+    local verus_pattern="$5"
+
+    if [ ! -f "$prod_file" ]; then
+        fail "$label — production file not found: $prod_file"
+        return
+    fi
+    if [ ! -f "$verus_file" ]; then
+        fail "$label — verus file not found: $verus_file"
+        return
+    fi
+
+    if ! PROD_PATTERN="$prod_pattern" perl -0ne '
+        BEGIN { $pattern = $ENV{PROD_PATTERN}; $found = 0; }
+        $found = 1 if /$pattern/s;
+        END { exit($found ? 0 : 1); }
+    ' "$prod_file" 2>/dev/null; then
+        fail "$label — production pattern '$prod_pattern' not found in $prod_file"
+        return
+    fi
+    if ! grep -Eq "$verus_pattern" "$verus_file" 2>/dev/null; then
+        fail "$label — verus pattern '$verus_pattern' not found in $verus_file"
+        return
+    fi
+
+    pass "$label"
+}
+
 echo "=== Verus Proof Target Parity Check ==="
 echo ""
 
@@ -541,10 +573,10 @@ check_symbol_parity \
     'consume_approved_approval\(' \
     "$VERUS_APPROVAL_CONSUMPTION" \
     'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
-check_symbol_parity \
+check_multiline_symbol_parity \
     "relay final-allow path consumes presented approvals" \
     "$PROD_RELAY_WRAPPER" \
-    '\.consume_presented_approval\(Some\(approval_id\.as_str\(\)\),[[:space:]]*&action' \
+    '\.consume_presented_approval\([[:space:]]*Some\(approval_id\.as_str\(\)\),[[:space:]]*&action' \
     "$VERUS_APPROVAL_CONSUMPTION" \
     'pub[[:space:]]+fn[[:space:]]+approval_consumption_permitted'
 check_symbol_parity \

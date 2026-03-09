@@ -93,10 +93,10 @@ jobs:
             cfg="${spec}.cfg"
             if [ -f "$mc" ]; then
               echo "=== TLA+ $spec (via MC_${spec}) ==="
-              java -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$mc"
+              java -Xms512m -Xmx10g -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$mc"
             elif [ -f "$cfg" ] && [ -f "$main" ]; then
               echo "=== TLA+ $spec (direct) ==="
-              java -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$main"
+              java -Xms512m -Xmx10g -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$main"
             else
               echo "SKIP: $spec (files not found)"
             fi
