@@ -13,6 +13,7 @@
 //! Tests 10 security properties across 16 attack classes.
 
 pub mod attacks;
+pub mod compare;
 pub mod report;
 pub mod runner;
 pub mod scoring;
@@ -30,6 +31,8 @@ pub struct BenchmarkConfig {
     pub timeout_secs: u64,
     /// Number of concurrent test requests.
     pub concurrency: usize,
+    /// Optional class filter (e.g., ["A1", "A4"]). Empty = run all.
+    pub class_filter: Vec<String>,
 }
 
 /// Gateway connection configuration.
@@ -120,8 +123,9 @@ pub struct BenchmarkSummary {
 
 /// Run the full benchmark suite against a gateway.
 pub async fn run_benchmark(config: &BenchmarkConfig) -> BenchmarkResult {
+    let tests = runner::filter_tests_by_class(attacks::all_tests(), &config.class_filter);
     let attack_results =
-        runner::run_all_concurrent(&config.gateway, config.timeout_secs, config.concurrency)
+        runner::run_tests(&tests, &config.gateway, config.timeout_secs, config.concurrency)
             .await;
     let properties = scoring::calculate_property_scores(&attack_results);
     let overall_score = scoring::calculate_overall_score(&properties);
@@ -195,10 +199,12 @@ mod tests {
             format: OutputFormat::Json,
             timeout_secs: 30,
             concurrency: 4,
+            class_filter: vec![],
         };
         assert_eq!(cfg.timeout_secs, 30);
         assert_eq!(cfg.concurrency, 4);
         assert_eq!(cfg.format, OutputFormat::Json);
+        assert!(cfg.class_filter.is_empty());
     }
 
     #[test]

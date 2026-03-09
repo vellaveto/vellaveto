@@ -21,6 +21,15 @@ cargo run -p mcpsec -- --target http://localhost:3000 --output results/my-gatewa
 
 # Run with markdown report
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
+
+# List all 91 test cases
+cargo run -p mcpsec -- --list
+
+# Run specific attack classes only
+cargo run -p mcpsec -- --target http://localhost:3000 --classes A1,A4,A9
+
+# Compare against a baseline (exits with status 1 on regressions)
+cargo run -p mcpsec -- --target http://localhost:3000 --compare results/baseline.json
 ```
 
 ## What It Tests

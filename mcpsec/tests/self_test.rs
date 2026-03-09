@@ -13,6 +13,7 @@
 //! attack registry) without requiring a running gateway.
 
 use mcpsec::attacks;
+use mcpsec::runner;
 use mcpsec::scoring;
 use mcpsec::{AttackResult, BenchmarkResult, BenchmarkSummary, PropertyScore};
 
@@ -279,4 +280,117 @@ fn test_verdict_parsing_http_status() {
     assert!(attacks::is_deny(&body, 403));
     assert!(attacks::is_deny(&body, 429));
     assert!(!attacks::is_deny(&body, 200));
+}
+
+#[test]
+fn test_filter_by_single_class() {
+    let all = attacks::all_tests();
+    let filtered = runner::filter_tests_by_class(all, &["A1".to_string()]);
+    assert_eq!(filtered.len(), 15, "A1 should have 15 tests");
+    for t in &filtered {
+        assert!(t.id.starts_with("A1."), "Expected A1.* but got {}", t.id);
+    }
+}
+
+#[test]
+fn test_filter_by_multiple_classes() {
+    let all = attacks::all_tests();
+    let filtered = runner::filter_tests_by_class(all, &["A1".to_string(), "A8".to_string()]);
+    assert_eq!(
+        filtered.len(),
+        19,
+        "A1 (15) + A8 (4) = 19, got {}",
+        filtered.len()
+    );
+}
+
+#[test]
+fn test_filter_empty_returns_all() {
+    let all = attacks::all_tests();
+    let total = all.len();
+    let filtered = runner::filter_tests_by_class(all, &[]);
+    assert_eq!(filtered.len(), total);
+}
+
+#[test]
+fn test_filter_case_insensitive() {
+    let all = attacks::all_tests();
+    let filtered = runner::filter_tests_by_class(all, &["a1".to_string()]);
+    assert_eq!(filtered.len(), 15, "Filter should be case-insensitive");
+}
+
+#[test]
+fn test_compare_detects_regressions() {
+    let baseline = BenchmarkResult {
+        framework: "MCPSEC".to_string(),
+        version: "1.1.0".to_string(),
+        timestamp: String::new(),
+        gateway: "test".to_string(),
+        gateway_version: String::new(),
+        overall_score: 100.0,
+        tier: 5,
+        tier_name: "Hardened".to_string(),
+        properties: vec![],
+        attacks: vec![
+            AttackResult {
+                attack_id: "A1.1".to_string(),
+                name: "Test".to_string(),
+                class: "Injection".to_string(),
+                passed: true,
+                latency_ns: 0,
+                details: String::new(),
+            },
+            AttackResult {
+                attack_id: "A1.2".to_string(),
+                name: "Test2".to_string(),
+                class: "Injection".to_string(),
+                passed: true,
+                latency_ns: 0,
+                details: String::new(),
+            },
+        ],
+        summary: BenchmarkSummary {
+            total_tests: 2,
+            passed: 2,
+            failed: 0,
+            skipped: 0,
+        },
+    };
+
+    let current = BenchmarkResult {
+        attacks: vec![
+            AttackResult {
+                attack_id: "A1.1".to_string(),
+                name: "Test".to_string(),
+                class: "Injection".to_string(),
+                passed: true,
+                latency_ns: 0,
+                details: String::new(),
+            },
+            AttackResult {
+                attack_id: "A1.2".to_string(),
+                name: "Test2".to_string(),
+                class: "Injection".to_string(),
+                passed: false,
+                latency_ns: 0,
+                details: String::new(),
+            },
+        ],
+        overall_score: 50.0,
+        tier: 2,
+        tier_name: "Moderate".to_string(),
+        summary: BenchmarkSummary {
+            total_tests: 2,
+            passed: 1,
+            failed: 1,
+            skipped: 0,
+        },
+        ..baseline.clone()
+    };
+
+    let cmp = mcpsec::compare::compare(&baseline, &current);
+    assert_eq!(cmp.regressions.len(), 1);
+    assert_eq!(cmp.regressions[0].attack_id, "A1.2");
+    assert!(cmp.improvements.is_empty());
+    assert!(cmp.score_delta < 0.0);
 }

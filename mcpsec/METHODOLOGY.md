@@ -28,6 +28,9 @@ cargo run -p mcpsec -- \
 | `--format` | `json` | Output format: `json` or `markdown` |
 | `--timeout` | `30s` | Per-request timeout |
 | `--concurrency` | `1` | Number of concurrent test requests |
+| `--classes` | (all) | Comma-separated class filter (e.g., `A1,A4,A9`) |
+| `--list` | - | List all test cases without running |
+| `--compare` | (none) | Compare against a baseline JSON file |
 
 ### Step 2: Interpret Results
 

@@ -58,21 +58,40 @@ struct EvaluateResponse {
 
 /// Run all attack tests against the gateway sequentially.
 pub async fn run_all(config: &GatewayConfig, timeout_secs: u64) -> Vec<AttackResult> {
-    run_all_concurrent(config, timeout_secs, 1).await
+    let all_tests = attacks::all_tests();
+    run_tests(&all_tests, config, timeout_secs, 1).await
 }
 
-/// Run all attack tests against the gateway with configurable concurrency.
+/// Filter tests by class prefixes (e.g., ["A1", "A4", "A9"]).
+/// Returns all tests whose ID starts with any of the given prefixes.
+pub fn filter_tests_by_class(
+    tests: Vec<attacks::AttackTest>,
+    classes: &[String],
+) -> Vec<attacks::AttackTest> {
+    if classes.is_empty() {
+        return tests;
+    }
+    tests
+        .into_iter()
+        .filter(|t| {
+            let prefix = t.id.split('.').next().unwrap_or(t.id);
+            classes.iter().any(|c| c.eq_ignore_ascii_case(prefix))
+        })
+        .collect()
+}
+
+/// Run the given attack tests against the gateway with configurable concurrency.
 ///
 /// When `concurrency` is 1, tests run sequentially (preserving ordering for
 /// stateful tests like rate limiting and cross-call DLP). Higher values use
 /// a semaphore to bound parallel requests, which is faster but may cause
 /// stateful tests (A10.4, A13.*) to produce unreliable results.
-pub async fn run_all_concurrent(
+pub async fn run_tests(
+    all_tests: &[attacks::AttackTest],
     config: &GatewayConfig,
     timeout_secs: u64,
     concurrency: usize,
 ) -> Vec<AttackResult> {
-    let all_tests = attacks::all_tests();
     let client = match reqwest::Client::builder()
         .danger_accept_invalid_certs(false)
         .build()
@@ -99,7 +118,7 @@ pub async fn run_all_concurrent(
     if concurrency == 1 {
         // Sequential: preserves ordering for stateful tests.
         let mut results = Vec::with_capacity(all_tests.len());
-        for test in &all_tests {
+        for test in all_tests {
             results.push(run_and_record(&client, config, test, timeout_secs).await);
         }
         results
@@ -114,12 +133,19 @@ pub async fn run_all_concurrent(
             let sem = Arc::clone(&semaphore);
             let cl = Arc::clone(&client);
             let cfg = Arc::clone(&config);
+            let owned = OwnedTest {
+                id: test.id.to_string(),
+                name: test.name.to_string(),
+                class: test.class.to_string(),
+                payload: test.payload.clone(),
+                check_fn: test.check_fn,
+            };
             handles.push(tokio::spawn(async move {
                 let _permit = sem
                     .acquire()
                     .await
                     .expect("semaphore closed unexpectedly");
-                run_and_record(&cl, &cfg, &test, timeout_secs).await
+                run_single_owned(&cl, &cfg, &owned, timeout_secs).await
             }));
         }
 
@@ -222,5 +248,94 @@ async fn run_single_test(
             (passed, details)
         }
         Err(e) => (false, format!("Request error: {e}")),
+    }
+}
+
+/// Owned test data for concurrent execution (avoids lifetime issues with spawned tasks).
+struct OwnedTest {
+    id: String,
+    name: String,
+    class: String,
+    payload: serde_json::Value,
+    check_fn: fn(&serde_json::Value, u16) -> bool,
+}
+
+/// Run a single test from owned data (used by concurrent executor to avoid lifetime issues).
+async fn run_single_owned(
+    client: &reqwest::Client,
+    config: &GatewayConfig,
+    test: &OwnedTest,
+    timeout_secs: u64,
+) -> AttackResult {
+    let OwnedTest {
+        id,
+        name,
+        class,
+        payload,
+        check_fn,
+    } = test;
+    let start = Instant::now();
+
+    let (passed, details) = if let Some(count) =
+        payload.get("_test_rapid_requests").and_then(|v| v.as_u64())
+    {
+        let mut clean_payload = payload.clone();
+        if let Some(obj) = clean_payload.as_object_mut() {
+            obj.remove("_test_rapid_requests");
+        }
+        let mut result = (
+            false,
+            format!("Sent {count} rapid requests but rate limiting was not triggered"),
+        );
+        for i in 0..count {
+            if let Ok(resp) = send_evaluate(client, config, &clean_payload, timeout_secs).await {
+                if check_fn(&resp.body, resp.status) {
+                    result = (
+                        true,
+                        format!(
+                            "Rate limiting triggered after {i} requests (status {})",
+                            resp.status
+                        ),
+                    );
+                    break;
+                }
+            }
+        }
+        result
+    } else {
+        match send_evaluate(client, config, payload, timeout_secs).await {
+            Ok(resp) => {
+                let passed = check_fn(&resp.body, resp.status);
+                let details = if passed {
+                    format!(
+                        "Gateway correctly handled the attack (status {})",
+                        resp.status
+                    )
+                } else {
+                    let snippet = resp.body.to_string();
+                    let truncated = if snippet.len() > 200 {
+                        format!("{}...", &snippet[..200])
+                    } else {
+                        snippet
+                    };
+                    format!(
+                        "Gateway did not detect or block the attack (status {}, response: {truncated})",
+                        resp.status
+                    )
+                };
+                (passed, details)
+            }
+            Err(e) => (false, format!("Request error: {e}")),
+        }
+    };
+
+    let latency_ns = start.elapsed().as_nanos() as u64;
+    AttackResult {
+        attack_id: id.clone(),
+        name: name.clone(),
+        class: class.clone(),
+        passed,
+        latency_ns,
+        details,
     }
 }
