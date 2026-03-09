@@ -8,10 +8,10 @@
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/MSRV-1.88.0-orange.svg?logo=rust" alt="MSRV 1.88.0"></a>
-    <img src="https://img.shields.io/badge/tests-10%2C930%2B_passing-brightgreen.svg" alt="Tests: 10,930+ passing">
+    <img src="https://img.shields.io/badge/tests-multi--crate-brightgreen.svg" alt="Tests across Rust, SDKs, and integration suites">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
-    <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-250_rounds-orange.svg" alt="250 Internal Security Audit Rounds"></a>
-    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-767%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 767+ properties | 7 tools"></a>
+    <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-continuous-orange.svg" alt="Continuous internal security auditing"></a>
+    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-multi--tool-blueviolet.svg" alt="Multi-tool formal verification"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
@@ -308,11 +308,11 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 
 ### Internal Adversarial Auditing
 
-VellaVeto has undergone **250 rounds of internal adversarial security auditing** covering 31+ attack classes mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits — they are systematic internal red-team exercises where we attack our own code, document findings, fix them, and verify the fixes. 1,700+ findings resolved. The methodology and findings are documented in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
+VellaVeto is continuously exercised by internal adversarial audit sweeps mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits: they are recurring internal red-team exercises where we attack the running system, document findings, land fixes, and add regressions. The current sweep history and methodology live in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
-- **10,930+ tests** — Rust, Python, Go, TypeScript, Java, Terraform, React, VS Code + 24 fuzz targets, zero warnings
+- **Broad automated coverage** — Rust, SDK, integration, benchmark, and fuzz suites back the core policy, proxy, and audit paths
 - **Post-quantum ready** — Hybrid Ed25519 + ML-DSA-65 (FIPS 204) audit signatures, feature-gated behind `pqc-hybrid`
 
 ### Formal Verification
@@ -322,13 +322,13 @@ We use formal methods to prove — not just test — critical security propertie
 | Tool | What's Proven | Files |
 |---|---|---|
 | **TLA+** | Policy engine determinism, ABAC forbid-override correctness, workflow constraint enforcement, task lifecycle safety, cascading failure recovery | [formal/tla/](formal/tla/) |
-| **Verus** | Deductive verification on actual Rust (ALL inputs via Z3 SMT): verdict fail-closed (V1-V8), path normalization idempotence + no-traversal (V9-V10), rule override correctness (V11-V12), DLP buffer safety (D1-D6), approval scope binding and single-use consumption, transport and approval-ID sanitization, capability holder/issuer identity-chain (CAP-ID-1–3), NHI delegation guards + revocation chain completeness (NHI-DEL-1–8), and safety-critical refinement obligations (R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH). 40 kernels, 523 verified items. | [formal/verus/](formal/verus/) |
-| **Kani** | 82 bounded model checking harnesses on actual Rust: IP validation, cache safety, capability delegation, rule checking, constraint evaluation, task lifecycle, IDNA domain normalization, Unicode homoglyph security, RwLock poisoning safety, and more | [formal/kani/](formal/kani/) |
+| **Verus** | Deductive verification on actual Rust (ALL inputs via Z3 SMT): verdict fail-closed, path normalization, rule override correctness, DLP buffer safety, approval scope binding, transport sanitization, capability delegation, NHI delegation, and refinement obligations | [formal/verus/](formal/verus/) |
+| **Kani** | Bounded model checking harnesses on actual Rust covering IP validation, cache safety, capability delegation, rule checking, constraint evaluation, task lifecycle, IDNA normalization, Unicode homoglyph handling, and lock-poisoning safety | [formal/kani/](formal/kani/) |
 | **Lean 4** | Fail-closed property (errors → Deny), evaluation determinism, path normalization idempotence | [formal/lean/](formal/lean/) |
-| **Coq** | 45 theorems across fail-closed, determinism, ABAC forbid-override, capability delegation attenuation, circuit breaker, and task lifecycle | [formal/coq/](formal/coq/) |
+| **Coq** | Theorem-proved properties across fail-closed behavior, determinism, ABAC forbid-override, capability delegation attenuation, circuit breaker, and task lifecycle | [formal/coq/](formal/coq/) |
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
 
-**767+ verification obligations (534 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy)** across 7 tools. Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) and [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md) for details.
+Formal verification spans TLA+, Verus, Kani, Lean 4, Coq, and Alloy. The live property catalog and current counts are maintained in [formal/README.md](formal/README.md); the trust boundary and assumptions are documented in [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md).
 
 ### Former Limitations (Now Resolved)
 
@@ -343,7 +343,7 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 72 reproducible attack test cases across 14 attack classes (including A13: cross-call secret splitting, A14: schema pattern bypass). VellaVeto v6.0.0 scores **100/100 (Tier 5: Hardened)** — all 72 tests passed. Run it against any MCP gateway — including ours:
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. VellaVeto v6.0.0 scores **100/100 (Tier 5: Hardened)** — all 105 tests passed. Run it against any MCP gateway — including ours:
 
 ```bash
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
@@ -432,7 +432,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 |---|---|
 | [Deployment Guide](docs/DEPLOYMENT.md) | Docker, Kubernetes (Helm), bare metal |
 | [Operations Runbook](docs/OPERATIONS.md) | Monitoring, troubleshooting, maintenance |
-| [API Reference](docs/API.md) | Complete HTTP API (168 endpoints) |
+| [API Reference](docs/API.md) | HTTP API surface, route groups, and request/response examples |
 | [Audit Log](docs/AUDIT_LOG.md) | Audit system internals, verification, SIEM export |
 | [IAM](docs/IAM.md) | OIDC, SAML, RBAC, session management |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks |

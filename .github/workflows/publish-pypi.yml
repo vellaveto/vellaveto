@@ -30,8 +30,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd sdk/python
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev,langchain]"
+          pip install --require-hashes --no-deps -r requirements-dev.txt
+          pip install --no-deps -e .
 
       - name: Run tests
         run: |
@@ -70,7 +70,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: python -m pip install build
+        run: pip install --require-hashes --no-deps -r sdk/python/requirements-build.txt
 
       - name: Build package
         run: |

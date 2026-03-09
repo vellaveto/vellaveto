@@ -50,9 +50,10 @@ fn attack_to_properties(attack_id: &str) -> Vec<&'static str> {
             // More granular mapping within A5
             match attack_id {
                 "A5.1" => vec!["P1"],
-                "A5.2" | "A5.3" => vec!["P3"],
+                "A5.2" | "A5.3" | "A5.6" => vec!["P3"],
                 "A5.4" => vec!["P8"],
                 "A5.5" => vec!["P1", "P2"],
+                "A5.7" | "A5.8" | "A5.9" | "A5.10" => vec!["P8"],
                 _ => vec!["P1", "P3", "P8"],
             }
         }

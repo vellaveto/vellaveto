@@ -716,6 +716,36 @@ impl AuditLogger {
             ));
         }
 
+        // SECURITY (R253-AUD-6): Validate target array bounds before redaction.
+        // Without this, oversized target arrays bypass Action::validate() if the
+        // caller constructs an Action directly and passes it to log_entry().
+        let total_targets = action
+            .target_paths
+            .len()
+            .saturating_add(action.target_domains.len())
+            .saturating_add(action.resolved_ips.len());
+        if total_targets > 256 {
+            return Err(AuditError::Validation(format!(
+                "Too many targets: {total_targets} (max 256)"
+            )));
+        }
+        for path in &action.target_paths {
+            if path.len() > 4096 {
+                return Err(AuditError::Validation(format!(
+                    "Target path too long: {} bytes (max 4096)",
+                    path.len()
+                )));
+            }
+        }
+        for domain in &action.target_domains {
+            if domain.len() > 4096 {
+                return Err(AuditError::Validation(format!(
+                    "Target domain too long: {} bytes (max 4096)",
+                    domain.len()
+                )));
+            }
+        }
+
         // Check JSON nesting depth
         if Self::json_depth(&action.parameters) > 20 {
             return Err(AuditError::Validation(
