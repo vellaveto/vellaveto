@@ -583,10 +583,7 @@ impl ApprovalStore {
             // SECURITY (R253-APPR-2): Parity with requested_by and resolved_by
             // Unicode format character validation. Without this, invisible chars
             // (zero-width spaces, bidi overrides) could bypass session binding.
-            if sid
-                .chars()
-                .any(vellaveto_types::is_unicode_format_char)
-            {
+            if sid.chars().any(vellaveto_types::is_unicode_format_char) {
                 return Err(ApprovalError::Validation(
                     "session_id contains Unicode format characters".to_string(),
                 ));
@@ -3495,7 +3492,7 @@ mod tests {
                 "needs review".to_string(),
                 None,
                 Some(sample_session_id()),
-                Some("zz".repeat(32)),  // 64 chars, valid length but not hex
+                Some("zz".repeat(32)), // 64 chars, valid length but not hex
             )
             .await;
         assert!(matches!(result, Err(ApprovalError::Validation(_))));
@@ -3566,10 +3563,8 @@ mod tests {
             )
             .await;
         assert!(matches!(result, Err(ApprovalError::Validation(_))));
-        assert!(
-            format!("{}", result.unwrap_err())
-                .contains("session_id contains Unicode format characters"),
-        );
+        assert!(format!("{}", result.unwrap_err())
+            .contains("session_id contains Unicode format characters"),);
 
         // Bidi override U+2066
         let result2 = store
@@ -3625,7 +3620,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_ne!(id1, id2, "consumed approval should not be returned by dedup");
+        assert_ne!(
+            id1, id2,
+            "consumed approval should not be returned by dedup"
+        );
     }
 
     // ── R253-APPR-3: Minimum fingerprint length ──

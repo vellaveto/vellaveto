@@ -806,10 +806,7 @@ impl ClusterBackend for RedisBackend {
                 // We now remove the dedup key and pending-set entry to match local
                 // ApprovalStore behavior (lib.rs:1079). Failure here is non-critical
                 // — the dedup key has a TTL and will expire regardless.
-                if let Ok(Some(json)) = conn
-                    .get::<_, Option<String>>(self.approval_key(id))
-                    .await
-                {
+                if let Ok(Some(json)) = conn.get::<_, Option<String>>(self.approval_key(id)).await {
                     if let Ok(approval) = serde_json::from_str::<PendingApproval>(&json) {
                         let _: Result<(), _> =
                             conn.zrem(self.pending_set_key(), &approval.id).await;
@@ -819,8 +816,7 @@ impl ClusterBackend for RedisBackend {
                             approval.requested_by.as_deref(),
                             approval.session_id.as_deref(),
                         ) {
-                            let _: Result<(), _> =
-                                conn.del(self.dedup_key(&dedup_hash)).await;
+                            let _: Result<(), _> = conn.del(self.dedup_key(&dedup_hash)).await;
                         }
                     }
                 }

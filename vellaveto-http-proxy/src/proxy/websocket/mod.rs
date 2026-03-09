@@ -725,7 +725,13 @@ async fn relay_client_to_upstream(
                                     "direction": "client_to_upstream",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::InjectionScanner,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state
                                 .audit
                                 .log_entry_with_acis(
@@ -828,7 +834,13 @@ async fn relay_client_to_upstream(
                                             .unwrap_or("unknown")
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -873,7 +885,13 @@ async fn relay_client_to_upstream(
                                     "Tool '{tool_name}' blocked: annotations changed (rug-pull detected)"
                                 ),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::CapabilityEnforcement,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state
                                 .audit
                                 .log_entry_with_acis(
@@ -926,7 +944,13 @@ async fn relay_client_to_upstream(
                                 let dlp_verdict = Verdict::Deny {
                                     reason: audit_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(&dlp_action, &dlp_verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &dlp_action,
+                                    &dlp_verdict,
+                                    DecisionOrigin::Dlp,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -991,7 +1015,13 @@ async fn relay_client_to_upstream(
                                 let poison_verdict = Verdict::Deny {
                                     reason: deny_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(&poison_action, &poison_verdict, DecisionOrigin::MemoryPoisoning, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &poison_action,
+                                    &poison_verdict,
+                                    DecisionOrigin::MemoryPoisoning,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1036,7 +1066,13 @@ async fn relay_client_to_upstream(
                                     reason: format!("Circuit breaker open: {reason}"),
                                 };
                                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::CircuitBreaker,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1092,7 +1128,13 @@ async fn relay_client_to_upstream(
                                                 reason: "Unknown tool requires approval"
                                                     .to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1141,7 +1183,13 @@ async fn relay_client_to_upstream(
                                                 reason: INVALID_PRESENTED_APPROVAL_REASON
                                                     .to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1187,7 +1235,13 @@ async fn relay_client_to_upstream(
                                                 reason: "Untrusted tool requires approval"
                                                     .to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1236,7 +1290,13 @@ async fn relay_client_to_upstream(
                                                 reason: INVALID_PRESENTED_APPROVAL_REASON
                                                     .to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1407,7 +1467,13 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &deny_verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1605,7 +1671,9 @@ async fn relay_client_to_upstream(
                                 let acis_envelope = build_acis_envelope(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
-                                    &Verdict::Deny { reason: reason.clone() },
+                                    &Verdict::Deny {
+                                        reason: reason.clone(),
+                                    },
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     &[],
@@ -1763,7 +1831,13 @@ async fn relay_client_to_upstream(
                                 let resource_poison_verdict = Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&poison_action, &resource_poison_verdict, DecisionOrigin::MemoryPoisoning, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &poison_action,
+                                    &resource_poison_verdict,
+                                    DecisionOrigin::MemoryPoisoning,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1817,7 +1891,13 @@ async fn relay_client_to_upstream(
                                         "Resource '{uri}' blocked: server flagged by rug-pull detection"
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CapabilityEnforcement, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::CapabilityEnforcement,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1874,7 +1954,13 @@ async fn relay_client_to_upstream(
                                     reason: "DLP blocked: secret detected in resource URI"
                                         .to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &audit_verdict,
+                                    DecisionOrigin::Dlp,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state.audit.log_entry_with_acis(
                                     &action, &audit_verdict,
                                     json!({
@@ -1911,7 +1997,13 @@ async fn relay_client_to_upstream(
                                     reason: format!("Circuit breaker open: {reason}"),
                                 };
                                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::CircuitBreaker,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2077,7 +2169,13 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &deny_verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -2254,7 +2352,9 @@ async fn relay_client_to_upstream(
                                 let acis_envelope = build_acis_envelope(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
-                                    &Verdict::Deny { reason: reason.clone() },
+                                    &Verdict::Deny {
+                                        reason: reason.clone(),
+                                    },
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     &[],
@@ -2471,7 +2571,13 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2543,7 +2649,13 @@ async fn relay_client_to_upstream(
                                 let task_poison_verdict = Verdict::Deny {
                                     reason: deny_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(&poison_action, &task_poison_verdict, DecisionOrigin::MemoryPoisoning, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &poison_action,
+                                    &task_poison_verdict,
+                                    DecisionOrigin::MemoryPoisoning,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2604,7 +2716,13 @@ async fn relay_client_to_upstream(
                                         "DLP: secrets detected in task request: {patterns:?}"
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(&dlp_action, &task_dlp_verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &dlp_action,
+                                    &task_dlp_verdict,
+                                    DecisionOrigin::Dlp,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2768,7 +2886,13 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &deny_verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -2921,7 +3045,9 @@ async fn relay_client_to_upstream(
                                 let acis_envelope = build_acis_envelope(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
-                                    &Verdict::Deny { reason: reason.clone() },
+                                    &Verdict::Deny {
+                                        reason: reason.clone(),
+                                    },
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     &[],
@@ -3073,7 +3199,13 @@ async fn relay_client_to_upstream(
                                     "DLP blocked: secret detected in extension parameters: {patterns:?}"
                                 ),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &audit_verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &audit_verdict,
+                                DecisionOrigin::Dlp,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &audit_verdict,
                                 json!({
@@ -3114,8 +3246,16 @@ async fn relay_client_to_upstream(
                                     "Memory poisoning detected: {} replayed data fragment(s) in extension '{}:{}'",
                                     poisoning_matches.len(), extension_id, method
                                 );
-                                let ext_poison_verdict = Verdict::Deny { reason: deny_reason.clone() };
-                                let envelope = build_secondary_acis_envelope(&action, &ext_poison_verdict, DecisionOrigin::MemoryPoisoning, "websocket", Some(&session_id));
+                                let ext_poison_verdict = Verdict::Deny {
+                                    reason: deny_reason.clone(),
+                                };
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &ext_poison_verdict,
+                                    DecisionOrigin::MemoryPoisoning,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state.audit.log_entry_with_acis(
                                     &action,
                                     &ext_poison_verdict,
@@ -3273,7 +3413,13 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                            let envelope = build_secondary_acis_envelope(
+                                                &action,
+                                                &deny_verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "websocket",
+                                                Some(&session_id),
+                                            );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -3444,7 +3590,9 @@ async fn relay_client_to_upstream(
                                 let acis_envelope = build_acis_envelope(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
-                                    &Verdict::Deny { reason: reason.clone() },
+                                    &Verdict::Deny {
+                                        reason: reason.clone(),
+                                    },
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     &[],
@@ -3606,7 +3754,13 @@ async fn relay_client_to_upstream(
                                         "direction": "client_to_upstream",
                                     }),
                                 );
-                                let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &Verdict::Allow,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3677,7 +3831,13 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::PolicyEngine,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3752,7 +3912,13 @@ async fn relay_client_to_upstream(
                                 } else {
                                     Verdict::Allow
                                 };
-                                let envelope = build_secondary_acis_envelope(&n_action, &verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &n_action,
+                                    &verdict,
+                                    DecisionOrigin::Dlp,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3832,7 +3998,13 @@ async fn relay_client_to_upstream(
                                             "direction": "client_to_upstream",
                                         }),
                                     );
-                                    let envelope = build_secondary_acis_envelope(&inj_action, &verdict, DecisionOrigin::InjectionScanner, "websocket", Some(&session_id));
+                                    let envelope = build_secondary_acis_envelope(
+                                        &inj_action,
+                                        &verdict,
+                                        DecisionOrigin::InjectionScanner,
+                                        "websocket",
+                                        Some(&session_id),
+                                    );
                                     if let Err(e) = state
                                         .audit
                                         .log_entry_with_acis(
@@ -3904,7 +4076,13 @@ async fn relay_client_to_upstream(
                                         poisoning_matches.len()
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(&poison_action, &passthrough_poison_verdict, DecisionOrigin::MemoryPoisoning, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &poison_action,
+                                    &passthrough_poison_verdict,
+                                    DecisionOrigin::MemoryPoisoning,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3953,7 +4131,13 @@ async fn relay_client_to_upstream(
                                 "direction": "client_to_upstream",
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &action,
+                            &Verdict::Allow,
+                            DecisionOrigin::PolicyEngine,
+                            "websocket",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -4018,7 +4202,13 @@ async fn relay_client_to_upstream(
                 let binary_verdict = Verdict::Deny {
                     reason: "Binary frames not supported for JSON-RPC".to_string(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &binary_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &binary_verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "websocket",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -4120,7 +4310,13 @@ async fn relay_upstream_to_client(
             let rate_verdict = Verdict::Deny {
                 reason: "Upstream rate limit exceeded".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(&action, &rate_verdict, DecisionOrigin::RateLimiter, "websocket", Some(&session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &rate_verdict,
+                DecisionOrigin::RateLimiter,
+                "websocket",
+                Some(&session_id),
+            );
             if let Err(e) = state
                 .audit
                 .log_entry_with_acis(
@@ -4199,7 +4395,13 @@ async fn relay_upstream_to_client(
                                     "transport": "websocket",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::Dlp,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state
                                 .audit
                                 .log_entry_with_acis(
@@ -4276,7 +4478,13 @@ async fn relay_upstream_to_client(
                                         "transport": "websocket",
                                     }),
                                 );
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "websocket", Some(&session_id));
+                                let envelope = build_secondary_acis_envelope(
+                                    &action,
+                                    &verdict,
+                                    DecisionOrigin::InjectionScanner,
+                                    "websocket",
+                                    Some(&session_id),
+                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -4375,7 +4583,13 @@ async fn relay_upstream_to_client(
                                             finding.tool_name, finding.matched_patterns
                                         ),
                                     };
-                                    let envelope = build_secondary_acis_envelope(&action, &tool_desc_verdict, DecisionOrigin::InjectionScanner, "websocket", Some(&session_id));
+                                    let envelope = build_secondary_acis_envelope(
+                                        &action,
+                                        &tool_desc_verdict,
+                                        DecisionOrigin::InjectionScanner,
+                                        "websocket",
+                                        Some(&session_id),
+                                    );
                                     if let Err(e) = state
                                         .audit
                                         .log_entry_with_acis(
@@ -4464,7 +4678,13 @@ async fn relay_upstream_to_client(
                                 "direction": "upstream_to_client",
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(&action, &Verdict::Allow, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                        let envelope = build_secondary_acis_envelope(
+                            &action,
+                            &Verdict::Allow,
+                            DecisionOrigin::PolicyEngine,
+                            "websocket",
+                            Some(&session_id),
+                        );
                         if let Err(e) = state
                             .audit
                             .log_entry_with_acis(
@@ -4528,7 +4748,13 @@ async fn relay_upstream_to_client(
                                 json!({ "findings": patterns, "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::Dlp,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &verdict,
                                 json!({ "source": "ws_proxy", "event": "ws_nonjson_dlp_alert" }),
@@ -4583,7 +4809,13 @@ async fn relay_upstream_to_client(
                                 json!({ "alerts": alerts.len(), "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
-                            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &verdict,
+                                DecisionOrigin::InjectionScanner,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &verdict,
                                 json!({ "source": "ws_proxy", "event": "ws_nonjson_injection_alert" }),
@@ -4654,7 +4886,13 @@ async fn relay_upstream_to_client(
                             let binary_dlp_verdict = Verdict::Deny {
                                 reason: format!("WS binary frame DLP: {patterns:?}"),
                             };
-                            let envelope = build_secondary_acis_envelope(&action, &binary_dlp_verdict, DecisionOrigin::Dlp, "websocket", Some(&session_id));
+                            let envelope = build_secondary_acis_envelope(
+                                &action,
+                                &binary_dlp_verdict,
+                                DecisionOrigin::Dlp,
+                                "websocket",
+                                Some(&session_id),
+                            );
                             if let Err(e) = state
                                 .audit
                                 .log_entry_with_acis(
@@ -4688,7 +4926,13 @@ async fn relay_upstream_to_client(
                 let upstream_binary_verdict = Verdict::Deny {
                     reason: "Binary frames not supported for JSON-RPC".to_string(),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &upstream_binary_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(&session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &upstream_binary_verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "websocket",
+                    Some(&session_id),
+                );
                 if let Err(e) = state
                     .audit
                     .log_entry_with_acis(
@@ -4832,7 +5076,13 @@ async fn validate_ws_structured_content_response(
             let schema_verdict = Verdict::Deny {
                 reason: format!("WS structuredContent validation failed: {violations:?}"),
             };
-            let envelope = build_secondary_acis_envelope(&action, &schema_verdict, DecisionOrigin::PolicyEngine, "websocket", Some(session_id));
+            let envelope = build_secondary_acis_envelope(
+                &action,
+                &schema_verdict,
+                DecisionOrigin::PolicyEngine,
+                "websocket",
+                Some(session_id),
+            );
             if let Err(e) = state
                 .audit
                 .log_entry_with_acis(

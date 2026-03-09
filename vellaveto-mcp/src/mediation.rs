@@ -989,7 +989,9 @@ mod tests {
             require_session_id: true,
             ..MediationConfig::default()
         };
-        let r = mediate("sess-1", &action, &engine, None, "http", &config, None, None);
+        let r = mediate(
+            "sess-1", &action, &engine, None, "http", &config, None, None,
+        );
         assert!(matches!(r.verdict, Verdict::Deny { .. }));
         assert_eq!(r.origin, DecisionOrigin::SessionGuard);
         assert_eq!(r.envelope.decision, DecisionKind::Deny);
@@ -1004,7 +1006,14 @@ mod tests {
             ..MediationConfig::default()
         };
         let r = mediate(
-            "sess-2", &action, &engine, None, "http", &config, Some("session-abc"), None,
+            "sess-2",
+            &action,
+            &engine,
+            None,
+            "http",
+            &config,
+            Some("session-abc"),
+            None,
         );
         assert!(matches!(r.verdict, Verdict::Allow));
     }
@@ -1018,12 +1027,23 @@ mod tests {
             ..MediationConfig::default()
         };
         // No context → Deny
-        let r = mediate("ident-1", &action, &engine, None, "grpc", &config, None, None);
+        let r = mediate(
+            "ident-1", &action, &engine, None, "grpc", &config, None, None,
+        );
         assert!(matches!(r.verdict, Verdict::Deny { .. }));
         assert_eq!(r.origin, DecisionOrigin::SessionGuard);
         // Context without identity → also Deny
         let ctx = EvaluationContext::default();
-        let r2 = mediate("ident-2", &action, &engine, Some(&ctx), "grpc", &config, None, None);
+        let r2 = mediate(
+            "ident-2",
+            &action,
+            &engine,
+            Some(&ctx),
+            "grpc",
+            &config,
+            None,
+            None,
+        );
         assert!(matches!(r2.verdict, Verdict::Deny { .. }));
     }
 
@@ -1042,7 +1062,16 @@ mod tests {
             }),
             ..Default::default()
         };
-        let r = mediate("ident-3", &action, &engine, Some(&ctx), "websocket", &config, None, None);
+        let r = mediate(
+            "ident-3",
+            &action,
+            &engine,
+            Some(&ctx),
+            "websocket",
+            &config,
+            None,
+            None,
+        );
         assert!(matches!(r.verdict, Verdict::Allow));
     }
 
@@ -1056,7 +1085,9 @@ mod tests {
             ..MediationConfig::default()
         };
         // Missing both → Deny (session check first)
-        let r = mediate("both-1", &action, &engine, None, "http", &config, None, None);
+        let r = mediate(
+            "both-1", &action, &engine, None, "http", &config, None, None,
+        );
         assert!(matches!(r.verdict, Verdict::Deny { .. }));
         if let Verdict::Deny { reason } = &r.verdict {
             assert!(reason.contains("session ID"));
@@ -1064,7 +1095,14 @@ mod tests {
         // Session present, identity missing → Deny
         let ctx = EvaluationContext::default();
         let r2 = mediate(
-            "both-2", &action, &engine, Some(&ctx), "http", &config, Some("sess-x"), None,
+            "both-2",
+            &action,
+            &engine,
+            Some(&ctx),
+            "http",
+            &config,
+            Some("sess-x"),
+            None,
         );
         assert!(matches!(r2.verdict, Verdict::Deny { .. }));
         if let Verdict::Deny { reason } = &r2.verdict {
@@ -1079,7 +1117,14 @@ mod tests {
             ..Default::default()
         };
         let r3 = mediate(
-            "both-3", &action, &engine, Some(&ctx_ok), "http", &config, Some("sess-y"), None,
+            "both-3",
+            &action,
+            &engine,
+            Some(&ctx_ok),
+            "http",
+            &config,
+            Some("sess-y"),
+            None,
         );
         assert!(matches!(r3.verdict, Verdict::Allow));
     }
@@ -1098,7 +1143,16 @@ mod tests {
             dlp_blocking: true,
             ..MediationConfig::default()
         };
-        let r = mediate("pre-dlp-1", &action, &engine, None, "http", &config, None, None);
+        let r = mediate(
+            "pre-dlp-1",
+            &action,
+            &engine,
+            None,
+            "http",
+            &config,
+            None,
+            None,
+        );
         assert_eq!(r.origin, DecisionOrigin::SessionGuard);
         assert!(r.dlp_findings.is_empty(), "DLP should not have run");
     }
@@ -1126,7 +1180,9 @@ mod tests {
             include_findings: true,
             ..MediationConfig::default()
         };
-        let r = mediate("combo-1", &action, &engine, None, "http", &config, None, None);
+        let r = mediate(
+            "combo-1", &action, &engine, None, "http", &config, None, None,
+        );
         // DLP should find the key but not block
         assert!(!r.dlp_findings.is_empty(), "DLP should detect the AWS key");
         // If injection scanner also fires, both findings should appear in envelope
@@ -1159,7 +1215,9 @@ mod tests {
             require_session_id: false,
             require_agent_identity: false,
         };
-        let r = mediate("noop-1", &action, &engine, None, "stdio", &config, None, None);
+        let r = mediate(
+            "noop-1", &action, &engine, None, "stdio", &config, None, None,
+        );
         // Engine still runs even with scanning disabled — strict mode means deny
         assert_eq!(r.envelope.decision, DecisionKind::Deny);
         assert_eq!(r.envelope.origin, DecisionOrigin::PolicyEngine);
@@ -1234,7 +1292,9 @@ mod tests {
             resolved_ips: vec![],
         };
         let config = MediationConfig::default();
-        let r = mediate("big-tool", &action, &engine, None, "http", &config, None, None);
+        let r = mediate(
+            "big-tool", &action, &engine, None, "http", &config, None, None,
+        );
         // The envelope should fail validation because tool exceeds MAX_TOOL_LEN
         let validation = r.envelope.validate();
         assert!(
@@ -1255,7 +1315,16 @@ mod tests {
             resolved_ips: vec![],
         };
         let config = MediationConfig::default();
-        let r = mediate("empty-tool", &action, &engine, None, "stdio", &config, None, None);
+        let r = mediate(
+            "empty-tool",
+            &action,
+            &engine,
+            None,
+            "stdio",
+            &config,
+            None,
+            None,
+        );
         let validation = r.envelope.validate();
         assert!(
             validation.is_err(),

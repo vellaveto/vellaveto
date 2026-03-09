@@ -69,7 +69,16 @@ fn test_acis_mediate_deny_produces_valid_envelope() {
     let action = test_action();
     let config = MediationConfig::default();
 
-    let result = mediate("test-decision-1", &action, &engine, None, "http", &config, None, None);
+    let result = mediate(
+        "test-decision-1",
+        &action,
+        &engine,
+        None,
+        "http",
+        &config,
+        None,
+        None,
+    );
 
     assert_eq!(result.envelope.decision, DecisionKind::Deny);
     assert_eq!(result.envelope.origin, DecisionOrigin::PolicyEngine);
@@ -77,7 +86,10 @@ fn test_acis_mediate_deny_produces_valid_envelope() {
     assert_eq!(result.envelope.action_summary.tool, "file_write");
     assert_eq!(result.envelope.action_summary.function, "write");
     assert!(!result.envelope.action_fingerprint.is_empty());
-    assert!(result.envelope.validate().is_ok(), "envelope should validate");
+    assert!(
+        result.envelope.validate().is_ok(),
+        "envelope should validate"
+    );
 }
 
 #[test]
@@ -86,7 +98,16 @@ fn test_acis_mediate_allow_produces_valid_envelope() {
     let action = test_action();
     let config = MediationConfig::default();
 
-    let result = mediate("test-decision-2", &action, &engine, None, "stdio", &config, None, None);
+    let result = mediate(
+        "test-decision-2",
+        &action,
+        &engine,
+        None,
+        "stdio",
+        &config,
+        None,
+        None,
+    );
 
     assert_eq!(result.envelope.decision, DecisionKind::Allow);
     assert_eq!(result.envelope.transport, "stdio");
@@ -127,14 +148,32 @@ fn test_acis_fingerprint_deterministic_across_transports() {
     let config = MediationConfig::default();
 
     let r1 = mediate("id-1", &action, &engine, None, "http", &config, None, None);
-    let r2 = mediate("id-2", &action, &engine, None, "websocket", &config, None, None);
+    let r2 = mediate(
+        "id-2",
+        &action,
+        &engine,
+        None,
+        "websocket",
+        &config,
+        None,
+        None,
+    );
     let r3 = mediate("id-3", &action, &engine, None, "grpc", &config, None, None);
     let r4 = mediate("id-4", &action, &engine, None, "stdio", &config, None, None);
 
     // Same action → same fingerprint regardless of transport
-    assert_eq!(r1.envelope.action_fingerprint, r2.envelope.action_fingerprint);
-    assert_eq!(r2.envelope.action_fingerprint, r3.envelope.action_fingerprint);
-    assert_eq!(r3.envelope.action_fingerprint, r4.envelope.action_fingerprint);
+    assert_eq!(
+        r1.envelope.action_fingerprint,
+        r2.envelope.action_fingerprint
+    );
+    assert_eq!(
+        r2.envelope.action_fingerprint,
+        r3.envelope.action_fingerprint
+    );
+    assert_eq!(
+        r3.envelope.action_fingerprint,
+        r4.envelope.action_fingerprint
+    );
 
     // But decision_id differs
     assert_ne!(r1.envelope.decision_id, r2.envelope.decision_id);
@@ -204,7 +243,16 @@ fn test_acis_envelope_persisted_in_audit_entry() {
         let action = test_action();
         let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
         let config = MediationConfig::default();
-        let result = mediate("persist-1", &action, &engine, None, "http", &config, None, None);
+        let result = mediate(
+            "persist-1",
+            &action,
+            &engine,
+            None,
+            "http",
+            &config,
+            None,
+            None,
+        );
 
         // Persist with ACIS envelope
         logger
@@ -236,7 +284,16 @@ fn test_acis_audit_rejects_invalid_envelope() {
         let action = test_action();
         let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
         let config = MediationConfig::default();
-        let mut result = mediate("persist-2", &action, &engine, None, "http", &config, None, None);
+        let mut result = mediate(
+            "persist-2",
+            &action,
+            &engine,
+            None,
+            "http",
+            &config,
+            None,
+            None,
+        );
 
         // Corrupt the envelope — empty tool name
         result.envelope.action_summary.tool = String::new();
@@ -279,7 +336,16 @@ fn test_acis_call_chain_depth_clamped_to_256() {
         ..Default::default()
     };
 
-    let result = mediate("depth-1", &action, &engine, Some(&ctx), "http", &config, None, None);
+    let result = mediate(
+        "depth-1",
+        &action,
+        &engine,
+        Some(&ctx),
+        "http",
+        &config,
+        None,
+        None,
+    );
 
     // Depth should be clamped to 256, not 300
     assert_eq!(result.envelope.call_chain_depth, 256);
@@ -342,8 +408,7 @@ fn test_acis_envelope_serialization_roundtrip() {
     let json_str = serde_json::to_string(&result.envelope).expect("serialize");
 
     // Deserialize back
-    let deserialized: AcisDecisionEnvelope =
-        serde_json::from_str(&json_str).expect("deserialize");
+    let deserialized: AcisDecisionEnvelope = serde_json::from_str(&json_str).expect("deserialize");
 
     // All fields must survive the roundtrip
     assert_eq!(deserialized.decision_id, result.envelope.decision_id);
@@ -373,7 +438,16 @@ fn test_acis_envelope_persisted_roundtrip_matches_original() {
         let engine = PolicyEngine::with_policies(true, &[deny_policy()]).expect("engine");
         let action = test_action();
         let config = MediationConfig::default();
-        let result = mediate("rt-2", &action, &engine, None, "websocket", &config, None, None);
+        let result = mediate(
+            "rt-2",
+            &action,
+            &engine,
+            None,
+            "websocket",
+            &config,
+            None,
+            None,
+        );
 
         logger
             .log_entry_with_acis(
@@ -451,7 +525,9 @@ fn test_acis_envelope_reason_populated_on_deny() {
     let action = test_action();
     let config = MediationConfig::default();
 
-    let result = mediate("reason-1", &action, &engine, None, "http", &config, None, None);
+    let result = mediate(
+        "reason-1", &action, &engine, None, "http", &config, None, None,
+    );
 
     assert_eq!(result.envelope.decision, DecisionKind::Deny);
     assert!(
@@ -466,7 +542,9 @@ fn test_acis_envelope_allow_has_empty_reason() {
     let action = test_action();
     let config = MediationConfig::default();
 
-    let result = mediate("reason-2", &action, &engine, None, "http", &config, None, None);
+    let result = mediate(
+        "reason-2", &action, &engine, None, "http", &config, None, None,
+    );
 
     assert_eq!(result.envelope.decision, DecisionKind::Allow);
     assert!(
@@ -500,10 +578,20 @@ fn assert_secondary_envelope_valid(
     assert_eq!(envelope.origin, origin, "origin mismatch");
     assert_eq!(envelope.decision, DecisionKind::Deny, "expected Deny");
     assert_eq!(envelope.transport, transport, "transport mismatch");
-    assert!(!envelope.action_fingerprint.is_empty(), "fingerprint must be non-empty");
-    assert!(!envelope.decision_id.is_empty(), "decision_id must be non-empty");
+    assert!(
+        !envelope.action_fingerprint.is_empty(),
+        "fingerprint must be non-empty"
+    );
+    assert!(
+        !envelope.decision_id.is_empty(),
+        "decision_id must be non-empty"
+    );
     assert!(!envelope.reason.is_empty(), "deny reason must be non-empty");
-    assert!(envelope.validate().is_ok(), "envelope must validate: {:?}", envelope.validate());
+    assert!(
+        envelope.validate().is_ok(),
+        "envelope must validate: {:?}",
+        envelope.validate()
+    );
 
     if let Some(sid) = session_id {
         assert_eq!(envelope.session_id.as_deref(), Some(sid));
@@ -526,11 +614,8 @@ fn test_acis_secondary_injection_scanner_origin() {
 
 #[test]
 fn test_acis_secondary_memory_poisoning_origin() {
-    let env = assert_secondary_envelope_valid(
-        DecisionOrigin::MemoryPoisoning,
-        "http",
-        Some("sess-mp-1"),
-    );
+    let env =
+        assert_secondary_envelope_valid(DecisionOrigin::MemoryPoisoning, "http", Some("sess-mp-1"));
     assert_eq!(env.origin, DecisionOrigin::MemoryPoisoning);
 }
 
@@ -556,41 +641,28 @@ fn test_acis_secondary_capability_enforcement_origin() {
 
 #[test]
 fn test_acis_secondary_rate_limiter_origin() {
-    let env = assert_secondary_envelope_valid(
-        DecisionOrigin::RateLimiter,
-        "http",
-        None,
-    );
+    let env = assert_secondary_envelope_valid(DecisionOrigin::RateLimiter, "http", None);
     assert_eq!(env.origin, DecisionOrigin::RateLimiter);
 }
 
 #[test]
 fn test_acis_secondary_circuit_breaker_origin() {
-    let env = assert_secondary_envelope_valid(
-        DecisionOrigin::CircuitBreaker,
-        "http",
-        Some("sess-cb-1"),
-    );
+    let env =
+        assert_secondary_envelope_valid(DecisionOrigin::CircuitBreaker, "http", Some("sess-cb-1"));
     assert_eq!(env.origin, DecisionOrigin::CircuitBreaker);
 }
 
 #[test]
 fn test_acis_secondary_topology_guard_origin() {
-    let env = assert_secondary_envelope_valid(
-        DecisionOrigin::TopologyGuard,
-        "stdio",
-        Some("sess-tg-1"),
-    );
+    let env =
+        assert_secondary_envelope_valid(DecisionOrigin::TopologyGuard, "stdio", Some("sess-tg-1"));
     assert_eq!(env.origin, DecisionOrigin::TopologyGuard);
 }
 
 #[test]
 fn test_acis_secondary_session_guard_origin() {
-    let env = assert_secondary_envelope_valid(
-        DecisionOrigin::SessionGuard,
-        "sse",
-        Some("sess-sg-1"),
-    );
+    let env =
+        assert_secondary_envelope_valid(DecisionOrigin::SessionGuard, "sse", Some("sess-sg-1"));
     assert_eq!(env.origin, DecisionOrigin::SessionGuard);
 }
 
@@ -605,12 +677,23 @@ fn test_acis_secondary_fingerprint_matches_primary() {
     let config = MediationConfig::default();
 
     // Primary envelope via mediate()
-    let primary = mediate("fp-primary", &action, &engine, None, "http", &config, None, None);
+    let primary = mediate(
+        "fp-primary",
+        &action,
+        &engine,
+        None,
+        "http",
+        &config,
+        None,
+        None,
+    );
 
     // Secondary envelope via build_secondary_acis_envelope()
     let secondary = build_secondary_acis_envelope(
         &action,
-        &Verdict::Deny { reason: "DLP finding".into() },
+        &Verdict::Deny {
+            reason: "DLP finding".into(),
+        },
         DecisionOrigin::Dlp,
         "http",
         None,
@@ -618,8 +701,7 @@ fn test_acis_secondary_fingerprint_matches_primary() {
 
     // Same action → same fingerprint, regardless of origin or decision path
     assert_eq!(
-        primary.envelope.action_fingerprint,
-        secondary.action_fingerprint,
+        primary.envelope.action_fingerprint, secondary.action_fingerprint,
         "primary and secondary fingerprints must match for the same action"
     );
 }
@@ -627,7 +709,9 @@ fn test_acis_secondary_fingerprint_matches_primary() {
 #[test]
 fn test_acis_secondary_all_origins_same_action_same_fingerprint() {
     let action = test_action();
-    let verdict = Verdict::Deny { reason: "test".into() };
+    let verdict = Verdict::Deny {
+        reason: "test".into(),
+    };
 
     let origins = [
         DecisionOrigin::PolicyEngine,
@@ -645,8 +729,7 @@ fn test_acis_secondary_all_origins_same_action_same_fingerprint() {
     let fingerprints: Vec<String> = origins
         .iter()
         .map(|o| {
-            build_secondary_acis_envelope(&action, &verdict, *o, "http", None)
-                .action_fingerprint
+            build_secondary_acis_envelope(&action, &verdict, *o, "http", None).action_fingerprint
         })
         .collect();
 
@@ -687,7 +770,11 @@ fn test_acis_secondary_all_origins_persist_to_audit() {
                 reason: format!("{origin:?} blocked"),
             };
             let envelope = build_secondary_acis_envelope(
-                &action, &verdict, *origin, "http", Some("persist-sess"),
+                &action,
+                &verdict,
+                *origin,
+                "http",
+                Some("persist-sess"),
             );
 
             logger
@@ -706,12 +793,18 @@ fn test_acis_secondary_all_origins_persist_to_audit() {
             .await
             .expect("read audit");
         let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(lines.len(), origins.len(), "expected one audit entry per origin");
+        assert_eq!(
+            lines.len(),
+            origins.len(),
+            "expected one audit entry per origin"
+        );
 
         for (i, origin) in origins.iter().enumerate() {
             let entry: serde_json::Value =
                 serde_json::from_str(lines[i]).expect("parse audit entry");
-            let env_origin = entry["acis_envelope"]["origin"].as_str().expect("origin field");
+            let env_origin = entry["acis_envelope"]["origin"]
+                .as_str()
+                .expect("origin field");
             // serde serializes DecisionOrigin as snake_case, so compare via serde
             let expected_origin = serde_json::to_value(origin).expect("serialize origin");
             let expected_str = expected_origin.as_str().expect("origin as str");
@@ -727,17 +820,28 @@ fn test_acis_secondary_envelope_rejected_when_invalid() {
         let dir = TempDir::new().expect("tempdir");
         let logger = AuditLogger::new(dir.path().join("audit.jsonl"));
         let action = test_action();
-        let verdict = Verdict::Deny { reason: "test".into() };
+        let verdict = Verdict::Deny {
+            reason: "test".into(),
+        };
 
         let mut envelope = build_secondary_acis_envelope(
-            &action, &verdict, DecisionOrigin::InjectionScanner, "http", None,
+            &action,
+            &verdict,
+            DecisionOrigin::InjectionScanner,
+            "http",
+            None,
         );
 
         // Corrupt: empty tool name violates validation
         envelope.action_summary.tool = String::new();
 
         let result = logger
-            .log_entry_with_acis(&action, &verdict, json!({"source": "invalid_test"}), envelope)
+            .log_entry_with_acis(
+                &action,
+                &verdict,
+                json!({"source": "invalid_test"}),
+                envelope,
+            )
             .await;
 
         assert!(result.is_err(), "should reject invalid secondary envelope");
@@ -765,10 +869,20 @@ fn test_acis_secondary_transport_parity_all_origins() {
         };
         for transport in &transports {
             let env = build_secondary_acis_envelope(
-                &action, &verdict, *origin, transport, Some("parity-sess"),
+                &action,
+                &verdict,
+                *origin,
+                transport,
+                Some("parity-sess"),
             );
-            assert_eq!(env.transport, *transport, "transport mismatch for {origin:?}/{transport}");
-            assert!(env.validate().is_ok(), "validation failed for {origin:?}/{transport}");
+            assert_eq!(
+                env.transport, *transport,
+                "transport mismatch for {origin:?}/{transport}"
+            );
+            assert!(
+                env.validate().is_ok(),
+                "validation failed for {origin:?}/{transport}"
+            );
         }
     }
 }
@@ -776,14 +890,14 @@ fn test_acis_secondary_transport_parity_all_origins() {
 #[test]
 fn test_acis_secondary_unique_decision_ids() {
     let action = test_action();
-    let verdict = Verdict::Deny { reason: "test".into() };
+    let verdict = Verdict::Deny {
+        reason: "test".into(),
+    };
 
     let ids: Vec<String> = (0..20)
         .map(|_| {
-            build_secondary_acis_envelope(
-                &action, &verdict, DecisionOrigin::Dlp, "http", None,
-            )
-            .decision_id
+            build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "http", None)
+                .decision_id
         })
         .collect();
 

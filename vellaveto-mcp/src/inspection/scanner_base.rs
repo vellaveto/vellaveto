@@ -685,15 +685,27 @@ mod tests {
             extracted.push((location.to_string(), text.to_string()));
         });
         let locations: Vec<&str> = extracted.iter().map(|(l, _)| l.as_str()).collect();
-        assert!(locations.iter().any(|l| l.contains("contents[0].text")),
-            "Must extract text from result.contents[]. Got: {locations:?}");
-        assert!(locations.iter().any(|l| l.contains("contents[0].uri")),
-            "Must extract uri from result.contents[]. Got: {locations:?}");
-        assert!(locations.iter().any(|l| l.contains("contents[0].name")),
-            "Must extract name from result.contents[]. Got: {locations:?}");
-        assert!(locations.iter().any(|l| l.contains("contents[0].description")),
-            "Must extract description from result.contents[]. Got: {locations:?}");
-        assert!(locations.iter().any(|l| l.contains("contents[0].mimeType")),
-            "Must extract mimeType from result.contents[]. Got: {locations:?}");
+        assert!(
+            locations.iter().any(|l| l.contains("contents[0].text")),
+            "Must extract text from result.contents[]. Got: {locations:?}"
+        );
+        assert!(
+            locations.iter().any(|l| l.contains("contents[0].uri")),
+            "Must extract uri from result.contents[]. Got: {locations:?}"
+        );
+        assert!(
+            locations.iter().any(|l| l.contains("contents[0].name")),
+            "Must extract name from result.contents[]. Got: {locations:?}"
+        );
+        assert!(
+            locations
+                .iter()
+                .any(|l| l.contains("contents[0].description")),
+            "Must extract description from result.contents[]. Got: {locations:?}"
+        );
+        assert!(
+            locations.iter().any(|l| l.contains("contents[0].mimeType")),
+            "Must extract mimeType from result.contents[]. Got: {locations:?}"
+        );
     }
 }
