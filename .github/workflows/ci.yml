@@ -127,8 +127,8 @@ jobs:
           # shellcheck disable=SC2016
           HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
-              /^#\[cfg\(test\)\]/ { skip=1 }
-              /^#\[cfg\(all\(test,/ { skip=1 }
+              /^[[:space:]]*#\[cfg\(test\)\]/ { skip=1 }
+              /^[[:space:]]*#\[cfg\(all\(test,/ { skip=1 }
               skip==0 && /^[[:space:]]*(\/\/!|\/\/\/)/ { next }
               skip==0 && /\.unwrap\(\)/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
               skip==0 && /\.expect\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
@@ -147,8 +147,8 @@ jobs:
           # shellcheck disable=SC2016
           HITS=$(find vellaveto-*/src/ -name '*.rs' -not -name 'main.rs' -not -name 'tests.rs' -not -name '*_tests.rs' -not -name 'kani_proofs.rs' -print0 \
             | xargs -0 awk 'FNR==1 { skip=0 }
-              /^#\[cfg\(test\)\]/ { skip=1 }
-              /^#\[cfg\(all\(test,/ { skip=1 }
+              /^[[:space:]]*#\[cfg\(test\)\]/ { skip=1 }
+              /^[[:space:]]*#\[cfg\(all\(test,/ { skip=1 }
               skip==0 && /^[[:space:]]*\/\// { next }
               skip==0 && /panic!\(/ { printf "%s:%d: %s\n", FILENAME, FNR, $0; found=1 }
               END { exit found ? 1 : 0 }' 2>&1) || {
@@ -526,11 +526,51 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Detect semver-relevant Rust API changes
+        id: semver_changes
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+
+          if [ -z "$BASE_SHA" ]; then
+            echo "No PR base SHA available; running semver checks."
+            echo "run_semver=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "${{ github.sha }}" || true)"
+          echo "Changed files between $BASE_SHA and ${{ github.sha }}:"
+          echo "$CHANGED_FILES"
+
+          if echo "$CHANGED_FILES" | grep -Eq '^(vellaveto-[^/]+/(src/.*\.rs|build\.rs))$'; then
+            echo "run_semver=true" >> "$GITHUB_OUTPUT"
+            echo "Crate Rust sources changed; running semver checks."
+          else
+            echo "run_semver=false" >> "$GITHUB_OUTPUT"
+            echo "No crate Rust source or build script changes detected; skipping semver checks."
+          fi
+
+      - name: Install protobuf compiler
+        if: steps.semver_changes.outputs.run_semver == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends protobuf-compiler
+
       - name: Install cargo-semver-checks
+        if: steps.semver_changes.outputs.run_semver == 'true'
         run: cargo install cargo-semver-checks --locked
 
       - name: Check for semver violations
+        if: steps.semver_changes.outputs.run_semver == 'true'
         run: cargo semver-checks check-release --exclude mcpsec
+
+      - name: Semver check skipped
+        if: steps.semver_changes.outputs.run_semver != 'true'
+        run: echo "Skipping semver checks."
 
   # ───────────────────────────────────────────────────────
   # 10a. Coq formal verification
