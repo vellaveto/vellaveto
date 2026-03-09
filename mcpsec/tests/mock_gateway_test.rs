@@ -8,7 +8,7 @@
 //     http://www.apache.org/licenses/LICENSE-2.0
 
 //! End-to-end integration test: runs the full benchmark against a mock gateway
-//! that simulates a "perfect" MCP gateway (one that passes all 100 tests).
+//! that simulates a "perfect" MCP gateway (one that passes all 105 tests).
 //!
 //! This validates the harness itself — if the mock is correct and the harness
 //! scores 100%, the harness logic is sound.
@@ -286,7 +286,7 @@ async fn test_full_benchmark_against_mock_gateway() {
         "Should run all 105 tests"
     );
 
-    // The mock is designed to pass all 100 tests. If any fail, the mock
+    // The mock is designed to pass all 105 tests. If any fail, the mock
     // needs updating — this validates harness correctness, not a real gateway.
     assert_eq!(
         result.summary.passed, 105,

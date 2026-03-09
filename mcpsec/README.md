@@ -115,18 +115,21 @@ The gateway should return a JSON response with a `verdict` field indicating `All
 mcpsec/
 ├── README.md              # This file
 ├── PROPERTIES.md          # 10 formal security properties
-├── ATTACKS.md             # 16 attack classes, 91 test cases
+├── ATTACKS.md             # 16 attack classes, 105 test cases
 ├── METHODOLOGY.md         # How to run, how to score
 ├── SCORING.md             # Scoring rubric and tiers
 ├── Cargo.toml             # Standalone Rust crate
 ├── src/
 │   ├── lib.rs             # Public API
 │   ├── runner.rs          # HTTP client for gateway testing
-│   ├── report.rs          # JSON/Markdown report generation
+│   ├── report.rs          # JSON/Markdown/OCSF/JUnit report generation
 │   ├── scoring.rs         # Score calculation
+│   ├── compare.rs         # Baseline regression detection
+│   ├── remediation.rs     # Per-class fix guidance
 │   └── attacks/           # 16 attack modules (a01-a16)
 ├── tests/
-│   └── self_test.rs       # Validate harness logic
+│   ├── self_test.rs       # Validate harness logic
+│   └── mock_gateway_test.rs # End-to-end test with embedded mock server
 └── results/               # Reference benchmark results
 ```
 
