@@ -342,6 +342,22 @@ impl NhiManager {
             revoked.insert(id.to_string());
         }
 
+        // SECURITY (R250-NHI-1): Cascade terminal state to all delegations
+        // involving the agent. Without this, pre-existing delegations FROM/TO
+        // a revoked or expired agent remain active, allowing continued use of
+        // authority from a compromised or expired identity.
+        if matches!(
+            new_status,
+            NhiIdentityStatus::Revoked | NhiIdentityStatus::Expired
+        ) {
+            let mut delegations = self.delegations.write().await;
+            for link in delegations.values_mut() {
+                if (link.from_agent == id || link.to_agent == id) && link.active {
+                    link.active = false;
+                }
+            }
+        }
+
         identity.status = new_status;
 
         // Update stats
@@ -1109,6 +1125,33 @@ impl NhiManager {
 
         chain.reverse(); // Put in origin-to-terminus order
 
+        // SECURITY (R250-NHI-2): Verify the origin agent (first link's from_agent)
+        // is not in a terminal state (revoked/expired). Without this check,
+        // a delegation chain originating from a revoked agent would still resolve
+        // as valid, allowing use of revoked authority.
+        if let Some(first_link) = chain.first() {
+            let revocation_list = self.revocation_list.read().await;
+            let origin_revoked = revocation_list.contains(&first_link.from_agent);
+            drop(revocation_list);
+
+            let origin_expired = {
+                let identities = self.identities.read().await;
+                identities
+                    .get(&first_link.from_agent)
+                    .map(|i| matches!(i.status, NhiIdentityStatus::Expired))
+                    .unwrap_or(false)
+            };
+
+            if verified_nhi_delegation::identity_is_terminal(origin_revoked, origin_expired) {
+                // Fail-closed: return empty chain when origin is terminal
+                return NhiDelegationChain {
+                    chain: Vec::new(),
+                    max_depth: self.config.max_delegation_chain_depth,
+                    resolved_at: chrono::Utc::now().to_rfc3339(),
+                };
+            }
+        }
+
         NhiDelegationChain {
             chain,
             max_depth: self.config.max_delegation_chain_depth,
@@ -1217,7 +1260,14 @@ impl NhiManager {
         // SECURITY (FIND-R126-006): Validate rotation before recording.
         rotation.validate().map_err(NhiError::InputValidation)?;
 
-        // Now safe to mutate the identity
+        // SECURITY (R250-NHI-5): Acquire rotations lock BEFORE mutating identity.
+        // If the rotations lock is poisoned, we return an error without having
+        // mutated the identity. Previously, the identity was mutated first, then
+        // the lock acquired — a poisoned lock left the identity with new keys but
+        // no audit trail of the rotation.
+        let mut rotations = self.rotations.write().await;
+
+        // Now safe to mutate the identity (both locks held)
         identity.public_key = Some(new_public_key.to_string());
         if let Some(alg) = new_key_algorithm {
             identity.key_algorithm = Some(alg.to_string());
@@ -1226,7 +1276,6 @@ impl NhiManager {
         identity.expires_at = new_expires_at.to_rfc3339();
 
         // Record rotation
-        let mut rotations = self.rotations.write().await;
         rotations.push_back(rotation.clone());
         if rotations.len() > 1000 {
             rotations.pop_front();
@@ -2262,6 +2311,9 @@ impl DpopNonceTracker {
     /// SECURITY (FIND-R203-001): After TTL cleanup, refuse insertion when the
     /// nonce map is still at `MAX_DPOP_NONCES`. This prevents a DoS attack
     /// where an attacker floods nonce generation to exhaust server memory.
+    ///
+    /// SECURITY (R250-NHI-4): If still at capacity after TTL cleanup, evict
+    /// the oldest 10% of entries to prevent permanent capacity deadlock.
     fn generate_nonce(&mut self) -> Result<String, String> {
         let nonce = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp() as u64;
@@ -2271,7 +2323,23 @@ impl DpopNonceTracker {
         self.nonces
             .retain(|_, ts| now.saturating_sub(*ts) < self.ttl_secs);
 
-        // After cleanup, enforce the capacity limit.
+        // SECURITY (R250-NHI-4): Emergency eviction if still at capacity after
+        // TTL cleanup. Without this, if all nonces are still within TTL (e.g.,
+        // attacker flooding), the tracker is permanently stuck. Evict oldest 10%.
+        if self.nonces.len() >= MAX_DPOP_NONCES {
+            let evict_count = MAX_DPOP_NONCES / 10;
+            let mut entries: Vec<(String, u64)> = self
+                .nonces
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect();
+            entries.sort_by_key(|&(_, ts)| ts);
+            for (key, _) in entries.iter().take(evict_count) {
+                self.nonces.remove(key);
+            }
+        }
+
+        // Final capacity check — should now have room after eviction.
         if self.nonces.len() >= MAX_DPOP_NONCES {
             return Err(format!(
                 "DPoP nonce tracker at capacity ({MAX_DPOP_NONCES}); try again later"
@@ -4504,7 +4572,9 @@ mod tests {
 
     /// FIND-R203-001: generate_nonce returns Err when at MAX_DPOP_NONCES capacity.
     #[test]
-    fn test_dpop_nonce_tracker_capacity_exceeded() {
+    fn test_dpop_nonce_tracker_capacity_emergency_eviction() {
+        // SECURITY (R250-NHI-4): At capacity with all-fresh nonces, emergency
+        // eviction removes oldest 10% to prevent permanent deadlock.
         let mut tracker = DpopNonceTracker {
             nonces: HashMap::new(),
             ttl_secs: 300,
@@ -4517,12 +4587,16 @@ mod tests {
         }
         assert_eq!(tracker.nonces.len(), MAX_DPOP_NONCES);
 
+        // Should succeed after emergency eviction (oldest 10% removed)
         let result = tracker.generate_nonce();
-        assert!(result.is_err(), "Expected Err at capacity, got: {result:?}");
-        let msg = result.unwrap_err();
         assert!(
-            msg.contains("capacity"),
-            "Error message should mention capacity: {msg}"
+            result.is_ok(),
+            "Expected Ok after emergency eviction, got: {result:?}"
+        );
+        // Should have evicted 10% + added 1 new nonce
+        assert!(
+            tracker.nonces.len() <= MAX_DPOP_NONCES,
+            "should be at or below capacity after eviction"
         );
     }
 
@@ -4547,9 +4621,10 @@ mod tests {
         );
     }
 
-    /// FIND-R203-001: generate_dpop_nonce on NhiManager propagates CapacityExceeded.
+    /// FIND-R203-001 + R250-NHI-4: generate_dpop_nonce at capacity uses
+    /// emergency eviction, so it should succeed (not error).
     #[tokio::test]
-    async fn test_generate_dpop_nonce_propagates_capacity_error() {
+    async fn test_generate_dpop_nonce_at_capacity_succeeds_via_eviction() {
         let manager = NhiManager::new(enabled_config());
         // Fill the nonce tracker to capacity with fresh timestamps.
         {
@@ -4560,10 +4635,11 @@ mod tests {
             }
         }
 
+        // R250-NHI-4: Should succeed after emergency eviction
         let result = manager.generate_dpop_nonce().await;
         assert!(
-            matches!(result, Err(NhiError::CapacityExceeded(_))),
-            "Expected CapacityExceeded, got: {result:?}"
+            result.is_ok(),
+            "Expected Ok after emergency eviction, got: {result:?}"
         );
     }
 
@@ -5245,6 +5321,245 @@ mod tests {
         let parsed: RotationEnforcementResult = serde_json::from_str(&json).unwrap();
         assert!(!parsed.compliant);
         assert!(parsed.should_suspend);
+    }
+
+    // ── R250-NHI-1: Revocation cascades to delegations ───────────────
+
+    #[tokio::test]
+    async fn test_r250_nhi1_revocation_cascades_to_delegations() {
+        let manager = NhiManager::new(enabled_config());
+
+        // Register two agents
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Create delegation A -> B
+        let link = manager
+            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+        assert!(link.active, "delegation should be active initially");
+
+        // Revoke Agent A
+        manager
+            .update_status(&agent_a, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        // Delegation should now be inactive
+        let delegation = manager.get_delegation(&agent_a, &agent_b).await;
+        assert!(
+            delegation.is_some(),
+            "delegation entry should still exist"
+        );
+        assert!(
+            !delegation.unwrap().active,
+            "SECURITY (R250-NHI-1): delegation FROM revoked agent must be deactivated"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r250_nhi1_revocation_cascades_to_delegations_as_target() {
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Create delegation A -> B
+        manager
+            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+
+        // Revoke Agent B (the target)
+        manager
+            .update_status(&agent_b, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        // Delegation TO revoked agent should also be inactive
+        let delegation = manager.get_delegation(&agent_a, &agent_b).await.unwrap();
+        assert!(
+            !delegation.active,
+            "SECURITY (R250-NHI-1): delegation TO revoked agent must be deactivated"
+        );
+    }
+
+    // ── R250-NHI-2: Delegation chain resolution checks origin revocation ──
+
+    #[tokio::test]
+    async fn test_r250_nhi2_delegation_chain_shortened_when_origin_revoked() {
+        // When origin A is revoked, R250-NHI-1 deactivates A->B,
+        // so the chain for C becomes just [B->C] (origin B is active).
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_c = manager
+            .register_identity(
+                "Agent C",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        // Create chain: A -> B -> C
+        manager
+            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+        manager
+            .create_delegation(&agent_b, &agent_c, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+
+        // Full chain before revocation: [A->B, B->C]
+        let chain = manager.resolve_delegation_chain(&agent_c).await;
+        assert_eq!(chain.chain.len(), 2, "chain should have 2 links before revocation");
+
+        // Revoke origin agent A (cascades deactivation to A->B via R250-NHI-1)
+        manager
+            .update_status(&agent_a, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        // Chain should now only have B->C (A->B is deactivated)
+        let chain = manager.resolve_delegation_chain(&agent_c).await;
+        assert_eq!(
+            chain.chain.len(), 1,
+            "chain should be shortened after origin revocation"
+        );
+        assert_eq!(chain.chain[0].from_agent, agent_b);
+    }
+
+    #[tokio::test]
+    async fn test_r250_nhi2_single_delegation_empty_when_origin_revoked() {
+        // Direct delegation A->B: revoking A deactivates A->B (R250-NHI-1),
+        // AND R250-NHI-2 checks origin. Both defenses apply.
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+
+        // Chain before: [A->B]
+        let chain = manager.resolve_delegation_chain(&agent_b).await;
+        assert_eq!(chain.chain.len(), 1);
+
+        // Revoke A
+        manager
+            .update_status(&agent_a, NhiIdentityStatus::Revoked)
+            .await
+            .unwrap();
+
+        // Chain should be empty (A->B deactivated + origin A is terminal)
+        let chain = manager.resolve_delegation_chain(&agent_b).await;
+        assert!(
+            chain.chain.is_empty(),
+            "SECURITY (R250-NHI-2): chain must be empty when sole origin is revoked"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_r250_nhi2_chain_empty_when_origin_expired() {
+        // R250-NHI-2 also checks for expired origin agents
+        let manager = NhiManager::new(enabled_config());
+
+        let agent_a = manager
+            .register_identity(
+                "Agent A",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+        let agent_b = manager
+            .register_identity(
+                "Agent B",
+                NhiAttestationType::Jwt,
+                None, None, None, None, vec![], HashMap::new(),
+            )
+            .await
+            .unwrap();
+
+        manager
+            .create_delegation(&agent_a, &agent_b, vec!["read".to_string()], vec![], 3600, None)
+            .await
+            .unwrap();
+
+        // Expire A (not same as revoke — Expired is a different terminal state)
+        manager
+            .update_status(&agent_a, NhiIdentityStatus::Expired)
+            .await
+            .unwrap();
+
+        // Chain should be empty: A->B deactivated AND origin expired
+        let chain = manager.resolve_delegation_chain(&agent_b).await;
+        assert!(
+            chain.chain.is_empty(),
+            "SECURITY (R250-NHI-2): chain must be empty when origin agent is expired"
+        );
     }
 
     #[test]

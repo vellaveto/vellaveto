@@ -21,11 +21,21 @@ use vellaveto_types::shield::{
 /// Maximum vault entries to prevent unbounded growth.
 const MAX_VAULT_ENTRIES: usize = MAX_CREDENTIAL_POOL_SIZE;
 
+/// Maximum age (in seconds) for an Active credential before it is considered orphaned.
+///
+/// SECURITY (R250-NHI-3): If a session crashes after `consume_credential()` without
+/// calling `mark_consumed()`, the credential stays Active forever, permanently draining
+/// the pool. After this TTL, `reclaim_orphaned_active()` transitions it to Expired.
+const MAX_ACTIVE_AGE_SECS: u64 = 3600; // 1 hour
+
 /// A single vault entry: credential + status.
 #[derive(Clone)]
 struct VaultEntry {
     credential: BlindCredential,
     status: CredentialStatus,
+    /// Timestamp (Unix seconds) when the credential was marked Active.
+    /// None for non-Active credentials.
+    activated_at: Option<u64>,
 }
 
 /// Encrypted local vault for blind credentials.
@@ -63,6 +73,7 @@ impl CredentialVault {
             entries.push(VaultEntry {
                 credential: entry.credential,
                 status: entry.status,
+                activated_at: entry.activated_at,
             });
         }
 
@@ -104,6 +115,7 @@ impl CredentialVault {
         let stored = StoredVaultEntry {
             credential: credential.clone(),
             status: CredentialStatus::Available,
+            activated_at: None,
         };
 
         // Persist to encrypted store
@@ -119,6 +131,7 @@ impl CredentialVault {
         entries.push(VaultEntry {
             credential,
             status: CredentialStatus::Available,
+            activated_at: None,
         });
 
         Ok(())
@@ -144,6 +157,13 @@ impl CredentialVault {
             })?;
 
         entries[idx].status = CredentialStatus::Active;
+        // SECURITY (R250-NHI-3): Track when the credential became Active so
+        // reclaim_orphaned_active() can detect stale Active entries.
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        entries[idx].activated_at = Some(now_secs);
 
         // SECURITY (R234-SHIELD-1): Persist status change to disk so that
         // a crash cannot revert a consumed credential to Available.
@@ -152,6 +172,7 @@ impl CredentialVault {
         // on disk, permanently draining it from the available pool.
         if let Err(e) = self.persist_entries(&entries) {
             entries[idx].status = CredentialStatus::Available;
+            entries[idx].activated_at = None;
             return Err(e);
         }
 
@@ -187,12 +208,15 @@ impl CredentialVault {
         }
 
         let prev_status = entries[index].status;
+        let prev_activated = entries[index].activated_at;
         entries[index].status = CredentialStatus::Consumed;
+        entries[index].activated_at = None;
 
         // SECURITY (R234-SHIELD-1): Persist consumed status to prevent reuse after crash.
         // SECURITY (R236-SHIELD-3): Rollback on persist failure.
         if let Err(e) = self.persist_entries(&entries) {
             entries[index].status = prev_status;
+            entries[index].activated_at = prev_activated;
             return Err(e);
         }
 
@@ -212,6 +236,7 @@ impl CredentialVault {
                 let stored = StoredVaultEntry {
                     credential: e.credential.clone(),
                     status: e.status,
+                    activated_at: e.activated_at,
                 };
                 serde_json::to_vec(&stored)
                     .map_err(|err| ShieldError::Encryption(format!("vault entry serialize: {err}")))
@@ -362,6 +387,18 @@ impl CredentialVault {
         }
     }
 
+    /// Test helper: set all Active credentials' `activated_at` to 0 (epoch start)
+    /// so `reclaim_orphaned_active()` treats them as stale.
+    #[cfg(test)]
+    pub fn force_expire_active_for_test(&self) {
+        let mut entries = self.entries.lock().expect("test lock");
+        for entry in entries.iter_mut() {
+            if entry.status == CredentialStatus::Active {
+                entry.activated_at = Some(0);
+            }
+        }
+    }
+
     /// Replenish the vault with locally generated credentials.
     ///
     /// Generates credentials until the vault has at least `replenish_threshold`
@@ -395,6 +432,62 @@ impl CredentialVault {
 
         Ok(added)
     }
+
+    /// Reclaim orphaned Active credentials that have exceeded their TTL.
+    ///
+    /// SECURITY (R250-NHI-3): If a session crashes after `consume_credential()` without
+    /// calling `mark_consumed()`, the credential stays Active forever, permanently
+    /// draining the pool. This method transitions stale Active credentials to Expired,
+    /// freeing them from the pool and preventing credential exhaustion DoS.
+    ///
+    /// Returns the number of credentials reclaimed.
+    pub fn reclaim_orphaned_active(&self) -> Result<usize, ShieldError> {
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|e| ShieldError::Encryption(format!("vault lock poisoned: {e}")))?;
+
+        let mut reclaimed_indices = Vec::new();
+        for (idx, entry) in entries.iter().enumerate() {
+            if entry.status == CredentialStatus::Active {
+                let orphaned = match entry.activated_at {
+                    Some(ts) => now_secs.saturating_sub(ts) > MAX_ACTIVE_AGE_SECS,
+                    // No timestamp means legacy entry — treat as orphaned if Active
+                    None => true,
+                };
+                if orphaned {
+                    reclaimed_indices.push(idx);
+                }
+            }
+        }
+
+        if reclaimed_indices.is_empty() {
+            return Ok(0);
+        }
+
+        for &idx in &reclaimed_indices {
+            entries[idx].status = CredentialStatus::Expired;
+            entries[idx].activated_at = None;
+        }
+
+        let count = reclaimed_indices.len();
+
+        if let Err(e) = self.persist_entries(&entries) {
+            // Rollback on persist failure
+            for &idx in &reclaimed_indices {
+                entries[idx].status = CredentialStatus::Active;
+                // Cannot restore original activated_at, but these were orphaned anyway
+            }
+            return Err(e);
+        }
+
+        Ok(count)
+    }
 }
 
 impl std::fmt::Debug for CredentialVault {
@@ -417,4 +510,8 @@ impl std::fmt::Debug for CredentialVault {
 struct StoredVaultEntry {
     credential: BlindCredential,
     status: CredentialStatus,
+    /// SECURITY (R250-NHI-3): Timestamp when credential became Active.
+    /// Default to None for backward compatibility with pre-R250 vault files.
+    #[serde(default)]
+    activated_at: Option<u64>,
 }

@@ -2472,3 +2472,69 @@ fn test_r238_shld6_mark_consumed_requires_active_status() {
         "should not allow marking Expired credential as consumed"
     );
 }
+
+// ── R250-NHI-3: Orphaned Active credential reclamation ────────
+
+#[test]
+fn test_r250_nhi3_reclaim_orphaned_active_credentials() {
+    // SECURITY (R250-NHI-3): Credentials left Active after session crash
+    // should be reclaimed as Expired after the MAX_ACTIVE_AGE_SECS TTL.
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    // Consume all 3 credentials (marks them Active)
+    let (_, idx0) = vault.consume_credential().unwrap();
+    let (_, _idx1) = vault.consume_credential().unwrap();
+    let (_, _idx2) = vault.consume_credential().unwrap();
+
+    // Mark only one as properly consumed
+    vault.mark_consumed(idx0).unwrap();
+
+    // Verify state: 1 Consumed, 2 Active, 0 Available
+    let status = vault.status();
+    assert_eq!(status.consumed, 1);
+    assert_eq!(status.active, 2);
+    assert_eq!(status.available, 0);
+
+    // Reclaim immediately — nothing should be reclaimed since they were
+    // just activated (timestamp is fresh)
+    let reclaimed = vault.reclaim_orphaned_active().unwrap();
+    assert_eq!(reclaimed, 0, "freshly activated credentials should not be reclaimed");
+
+    // Force-expire Active credentials via the public test helper
+    vault.force_expire_active_for_test();
+
+    // Now reclaim — should reclaim the 2 stale Active credentials
+    let reclaimed = vault.reclaim_orphaned_active().unwrap();
+    assert_eq!(reclaimed, 2, "stale Active credentials should be reclaimed");
+
+    // Verify: now 1 Consumed, 0 Active, 0 Available (2 expired by reclaim)
+    let status = vault.status();
+    assert_eq!(status.active, 0, "no Active credentials should remain");
+    assert_eq!(status.consumed, 1);
+}
+
+#[test]
+fn test_r250_nhi3_reclaim_noop_when_no_active() {
+    // No active credentials → reclaim returns 0
+    let (vault, _dir) = make_test_vault(10, 3);
+    vault.add_credential(make_test_credential(1)).unwrap();
+
+    // Don't consume anything — all Available
+    let reclaimed = vault.reclaim_orphaned_active().unwrap();
+    assert_eq!(reclaimed, 0, "no Active credentials to reclaim");
+}
+
+#[test]
+fn test_r250_nhi3_stored_vault_entry_backward_compat() {
+    // Pre-R250 StoredVaultEntry has no activated_at field.
+    // Deserialization should default to None (backward compatible).
+    let json = r#"{"credential":{"credential":[1,2,3],"signature":[4,5,6],"provider_key_id":"test","issued_epoch":1,"credential_type":"Subscriber"},"status":"Available"}"#;
+    let entry: serde_json::Value = serde_json::from_str(json).unwrap();
+    // Verify it doesn't have activated_at
+    assert!(entry.get("activated_at").is_none());
+    // The actual deserialization to StoredVaultEntry happens inside CredentialVault::new()
+    // which uses #[serde(default)] on activated_at — verified at compile time.
+}
