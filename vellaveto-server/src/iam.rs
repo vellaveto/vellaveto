@@ -846,6 +846,11 @@ impl IamState {
             validation.set_audience(&[client_id]);
         }
         validation.leeway = 60;
+        // SECURITY (R253-IAM-1): Explicitly enable exp and nbf validation.
+        // Validation::new() enables exp by default but NOT nbf. Being explicit
+        // prevents regressions if library defaults change.
+        validation.validate_exp = true;
+        validation.validate_nbf = true;
         let token_data = decode::<RoleClaims>(id_token, &decoding_key, &validation)
             .map_err(|e| IamError::InvalidToken(e.to_string()))?;
         let claims = token_data.claims;

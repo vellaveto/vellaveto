@@ -10,7 +10,7 @@
 //! MCPSEC: MCP Security Benchmark Framework
 //!
 //! Vendor-neutral security evaluation for MCP gateways.
-//! Tests 10 security properties across 16 attack classes (100 tests).
+//! Tests 10 security properties across 16 attack classes (105 tests).
 
 pub mod attacks;
 pub mod compare;
@@ -52,6 +52,8 @@ pub struct GatewayConfig {
 pub enum OutputFormat {
     Json,
     Markdown,
+    Ocsf,
+    Junit,
 }
 
 /// Result of a single attack test.
