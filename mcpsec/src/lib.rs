@@ -14,6 +14,7 @@
 
 pub mod attacks;
 pub mod compare;
+pub mod remediation;
 pub mod report;
 pub mod runner;
 pub mod scoring;

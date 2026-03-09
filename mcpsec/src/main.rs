@@ -91,6 +91,16 @@ async fn main() {
 
     let result = run_benchmark(&config).await;
 
+    // Print summary to stderr
+    eprintln!(
+        "MCPSEC: {}/{} passed ({:.1}%) — Tier {}: {}",
+        result.summary.passed,
+        result.summary.total_tests,
+        result.overall_score,
+        result.tier,
+        result.tier_name,
+    );
+
     // --compare: show regression report
     if let Some(baseline_path) = &cli.compare {
         match load_baseline(baseline_path) {

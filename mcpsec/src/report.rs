@@ -86,10 +86,14 @@ pub fn to_markdown(result: &BenchmarkResult) -> String {
     }
     md.push('\n');
 
-    // Failed tests detail
+    // Failed tests detail with remediation guidance
     let failed: Vec<_> = result.attacks.iter().filter(|a| !a.passed).collect();
     if !failed.is_empty() {
         md.push_str("## Failed Tests\n\n");
+
+        // Group failures by class prefix for remediation
+        let mut seen_classes = std::collections::HashSet::new();
+
         for attack in &failed {
             md.push_str(&format!(
                 "- **{}** ({}): {}\n",
@@ -97,6 +101,22 @@ pub fn to_markdown(result: &BenchmarkResult) -> String {
             ));
         }
         md.push('\n');
+
+        // Add remediation guidance per class
+        md.push_str("## Remediation Guidance\n\n");
+        for attack in &failed {
+            let prefix = attack
+                .attack_id
+                .split('.')
+                .next()
+                .unwrap_or(&attack.attack_id);
+            if seen_classes.insert(prefix.to_string()) {
+                let guidance = crate::remediation::guidance(&attack.attack_id);
+                md.push_str(&format!("### {} ({})\n\n", prefix, attack.class));
+                md.push_str(guidance);
+                md.push_str("\n\n");
+            }
+        }
     }
 
     md.push_str("---\n\n");
@@ -182,6 +202,7 @@ mod tests {
         assert!(md.contains("## Property Scores"));
         assert!(md.contains("## Attack Results"));
         assert!(md.contains("## Failed Tests"));
+        assert!(md.contains("## Remediation Guidance"));
         assert!(md.contains("PASS"));
         assert!(md.contains("**FAIL**"));
     }
