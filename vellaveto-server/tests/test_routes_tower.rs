@@ -4606,3 +4606,37 @@ async fn acis_envelope_empty_policies_deny_has_envelope() {
     assert_eq!(env["transport"], "http");
     assert_eq!(env["origin"], "policy_engine");
 }
+
+/// R253-SRV-1: RequireApproval reasons must NOT leak trust scores or registry
+/// membership. The reason should be a generic "Approval required" string.
+#[test]
+fn test_r253_require_approval_reason_does_not_leak_trust_score() {
+    // These are the patterns that MUST NOT appear in client-facing reasons.
+    let forbidden_patterns = [
+        "trust score (",
+        "trust score (0.",
+        "is not in the registry",
+        "requires approval before use",
+    ];
+
+    // The genericized reason used across all transports.
+    let reason = "Approval required";
+
+    for pattern in &forbidden_patterns {
+        assert!(
+            !reason.contains(pattern),
+            "Genericized reason must not contain '{pattern}'"
+        );
+    }
+
+    // Verify the reason is short and generic — no tool names, no scores.
+    assert!(
+        reason.len() <= 30,
+        "Reason should be short and generic, got {} chars",
+        reason.len()
+    );
+    assert!(
+        !reason.contains('(') && !reason.contains(')'),
+        "Reason must not contain parentheses (score disclosure)"
+    );
+}

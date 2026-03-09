@@ -2232,9 +2232,9 @@ async fn evaluate(
                         }));
                     }
                     Ok(None) => {
-                        let reason = format!(
-                            "Tool '{tool_name}' is not in the registry — requires approval before use"
-                        );
+                        // SECURITY (R253-SRV-1): Genericize reason to prevent
+                        // registry membership enumeration via API responses.
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
@@ -2412,9 +2412,15 @@ async fn evaluate(
                         }));
                     }
                     Ok(None) => {
-                        let reason = format!(
-                            "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
+                        // SECURITY (R253-SRV-1): Genericize reason to prevent
+                        // trust score enumeration via API responses. The numeric
+                        // score is logged server-side only.
+                        tracing::info!(
+                            tool = %tool_name,
+                            score = score,
+                            "Tool trust score below threshold — requires approval"
                         );
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };

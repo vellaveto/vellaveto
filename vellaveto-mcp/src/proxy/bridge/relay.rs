@@ -1565,9 +1565,9 @@ impl ProxyBridge {
                         Ok(None) => {}
                     }
                     if matched_approval_id.is_none() {
-                        let reason = format!(
-                            "Tool '{tool_name}' is not in the registry — requires approval before use"
-                        );
+                        // SECURITY (R253-SRV-1): Genericize reason to prevent
+                        // registry membership enumeration via response messages.
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
@@ -1709,9 +1709,14 @@ impl ProxyBridge {
                         Ok(None) => {}
                     }
                     if matched_approval_id.is_none() {
-                        let reason = format!(
-                            "Tool '{tool_name}' trust score ({score:.2}) is below threshold — requires approval"
+                        // SECURITY (R253-SRV-1): Genericize reason to prevent
+                        // trust score enumeration. Score logged server-side only.
+                        tracing::info!(
+                            tool = %tool_name,
+                            score = score,
+                            "Tool trust score below threshold — requires approval"
                         );
+                        let reason = "Approval required".to_string();
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
