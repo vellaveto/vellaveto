@@ -17,6 +17,8 @@ use axum::{
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use subtle::ConstantTimeEq;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use super::{ProxyState, X_AGENT_IDENTITY};
@@ -140,14 +142,17 @@ async fn audit_dpop_validation_failure(
         metadata.insert("session".to_string(), json!(session_id));
     }
 
+    let verdict = Verdict::Deny {
+        reason: format!("OAuth DPoP validation failed: {}", params.dpop_reason),
+    };
+    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::PolicyEngine, "http", params.session_hint);
     state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
-            &Verdict::Deny {
-                reason: format!("OAuth DPoP validation failed: {}", params.dpop_reason),
-            },
+            &verdict,
             Value::Object(metadata),
+            envelope,
         )
         .await
 }

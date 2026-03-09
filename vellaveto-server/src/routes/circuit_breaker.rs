@@ -24,6 +24,8 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -162,12 +164,20 @@ pub async fn reset_circuit(
         "circuit_breaker_reset",
         json!({ "tool": &tool }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::RateLimiter,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "circuit_breaker.reset", "tool": &tool, "reset_by": &reset_by}),
+            acis_envelope,
         )
         .await
     {

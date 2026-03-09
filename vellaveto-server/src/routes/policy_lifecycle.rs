@@ -24,6 +24,8 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::Arc;
 use vellaveto_engine::PolicyEngine;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{
     has_dangerous_chars, Action, Policy, PolicyVersionStatus, Verdict, MAX_LIFECYCLE_IDENTITY_LEN,
     MAX_VERSION_COMMENT_LEN,
@@ -345,12 +347,20 @@ pub async fn create_version(
             "created_by": bound_created_by,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "version_created"}),
+            acis_envelope,
         )
         .await
     {
@@ -417,12 +427,20 @@ pub async fn approve_version(
             "approved_by": bound_approved_by,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "version_approved"}),
+            acis_envelope,
         )
         .await
     {
@@ -590,12 +608,20 @@ pub async fn promote_version(
             "version": v,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": event_name}),
+            acis_envelope,
         )
         .await
     {
@@ -662,12 +688,20 @@ pub async fn archive_version(
             "version": v,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "version_archived"}),
+            acis_envelope,
         )
         .await
     {
@@ -728,12 +762,20 @@ pub async fn rollback_policy(
             "created_by": bound_created_by,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "policy_rollback"}),
+            acis_envelope,
         )
         .await
     {

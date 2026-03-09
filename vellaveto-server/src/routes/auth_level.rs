@@ -24,6 +24,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -138,9 +140,16 @@ pub async fn upgrade_auth_level(
         "auth_level_upgrade",
         json!({ "session": &session, "level": format!("{:?}", level) }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&session),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -150,6 +159,7 @@ pub async fn upgrade_auth_level(
                 "level": format!("{:?}", level),
                 "upgraded_by": &upgraded_by,
             }),
+            acis_envelope,
         )
         .await
     {
@@ -194,9 +204,16 @@ pub async fn clear_auth_level(
         "auth_level_clear",
         json!({ "session": &session }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&session),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -205,6 +222,7 @@ pub async fn clear_auth_level(
                 "session": &session,
                 "cleared_by": &cleared_by,
             }),
+            acis_envelope,
         )
         .await
     {

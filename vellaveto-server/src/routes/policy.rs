@@ -26,6 +26,8 @@ use axum::{
 use serde_json::json;
 use std::sync::Arc;
 use vellaveto_engine::PolicyEngine;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Policy, Verdict};
 
 use crate::routes::ErrorResponse;
@@ -230,12 +232,20 @@ pub async fn add_policy(
 
     // Audit trail for policy mutation
     let action = Action::new("vellaveto", "add_policy", json!({"policy_id": id}));
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "policy_added"}),
+            acis_envelope,
         )
         .await
     {
@@ -349,12 +359,20 @@ pub async fn remove_policy(
         "remove_policy",
         json!({"policy_id": id, "removed_count": removed}),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_ctx.tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "policy_removed"}),
+            acis_envelope,
         )
         .await
     {

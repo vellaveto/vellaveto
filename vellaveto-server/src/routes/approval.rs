@@ -25,6 +25,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::ErrorResponse;
@@ -329,9 +331,16 @@ pub async fn approve_approval(
         if let Some(ref r) = reason {
             meta["reason"] = json!(r);
         }
+        let acis_envelope = build_secondary_acis_envelope(
+            &audit_action,
+            &Verdict::Allow,
+            DecisionOrigin::ApprovalGate,
+            "http",
+            None,
+        );
         if let Err(e) = state
             .audit
-            .log_entry(&audit_action, &Verdict::Allow, meta)
+            .log_entry_with_acis(&audit_action, &Verdict::Allow, meta, acis_envelope)
             .await
         {
             tracing::warn!("Failed to audit approval resolution for {}: {}", id, e);
@@ -464,15 +473,19 @@ pub async fn deny_approval(
         if let Some(ref r) = reason {
             meta["reason"] = json!(r);
         }
+        let deny_verdict = Verdict::Deny {
+            reason: "approval_denied".to_string(),
+        };
+        let acis_envelope = build_secondary_acis_envelope(
+            &audit_action,
+            &deny_verdict,
+            DecisionOrigin::ApprovalGate,
+            "http",
+            None,
+        );
         if let Err(e) = state
             .audit
-            .log_entry(
-                &audit_action,
-                &Verdict::Deny {
-                    reason: "approval_denied".to_string(),
-                },
-                meta,
-            )
+            .log_entry_with_acis(&audit_action, &deny_verdict, meta, acis_envelope)
             .await
         {
             tracing::warn!("Failed to audit approval denial for {}: {}", id, e);

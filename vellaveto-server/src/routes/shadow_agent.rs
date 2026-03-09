@@ -25,6 +25,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -141,9 +143,16 @@ pub async fn register_shadow_agent(
         "shadow_agent_registered",
         json!({ "agent_id": &req.agent_id }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -152,6 +161,7 @@ pub async fn register_shadow_agent(
                 "agent_id": &req.agent_id,
                 "registered_by": &registered_by,
             }),
+            acis_envelope,
         )
         .await
     {
@@ -259,9 +269,16 @@ pub async fn update_agent_trust(
         "shadow_agent_trust_update",
         json!({ "agent_id": &id, "trust_level": format!("{:?}", trust) }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -271,6 +288,7 @@ pub async fn update_agent_trust(
                 "trust_level": format!("{:?}", trust),
                 "updated_by": &updated_by,
             }),
+            acis_envelope,
         )
         .await
     {

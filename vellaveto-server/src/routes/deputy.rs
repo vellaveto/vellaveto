@@ -24,6 +24,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -197,9 +199,16 @@ pub async fn register_delegation(
             "to": &req.to_principal,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::CapabilityEnforcement,
+        "http",
+        Some(&req.session_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -210,6 +219,7 @@ pub async fn register_delegation(
                 "to": &req.to_principal,
                 "registered_by": &registered_by,
             }),
+            acis_envelope,
         )
         .await
     {
@@ -260,9 +270,16 @@ pub async fn remove_delegation(
         "delegation_removed",
         json!({ "session_id": &session }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::CapabilityEnforcement,
+        "http",
+        Some(&session),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -271,6 +288,7 @@ pub async fn remove_delegation(
                 "session_id": &session,
                 "removed_by": &removed_by,
             }),
+            acis_envelope,
         )
         .await
     {

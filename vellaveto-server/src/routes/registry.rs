@@ -23,6 +23,8 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -155,12 +157,20 @@ pub async fn approve_registry_tool(
             "trust_score": entry.trust_score,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::TopologyGuard,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({"source": "api", "event": "registry_tool_approved", "approved_by": &approved_by}),
+            acis_envelope,
         )
         .await
     {
@@ -247,14 +257,23 @@ pub async fn revoke_registry_tool(
             "trust_score": entry.trust_score,
         }),
     );
+    let revoke_verdict = Verdict::Deny {
+        reason: "registry_tool_revoked".to_string(),
+    };
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &revoke_verdict,
+        DecisionOrigin::TopologyGuard,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
-            &Verdict::Deny {
-                reason: "registry_tool_revoked".to_string(),
-            },
+            &revoke_verdict,
             json!({"source": "api", "event": "registry_tool_revoked", "revoked_by": &revoked_by}),
+            acis_envelope,
         )
         .await
     {

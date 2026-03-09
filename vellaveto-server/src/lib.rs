@@ -42,6 +42,8 @@ use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Policy, Verdict};
 
 // Phase 1 & 2 security managers
@@ -1457,12 +1459,20 @@ pub async fn reload_policies_from_file(state: &AppState, source: &str) -> Result
             "source": source,
         }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             serde_json::json!({"event": "policies_reloaded", "source": source}),
+            acis_envelope,
         )
         .await
     {

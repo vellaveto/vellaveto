@@ -25,6 +25,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::approval::derive_resolver_identity;
@@ -142,9 +144,16 @@ pub async fn reset_schema_trust(
         "schema_trust_reset",
         json!({ "tool": &tool, "trust_score": req.trust_score }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -154,6 +163,7 @@ pub async fn reset_schema_trust(
                 "trust_score": req.trust_score,
                 "reset_by": &reset_by,
             }),
+            acis_envelope,
         )
         .await
     {
@@ -198,9 +208,16 @@ pub async fn remove_schema_lineage(
         "schema_lineage_removed",
         json!({ "tool": &tool }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        None,
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &action,
             &Verdict::Allow,
             json!({
@@ -209,6 +226,7 @@ pub async fn remove_schema_lineage(
                 "tool": &tool,
                 "removed_by": &removed_by,
             }),
+            acis_envelope,
         )
         .await
     {

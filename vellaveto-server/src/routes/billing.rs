@@ -30,6 +30,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use crate::routes::ErrorResponse;
@@ -741,9 +743,16 @@ pub async fn reset_usage(
         "billing_usage_reset",
         serde_json::json!({ "tenant_id": &tenant_id }),
     );
+    let acis_envelope = build_secondary_acis_envelope(
+        &audit_action,
+        &Verdict::Allow,
+        DecisionOrigin::PolicyEngine,
+        "http",
+        Some(&tenant_id),
+    );
     if let Err(e) = state
         .audit
-        .log_entry(
+        .log_entry_with_acis(
             &audit_action,
             &Verdict::Allow,
             serde_json::json!({
@@ -751,6 +760,7 @@ pub async fn reset_usage(
                 "tenant_id": &tenant_id,
                 "source": "api",
             }),
+            acis_envelope,
         )
         .await
     {

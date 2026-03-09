@@ -16,6 +16,8 @@ use vellaveto_approval::ApprovalStatus;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use super::ProxyState;
@@ -346,16 +348,19 @@ pub(super) async fn verify_manifest_from_response(
                         "pinned_tool_count": pinned.tools.len(),
                     }),
                 );
+                let manifest_verdict = Verdict::Deny {
+                    reason: format!("Manifest verification failed: {discrepancies:?}"),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &manifest_verdict, DecisionOrigin::PolicyEngine, "http", Some(session_id));
                 if let Err(e) = audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: format!("Manifest verification failed: {discrepancies:?}"),
-                        },
+                        &manifest_verdict,
                         serde_json::json!({
                             "source": "http_proxy",
                             "event": "manifest_verification_failed",
                         }),
+                        envelope,
                     )
                     .await
                 {

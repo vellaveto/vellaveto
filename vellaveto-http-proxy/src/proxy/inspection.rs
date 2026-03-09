@@ -17,6 +17,8 @@ use vellaveto_mcp::inspection::{
     scan_text_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationTrace, Verdict};
 
 use super::call_chain::take_tracked_tool_call;
@@ -397,15 +399,17 @@ pub(super) async fn scan_sse_events_for_injection(
                 "blocking": state.injection_blocking,
             }),
         );
+        let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "sse", Some(session_id));
         if let Err(e) = state
             .audit
-            .log_entry(
+            .log_entry_with_acis(
                 &action,
                 &verdict,
                 json!({
                     "source": "http_proxy",
                     "event": "sse_injection_detected",
                 }),
+                envelope,
             )
             .await
         {
@@ -586,9 +590,10 @@ pub(super) async fn scan_sse_events_for_dlp(
                     "finding_count": dlp_findings.len(),
                 }),
             );
+            let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::Dlp, "sse", Some(session_id));
             if let Err(e) = state
                 .audit
-                .log_entry(
+                .log_entry_with_acis(
                     &action,
                     &verdict,
                     json!({
@@ -600,6 +605,7 @@ pub(super) async fn scan_sse_events_for_dlp(
                             patterns
                         ),
                     }),
+                    envelope,
                 )
                 .await
             {
@@ -826,16 +832,19 @@ pub(super) async fn scan_sse_events_for_output_schema(
                         "transport": "sse",
                     }),
                 );
+                let deny_verdict = Verdict::Deny {
+                    reason: format!(
+                        "SSE structuredContent validation failed: {violations:?}"
+                    ),
+                };
+                let envelope = build_secondary_acis_envelope(&action, &deny_verdict, DecisionOrigin::PolicyEngine, "sse", Some(session_id));
                 if let Err(e) = state
                     .audit
-                    .log_entry(
+                    .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: format!(
-                                "SSE structuredContent validation failed: {violations:?}"
-                            ),
-                        },
+                        &deny_verdict,
                         json!({"source": "http_proxy", "event": "output_schema_violation_sse"}),
+                        envelope,
                     )
                     .await
                 {
