@@ -46,6 +46,52 @@ pub struct InjectionConfig {
     pub disabled_patterns: Vec<String>,
 }
 
+/// Maximum number of extra/disabled injection patterns.
+///
+/// SECURITY (R250-CFG-2): Unbounded pattern lists cause OOM or excessive
+/// compilation time when an attacker supplies millions of custom patterns.
+const MAX_INJECTION_PATTERNS: usize = 200;
+
+impl InjectionConfig {
+    /// Validate injection config bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (R250-CFG-2): Bound extra_patterns and disabled_patterns.
+        if self.extra_patterns.len() > MAX_INJECTION_PATTERNS {
+            return Err(format!(
+                "injection.extra_patterns has {} entries, max is {MAX_INJECTION_PATTERNS}",
+                self.extra_patterns.len()
+            ));
+        }
+        if self.disabled_patterns.len() > MAX_INJECTION_PATTERNS {
+            return Err(format!(
+                "injection.disabled_patterns has {} entries, max is {MAX_INJECTION_PATTERNS}",
+                self.disabled_patterns.len()
+            ));
+        }
+        for (i, p) in self.extra_patterns.iter().enumerate() {
+            if p.is_empty() {
+                return Err(format!("injection.extra_patterns[{i}] is empty"));
+            }
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err(format!(
+                    "injection.extra_patterns[{i}] contains control or format characters"
+                ));
+            }
+        }
+        for (i, p) in self.disabled_patterns.iter().enumerate() {
+            if p.is_empty() {
+                return Err(format!("injection.disabled_patterns[{i}] is empty"));
+            }
+            if vellaveto_types::has_dangerous_chars(p) {
+                return Err(format!(
+                    "injection.disabled_patterns[{i}] contains control or format characters"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
@@ -128,6 +174,12 @@ fn default_dlp_max_string_size() -> usize {
     1024 * 1024 // 1 MB
 }
 
+/// Maximum number of extra/disabled DLP patterns.
+///
+/// SECURITY (R250-CFG-1): Unbounded pattern lists cause OOM or excessive
+/// regex compilation time when an attacker supplies millions of custom patterns.
+const MAX_DLP_EXTRA_PATTERNS: usize = 200;
+
 impl DlpConfig {
     /// Validate DLP configuration numeric bounds.
     ///
@@ -151,6 +203,32 @@ impl DlpConfig {
                 "dlp.max_string_size must be in [1, 104857600], got {}",
                 self.max_string_size
             ));
+        }
+        // SECURITY (R250-CFG-1): Bound pattern collections.
+        if self.extra_patterns.len() > MAX_DLP_EXTRA_PATTERNS {
+            return Err(format!(
+                "dlp.extra_patterns has {} entries, max is {MAX_DLP_EXTRA_PATTERNS}",
+                self.extra_patterns.len()
+            ));
+        }
+        if self.disabled_patterns.len() > MAX_DLP_EXTRA_PATTERNS {
+            return Err(format!(
+                "dlp.disabled_patterns has {} entries, max is {MAX_DLP_EXTRA_PATTERNS}",
+                self.disabled_patterns.len()
+            ));
+        }
+        for (i, (name, pattern)) in self.extra_patterns.iter().enumerate() {
+            if name.is_empty() {
+                return Err(format!("dlp.extra_patterns[{i}].name is empty"));
+            }
+            if pattern.is_empty() {
+                return Err(format!("dlp.extra_patterns[{i}].pattern is empty"));
+            }
+            if vellaveto_types::has_dangerous_chars(name) {
+                return Err(format!(
+                    "dlp.extra_patterns[{i}].name contains control or format characters"
+                ));
+            }
         }
         Ok(())
     }
@@ -326,6 +404,9 @@ pub struct AuditConfig {
     pub strict_mode: bool,
 }
 
+/// Maximum custom PII patterns to prevent unbounded regex compilation.
+const MAX_CUSTOM_PII_PATTERNS: usize = 100;
+
 impl AuditConfig {
     /// Validate audit configuration fields.
     ///
@@ -343,6 +424,27 @@ impl AuditConfig {
                 return Err(
                     "audit.redaction_level contains control or format characters".to_string(),
                 );
+            }
+        }
+        // SECURITY (R250-CFG-4): Bound custom_pii_patterns to prevent unbounded
+        // regex compilation from attacker-controlled configuration.
+        if self.custom_pii_patterns.len() > MAX_CUSTOM_PII_PATTERNS {
+            return Err(format!(
+                "audit.custom_pii_patterns has {} entries, max is {MAX_CUSTOM_PII_PATTERNS}",
+                self.custom_pii_patterns.len()
+            ));
+        }
+        for (i, p) in self.custom_pii_patterns.iter().enumerate() {
+            if p.name.is_empty() {
+                return Err(format!("audit.custom_pii_patterns[{i}].name is empty"));
+            }
+            if p.pattern.is_empty() {
+                return Err(format!("audit.custom_pii_patterns[{i}].pattern is empty"));
+            }
+            if vellaveto_types::has_dangerous_chars(&p.name) {
+                return Err(format!(
+                    "audit.custom_pii_patterns[{i}].name contains control or format characters"
+                ));
             }
         }
         Ok(())

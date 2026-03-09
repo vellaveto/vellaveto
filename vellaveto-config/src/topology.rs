@@ -181,6 +181,13 @@ impl TopologyConfig {
                 MAX_CONSECUTIVE_FAILURES, self.max_consecutive_failures
             ));
         }
+        // SECURITY (R250-CFG-3): Validate dangerous chars before enum matching
+        // to prevent control character injection in config error messages.
+        if vellaveto_types::has_dangerous_chars(&self.fallback_mode) {
+            return Err(
+                "topology.fallback_mode contains control or format characters".to_string(),
+            );
+        }
         match self.fallback_mode.as_str() {
             "bypass" | "deny" => {}
             other => {

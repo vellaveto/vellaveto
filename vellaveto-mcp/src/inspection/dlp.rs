@@ -642,6 +642,13 @@ fn scan_string_for_secrets(
             MAX_DLP_STRING_SIZE,
             s.len()
         );
+        // SECURITY (R250-DLP-2): Emit a synthetic finding when truncation occurs.
+        // An attacker could place a secret after the truncation point to evade DLP.
+        // This finding makes truncation visible in the audit trail.
+        findings.push(DlpFinding {
+            pattern_name: "dlp_string_truncated".to_string(),
+            location: format!("{path}(truncated at {MAX_DLP_STRING_SIZE} of {} bytes)", s.len()),
+        });
         // Find a char boundary to avoid panics on multi-byte UTF-8
         let mut end = MAX_DLP_STRING_SIZE;
         while end > 0 && !s.is_char_boundary(end) {

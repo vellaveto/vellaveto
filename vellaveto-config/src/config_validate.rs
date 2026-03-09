@@ -145,6 +145,9 @@ impl PolicyConfig {
         // SECURITY (FIND-R216-002): Validate audit config fields (redaction_level).
         self.audit.validate()?;
 
+        // SECURITY (R250-CFG-2): Validate injection config pattern bounds.
+        self.injection.validate()?;
+
         // SECURITY: Validate DLP numeric field bounds (max_depth, time_budget_ms, max_string_size).
         self.dlp.validate()?;
 

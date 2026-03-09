@@ -51,6 +51,12 @@ impl FipsConfig {
     /// When enabled, checks that `signature_algorithm` is FIPS-approved
     /// (`"ecdsa-p256"` only). When disabled, accepts any recognized algorithm.
     pub fn validate(&self) -> Result<(), String> {
+        // SECURITY (R250-CFG-3): Validate dangerous chars before enum matching.
+        if vellaveto_types::has_dangerous_chars(&self.signature_algorithm) {
+            return Err(
+                "fips.signature_algorithm contains control or format characters".to_string(),
+            );
+        }
         let allowed = if self.enabled {
             ALLOWED_FIPS_SIGNATURE_ALGORITHMS
         } else {

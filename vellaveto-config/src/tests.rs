@@ -9075,3 +9075,108 @@ credential_epoch_interval = 0
     let config: crate::PolicyConfig = toml::from_str(toml_str).unwrap();
     assert!(config.shield.validate().is_err());
 }
+
+// ── R250-CFG-1: DLP extra_patterns bounded ────────────────────
+
+#[test]
+fn test_r250_cfg1_dlp_extra_patterns_bounded() {
+    let mut dlp = crate::DlpConfig::default();
+    dlp.extra_patterns = (0..201)
+        .map(|i| (format!("name_{i}"), format!("pattern_{i}")))
+        .collect();
+    let result = dlp.validate();
+    assert!(result.is_err(), "should reject >200 extra_patterns");
+    assert!(result.unwrap_err().contains("200"));
+}
+
+#[test]
+fn test_r250_cfg1_dlp_extra_pattern_empty_name_rejected() {
+    let mut dlp = crate::DlpConfig::default();
+    dlp.extra_patterns = vec![("".to_string(), "pattern".to_string())];
+    assert!(dlp.validate().is_err());
+}
+
+#[test]
+fn test_r250_cfg1_dlp_extra_pattern_dangerous_chars_rejected() {
+    let mut dlp = crate::DlpConfig::default();
+    dlp.extra_patterns = vec![("name\x00bad".to_string(), "pattern".to_string())];
+    assert!(dlp.validate().is_err());
+}
+
+// ── R250-CFG-2: Injection extra_patterns bounded ──────────────
+
+#[test]
+fn test_r250_cfg2_injection_extra_patterns_bounded() {
+    let mut inj = crate::InjectionConfig::default();
+    inj.extra_patterns = (0..201).map(|i| format!("pattern_{i}")).collect();
+    let result = inj.validate();
+    assert!(result.is_err(), "should reject >200 extra_patterns");
+}
+
+#[test]
+fn test_r250_cfg2_injection_disabled_patterns_bounded() {
+    let mut inj = crate::InjectionConfig::default();
+    inj.disabled_patterns = (0..201).map(|i| format!("pattern_{i}")).collect();
+    let result = inj.validate();
+    assert!(result.is_err(), "should reject >200 disabled_patterns");
+}
+
+#[test]
+fn test_r250_cfg2_injection_empty_pattern_rejected() {
+    let mut inj = crate::InjectionConfig::default();
+    inj.extra_patterns = vec!["".to_string()];
+    assert!(inj.validate().is_err());
+}
+
+// ── R250-CFG-3: Dangerous chars in enum-matched strings ───────
+
+#[test]
+fn test_r250_cfg3_fips_dangerous_chars_rejected() {
+    let fips = crate::FipsConfig {
+        enabled: false,
+        signature_algorithm: "ed25519\x00".to_string(),
+    };
+    assert!(fips.validate().is_err());
+}
+
+#[test]
+fn test_r250_cfg3_topology_fallback_mode_dangerous_chars_rejected() {
+    let mut topo = crate::TopologyConfig::default();
+    topo.fallback_mode = "deny\x01".to_string();
+    assert!(topo.validate().is_err());
+}
+
+// ── R250-CFG-4: Audit custom_pii_patterns bounded ─────────────
+
+#[test]
+fn test_r250_cfg4_audit_custom_pii_patterns_bounded() {
+    let mut audit = crate::AuditConfig::default();
+    audit.custom_pii_patterns = (0..101)
+        .map(|i| crate::CustomPiiPattern {
+            name: format!("name_{i}"),
+            pattern: format!("pattern_{i}"),
+        })
+        .collect();
+    let result = audit.validate();
+    assert!(result.is_err(), "should reject >100 custom_pii_patterns");
+}
+
+#[test]
+fn test_r250_cfg4_audit_custom_pii_pattern_empty_name_rejected() {
+    let mut audit = crate::AuditConfig::default();
+    audit.custom_pii_patterns = vec![crate::CustomPiiPattern {
+        name: "".to_string(),
+        pattern: "foo".to_string(),
+    }];
+    assert!(audit.validate().is_err());
+}
+
+#[test]
+fn test_r250_cfg4_audit_custom_pii_pattern_dangerous_chars_rejected() {
+    let mut audit = crate::AuditConfig::default();
+    audit.custom_pii_patterns = vec![crate::CustomPiiPattern {
+        name: "bad\x07name".to_string(),
+        pattern: "foo".to_string(),
+    }];
+    assert!(audit.validate().is_err());
+}
