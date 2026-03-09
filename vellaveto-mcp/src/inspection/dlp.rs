@@ -647,7 +647,10 @@ fn scan_string_for_secrets(
         // This finding makes truncation visible in the audit trail.
         findings.push(DlpFinding {
             pattern_name: "dlp_string_truncated".to_string(),
-            location: format!("{path}(truncated at {MAX_DLP_STRING_SIZE} of {} bytes)", s.len()),
+            location: format!(
+                "{path}(truncated at {MAX_DLP_STRING_SIZE} of {} bytes)",
+                s.len()
+            ),
         });
         // Find a char boundary to avoid panics on multi-byte UTF-8
         let mut end = MAX_DLP_STRING_SIZE;
@@ -958,11 +961,7 @@ pub fn scan_response_for_secrets(response: &serde_json::Value) -> Vec<DlpFinding
             .and_then(|r| r.get("contents"))
             .and_then(|c| c.as_array())
         {
-            for (i, item) in contents
-                .iter()
-                .take(MAX_RESPONSE_CONTENT_ITEMS)
-                .enumerate()
-            {
+            for (i, item) in contents.iter().take(MAX_RESPONSE_CONTENT_ITEMS).enumerate() {
                 if findings.len() >= MAX_DLP_FINDINGS {
                     break;
                 }
@@ -1903,7 +1902,9 @@ mod tests {
             "DLP must scan result.contents[].text for secrets"
         );
         assert!(
-            findings.iter().any(|f| f.location.contains("result.contents")),
+            findings
+                .iter()
+                .any(|f| f.location.contains("result.contents")),
             "Finding location must indicate result.contents"
         );
     }
@@ -3156,8 +3157,9 @@ mod tests {
         let params = json!({ "data": encoded });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
-            findings.iter().any(|f| f.pattern_name == "aws_access_key"
-                && f.location.contains("html_entity")),
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "aws_access_key" && f.location.contains("html_entity")),
             "HTML-entity-encoded AWS key should be detected via html_entity layer: {}",
             findings_summary(&findings)
         );
@@ -3171,8 +3173,9 @@ mod tests {
         let params = json!({ "data": encoded });
         let findings = scan_parameters_for_secrets(&params);
         assert!(
-            findings.iter().any(|f| f.pattern_name == "github_token"
-                && f.location.contains("html_entity")),
+            findings
+                .iter()
+                .any(|f| f.pattern_name == "github_token" && f.location.contains("html_entity")),
             "HTML-entity-encoded GitHub token should be detected: {}",
             findings_summary(&findings)
         );

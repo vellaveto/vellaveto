@@ -351,7 +351,13 @@ pub(super) async fn verify_manifest_from_response(
                 let manifest_verdict = Verdict::Deny {
                     reason: format!("Manifest verification failed: {discrepancies:?}"),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &manifest_verdict, DecisionOrigin::PolicyEngine, "http", Some(session_id));
+                let envelope = build_secondary_acis_envelope(
+                    &action,
+                    &manifest_verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "http",
+                    Some(session_id),
+                );
                 if let Err(e) = audit
                     .log_entry_with_acis(
                         &action,

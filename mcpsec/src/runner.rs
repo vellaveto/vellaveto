@@ -141,10 +141,7 @@ pub async fn run_tests(
                 check_fn: test.check_fn,
             };
             handles.push(tokio::spawn(async move {
-                let _permit = sem
-                    .acquire()
-                    .await
-                    .expect("semaphore closed unexpectedly");
+                let _permit = sem.acquire().await.expect("semaphore closed unexpectedly");
                 run_single_owned(&cl, &cfg, &owned, timeout_secs).await
             }));
         }
@@ -214,7 +211,10 @@ async fn run_single_test(
                 if (test.check_fn)(&resp.body, resp.status) {
                     return (
                         true,
-                        format!("Rate limiting triggered after {i} requests (status {})", resp.status),
+                        format!(
+                            "Rate limiting triggered after {i} requests (status {})",
+                            resp.status
+                        ),
                     );
                 }
             }
@@ -231,7 +231,10 @@ async fn run_single_test(
         Ok(resp) => {
             let passed = (test.check_fn)(&resp.body, resp.status);
             let details = if passed {
-                format!("Gateway correctly handled the attack (status {})", resp.status)
+                format!(
+                    "Gateway correctly handled the attack (status {})",
+                    resp.status
+                )
             } else {
                 // Include a truncated response snippet for debugging.
                 let snippet = resp.body.to_string();

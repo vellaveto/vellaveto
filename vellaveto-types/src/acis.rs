@@ -379,9 +379,7 @@ impl AcisDecisionEnvelope {
             }
             // R244-ACIS-3: findings may echo attacker input; validate chars.
             if has_dangerous_chars(f) {
-                return Err(format!(
-                    "acis: findings[{i}] contains dangerous characters"
-                ));
+                return Err(format!("acis: findings[{i}] contains dangerous characters"));
             }
         }
 
@@ -795,8 +793,7 @@ mod tests {
         ];
         for origin in &origins {
             let json = serde_json::to_string(origin).expect("serialize");
-            let decoded: DecisionOrigin =
-                serde_json::from_str(&json).expect("deserialize");
+            let decoded: DecisionOrigin = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(
                 *origin, decoded,
                 "roundtrip failed for {origin:?}: serialized as {json}"
