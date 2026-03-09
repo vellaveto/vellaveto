@@ -30,6 +30,7 @@ check_verus_kernel_assumption_bindings() {
     local failed=0
     local file predicate
     declare -A expected_bindings=(
+        ["formal/verus/verified_acis_envelope.rs"]="acis_envelope_kernel_assumptions_registered"
         ["formal/verus/verified_audit_append.rs"]="audit_append_kernel_assumptions_registered"
         ["formal/verus/verified_audit_chain.rs"]="audit_chain_kernel_assumptions_registered"
         ["formal/verus/verified_capability_attenuation.rs"]="capability_attenuation_kernel_assumptions_registered"

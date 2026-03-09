@@ -182,6 +182,7 @@ check_symbol_parity \
     "$VERUS_LIB" \
     'verified_core\.rs'
 for module in \
+    verified_acis_envelope \
     verified_audit_append \
     verified_audit_chain \
     verified_merkle \

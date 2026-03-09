@@ -149,6 +149,10 @@ pub open spec fn transport_context_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }
 
+pub open spec fn acis_envelope_kernel_assumptions_registered() -> bool {
+    escape_hatch_inventory_registered()
+}
+
 pub open spec fn approval_scope_kernel_assumptions_registered() -> bool {
     escape_hatch_inventory_registered()
 }

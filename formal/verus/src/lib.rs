@@ -1,3 +1,5 @@
+#[path = "../verified_acis_envelope.rs"]
+mod verified_acis_envelope;
 #[path = "../verified_audit_append.rs"]
 mod verified_audit_append;
 #[path = "../verified_audit_chain.rs"]
