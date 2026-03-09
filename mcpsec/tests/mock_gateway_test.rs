@@ -63,6 +63,19 @@ async fn mock_evaluate(
         }
     }
 
+    // A8.4: CEF injection — tool name contains pipe. Return 200 with safe CEF output.
+    if tool.contains('|') {
+        // Escape the pipe in CEF output (replace | with \\|)
+        let safe_tool = tool.replace('|', "\\|");
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "verdict": {"Deny": {"reason": "blocked"}},
+                "cef_output": format!("CEF:0|vellaveto|gw|1.0|deny|tool_blocked|5|dvc=127.0.0.1 tool={safe_tool}")
+            })),
+        );
+    }
+
     // A8.2: Audit entries with hash fields.
     if function == "audit_entries" {
         return (
@@ -269,16 +282,15 @@ async fn test_full_benchmark_against_mock_gateway() {
     // Assert high pass rate. The mock should pass nearly all tests.
     // Some edge-case tests (A8.4 CEF, A16.2 cooldown) may need tuning.
     assert_eq!(
-        result.summary.total_tests, 100,
-        "Should run all 100 tests"
+        result.summary.total_tests, 105,
+        "Should run all 105 tests"
     );
 
-    // Target: at least 95% pass rate (95/100) to validate harness correctness.
-    // A perfect mock would get 100%, but some custom check functions are
-    // gateway-specific and hard to simulate perfectly.
-    assert!(
-        result.summary.passed >= 95,
-        "Mock gateway should pass at least 95/100 tests, got {}/{}. Failed: {:?}",
+    // The mock is designed to pass all 100 tests. If any fail, the mock
+    // needs updating — this validates harness correctness, not a real gateway.
+    assert_eq!(
+        result.summary.passed, 105,
+        "Mock gateway should pass all 105 tests, got {}/{}. Failed: {:?}",
         result.summary.passed,
         result.summary.total_tests,
         failed

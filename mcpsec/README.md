@@ -2,7 +2,7 @@
 
 **Version 1.2.0** | **Apache-2.0 License**
 
-MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 100 reproducible attack test cases across 16 attack classes, derived from real-world penetration testing of MCP deployments.
+MCPSEC is an open, vendor-neutral security benchmark for evaluating MCP (Model Context Protocol) gateway security. It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes, derived from real-world penetration testing of MCP deployments.
 
 ## Why MCPSEC?
 
@@ -22,7 +22,7 @@ cargo run -p mcpsec -- --target http://localhost:3000 --output results/my-gatewa
 # Run with markdown report
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
 
-# List all 91 test cases
+# List all 105 test cases
 cargo run -p mcpsec -- --list
 
 # Run specific attack classes only
@@ -59,7 +59,7 @@ See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 | A2 | Tool Poisoning & Rug-Pull | 7 | ASI03 |
 | A3 | Parameter Constraint Bypass | 6 | ASI01 |
 | A4 | Encoded Exfiltration (DLP) | 9 | ASI04 |
-| A5 | Confused Deputy | 5 | ASI02 |
+| A5 | Confused Deputy | 10 | ASI02 |
 | A6 | Memory Poisoning (MINJA) | 5 | ASI06 |
 | A7 | Tool Squatting | 5 | ASI03 |
 | A8 | Audit Tampering | 7 | MCP08 |
@@ -72,7 +72,7 @@ See [PROPERTIES.md](PROPERTIES.md) for formal definitions.
 | A15 | Agent Identity Spoofing | 5 | ASI02 |
 | A16 | Circuit Breaker Evasion | 4 | MCP10 |
 
-**Total: 100 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
+**Total: 105 test cases.** See [ATTACKS.md](ATTACKS.md) for full catalog.
 
 ## Scoring
 
