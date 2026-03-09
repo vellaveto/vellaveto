@@ -707,6 +707,22 @@ fn scan_string_for_secrets(
         );
     }
 
+    // SECURITY (R253-DLP-1): Layer 3.75 — HTML entity decode. Catches secrets
+    // encoded as HTML entities (e.g., &#65;KIA... = AKIA...). Reuses the injection
+    // scanner's decode_html_entities which handles numeric (&#NNN;, &#xHH;) and
+    // named (&lt;, &amp;, etc.) entities. Always attempted (core layer).
+    let html_decoded = super::injection::decode_html_entities(scan_str);
+    if let Some(ref decoded) = html_decoded {
+        scan_decoded_layer(
+            decoded,
+            path,
+            "(html_entity)",
+            regexes,
+            &mut matched_patterns,
+            findings,
+        );
+    }
+
     // FIND-R44-024: Layers 4-5.5 (double encoding) always run regardless of time budget.
     // Previously, a wall-clock time budget could cause these essential layers to be
     // skipped in release builds (5ms budget). Only layers 6-9 (triple encoding) are
@@ -3128,6 +3144,37 @@ mod tests {
         assert!(
             tracker.fragment_count() > 0,
             "Hex-encoded shards should be tracked with >= threshold"
+        );
+    }
+
+    // ── R253-DLP-1: HTML entity decode layer ──
+
+    #[test]
+    fn test_r253_dlp_detects_html_entity_encoded_aws_key() {
+        // AKIAIOSFODNN7EXAMPLE encoded as HTML numeric entities
+        let encoded = "&#65;&#75;&#73;&#65;IOSFODNN7EXAMPLE";
+        let params = json!({ "data": encoded });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "aws_access_key"
+                && f.location.contains("html_entity")),
+            "HTML-entity-encoded AWS key should be detected via html_entity layer: {}",
+            findings_summary(&findings)
+        );
+    }
+
+    #[test]
+    fn test_r253_dlp_detects_named_html_entity_encoded_secret() {
+        // Use numeric entities for a GitHub PAT prefix: ghp_
+        // g=&#103; h=&#104; p=&#112; _=&#95;
+        let encoded = "&#103;&#104;&#112;&#95;ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij";
+        let params = json!({ "data": encoded });
+        let findings = scan_parameters_for_secrets(&params);
+        assert!(
+            findings.iter().any(|f| f.pattern_name == "github_token"
+                && f.location.contains("html_entity")),
+            "HTML-entity-encoded GitHub token should be detected: {}",
+            findings_summary(&findings)
         );
     }
 }

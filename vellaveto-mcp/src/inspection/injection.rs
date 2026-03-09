@@ -1378,7 +1378,7 @@ fn strip_html_comments(text: &str) -> String {
 /// equivalents, so injection payloads encoded this way bypass Aho-Corasick matching.
 /// Handles: &#NNN; &#xHH; &lt; &gt; &amp; &quot; &apos; &nbsp;
 /// Returns None if no entities were decoded.
-fn decode_html_entities(text: &str) -> Option<String> {
+pub(crate) fn decode_html_entities(text: &str) -> Option<String> {
     const MAX_ENTITIES: usize = 256;
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();

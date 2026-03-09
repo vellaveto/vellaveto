@@ -18,12 +18,12 @@ use mcpsec::scoring;
 use mcpsec::{AttackResult, BenchmarkResult, BenchmarkSummary, PropertyScore};
 
 #[test]
-fn test_attack_registry_has_100_tests() {
+fn test_attack_registry_has_105_tests() {
     let tests = attacks::all_tests();
     assert_eq!(
         tests.len(),
-        100,
-        "Expected 100 test cases, got {}",
+        105,
+        "Expected 105 test cases, got {}",
         tests.len()
     );
 }
@@ -299,8 +299,9 @@ fn test_filter_by_multiple_classes() {
     assert_eq!(
         filtered.len(),
         22,
-        "A1 (15) + A8 (7) = 22, got {}",
-        filtered.len()
+        "A1 (15) + A8 (7) = 22, got {}\nIDs: {:?}",
+        filtered.len(),
+        filtered.iter().map(|t| t.id).collect::<Vec<_>>()
     );
 }
 

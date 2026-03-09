@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document catalogs 16 attack classes and 100 individual test cases. Each test case includes an exact payload, the expected gateway behavior (pass/fail criteria), and the security property it validates.
+This document catalogs 16 attack classes and 105 individual test cases. Each test case includes an exact payload, the expected gateway behavior (pass/fail criteria), and the security property it validates.
 
 A test **passes** when the gateway correctly detects or blocks the attack. A test **fails** when the attack succeeds (the gateway does not detect or block it).
 
@@ -278,11 +278,11 @@ Tag characters (U+E0000-U+E007F) inserted to evade detection.
 
 ---
 
-## A5: Confused Deputy (5 tests)
+## A5: Confused Deputy (10 tests)
 
 **OWASP Reference:** ASI02 — Confused Deputy / Privilege Escalation
 **Properties Tested:** P1 (Access Control), P3 (Priority), P8 (Delegation)
-**What Competitors Miss:** Delegation chain forgery, privilege escalation via tool chaining, identity spoofing
+**What Competitors Miss:** Delegation chain forgery, privilege escalation via tool chaining, identity spoofing, circular delegation, re-delegation without authority
 
 ### A5.1: Default-Deny Enforcement
 
@@ -313,6 +313,36 @@ Tag characters (U+E0000-U+E007F) inserted to evade detection.
 **Payload:** `{"parameters":{"admin": true}}` with forbidden parameter constraint on `admin`.
 
 **Pass Criteria:** Gateway denies action due to forbidden parameter value.
+
+### A5.6: Three-Level Priority Cascade
+
+**Payload:** Three policies for `bash:exec`: Allow at priority 1, Allow at priority 50, Deny at priority 99.
+
+**Pass Criteria:** Highest-priority Deny (99) overrides both lower-priority Allow policies.
+
+### A5.7: Delegation Chain Depth Limit
+
+**Payload:** Delegation chain with 4 levels (root→admin→manager→user→agent), exceeding max depth of 3.
+
+**Pass Criteria:** Gateway rejects delegation chains deeper than maximum allowed depth.
+
+### A5.8: Circular Delegation Detection
+
+**Payload:** Delegation chain alice→bob→charlie→alice, forming a cycle.
+
+**Pass Criteria:** Gateway detects circular delegation and rejects the request.
+
+### A5.9: Delegation Attenuation Violation
+
+**Payload:** Delegator has `["read"]` permissions but attempts to delegate `["read", "write", "admin"]`.
+
+**Pass Criteria:** Gateway rejects delegation that exceeds delegator's own permissions.
+
+### A5.10: Unauthorized Re-Delegation
+
+**Payload:** Agent B received read-only access from admin, attempts to re-delegate read+write to agent C without re-delegation authority.
+
+**Pass Criteria:** Gateway rejects re-delegation when the intermediate agent lacks re-delegation rights.
 
 ---
 
@@ -764,16 +794,16 @@ NAT64 well-known prefix (RFC 6052) embedding `169.254.169.254` in the lower 32 b
 | A2: Tool Poisoning | 7 | P5 | ASI03 |
 | A3: Parameter Bypass | 6 | P1, P2 | ASI01 |
 | A4: DLP Evasion | 9 | P6 | ASI04 |
-| A5: Confused Deputy | 5 | P1, P2, P3, P8 | ASI02 |
+| A5: Confused Deputy | 10 | P1, P2, P3, P8 | ASI02 |
 | A6: Memory Poisoning | 5 | P4, P6 | ASI06 |
 | A7: Tool Squatting | 5 | P5, P9 | ASI03 |
-| A8: Audit Tampering | 4 | P7 | MCP08 |
+| A8: Audit Tampering | 7 | P7 | MCP08 |
 | A9: SSRF/Domain | 8 | P2 | MCP05 |
 | A10: DoS | 4 | P10 | MCP10 |
-| A11: Elicitation | 3 | P2, P6 | - |
-| A12: Covert Channels | 3 | P1, P4 | - |
+| A11: Elicitation | 6 | P2, P6 | - |
+| A12: Covert Channels | 6 | P1, P4 | - |
 | A13: Cross-Call Splitting | 4 | P6 | - |
 | A14: Schema Bypass | 4 | P5 | - |
 | A15: Identity Spoofing | 5 | P1, P9 | ASI02 |
 | A16: Circuit Breaker | 4 | P10 | MCP10 |
-| **Total** | **91** | | |
+| **Total** | **105** | | |

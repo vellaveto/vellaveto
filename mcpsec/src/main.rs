@@ -29,7 +29,7 @@ struct Cli {
     #[arg(long, short)]
     output: Option<String>,
 
-    /// Output format: json or markdown
+    /// Output format: json, markdown, ocsf, or junit
     #[arg(long, default_value = "json")]
     format: String,
 
@@ -52,6 +52,10 @@ struct Cli {
     /// Compare results against a baseline JSON file and report regressions
     #[arg(long)]
     compare: Option<String>,
+
+    /// Minimum overall score (0-100). Exits with status 1 if score is below this threshold.
+    #[arg(long)]
+    fail_under: Option<f64>,
 }
 
 #[tokio::main]
@@ -74,6 +78,8 @@ async fn main() {
 
     let format = match cli.format.as_str() {
         "markdown" | "md" => OutputFormat::Markdown,
+        "ocsf" => OutputFormat::Ocsf,
+        "junit" | "xml" => OutputFormat::Junit,
         _ => OutputFormat::Json,
     };
 
@@ -101,6 +107,10 @@ async fn main() {
         result.tier_name,
     );
 
+    // Print latency stats
+    let (p50, p95, p99) = latency_percentiles(&result);
+    eprintln!("Latency: p50={p50} p95={p95} p99={p99}");
+
     // --compare: show regression report
     if let Some(baseline_path) = &cli.compare {
         match load_baseline(baseline_path) {
@@ -124,12 +134,25 @@ async fn main() {
     }
 
     write_output(&result, format, cli.output.as_deref());
+
+    // --fail-under: exit 1 if score is below threshold
+    if let Some(threshold) = cli.fail_under {
+        if result.overall_score < threshold {
+            eprintln!(
+                "Score {:.1}% is below --fail-under threshold {:.1}%",
+                result.overall_score, threshold
+            );
+            std::process::exit(1);
+        }
+    }
 }
 
 fn write_output(result: &BenchmarkResult, format: OutputFormat, path: Option<&str>) {
     let output = match format {
         OutputFormat::Json => mcpsec::report::to_json(result),
         OutputFormat::Markdown => mcpsec::report::to_markdown(result),
+        OutputFormat::Ocsf => mcpsec::report::to_ocsf(result),
+        OutputFormat::Junit => mcpsec::report::to_junit(result),
     };
 
     if let Some(path) = path {
@@ -178,6 +201,29 @@ fn print_test_list(class_filter: &[String]) {
         );
     }
     println!("\nTotal: {} tests", tests.len());
+}
+
+fn latency_percentiles(result: &BenchmarkResult) -> (String, String, String) {
+    let mut latencies: Vec<u64> = result.attacks.iter().map(|a| a.latency_ns).collect();
+    if latencies.is_empty() {
+        return ("N/A".to_string(), "N/A".to_string(), "N/A".to_string());
+    }
+    latencies.sort_unstable();
+    let len = latencies.len();
+    let p50 = latencies[len / 2];
+    let p95 = latencies[(len as f64 * 0.95) as usize];
+    let p99 = latencies[((len as f64 * 0.99) as usize).min(len - 1)];
+    (format_ns(p50), format_ns(p95), format_ns(p99))
+}
+
+fn format_ns(ns: u64) -> String {
+    if ns < 1_000 {
+        format!("{ns}ns")
+    } else if ns < 1_000_000 {
+        format!("{:.1}us", ns as f64 / 1_000.0)
+    } else {
+        format!("{:.1}ms", ns as f64 / 1_000_000.0)
+    }
 }
 
 fn check_fn_name(f: fn(&serde_json::Value, u16) -> bool) -> &'static str {
