@@ -166,6 +166,12 @@ pub const MAX_REASON_LEN: usize = 4096;
 /// SECURITY (E3-1): Prevents unbounded allocation from arbitrarily long session IDs.
 pub const MAX_SESSION_ID_LEN: usize = 512;
 
+/// Minimum length of action fingerprint bound to an approval.
+///
+/// SECURITY (R253-APPR-3): SHA-256 hex = 64 chars. Shorter fingerprints have
+/// critically low collision resistance. 32 hex chars (128-bit) is the floor.
+pub const MIN_FINGERPRINT_LEN: usize = 32;
+
 /// Maximum length of action fingerprint bound to an approval.
 ///
 /// SECURITY (E3-1): SHA-256 hex = 64 chars; allow headroom for future algorithms.
@@ -588,10 +594,13 @@ impl ApprovalStore {
         }
         // SECURITY (E3-1): Validate action_fingerprint length and content.
         if let Some(ref fp) = action_fingerprint {
-            if fp.is_empty() {
-                return Err(ApprovalError::Validation(
-                    "action_fingerprint must not be empty".to_string(),
-                ));
+            // SECURITY (R253-APPR-3): Enforce minimum length for collision resistance.
+            // SHA-256 produces 64 hex chars; shorter fingerprints are trivially forgeable.
+            if fp.len() < MIN_FINGERPRINT_LEN {
+                return Err(ApprovalError::Validation(format!(
+                    "action_fingerprint too short: {} chars (min {MIN_FINGERPRINT_LEN})",
+                    fp.len()
+                )));
             }
             if fp.len() > MAX_FINGERPRINT_LEN {
                 return Err(ApprovalError::Validation(format!(
@@ -3486,7 +3495,7 @@ mod tests {
                 "needs review".to_string(),
                 None,
                 Some(sample_session_id()),
-                Some("not-hex-fingerprint".to_string()),
+                Some("zz".repeat(32)),  // 64 chars, valid length but not hex
             )
             .await;
         assert!(matches!(result, Err(ApprovalError::Validation(_))));
@@ -3617,5 +3626,44 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(id1, id2, "consumed approval should not be returned by dedup");
+    }
+
+    // ── R253-APPR-3: Minimum fingerprint length ──
+
+    #[tokio::test]
+    async fn test_r253_create_rejects_short_fingerprint() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        // 8 hex chars — far too short for collision resistance
+        let result = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some(sample_session_id()),
+                Some("aabbccdd".to_string()),
+            )
+            .await;
+        assert!(matches!(result, Err(ApprovalError::Validation(_))));
+        assert!(
+            format!("{}", result.unwrap_err()).contains("too short"),
+            "Expected short fingerprint validation error"
+        );
+
+        // Exactly MIN_FINGERPRINT_LEN (32) should succeed
+        let result2 = store
+            .create(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                Some(sample_session_id()),
+                Some("a".repeat(MIN_FINGERPRINT_LEN)),
+            )
+            .await;
+        assert!(result2.is_ok(), "MIN_FINGERPRINT_LEN should be accepted");
     }
 }
