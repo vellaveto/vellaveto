@@ -475,3 +475,306 @@ fn test_acis_envelope_allow_has_empty_reason() {
         result.envelope.reason
     );
 }
+
+// ═══════════════════════════════════════
+// SECONDARY DECISION ORIGINS (build_secondary_acis_envelope)
+// ═══════════════════════════════════════
+
+use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_types::Verdict;
+
+/// Helper: builds a secondary envelope for the given origin and asserts all
+/// structural invariants hold (validation, fingerprint, transport, origin).
+fn assert_secondary_envelope_valid(
+    origin: DecisionOrigin,
+    transport: &str,
+    session_id: Option<&str>,
+) -> AcisDecisionEnvelope {
+    let action = test_action();
+    let verdict = Verdict::Deny {
+        reason: format!("{origin:?} blocked this action"),
+    };
+
+    let envelope = build_secondary_acis_envelope(&action, &verdict, origin.clone(), transport, session_id);
+
+    assert_eq!(envelope.origin, origin, "origin mismatch");
+    assert_eq!(envelope.decision, DecisionKind::Deny, "expected Deny");
+    assert_eq!(envelope.transport, transport, "transport mismatch");
+    assert!(!envelope.action_fingerprint.is_empty(), "fingerprint must be non-empty");
+    assert!(!envelope.decision_id.is_empty(), "decision_id must be non-empty");
+    assert!(!envelope.reason.is_empty(), "deny reason must be non-empty");
+    assert!(envelope.validate().is_ok(), "envelope must validate: {:?}", envelope.validate());
+
+    if let Some(sid) = session_id {
+        assert_eq!(envelope.session_id.as_deref(), Some(sid));
+    } else {
+        assert!(envelope.session_id.is_none());
+    }
+
+    envelope
+}
+
+#[test]
+fn test_acis_secondary_injection_scanner_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::InjectionScanner,
+        "stdio",
+        Some("sess-inj-1"),
+    );
+    assert_eq!(env.action_summary.tool, "file_write");
+}
+
+#[test]
+fn test_acis_secondary_memory_poisoning_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::MemoryPoisoning,
+        "http",
+        Some("sess-mp-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::MemoryPoisoning);
+}
+
+#[test]
+fn test_acis_secondary_approval_gate_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::ApprovalGate,
+        "websocket",
+        Some("sess-ag-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::ApprovalGate);
+}
+
+#[test]
+fn test_acis_secondary_capability_enforcement_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::CapabilityEnforcement,
+        "grpc",
+        Some("sess-cap-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::CapabilityEnforcement);
+}
+
+#[test]
+fn test_acis_secondary_rate_limiter_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::RateLimiter,
+        "http",
+        None,
+    );
+    assert_eq!(env.origin, DecisionOrigin::RateLimiter);
+}
+
+#[test]
+fn test_acis_secondary_topology_guard_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::TopologyGuard,
+        "stdio",
+        Some("sess-tg-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::TopologyGuard);
+}
+
+#[test]
+fn test_acis_secondary_session_guard_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::SessionGuard,
+        "sse",
+        Some("sess-sg-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::SessionGuard);
+}
+
+// ═══════════════════════════════════════
+// SECONDARY ENVELOPES: FINGERPRINT DETERMINISM
+// ═══════════════════════════════════════
+
+#[test]
+fn test_acis_secondary_fingerprint_matches_primary() {
+    let engine = PolicyEngine::with_policies(true, &[deny_policy()]).expect("engine");
+    let action = test_action();
+    let config = MediationConfig::default();
+
+    // Primary envelope via mediate()
+    let primary = mediate("fp-primary", &action, &engine, None, "http", &config, None, None);
+
+    // Secondary envelope via build_secondary_acis_envelope()
+    let secondary = build_secondary_acis_envelope(
+        &action,
+        &Verdict::Deny { reason: "DLP finding".into() },
+        DecisionOrigin::Dlp,
+        "http",
+        None,
+    );
+
+    // Same action → same fingerprint, regardless of origin or decision path
+    assert_eq!(
+        primary.envelope.action_fingerprint,
+        secondary.action_fingerprint,
+        "primary and secondary fingerprints must match for the same action"
+    );
+}
+
+#[test]
+fn test_acis_secondary_all_origins_same_action_same_fingerprint() {
+    let action = test_action();
+    let verdict = Verdict::Deny { reason: "test".into() };
+
+    let origins = [
+        DecisionOrigin::PolicyEngine,
+        DecisionOrigin::Dlp,
+        DecisionOrigin::InjectionScanner,
+        DecisionOrigin::MemoryPoisoning,
+        DecisionOrigin::ApprovalGate,
+        DecisionOrigin::CapabilityEnforcement,
+        DecisionOrigin::RateLimiter,
+        DecisionOrigin::TopologyGuard,
+        DecisionOrigin::SessionGuard,
+    ];
+
+    let fingerprints: Vec<String> = origins
+        .iter()
+        .map(|o| {
+            build_secondary_acis_envelope(&action, &verdict, o.clone(), "http", None)
+                .action_fingerprint
+        })
+        .collect();
+
+    // All fingerprints must be identical — fingerprint is derived from action, not origin
+    for (i, fp) in fingerprints.iter().enumerate().skip(1) {
+        assert_eq!(
+            &fingerprints[0], fp,
+            "fingerprint mismatch between origin[0] and origin[{i}]"
+        );
+    }
+}
+
+// ═══════════════════════════════════════
+// SECONDARY ENVELOPES: AUDIT PERSISTENCE
+// ═══════════════════════════════════════
+
+#[test]
+fn test_acis_secondary_all_origins_persist_to_audit() {
+    let rt = runtime();
+    rt.block_on(async {
+        let dir = TempDir::new().expect("tempdir");
+        let logger = AuditLogger::new(dir.path().join("audit.jsonl"));
+        let action = test_action();
+
+        let origins = [
+            DecisionOrigin::InjectionScanner,
+            DecisionOrigin::MemoryPoisoning,
+            DecisionOrigin::ApprovalGate,
+            DecisionOrigin::CapabilityEnforcement,
+            DecisionOrigin::RateLimiter,
+            DecisionOrigin::TopologyGuard,
+            DecisionOrigin::SessionGuard,
+        ];
+
+        for origin in &origins {
+            let verdict = Verdict::Deny {
+                reason: format!("{origin:?} blocked"),
+            };
+            let envelope = build_secondary_acis_envelope(
+                &action, &verdict, origin.clone(), "http", Some("persist-sess"),
+            );
+
+            logger
+                .log_entry_with_acis(
+                    &action,
+                    &verdict,
+                    json!({"origin": format!("{origin:?}"), "source": "integration_test"}),
+                    envelope,
+                )
+                .await
+                .expect("audit persist should succeed");
+        }
+
+        // Verify all 7 entries persisted with correct origins
+        let content = tokio::fs::read_to_string(dir.path().join("audit.jsonl"))
+            .await
+            .expect("read audit");
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 7, "expected 7 audit entries for 7 origins");
+
+        for (i, origin) in origins.iter().enumerate() {
+            let entry: serde_json::Value =
+                serde_json::from_str(lines[i]).expect("parse audit entry");
+            let env_origin = entry["acis_envelope"]["origin"].as_str().expect("origin field");
+            // serde serializes DecisionOrigin as snake_case, so compare via serde
+            let expected_origin = serde_json::to_value(origin).expect("serialize origin");
+            let expected_str = expected_origin.as_str().expect("origin as str");
+            assert_eq!(env_origin, expected_str, "origin mismatch at entry {i}");
+        }
+    });
+}
+
+#[test]
+fn test_acis_secondary_envelope_rejected_when_invalid() {
+    let rt = runtime();
+    rt.block_on(async {
+        let dir = TempDir::new().expect("tempdir");
+        let logger = AuditLogger::new(dir.path().join("audit.jsonl"));
+        let action = test_action();
+        let verdict = Verdict::Deny { reason: "test".into() };
+
+        let mut envelope = build_secondary_acis_envelope(
+            &action, &verdict, DecisionOrigin::InjectionScanner, "http", None,
+        );
+
+        // Corrupt: empty tool name violates validation
+        envelope.action_summary.tool = String::new();
+
+        let result = logger
+            .log_entry_with_acis(&action, &verdict, json!({"source": "invalid_test"}), envelope)
+            .await;
+
+        assert!(result.is_err(), "should reject invalid secondary envelope");
+    });
+}
+
+// ═══════════════════════════════════════
+// SECONDARY ENVELOPES: TRANSPORT PARITY
+// ═══════════════════════════════════════
+
+#[test]
+fn test_acis_secondary_transport_parity_all_origins() {
+    let action = test_action();
+    let transports = ["http", "websocket", "grpc", "stdio", "sse"];
+
+    for origin in &[
+        DecisionOrigin::InjectionScanner,
+        DecisionOrigin::MemoryPoisoning,
+        DecisionOrigin::RateLimiter,
+        DecisionOrigin::SessionGuard,
+    ] {
+        let verdict = Verdict::Deny {
+            reason: format!("{origin:?} denied"),
+        };
+        for transport in &transports {
+            let env = build_secondary_acis_envelope(
+                &action, &verdict, origin.clone(), transport, Some("parity-sess"),
+            );
+            assert_eq!(env.transport, *transport, "transport mismatch for {origin:?}/{transport}");
+            assert!(env.validate().is_ok(), "validation failed for {origin:?}/{transport}");
+        }
+    }
+}
+
+#[test]
+fn test_acis_secondary_unique_decision_ids() {
+    let action = test_action();
+    let verdict = Verdict::Deny { reason: "test".into() };
+
+    let ids: Vec<String> = (0..20)
+        .map(|_| {
+            build_secondary_acis_envelope(
+                &action, &verdict, DecisionOrigin::Dlp, "http", None,
+            )
+            .decision_id
+        })
+        .collect();
+
+    // All 20 decision IDs must be unique (UUID-based)
+    let unique: std::collections::HashSet<&String> = ids.iter().collect();
+    assert_eq!(unique.len(), 20, "decision IDs must be unique across calls");
+}
