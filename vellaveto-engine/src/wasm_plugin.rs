@@ -543,17 +543,25 @@ impl PluginManager {
                     // Validate the verdict from the plugin (bounded reason, no control chars)
                     match v.validate() {
                         Ok(()) => v,
-                        Err(e) => PluginVerdict {
-                            allow: false,
-                            reason: Some(format!("plugin '{name}' returned invalid verdict: {e}")),
-                        },
+                        Err(e) => {
+                            // SECURITY (R252-ENG-1): Sanitize to prevent control char injection.
+                            let raw = format!("plugin '{name}' returned invalid verdict: {e}");
+                            PluginVerdict {
+                                allow: false,
+                                reason: Some(vellaveto_types::sanitize_for_log(&raw, MAX_REASON_LEN)),
+                            }
+                        }
                     }
                 }
                 Err(e) => {
                     // Fail-closed: plugin error -> deny
+                    // SECURITY (R252-ENG-1): Sanitize error reason to prevent control
+                    // character injection from malicious plugins bypassing validate().
+                    let raw_reason = format!("plugin '{name}' error: {e}");
+                    let sanitized = vellaveto_types::sanitize_for_log(&raw_reason, MAX_REASON_LEN);
                     PluginVerdict {
                         allow: false,
-                        reason: Some(format!("plugin '{name}' error: {e}")),
+                        reason: Some(sanitized),
                     }
                 }
             };
@@ -1064,6 +1072,82 @@ mod tests {
         assert!(!results[0].1.allow, "plugin error must produce deny");
         let reason = results[0].1.reason.as_deref().unwrap_or("");
         assert!(reason.contains("error"));
+    }
+
+    // --- R252-ENG-1: Error reason sanitization ---
+
+    /// A plugin that returns an error with control characters in the reason.
+    struct ControlCharErrorPlugin;
+
+    impl PolicyPlugin for ControlCharErrorPlugin {
+        fn name(&self) -> &str {
+            "control-char-plugin"
+        }
+
+        fn evaluate(&self, _action: &PluginAction) -> Result<PluginVerdict, PluginError> {
+            Err(PluginError::EvaluationFailed {
+                plugin_name: "control-char-plugin".to_string(),
+                reason: "injected\x00null\x07bell\x1besc".to_string(),
+            })
+        }
+    }
+
+    #[test]
+    fn test_r252_eng1_error_reason_sanitized_no_control_chars() {
+        let mut mgr = PluginManager::new(enabled_manager_config()).unwrap();
+        let config = valid_plugin_config("control-char-plugin");
+        mgr.load_plugin(config, Box::new(ControlCharErrorPlugin))
+            .unwrap();
+
+        let action = test_action();
+        let results = mgr.evaluate_all(&action);
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].1.allow, "plugin error must produce deny");
+        let reason = results[0].1.reason.as_deref().unwrap_or("");
+        // Verify no control characters in the sanitized reason
+        assert!(
+            !reason.chars().any(|c| c.is_control() && c != '\n'),
+            "reason must not contain control chars after sanitization, got: {:?}",
+            reason
+        );
+    }
+
+    /// A plugin that returns Ok with a verdict containing control chars in reason.
+    struct ControlCharVerdictPlugin;
+
+    impl PolicyPlugin for ControlCharVerdictPlugin {
+        fn name(&self) -> &str {
+            "control-verdict-plugin"
+        }
+
+        fn evaluate(&self, _action: &PluginAction) -> Result<PluginVerdict, PluginError> {
+            Ok(PluginVerdict {
+                allow: false,
+                reason: Some("good\x00bad\x1bchars".to_string()),
+            })
+        }
+    }
+
+    #[test]
+    fn test_r252_eng1_invalid_verdict_reason_sanitized() {
+        let mut mgr = PluginManager::new(enabled_manager_config()).unwrap();
+        let config = valid_plugin_config("control-verdict-plugin");
+        mgr.load_plugin(config, Box::new(ControlCharVerdictPlugin))
+            .unwrap();
+
+        let action = test_action();
+        let results = mgr.evaluate_all(&action);
+
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].1.allow, "invalid verdict must produce deny");
+        let reason = results[0].1.reason.as_deref().unwrap_or("");
+        // The invalid verdict path also sanitizes
+        assert!(
+            !reason.chars().any(|c| c.is_control() && c != '\n'),
+            "reason must not contain control chars, got: {:?}",
+            reason
+        );
     }
 
     // --- Reload tests ---

@@ -471,6 +471,17 @@ pub struct MemoryTrackingConfig {
     pub block_on_match: bool,
 }
 
+impl MemoryTrackingConfig {
+    /// Validate memory tracking configuration.
+    ///
+    /// Currently minimal since struct contains only bool fields,
+    /// but ensures consistency with other config modules and future-proofs
+    /// against field additions (R252-CFG-1).
+    pub fn validate(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Audit log export configuration for SIEM integration (P3.3).
 ///
 /// Controls the format and delivery of audit entries to external SIEM platforms.

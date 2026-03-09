@@ -495,7 +495,7 @@ fn assert_secondary_envelope_valid(
         reason: format!("{origin:?} blocked this action"),
     };
 
-    let envelope = build_secondary_acis_envelope(&action, &verdict, origin.clone(), transport, session_id);
+    let envelope = build_secondary_acis_envelope(&action, &verdict, origin, transport, session_id);
 
     assert_eq!(envelope.origin, origin, "origin mismatch");
     assert_eq!(envelope.decision, DecisionKind::Deny, "expected Deny");

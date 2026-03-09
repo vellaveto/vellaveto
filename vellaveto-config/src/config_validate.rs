@@ -1624,6 +1624,9 @@ impl PolicyConfig {
         // Multimodal policy configuration bounds
         self.multimodal.validate()?;
 
+        // SECURITY (R252-CFG-1): Memory tracking configuration bounds.
+        self.memory_tracking.validate()?;
+
         // SECURITY (IMP-R100-003): Memory security configuration bounds.
         self.memory_security.validate()?;
 

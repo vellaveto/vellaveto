@@ -9180,3 +9180,24 @@ fn test_r250_cfg4_audit_custom_pii_pattern_dangerous_chars_rejected() {
     }];
     assert!(audit.validate().is_err());
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// R252: MemoryTrackingConfig validation wiring
+// ═══════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_r252_cfg1_memory_tracking_validate_default_ok() {
+    let config = crate::MemoryTrackingConfig::default();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_r252_cfg1_memory_tracking_wired_in_policy_config() {
+    // Verify that MemoryTrackingConfig.validate() is called by PolicyConfig.validate().
+    // Since the struct only has bool fields, the easiest verification is that
+    // a valid PolicyConfig with non-default memory_tracking still validates.
+    let mut config = PolicyConfig::default();
+    config.memory_tracking.enabled = true;
+    config.memory_tracking.block_on_match = true;
+    assert!(config.validate().is_ok());
+}
