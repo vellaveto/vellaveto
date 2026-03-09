@@ -124,8 +124,10 @@ pub enum DecisionOrigin {
     ApprovalGate,
     /// Capability token enforcement.
     CapabilityEnforcement,
-    /// Rate limiter or circuit breaker.
+    /// Rate limiter enforcement.
     RateLimiter,
+    /// Circuit breaker enforcement (tool failure threshold exceeded).
+    CircuitBreaker,
     /// TopologyGuard (unknown tool denial).
     TopologyGuard,
     /// Session guard state violation.

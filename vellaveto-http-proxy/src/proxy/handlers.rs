@@ -644,7 +644,8 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: format!("Circuit breaker open: {reason}"),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "http", Some(&session_id));
+                    // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -1968,7 +1969,8 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: format!("Circuit breaker open: {reason}"),
                     };
-                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "http", Some(&session_id));
+                    // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                    let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "http", Some(&session_id));
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(

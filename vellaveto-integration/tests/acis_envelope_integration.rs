@@ -565,6 +565,16 @@ fn test_acis_secondary_rate_limiter_origin() {
 }
 
 #[test]
+fn test_acis_secondary_circuit_breaker_origin() {
+    let env = assert_secondary_envelope_valid(
+        DecisionOrigin::CircuitBreaker,
+        "http",
+        Some("sess-cb-1"),
+    );
+    assert_eq!(env.origin, DecisionOrigin::CircuitBreaker);
+}
+
+#[test]
 fn test_acis_secondary_topology_guard_origin() {
     let env = assert_secondary_envelope_valid(
         DecisionOrigin::TopologyGuard,
@@ -627,6 +637,7 @@ fn test_acis_secondary_all_origins_same_action_same_fingerprint() {
         DecisionOrigin::ApprovalGate,
         DecisionOrigin::CapabilityEnforcement,
         DecisionOrigin::RateLimiter,
+        DecisionOrigin::CircuitBreaker,
         DecisionOrigin::TopologyGuard,
         DecisionOrigin::SessionGuard,
     ];
@@ -666,6 +677,7 @@ fn test_acis_secondary_all_origins_persist_to_audit() {
             DecisionOrigin::ApprovalGate,
             DecisionOrigin::CapabilityEnforcement,
             DecisionOrigin::RateLimiter,
+            DecisionOrigin::CircuitBreaker,
             DecisionOrigin::TopologyGuard,
             DecisionOrigin::SessionGuard,
         ];
@@ -689,12 +701,12 @@ fn test_acis_secondary_all_origins_persist_to_audit() {
                 .expect("audit persist should succeed");
         }
 
-        // Verify all 7 entries persisted with correct origins
+        // Verify all entries persisted with correct origins
         let content = tokio::fs::read_to_string(dir.path().join("audit.jsonl"))
             .await
             .expect("read audit");
         let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
-        assert_eq!(lines.len(), 7, "expected 7 audit entries for 7 origins");
+        assert_eq!(lines.len(), origins.len(), "expected one audit entry per origin");
 
         for (i, origin) in origins.iter().enumerate() {
             let entry: serde_json::Value =
@@ -745,6 +757,7 @@ fn test_acis_secondary_transport_parity_all_origins() {
         DecisionOrigin::InjectionScanner,
         DecisionOrigin::MemoryPoisoning,
         DecisionOrigin::RateLimiter,
+        DecisionOrigin::CircuitBreaker,
         DecisionOrigin::SessionGuard,
     ] {
         let verdict = Verdict::Deny {

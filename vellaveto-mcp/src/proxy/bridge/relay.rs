@@ -1059,8 +1059,9 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit
@@ -2195,8 +2196,9 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit
@@ -2823,8 +2825,9 @@ impl ProxyBridge {
                 let cb_verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &cb_verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &cb_verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit
@@ -3330,8 +3333,9 @@ impl ProxyBridge {
                 let cb_verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &cb_verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &cb_verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit
@@ -3822,8 +3826,9 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit
@@ -4594,8 +4599,9 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: reason.clone(),
                 };
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
                 let cb_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action, &verdict, DecisionOrigin::RateLimiter, "stdio", state.agent_id.as_deref(),
+                    &action, &verdict, DecisionOrigin::CircuitBreaker, "stdio", state.agent_id.as_deref(),
                 );
                 if let Err(e) = self
                     .audit

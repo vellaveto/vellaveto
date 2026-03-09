@@ -1075,7 +1075,8 @@ impl McpGrpcService {
                 let verdict = Verdict::Deny {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "grpc", Some(session_id));
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit
@@ -1822,7 +1823,8 @@ impl McpGrpcService {
                 let verdict = Verdict::Deny {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
-                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "grpc", Some(session_id));
+                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "grpc", Some(session_id));
                 if let Err(e) = self
                     .state
                     .audit

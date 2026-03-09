@@ -454,9 +454,9 @@ async fn handle_ws_connection(
             interval.tick().await; // first tick is immediate, skip it
             loop {
                 interval.tick().await;
-                let last_ms = last_activity.load(Ordering::Relaxed);
-                // SECURITY (FIND-R190-002): Use saturating_sub to prevent underflow
-                // if Relaxed ordering causes a stale last_ms value.
+                // SECURITY (R251-WS-1): SeqCst for cross-thread session timeout enforcement.
+                let last_ms = last_activity.load(Ordering::SeqCst);
+                // SECURITY (FIND-R190-002): Use saturating_sub to prevent underflow.
                 let elapsed_since_activity =
                     (connection_epoch.elapsed().as_millis() as u64).saturating_sub(last_ms);
                 if elapsed_since_activity >= idle_timeout.as_millis() as u64 {
@@ -543,9 +543,10 @@ async fn relay_client_to_upstream(
         };
 
         // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
+        // SECURITY (R251-WS-1): SeqCst ensures visibility to timeout checker thread.
         last_activity.store(
             connection_epoch.elapsed().as_millis() as u64,
-            Ordering::Relaxed,
+            Ordering::SeqCst,
         );
 
         record_ws_message("client_to_upstream");
@@ -1034,7 +1035,8 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: format!("Circuit breaker open: {reason}"),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "websocket", Some(&session_id));
+                                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "websocket", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1908,7 +1910,8 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: format!("Circuit breaker open: {reason}"),
                                 };
-                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::RateLimiter, "websocket", Some(&session_id));
+                                // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::CircuitBreaker, "websocket", Some(&session_id));
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -4083,9 +4086,10 @@ async fn relay_upstream_to_client(
         };
 
         // SECURITY (FIND-R182-001): Update last-activity for true idle detection.
+        // SECURITY (R251-WS-1): SeqCst ensures visibility to timeout checker thread.
         last_activity.store(
             connection_epoch.elapsed().as_millis() as u64,
-            Ordering::Relaxed,
+            Ordering::SeqCst,
         );
 
         record_ws_message("upstream_to_client");

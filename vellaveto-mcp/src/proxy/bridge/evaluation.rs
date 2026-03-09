@@ -66,6 +66,12 @@ impl ProxyBridge {
     ///
     /// DLP and injection findings should be passed in from the caller's
     /// pre-pipeline scanning (the relay runs these before engine evaluation).
+    ///
+    /// **Migration (E2):** The canonical mediation entrypoint is
+    /// [`crate::mediation::mediate()`], which handles DLP + injection +
+    /// engine evaluation in a single call. Transports should migrate to
+    /// `mediate()` (E2-2/3/4) and only use this function for edge cases
+    /// where the caller manages scanning separately.
     #[allow(clippy::too_many_arguments)]
     #[allow(dead_code)] // Wiring into relay.rs tracked in E2-2/3/4
     pub(super) fn evaluate_with_envelope(

@@ -167,7 +167,8 @@ pub async fn reset_circuit(
     let acis_envelope = build_secondary_acis_envelope(
         &action,
         &Verdict::Allow,
-        DecisionOrigin::RateLimiter,
+        // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
+        DecisionOrigin::CircuitBreaker,
         "http",
         None,
     );
