@@ -11,7 +11,7 @@
     <img src="https://img.shields.io/badge/tests-10%2C930%2B_passing-brightgreen.svg" alt="Tests: 10,930+ passing">
     <img src="https://img.shields.io/badge/clippy-zero_warnings-brightgreen.svg" alt="Clippy: zero warnings">
     <a href="docs/SECURITY_GUARANTEES.md"><img src="https://img.shields.io/badge/internal_security_audits-250_rounds-orange.svg" alt="250 Internal Security Audit Rounds"></a>
-    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-756%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 756+ properties | 7 tools"></a>
+    <a href="formal/"><img src="https://img.shields.io/badge/formal_verification-767%2B_properties_%7C_7_tools-blueviolet.svg" alt="Formal Verification: 767+ properties | 7 tools"></a>
     <a href="https://modelcontextprotocol.io/specification/2025-11-25"><img src="https://img.shields.io/badge/MCP-2025--11--25-blueviolet.svg" alt="MCP 2025-11-25"></a>
     <a href="https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/"><img src="https://img.shields.io/badge/OWASP-Agentic_Top_10-red.svg" alt="OWASP Agentic Top 10"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/provenance-sbom.yml"><img src="https://img.shields.io/badge/SLSA-Level_3-green.svg" alt="SLSA Level 3"></a>
@@ -328,7 +328,7 @@ We use formal methods to prove — not just test — critical security propertie
 | **Coq** | 45 theorems across fail-closed, determinism, ABAC forbid-override, capability delegation attenuation, circuit breaker, and task lifecycle | [formal/coq/](formal/coq/) |
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
 
-**756+ verification obligations (523 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy)** across 7 tools. Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) and [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md) for details.
+**767+ verification obligations (534 Verus + 82 Kani + 64 TLA+ + 45 Coq + 32 Lean + 10 Alloy)** across 7 tools. Formal verification is rare in security tooling. We believe the properties that matter most — fail-closed behavior, determinism, no privilege escalation — should be proven, not just tested. See [formal/README.md](formal/README.md) and [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md) for details.
 
 ### Former Limitations (Now Resolved)
 
