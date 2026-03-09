@@ -31,7 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     breaker, shadow agent, deputy, shield, rug-pull, and ABAC denial now
     has a structured ACIS envelope with `DecisionOrigin` and session
     binding for cross-session audit coherence.
-  - **Remaining:** Gap 6 (Kani K26-K77 docs, P3).
+  - **Gap 6 (P3 — Kani K26-K77 documentation) — DONE:**
+    `formal/kani/README.md` expanded from K1-K25 to full K1-K77 catalog
+    with 13 new sections (IP, Cache, Capability, Rule Check, ResolvedMatch,
+    Cascading, Constraint, Task, IDNA, Lock Safety, Sanitizer, Temporal
+    Window, Injection Pipeline) and complete source correspondence table
+    mapping all 21 modules to production files.
+  - **All 6 gaps closed.**
 
 ### Fixed
 
