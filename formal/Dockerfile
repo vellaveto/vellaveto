@@ -17,7 +17,7 @@
 #   docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-coq
 #   docker run --rm -v "$(pwd):/workspace" vellaveto-formal make formal-trusted-assumptions
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 # ── Version pins (must match .github/workflows/formal-verification.yml) ──
 
@@ -47,8 +47,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ── Rust (workspace toolchain + Verus toolchain) ──
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain "${RUST_WORKSPACE_TOOLCHAIN}" \
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup-init.sh \
+    && sh /tmp/rustup-init.sh -y --default-toolchain "${RUST_WORKSPACE_TOOLCHAIN}" \
+    && rm /tmp/rustup-init.sh \
     && /root/.cargo/bin/rustup install "${RUST_VERUS_TOOLCHAIN}-x86_64-unknown-linux-gnu" \
     && /root/.cargo/bin/rustup component add rustfmt clippy \
         --toolchain "${RUST_WORKSPACE_TOOLCHAIN}-x86_64-unknown-linux-gnu"

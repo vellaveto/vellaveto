@@ -37,9 +37,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: sdk/python
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,langchain]"
+        run: pip install -e ".[dev,langchain]"
 
       - name: Test
         working-directory: sdk/python
@@ -48,6 +46,4 @@ jobs:
       - name: Type check
         if: matrix.python-version == '3.12'
         working-directory: sdk/python
-        run: |
-          pip install mypy
-          mypy vellaveto/ --ignore-missing-imports || true
+        run: mypy vellaveto/ --ignore-missing-imports || true
