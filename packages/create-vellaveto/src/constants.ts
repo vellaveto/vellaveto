@@ -1,5 +1,5 @@
-export const VERSION = "6.0.2";
-export const IMAGE_TAG = "6.0.2";
+export const VERSION = "6.0.3";
+export const IMAGE_TAG = "6.0.3";
 export const IMAGE_REPO = "ghcr.io/vellaveto/vellaveto";
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_PROXY_PORT = 3001;

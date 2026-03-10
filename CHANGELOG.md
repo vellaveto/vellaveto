@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [6.0.2] - 2026-03-10
+## [6.0.3] - 2026-03-10
 
 ### Fixed
 
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python 3.10+ so the tagged publish path matches the tested matrix.
 - **Release metadata drift:** aligned Python and Java SDK versions,
   `create-vellaveto` scaffolded image tags, TypeScript npm lock metadata,
-  OpenAPI metadata, and deployment/install docs to the 6.0.2 release line.
+  OpenAPI metadata, and deployment/install docs to the 6.0.3 release line.
 
 ### Changed
 
@@ -2809,8 +2809,8 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.2...HEAD
-[6.0.2]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...v6.0.2
+[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.3...HEAD
+[6.0.3]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...v6.0.3
 [6.0.1]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...v6.0.0
 [3.0.0]: https://github.com/vellaveto/vellaveto/compare/v2.2.1...v3.0.0

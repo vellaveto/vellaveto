@@ -1,6 +1,6 @@
 # Compliance Framework Coverage
 
-> **Version:** 6.0.2
+> **Version:** 6.0.3
 > **Frameworks:** 12 regulatory and industry standards
 > **Evidence formats:** JSON, HTML, OCSF, CEF, syslog
 > **Website:** [vellaveto.online/compliance](https://vellaveto.online/compliance)
