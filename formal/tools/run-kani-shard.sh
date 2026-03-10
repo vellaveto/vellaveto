@@ -78,7 +78,6 @@ if [ -n "${KANI_SOLVER:-}" ]; then
 fi
 
 for harness in "${SELECTED_HARNESSES[@]}"; do
-    KANI_ARGS+=(--harness "$harness")
+    echo "Verifying harness: $harness"
+    cargo kani "${KANI_ARGS[@]}" --harness "$harness"
 done
-
-cargo kani "${KANI_ARGS[@]}"
