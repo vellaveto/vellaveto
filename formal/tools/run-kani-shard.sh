@@ -45,7 +45,11 @@ cd "$KANI_DIR"
 cargo kani list --format json >/dev/null
 
 mapfile -t ALL_HARNESSES < <(
-    rg -o '"proofs::[^"]+"' "$LIST_FILE" | tr -d '"'
+    if command -v rg >/dev/null 2>&1; then
+        rg -o '"proofs::[^"]+"' "$LIST_FILE"
+    else
+        grep -oE '"proofs::[^"]+"' "$LIST_FILE"
+    fi | tr -d '"'
 )
 
 if [ "${#ALL_HARNESSES[@]}" -eq 0 ]; then
