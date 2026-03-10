@@ -65,21 +65,14 @@ pub fn can_track_field(
 /// Update total byte accounting after replacing a buffer.
 ///
 /// Uses saturating arithmetic to prevent underflow (D5).
-pub fn update_total_bytes(
-    old_total: usize,
-    old_buffer_len: usize,
-    new_buffer_len: usize,
-) -> usize {
+pub fn update_total_bytes(old_total: usize, old_buffer_len: usize, new_buffer_len: usize) -> usize {
     old_total
         .saturating_sub(old_buffer_len)
         .saturating_add(new_buffer_len)
 }
 
 /// Compute the overlap scan region size.
-pub fn compute_overlap_region_size(
-    prev_tail_len: usize,
-    current_value_len: usize,
-) -> usize {
+pub fn compute_overlap_region_size(prev_tail_len: usize, current_value_len: usize) -> usize {
     prev_tail_len.saturating_add(current_value_len)
 }
 

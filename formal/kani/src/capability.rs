@@ -298,7 +298,10 @@ pub fn glob_pattern_subset(parent_pattern: &str, child_pattern: &str) -> bool {
     let child = child_pattern.as_bytes();
     let representatives = collect_representative_bytes(parent, child);
 
-    let start = (PatternStateSet::start(parent), PatternStateSet::start(child));
+    let start = (
+        PatternStateSet::start(parent),
+        PatternStateSet::start(child),
+    );
     let mut queue = VecDeque::from([start.clone()]);
     let mut visited = HashSet::from([start]);
 
@@ -338,7 +341,10 @@ pub fn pattern_is_subset(parent: &str, child: &str) -> bool {
             return true;
         }
 
-        return literal_child_pattern_subset(child_has_metacharacters, pattern_matches(parent, child));
+        return literal_child_pattern_subset(
+            child_has_metacharacters,
+            pattern_matches(parent, child),
+        );
     }
 
     glob_pattern_subset(parent, child)
@@ -351,7 +357,10 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
         return true;
     }
     let pattern_has_metacharacters = has_glob_metacharacters(pattern);
-    if literal_pattern_matches(pattern_has_metacharacters, pattern.eq_ignore_ascii_case(value)) {
+    if literal_pattern_matches(
+        pattern_has_metacharacters,
+        pattern.eq_ignore_ascii_case(value),
+    ) {
         return true;
     }
     if !pattern_has_metacharacters {
@@ -602,7 +611,10 @@ mod tests {
 
     #[test]
     fn test_normalize_path_no_traversal() {
-        assert_eq!(normalize_path_for_grant("/a/b/c"), Some("/a/b/c".to_string()));
+        assert_eq!(
+            normalize_path_for_grant("/a/b/c"),
+            Some("/a/b/c".to_string())
+        );
         assert_eq!(normalize_path_for_grant("/a/../b"), Some("/b".to_string()));
         assert_eq!(normalize_path_for_grant("/../etc/passwd"), None); // above root
         assert_eq!(normalize_path_for_grant("/a/\0/b"), None); // null byte

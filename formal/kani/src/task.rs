@@ -90,7 +90,7 @@ pub fn can_cancel(
     if require_self_cancel {
         match (creator, requester) {
             (Some(c), Some(r)) => c == r,
-            (None, _) => true,      // No creator recorded, allow anyone
+            (None, _) => true,        // No creator recorded, allow anyone
             (Some(_), None) => false, // Creator recorded but no requester
         }
     } else {

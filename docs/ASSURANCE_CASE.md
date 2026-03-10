@@ -71,11 +71,11 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Test evidence** | `vellaveto-mcp/src/transparency.rs` — Art 50(1) tests; `vellaveto-server/src/routes/compliance.rs` — API tests; `vellaveto-audit/src/eu_ai_act.rs` — registry tests; `vellaveto-audit/src/data_governance.rs` — Art 10 tests |
 | **Reproduce** | `cargo test -p vellaveto-audit -- eu_ai_act && cargo test -p vellaveto-audit -- data_governance && cargo test -p vellaveto-mcp -- transparency` |
 
-### C6. "250 audit rounds, 1,700+ findings"
+### C6. "254 audit rounds, 1,720+ findings"
 
 | Field | Value |
 |-------|-------|
-| **Scope** | Internal adversarial testing using automated multi-agent protocol (Bottega). Not external third-party audits. |
+| **Scope** | Internal adversarial testing using automated multi-agent protocol (Swarm). Not external third-party audits. |
 | **Methodology** | Automated adversarial agent generates attack payloads against running instance; findings triaged by severity (P0–P3); fixes verified by re-running attack corpus. 6-agent parallel swarm with threat intelligence integration (100+ attack vectors, 30+ CVEs per sweep from R226+). |
 | **Evidence** | `CHANGELOG.md` — per-round finding counts and fix PRs; `docs/SECURITY_REVIEW.md` — methodology and severity breakdown; `vellaveto-integration/tests/` — regression tests |
 | **Clarification** | These are *internal automated audit iterations*, not external penetration tests by a third-party firm. The badge text reflects this. |
@@ -89,7 +89,7 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 | **Verus coverage** | 41 verified kernels covering verdict fail-closed (V1-V8), path normalization (V9-V10), rule override (V11-V12), DLP buffer safety (D1-D6), constraint evaluation, audit chain integrity, Merkle proofs, rotation manifests, capability delegation, NHI delegation, approval scope binding, deputy chain, entropy gates, cross-call DLP, refinement safety obligations, and ACIS envelope invariants. |
 | **Assumptions** | Verus: Z3 SMT-checked for ALL inputs. Kani: bounded model checking (finite state spaces). TLA+: exhaustive within declared bounds. Properties are structural. |
 | **What is NOT verified** | Pattern compilation, cryptographic primitives, timing, concurrency, network properties, serialization. See [FORMAL_SCOPE.md](FORMAL_SCOPE.md). |
-| **Test evidence** | `formal/README.md` — property catalog with source traceability; `formal/verus/` — 41 Verus kernels; `formal/kani/` — 77 harnesses |
+| **Test evidence** | `formal/README.md` — property catalog with source traceability; `formal/verus/` — 41 Verus kernels; `formal/kani/` — 82 harnesses |
 | **Reproduce** | `cd formal/tla && java -jar tla2tools.jar -config MCPPolicyEngine.cfg MC_MCPPolicyEngine.tla` and `cd formal/verus && cargo verus --crate-type=lib src/lib.rs` |
 
 ---
@@ -98,12 +98,12 @@ For load testing under concurrency, see [perf/LOADTEST.md](../perf/LOADTEST.md).
 
 | Verification Layer | Method | Count |
 |--------------------|--------|-------|
-| Unit + integration tests | Rust `#[test]` | 10,930+ |
+| Unit + integration tests | Rust `#[test]` | 10,990+ |
 | SDK tests | Python / Go / TypeScript / Java | 855 |
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | Formal — Verus (deductive) | Z3 SMT on actual Rust (ALL inputs) | 534 verified items |
-| Formal — Kani (BMC) | Bounded model checking on actual Rust | 77 harnesses |
+| Formal — Kani (BMC) | Bounded model checking on actual Rust | 82 harnesses |
 | Formal — TLA+ | Exhaustive model checking | 64 properties |
 | Formal — Coq | Interactive theorem proving | 45 theorems |
 | Formal — Lean 4 | Dependent type checking | 32 theorems |

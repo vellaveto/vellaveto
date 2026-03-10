@@ -1,7 +1,7 @@
 # Kani Proof Harnesses — Vellaveto
 
 Bounded model checking proofs using [Kani](https://github.com/model-checking/kani)
-for critical security invariants. 77 harnesses verify security properties
+for critical security invariants. 82 harnesses verify security properties
 using CBMC on actual Rust implementation code.
 
 ## What's Verified
@@ -218,7 +218,7 @@ cd formal/kani
 cargo kani --harness proof_fail_closed_no_match_produces_deny
 cargo kani --harness proof_path_normalize_idempotent
 cargo kani --harness proof_path_normalize_no_traversal
-# ... etc for all 77 harnesses
+# ... etc for all 82 harnesses
 
 # Run a specific harness
 cargo kani --harness proof_compute_verdict_fail_closed_empty

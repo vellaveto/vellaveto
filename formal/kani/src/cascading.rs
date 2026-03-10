@@ -44,9 +44,7 @@ pub fn validate_config(
     if max_chain_depth == 0 || max_chain_depth > ABSOLUTE_MAX_CHAIN_DEPTH {
         return false;
     }
-    if !error_rate_threshold.is_finite()
-        || error_rate_threshold < 0.0
-        || error_rate_threshold > 1.0
+    if !error_rate_threshold.is_finite() || error_rate_threshold < 0.0 || error_rate_threshold > 1.0
     {
         return false;
     }

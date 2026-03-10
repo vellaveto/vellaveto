@@ -63,7 +63,7 @@ Best Practices Gold badge. Criteria are organized by category.
 | `build_common_tools` | MET | Cargo (standard Rust build tool) |
 | `build_floss_tools` | MET | All tools are FLOSS |
 | `build_reproducible` | MET | -Ctrim-paths=all (RUSTFLAGS), codegen-units=1, --locked (docs/REPRODUCIBLE_BUILDS.md) |
-| `test` | MET | 10,930+ tests, `cargo test --workspace` |
+| `test` | MET | 10,990+ tests, `cargo test --workspace` |
 | `test_invocation` | MET | `cargo test --workspace --locked` |
 | `test_most` | MET | Unit + integration + adversarial + property-based tests |
 | `test_continuous_integration` | MET | GitHub Actions CI on every push/PR |
@@ -92,11 +92,11 @@ Best Practices Gold badge. Criteria are organized by category.
 | `crypto_random` | MET | Uses `rand` crate with OS entropy |
 | `delivery_mitigation` | MET | SHA-256 checksums, SLSA provenance, cargo-vet |
 | `delivery_unsigned` | MET | Release artifacts include checksums |
-| `vulnerabilities_fixed_60_days` | MET | All findings resolved (250 audit rounds, 100% resolution) |
+| `vulnerabilities_fixed_60_days` | MET | All findings resolved (254 audit rounds, 100% resolution) |
 | `no_unpatched_vulnerabilities` | MET | cargo-audit in CI, Dependabot |
 | `vulnerabilities_critical_fixed` | MET | CRITICAL findings fixed within same session |
 | `hardening` | MET | docs/HARDENING.md |
-| `security_review` | MET | docs/SECURITY_REVIEW.md (250 adversarial audit rounds) |
+| `security_review` | MET | docs/SECURITY_REVIEW.md (254 adversarial audit rounds) |
 | `dynamic_analysis` | MET | 24 fuzz targets, 5 run in CI (fuzz-ci.yml) |
 | `dynamic_analysis_unsafe` | MET | Zero `unsafe` in library code |
 | `dynamic_analysis_enable_assertions` | MET | `overflow-checks = true`, debug_assertions in test profile |

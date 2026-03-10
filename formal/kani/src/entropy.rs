@@ -90,15 +90,15 @@ mod tests {
 
     #[test]
     fn test_always_finite_non_negative() {
-        let test_cases: Vec<Vec<u8>> = vec![
-            vec![0],
-            vec![0, 1],
-            vec![0xFF; 1000],
-            (0..=255).collect(),
-        ];
+        let test_cases: Vec<Vec<u8>> =
+            vec![vec![0], vec![0, 1], vec![0xFF; 1000], (0..=255).collect()];
         for data in &test_cases {
             let e = compute_entropy(data);
-            assert!(e.is_finite(), "Entropy not finite for input len {}", data.len());
+            assert!(
+                e.is_finite(),
+                "Entropy not finite for input len {}",
+                data.len()
+            );
             assert!(e >= 0.0, "Entropy negative for input len {}", data.len());
             assert!(e <= 8.0, "Entropy > 8.0 for input len {}", data.len());
         }

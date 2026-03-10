@@ -136,15 +136,23 @@ fn segments_to_ipv4(seg6: u16, seg7: u16) -> [u8; 4] {
 /// Verbatim logic from production `extract_embedded_ipv4`.
 pub fn extract_embedded_ipv4_from_segments(segs: [u16; 8]) -> Option<[u8; 4]> {
     // 1. IPv4-mapped: ::ffff:x.x.x.x
-    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
-        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0xffff
+    if segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0xffff
     {
         return Some(segments_to_ipv4(segs[6], segs[7]));
     }
 
     // 2. IPv4-compatible: ::x.x.x.x (deprecated but still routable)
-    if segs[0] == 0 && segs[1] == 0 && segs[2] == 0
-        && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    if segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
         && !(segs[6] == 0 && segs[7] <= 1)
     {
         return Some(segments_to_ipv4(segs[6], segs[7]));
@@ -166,8 +174,12 @@ pub fn extract_embedded_ipv4_from_segments(segs: [u16; 8]) -> Option<[u8; 4]> {
     }
 
     // 5. NAT64 well-known: 64:ff9b::/96 — IPv4 in segments 6-7
-    if segs[0] == 0x0064 && segs[1] == 0xff9b
-        && segs[2] == 0 && segs[3] == 0 && segs[4] == 0 && segs[5] == 0
+    if segs[0] == 0x0064
+        && segs[1] == 0xff9b
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
     {
         return Some(segments_to_ipv4(segs[6], segs[7]));
     }
@@ -185,11 +197,23 @@ pub fn extract_embedded_ipv4_from_segments(segs: [u16; 8]) -> Option<[u8; 4]> {
 /// Verbatim from production `is_private_ip` IPv6 branch.
 pub fn is_private_ipv6_segments(segs: [u16; 8]) -> bool {
     // ::1 — loopback
-    let is_loopback = segs[0] == 0 && segs[1] == 0 && segs[2] == 0 && segs[3] == 0
-        && segs[4] == 0 && segs[5] == 0 && segs[6] == 0 && segs[7] == 1;
+    let is_loopback = segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
+        && segs[6] == 0
+        && segs[7] == 1;
     // :: — unspecified
-    let is_unspecified = segs[0] == 0 && segs[1] == 0 && segs[2] == 0 && segs[3] == 0
-        && segs[4] == 0 && segs[5] == 0 && segs[6] == 0 && segs[7] == 0;
+    let is_unspecified = segs[0] == 0
+        && segs[1] == 0
+        && segs[2] == 0
+        && segs[3] == 0
+        && segs[4] == 0
+        && segs[5] == 0
+        && segs[6] == 0
+        && segs[7] == 0;
     // fc00::/7 — ULA
     let is_ula = (segs[0] & 0xfe00) == 0xfc00;
     // fe80::/10 — link-local
@@ -253,13 +277,19 @@ mod tests {
     fn test_embedded_ipv4_parity() {
         // Must agree with is_private_ipv4 for all tested addresses
         for octets in [
-            [127, 0, 0, 1], [10, 0, 0, 1], [192, 168, 1, 1], [100, 64, 0, 1],
-            [8, 8, 8, 8], [1, 1, 1, 1], [172, 16, 0, 1],
+            [127, 0, 0, 1],
+            [10, 0, 0, 1],
+            [192, 168, 1, 1],
+            [100, 64, 0, 1],
+            [8, 8, 8, 8],
+            [1, 1, 1, 1],
+            [172, 16, 0, 1],
         ] {
             assert_eq!(
                 is_private_ipv4(octets),
                 is_embedded_ipv4_reserved(octets),
-                "Parity mismatch for {:?}", octets
+                "Parity mismatch for {:?}",
+                octets
             );
         }
     }
@@ -268,7 +298,10 @@ mod tests {
     fn test_extract_mapped() {
         // ::ffff:192.168.1.1
         let segs = [0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0101];
-        assert_eq!(extract_embedded_ipv4_from_segments(segs), Some([192, 168, 1, 1]));
+        assert_eq!(
+            extract_embedded_ipv4_from_segments(segs),
+            Some([192, 168, 1, 1])
+        );
     }
 
     #[test]
@@ -283,21 +316,30 @@ mod tests {
     fn test_extract_6to4() {
         // 2002:c0a8:0101::1 → embedded 192.168.1.1
         let segs = [0x2002, 0xc0a8, 0x0101, 0, 0, 0, 0, 1];
-        assert_eq!(extract_embedded_ipv4_from_segments(segs), Some([192, 168, 1, 1]));
+        assert_eq!(
+            extract_embedded_ipv4_from_segments(segs),
+            Some([192, 168, 1, 1])
+        );
     }
 
     #[test]
     fn test_extract_nat64() {
         // 64:ff9b::c0a8:0101 → embedded 192.168.1.1
         let segs = [0x0064, 0xff9b, 0, 0, 0, 0, 0xc0a8, 0x0101];
-        assert_eq!(extract_embedded_ipv4_from_segments(segs), Some([192, 168, 1, 1]));
+        assert_eq!(
+            extract_embedded_ipv4_from_segments(segs),
+            Some([192, 168, 1, 1])
+        );
     }
 
     #[test]
     fn test_extract_nat64_local() {
         // 64:ff9b:1::c0a8:0101 → embedded 192.168.1.1
         let segs = [0x0064, 0xff9b, 0x0001, 0, 0, 0, 0xc0a8, 0x0101];
-        assert_eq!(extract_embedded_ipv4_from_segments(segs), Some([192, 168, 1, 1]));
+        assert_eq!(
+            extract_embedded_ipv4_from_segments(segs),
+            Some([192, 168, 1, 1])
+        );
     }
 
     #[test]

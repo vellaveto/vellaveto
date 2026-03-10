@@ -59,7 +59,12 @@ pub fn is_cacheable_context(fields: &CacheabilityFields) -> bool {
 ///
 /// Extracted from the inline check in `DecisionCache::get`.
 /// Entry is valid only when both generation matches AND TTL has not elapsed.
-pub fn is_stale(entry_generation: u64, current_generation: u64, elapsed_ms: u64, ttl_ms: u64) -> bool {
+pub fn is_stale(
+    entry_generation: u64,
+    current_generation: u64,
+    elapsed_ms: u64,
+    ttl_ms: u64,
+) -> bool {
     entry_generation != current_generation || elapsed_ms >= ttl_ms
 }
 

@@ -12,9 +12,9 @@ Terraform provider, VS Code extension, Helm chart, and CI/CD infrastructure.
 
 ## Methodology
 
-### Automated Adversarial Auditing (Bottega Protocol)
+### Automated Adversarial Auditing (Swarm Protocol)
 
-Vellaveto uses a multi-agent adversarial audit system called Bottega. Over 250
+Vellaveto uses a multi-agent adversarial audit system. Over 254
 audit rounds, a dedicated adversarial agent systematically attacks the codebase
 using a structured methodology:
 
@@ -25,12 +25,12 @@ using a structured methodology:
 3. **Fuzzing** — 24 fuzz targets covering parsers, validators, and security
    boundaries (injection, path normalization, domain extraction, DLP, policy
    compilation)
-4. **Formal verification** — 756+ verification instances across 7 tools:
-   Verus (523 verified items on actual Rust, ALL inputs via Z3 SMT), Kani
-   (82 bounded model checking harnesses on actual Rust), TLA+ (64 properties:
-   policy engine, ABAC, workflow, task lifecycle, cascading failure, credential
-   vault, audit chain, capability delegation), Coq (45 theorems), Lean 4 (32
-   theorems), Alloy (10 assertions)
+4. **Formal verification** — 767+ verification instances across Verus,
+   Kani, TLA+, Coq, Lean 4, and Alloy: Verus (534 verified items on actual
+   Rust, ALL inputs via Z3 SMT), Kani (82 bounded model checking harnesses on
+   actual Rust), TLA+ (64 properties: policy engine, ABAC, workflow, task
+   lifecycle, cascading failure, credential vault, audit chain, capability
+   delegation), Coq (45 theorems), Lean 4 (32 theorems), Alloy (10 assertions)
 
 ### Threat Intelligence Integration
 
@@ -44,8 +44,8 @@ Puppetry injection, and SANDWORM supply chain worm hardening.
 
 | Metric | Value |
 |--------|-------|
-| Total audit rounds | 250 |
-| Total findings | 1,700+ |
+| Total audit rounds | 254 |
+| Total findings | 1,720+ |
 | Findings resolved | 100% |
 | CRITICAL findings | ~40 |
 | HIGH findings | ~200 |
@@ -87,8 +87,8 @@ Puppetry injection, and SANDWORM supply chain worm hardening.
 ## Additional Assurance
 
 - **24 fuzz targets** covering all security-critical parsers
-- **9,900+ unit and integration tests** with adversarial test cases
-- **Formal proofs** in 5 verification frameworks (TLA+, Alloy, Kani, Lean 4, Coq)
+- **10,990+ Rust unit and integration tests** with adversarial test cases
+- **Formal proofs** in 6 verification frameworks (Verus, TLA+, Alloy, Kani, Lean 4, Coq)
 - **Supply chain**: cargo-vet audits, cargo-deny license/advisory checks,
   GitHub Actions pinned to SHA, SLSA provenance, SBOM generation
 - **OpenSSF Scorecard**: Automated security posture assessment

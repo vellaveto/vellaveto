@@ -129,9 +129,7 @@ pub fn apply_policy_verified(
     let rule_override_deny = path_deny || network_deny || ip_deny;
 
     // Context deny: conditions exist, context provided, but condition failed
-    let effective_context_deny = has_context_conditions
-        && context_provided
-        && context_deny;
+    let effective_context_deny = has_context_conditions && context_provided && context_deny;
 
     // Context missing when required: also a deny
     let context_missing_deny = has_context_conditions && !context_provided;
@@ -197,8 +195,7 @@ mod tests {
     #[test]
     fn test_path_deny_produces_deny() {
         let v = apply_policy_inline(
-            true, false, false, false, false, true, true, false, false,
-            None, false, false, false,
+            true, false, false, false, false, true, true, false, false, None, false, false, false,
         );
         assert_eq!(v, InlineVerdict::Deny);
     }
@@ -206,8 +203,7 @@ mod tests {
     #[test]
     fn test_context_deny_produces_deny() {
         let v = apply_policy_inline(
-            false, false, false, true, true, true, true, false, false,
-            None, false, false, false,
+            false, false, false, true, true, true, true, false, false, None, false, false, false,
         );
         assert_eq!(v, InlineVerdict::Deny);
     }
@@ -215,8 +211,7 @@ mod tests {
     #[test]
     fn test_allow_type_produces_allow() {
         let v = apply_policy_inline(
-            false, false, false, false, false, true, true, false, false,
-            None, false, false, false,
+            false, false, false, false, false, true, true, false, false, None, false, false, false,
         );
         assert_eq!(v, InlineVerdict::Allow);
     }
@@ -224,8 +219,7 @@ mod tests {
     #[test]
     fn test_unknown_type_deny() {
         let v = apply_policy_inline(
-            false, false, false, false, false, true, false, false, false,
-            None, false, false, false,
+            false, false, false, false, false, true, false, false, false, None, false, false, false,
         );
         assert_eq!(v, InlineVerdict::Deny);
     }

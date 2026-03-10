@@ -64,7 +64,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9-V10 | Engine path normalization kernel idempotence + no-traversal on actual Rust |
-| `kani/src/proofs.rs` | Kani | K1–K77 | Bounded model checking of actual Rust (77 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K82 | Bounded model checking of actual Rust (82 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -84,9 +84,9 @@ Current formal suite across 6 tools:
 - **Verus:** 41 verified files / 534 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 10 verified (`verified_capability_coverage.rs`), 16 verified (`verified_capability_domain.rs`), 9 verified (`verified_capability_path.rs`), 8 verified (`verified_capability_selection.rs`), 12 verified (`verified_capability_context.rs`), 11 verified (`verified_context_delegation.rs`), 11 verified (`verified_capability_delegation_context.rs`), 12 verified (`verified_bridge_principal.rs`), 7 verified (`verified_delegation_projection.rs`), 9 verified (`verified_deputy_handoff.rs`), 9 verified (`verified_evaluation_context_projection.rs`), 9 verified (`verified_approval_scope.rs`), 7 verified (`verified_approval_consumption.rs`), 6 verified (`verified_presented_approval_id.rs`), 6 verified (`verified_server_approval_id.rs`), 10 verified (`verified_transport_context.rs`), 19 verified (`verified_capability_glob.rs`), 11 verified (`verified_capability_glob_subset.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 15 verified (`verified_capability_verification.rs`), 15 verified (`verified_deputy.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 9 verified (`verified_nhi_graph.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), 16 verified (`verified_refinement_safety.rs`), and 11 verified (`verified_acis_envelope.rs`)
 - **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
 - **Alloy:** 10 assertions (2 models)
-- **Lean 4:** 30 theorems (5 files, no `sorry`)
-- **Coq:** 43 theorems (8 files, no `Admitted`)
-- **Kani:** 77 proof harnesses on actual Rust code (bounded) — K1-K82
+- **Lean 4:** 32 theorems (5 files, no `sorry`)
+- **Coq:** 45 theorems (8 files, no `Admitted`)
+- **Kani:** 82 proof harnesses on actual Rust code (bounded) — K1-K82
 
 ## Coverage Matrix
 
@@ -252,7 +252,7 @@ formal/
     README.md                        ← Kani setup and usage guide
     src/
       lib.rs                         ← Crate root (K1-K82 property catalog)
-      proofs.rs                      ← Proof harnesses (77 harnesses)
+      proofs.rs                      ← Proof harnesses (82 harnesses)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
@@ -625,7 +625,7 @@ cargo kani --harness proof_all_lock_poison_handlers_safe       # K68
 cargo kani --harness proof_injection_known_patterns_detected   # K77
 ```
 
-Expected output: all 77 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 82 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -821,7 +821,7 @@ each by input space coverage:
 
 Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
 stub, not the full production `evaluate_action()`. The production fail-closed
-property is proven by Verus V1/V2 on `compute_verdict` and by 10,930+ tests.
+property is proven by Verus V1/V2 on `compute_verdict` and by 10,990+ tests.
 
 ### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
 
@@ -883,7 +883,7 @@ Context conditions (time windows, call limits, agent identity, etc.) are
 modeled as a single boolean predicate. The specification verifies the
 fail-closed property: `requires_context ∧ ¬has_context → Deny`. It does not
 model each of the 17 condition types individually — those are tested by the
-10,930+ Rust unit tests.
+10,990+ Rust unit tests.
 
 ### Conditional on_no_match="continue"
 
@@ -940,7 +940,7 @@ The Verus core is the strongest verification layer.
 | Glob patterns → Wildcard + Exact | Cannot detect glob-specific matching bugs | 24 fuzz targets cover pattern compilation |
 | Path/domain subset uses set identity, not glob matching | Alloy model is more restrictive than Rust | Sound over-approximation for security |
 | ABAC CHOOSE vs priority-ordered selection | Reported policy_id may differ | Does not affect Deny/Allow decision |
-| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 10,930+ Rust unit tests |
+| Conditional policies simplified to fire/no-fire | Constraint-level deny paths not modeled | Covered by 10,990+ Rust unit tests |
 | Lean/Coq grant subset uses exact-pattern + depth preorder | Simpler than Rust glob/path/domain coverage, so it does not prove full runtime containment | Alloy + Kani + Rust tests cover the broader delegation surface |
 | K9 simplified IDNA (lowercase + trim only) | Cannot detect full IDNA normalization bugs | Full IDNA tested by 200+ unit tests and fuzz targets |
 | Kani sort omits production's 3rd ID tiebreaker | Sort order may differ when priority and type are equal | Does not affect V6/V7 safety; determinism tested by unit tests |
@@ -968,15 +968,15 @@ forward simulation proof.
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **534 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH, ACIS-ENV-1–ACIS-ENV-7 + 4 executable guards)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **77 proof harnesses (K1-K82)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **82 proof harnesses (K1-K82)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
-| **Lean 4 (deductive)** | **Proof assistant** | **5 files, 30 theorems** |
-| **Coq (deductive)** | **Proof assistant** | **8 files, 43 theorems** |
+| **Lean 4 (deductive)** | **Proof assistant** | **5 files, 32 theorems** |
+| **Coq (deductive)** | **Proof assistant** | **8 files, 45 theorems** |
 
 The three-layer verification architecture:
 - **Layer 3 (TLA+):** Proves protocol design is correct (no deadlocks, no safety violations)
-- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,930+ tests)
+- **Layer 2 (Verus):** Proves core Rust code correct for ALL inputs (narrow refinement gap — production inlines structurally equivalent logic, verified by debug assertions and 10,990+ tests)
 - **Layer 1 (Kani):** Proves wrapper Rust code correct within bounds (bridges Verus trust boundary)
 - **Lean/Coq/Alloy:** Defense-in-depth mathematical proofs on abstract models
-- **Tests:** Concrete execution verification (10,930+ tests + 24 fuzz targets)
+- **Tests:** Concrete execution verification (10,990+ tests + 24 fuzz targets)

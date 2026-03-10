@@ -2,7 +2,7 @@
 
 ## The Problem
 
-VellaVeto has 767+ verification instances across 7 tools (TLA+, Lean 4, Coq, Alloy, Kani, Verus, and the MCPSEC benchmark) — more formal verification than any MCP security tool and most security middleware. But the verification has a structural weakness: the TLA+, Lean, and Coq proofs operate on abstract mathematical models, while the production code is 39K lines of Rust with String operations, HashMaps, glob matching, serde deserialization, and Unicode normalization. The models prove properties about idealized policy evaluation. The Rust code does the actual policy evaluation. The correspondence between them is informal — tested by 10,930+ tests and 24 fuzz targets, but not proven.
+VellaVeto has 767+ verification instances across 7 tools (TLA+, Lean 4, Coq, Alloy, Kani, Verus, and the MCPSEC benchmark) — more formal verification than any MCP security tool and most security middleware. But the verification has a structural weakness: the TLA+, Lean, and Coq proofs operate on abstract mathematical models, while the production code is 39K lines of Rust with String operations, HashMaps, glob matching, serde deserialization, and Unicode normalization. The models prove properties about idealized policy evaluation. The Rust code does the actual policy evaluation. The correspondence between them is informal — tested by 10,990+ tests and 24 fuzz targets, but not proven.
 
 This plan closes that gap using Verus to prove properties directly on the Rust code that rustc compiles into the binary. No separate reference model. No differential testing against a reference implementation. The proof applies to what ships.
 
@@ -27,7 +27,7 @@ Layer 1: Implementation       Kani bounded model checking
                               (14 harnesses → 34)
 ```
 
-TLA+ proves the protocol design is free of deadlocks, safety violations, and liveness failures. Verus proves the core verdict computation and DLP buffer arithmetic are correct for all possible inputs, on the actual Rust source. Kani proves the wrapper code — String matching, glob compilation, Unicode normalization, HashMap operations — is correct within bounded inputs, also on the actual Rust source. The existing Lean 4 (30 theorems), Coq (43 theorems), and Alloy (10 assertions) proofs remain as defense-in-depth. They are maintained and run in CI, but not expanded — new work goes to Verus and Kani.
+TLA+ proves the protocol design is free of deadlocks, safety violations, and liveness failures. Verus proves the core verdict computation and DLP buffer arithmetic are correct for all possible inputs, on the actual Rust source. Kani proves the wrapper code — String matching, glob compilation, Unicode normalization, HashMap operations — is correct within bounded inputs, also on the actual Rust source. The existing Lean 4 (32 theorems), Coq (45 theorems), and Alloy (10 assertions) proofs remain as defense-in-depth. They are maintained and run in CI, but not expanded — new work goes to Verus and Kani.
 
 Each layer has an explicit trust boundary. TLA+ trusts that the code correctly implements the design (manual correspondence). Verus trusts Z3, the Verus verifier, and rustc codegen. Kani trusts CBMC and the sufficiency of its bounds. All of this is documented in the Trusted Computing Base.
 
@@ -799,7 +799,7 @@ Each phase delivers independent value. If bandwidth runs short, cut from the bot
 
 5 files: FailClosed, Determinism, AbacForbidOverride, CapabilityDelegation, PathNormalization.
 
-### Coq: Redundant Verification (maintained, 43 theorems)
+### Coq: Redundant Verification (maintained, 45 theorems)
 
 8 files covering S1, S5, S7-S16, C1-C5, T1-T3, determinism, path idempotence.
 

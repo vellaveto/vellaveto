@@ -175,21 +175,29 @@ mod tests {
 
     #[test]
     fn test_network_idna_fail_deny() {
-        assert!(check_network_rules_decision(false, false, false, false, false, true));
+        assert!(check_network_rules_decision(
+            false, false, false, false, false, true
+        ));
     }
 
     #[test]
     fn test_ip_no_resolved_deny() {
-        assert!(check_ip_rules_decision(true, true, false, false, false, false, false));
+        assert!(check_ip_rules_decision(
+            true, true, false, false, false, false, false
+        ));
     }
 
     #[test]
     fn test_ip_private_blocked() {
-        assert!(check_ip_rules_decision(true, false, true, true, false, false, false));
+        assert!(check_ip_rules_decision(
+            true, false, true, true, false, false, false
+        ));
     }
 
     #[test]
     fn test_ip_no_rules_pass() {
-        assert!(!check_ip_rules_decision(false, false, false, false, false, false, false));
+        assert!(!check_ip_rules_decision(
+            false, false, false, false, false, false, false
+        ));
     }
 }

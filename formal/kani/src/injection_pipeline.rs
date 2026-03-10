@@ -293,7 +293,9 @@ mod tests {
     #[test]
     fn test_clean_input_no_detection() {
         assert!(!contains_critical_pattern("hello world, how are you?"));
-        assert!(!contains_critical_pattern("please read the file at /tmp/data.txt"));
+        assert!(!contains_critical_pattern(
+            "please read the file at /tmp/data.txt"
+        ));
     }
 
     #[test]

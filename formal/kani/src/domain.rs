@@ -31,10 +31,7 @@
 /// Abstracted from production `normalize_domain_for_match`.
 /// The `idna_result` parameter replaces the `idna::domain_to_ascii` call,
 /// allowing Kani to explore both success and failure paths.
-pub fn normalize_domain_for_match(
-    s: &str,
-    idna_result: Result<String, ()>,
-) -> Option<String> {
+pub fn normalize_domain_for_match(s: &str, idna_result: Result<String, ()>) -> Option<String> {
     // Strip trailing dots first
     let stripped = s.trim_end_matches('.');
 
@@ -144,10 +141,7 @@ mod tests {
     #[test]
     fn test_idna_failure_non_ascii() {
         // Non-ASCII domain where IDNA fails → None (fail-closed)
-        assert_eq!(
-            normalize_domain_for_match("münchen.de", Err(())),
-            None
-        );
+        assert_eq!(normalize_domain_for_match("münchen.de", Err(())), None);
     }
 
     #[test]

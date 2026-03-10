@@ -2,8 +2,8 @@
 
 > **Version:** 3.0.0
 > **Date:** 2026-03-06
-> **Status:** Phases 0–72 complete (767+ verification instances across 7 tools)
-> **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the full roadmap
+> **Status:** Formal foundation current (767+ verification instances across Verus, Kani, TLA+, Coq, Lean 4, and Alloy)
+> **Plan:** See [FORMAL_VERIFICATION_PLAN.md](FORMAL_VERIFICATION_PLAN.md) for the proof-program detail and [../ROADMAP.md](../ROADMAP.md) for 2026 execution sequencing
 
 This document defines what Vellaveto formally verifies, what it trusts, and
 what it does not verify. It is the authoritative reference for all "formally
@@ -37,7 +37,7 @@ SCOPE:    TLA+/Lean/Coq prove the property on abstract models with parameterized
           for ALL possible inputs (deductive, no bounds). Kani proves it on
           actual Rust code with empty policy sets and error paths.
 TRUST:    The correspondence between abstract matching predicates and the Rust
-          implementation's glob/regex/exact matching is tested (10,200+ tests,
+          implementation's glob/regex/exact matching is tested (10,990+ tests,
           24 fuzz targets) but not formally proven. The Verus proof closes the
           gap for the core verdict computation — it operates on actual Rust code.
 MAPS TO:  vellaveto-engine/src/lib.rs, vellaveto-engine/src/verified_core.rs
@@ -261,7 +261,7 @@ logic that also handles context conditions, policy compilation, and ABAC
 evaluation. The Verus-verified `compute_verdict` operates on pre-resolved
 `ResolvedMatch` entries; production constructs these entries inline.
 Equivalence is verified by `debug_assert_verified_*` spot-checks (debug builds
-only) and 10,200+ unit/integration tests — not by a formal refinement proof.
+only) and 10,990+ unit/integration tests — not by a formal refinement proof.
 
 #### Cross-Call DLP (D1-D6, 14 verified)
 
@@ -296,7 +296,7 @@ Path idempotence is also independently proved in Lean, Coq, and Kani.
 
 Source: `formal/verus/verified_core.rs` (lemma_path_block_is_deny, lemma_network_block_is_deny)
 
-### 1.6 Kani Bounded Model Checking (77 harnesses on actual Rust)
+### 1.6 Kani Bounded Model Checking (82 harnesses on actual Rust)
 
 #### K1-K9: Core Properties
 
@@ -520,10 +520,10 @@ These properties are intentionally NOT formally verified. Each has a rationale.
 | **Pattern completeness** (injection scanner) | Inherently open-ended (175+ patterns, evolving threat landscape) | 24 fuzz targets, encoding invariance tests, threat intelligence updates |
 | **Distributed consensus** (cluster mode) | Redis-backed, single-writer per session | Not a consensus problem; Redis guarantees tested empirically |
 | **Async Rust** | Unsupported by Verus, Kani, and all Rust verification tools | Engine core is synchronous by design. Async only in I/O layers. |
-| **Compiled/legacy path equivalence** | Two evaluation paths should produce identical verdicts | Production inlines structurally equivalent logic rather than calling `compute_verdict` directly. Equivalence verified by `debug_assert_verified_*` checks (debug builds) and 10,200+ unit tests. |
+| **Compiled/legacy path equivalence** | Two evaluation paths should produce identical verdicts | Production inlines structurally equivalent logic rather than calling `compute_verdict` directly. Equivalence verified by `debug_assert_verified_*` checks (debug builds) and 10,990+ unit tests. |
 | **Glob/regex compilation correctness** | Complex interaction of glob library + Unicode normalization | 24 fuzz targets + 200+ unit tests. Glob library widely deployed. |
 | **Injection scanner recall** | Cannot prove "all injections detected" | Defense-in-depth: multiple detection layers, encoding normalization |
-| **`ResolvedMatch` construction** | Production builds `ResolvedMatch` entries inline (not via `compute_verdict`). Phase 9 (K46-K48) formally verifies the inline decision tree produces equivalent verdicts. Remaining gap: ABAC evaluation and context condition evaluation produce booleans fed into the decision tree — these are not individually verified but covered by 10,200+ tests. |
+| **`ResolvedMatch` construction** | Production builds `ResolvedMatch` entries inline (not via `compute_verdict`). Phase 9 (K46-K48) formally verifies the inline decision tree produces equivalent verdicts. Remaining gap: ABAC evaluation and context condition evaluation produce booleans fed into the decision tree — these are not individually verified but covered by 10,990+ tests. |
 | **`compute_overlap_region_size` / `overlap_covers_secret`** | Helper functions for DLP overlap analysis not in Verus | Covered by Kani K21 (bounded) and K22 (saturating). Verus proves the core `overlap_completeness_lemma` (D6) but not these wrappers. |
 | **SDK payload conformance** | 4 SDKs (Python/TypeScript/Go/Java) must match server format | SDK-specific test suites. Not formally linked to server types. |
 
@@ -590,18 +590,18 @@ PR-level gating on security-critical paths will be added for:
 
 | Metric | Count |
 |--------|-------|
-| TLA+ safety invariants | 34 |
-| TLA+ liveness properties | 8 |
+| TLA+ safety invariants | 51 |
+| TLA+ liveness properties | 13 |
 | Alloy assertions | 10 |
-| Lean 4 theorems | 30 |
-| Coq theorems | 43 |
-| Verus proofs (ALL inputs, deductive) | 40 |
-| Kani proof harnesses (bounded) | 77 |
-| **Total verification instances** | **264** |
-| Rust unit/integration tests | 10,200+ |
+| Lean 4 theorems | 32 |
+| Coq theorems | 45 |
+| Verus verified items (ALL inputs, deductive) | 534 |
+| Kani proof harnesses (bounded) | 82 |
+| **Total verification instances** | **767+** |
+| Rust unit/integration tests | 10,990+ |
 | Fuzz targets | 24 |
 | Property-based tests (proptest) | ~50 |
-| Audit rounds | 235 |
+| Audit rounds | 254 |
 
 ---
 

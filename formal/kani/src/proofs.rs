@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 77 harnesses verifying security properties using CBMC bounded model
+//! 82 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)

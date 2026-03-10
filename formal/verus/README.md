@@ -24,7 +24,7 @@ Each standalone kernel now binds itself to a checker-enforced kernel-scoped
 assumption contract rather than the whole shared boundary.
 The Merkle and audit-filesystem trust boundaries are also mirrored as explicit
 Verus axiom modules under `formal/verus/`.
-The current suite covers 40 standalone kernels / 523 verified items.
+The current suite covers 41 standalone kernels / 534 verified items.
 The canonical multi-file entrypoint is now
 `cargo-verus verify --manifest-path formal/verus/Cargo.toml`.
 The local shell wrapper keeps a direct per-file `verus` fallback unless

@@ -120,8 +120,12 @@ mod tests {
     #[test]
     fn test_all_skipped_detected() {
         let constraints = vec![
-            ConstraintEval { was_evaluated: false },
-            ConstraintEval { was_evaluated: false },
+            ConstraintEval {
+                was_evaluated: false,
+            },
+            ConstraintEval {
+                was_evaluated: false,
+            },
         ];
         assert!(detect_all_skipped(&constraints));
     }
@@ -129,8 +133,12 @@ mod tests {
     #[test]
     fn test_not_all_skipped() {
         let constraints = vec![
-            ConstraintEval { was_evaluated: false },
-            ConstraintEval { was_evaluated: true },
+            ConstraintEval {
+                was_evaluated: false,
+            },
+            ConstraintEval {
+                was_evaluated: true,
+            },
         ];
         assert!(!detect_all_skipped(&constraints));
     }
