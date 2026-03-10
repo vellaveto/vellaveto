@@ -33,6 +33,7 @@ vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.2" }
 vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.2" }
 vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.2" }
 vellaveto-config = { path = "../vellaveto-config", version = "6.0.2" }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.2" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

@@ -5413,6 +5413,7 @@ async fn test_log_entry_with_acis_persists_dedicated_envelope() {
         tenant_id: Some("tenant-123".to_string()),
         agent_identity: None,
         agent_id: Some("agent-a".to_string()),
+        client_provenance: None,
         action_summary: AcisActionSummary {
             tool: "file".to_string(),
             function: "read".to_string(),
@@ -5426,6 +5427,12 @@ async fn test_log_entry_with_acis_persists_dedicated_envelope() {
         matched_policy_id: Some("file:read".to_string()),
         transport: "http".to_string(),
         findings: vec![],
+        semantic_taint: vec![],
+        lineage_refs: vec![],
+        effective_trust_tier: None,
+        sink_class: None,
+        containment_mode: None,
+        semantic_risk_score: None,
         evaluation_us: Some(42),
         call_chain_depth: 0,
     };
@@ -5463,6 +5470,7 @@ async fn test_log_entry_with_acis_rejects_invalid_envelope() {
         tenant_id: None,
         agent_identity: None,
         agent_id: None,
+        client_provenance: None,
         action_summary: vellaveto_types::AcisActionSummary {
             tool: String::new(), // ← empty, must fail validation
             function: "read_file".to_string(),
@@ -5476,6 +5484,12 @@ async fn test_log_entry_with_acis_rejects_invalid_envelope() {
         matched_policy_id: None,
         transport: "http".to_string(),
         findings: vec![],
+        semantic_taint: vec![],
+        lineage_refs: vec![],
+        effective_trust_tier: None,
+        sink_class: None,
+        containment_mode: None,
+        semantic_risk_score: None,
         evaluation_us: None,
         call_chain_depth: 0,
     };
@@ -5513,6 +5527,7 @@ async fn test_log_entry_with_acis_rejects_dangerous_chars_in_decision_id() {
         tenant_id: None,
         agent_identity: None,
         agent_id: None,
+        client_provenance: None,
         action_summary: vellaveto_types::AcisActionSummary {
             tool: "file_system".to_string(),
             function: "read_file".to_string(),
@@ -5526,6 +5541,12 @@ async fn test_log_entry_with_acis_rejects_dangerous_chars_in_decision_id() {
         matched_policy_id: None,
         transport: "http".to_string(),
         findings: vec![],
+        semantic_taint: vec![],
+        lineage_refs: vec![],
+        effective_trust_tier: None,
+        sink_class: None,
+        containment_mode: None,
+        semantic_risk_score: None,
         evaluation_us: None,
         call_chain_depth: 0,
     };

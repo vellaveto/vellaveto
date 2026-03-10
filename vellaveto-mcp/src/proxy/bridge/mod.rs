@@ -30,6 +30,7 @@ use vellaveto_types::Policy;
 
 use crate::auth_level::AuthLevelTracker;
 use crate::inspection::InjectionScanner;
+use crate::mediation::MediationConfig;
 use crate::output_validation::OutputSchemaRegistry;
 pub use crate::rug_pull::ToolAnnotations;
 use crate::sampling_detector::SamplingDetector;
@@ -92,6 +93,9 @@ pub struct ProxyBridge {
     /// Tool registry for tracking tool trust scores (P2.1).
     /// None when tool registry is disabled.
     tool_registry: Option<Arc<crate::tool_registry::ToolRegistry>>,
+    /// Canonical mediation settings used by the stdio bridge after the relay's
+    /// transport-specific prechecks have run.
+    mediation_config: MediationConfig,
 
     // ═══════════════════════════════════════════════════════════════════
     // Phase 1 & 2 Security Managers (Phase 3.1 Integration)
@@ -273,6 +277,13 @@ impl ProxyBridge {
             elicitation_config: vellaveto_config::ElicitationConfig::default(),
             sampling_config: vellaveto_config::SamplingConfig::default(),
             tool_registry: None,
+            mediation_config: MediationConfig {
+                dlp_enabled: false,
+                dlp_blocking: false,
+                injection_enabled: false,
+                injection_blocking: false,
+                ..MediationConfig::default()
+            },
             // Phase 1 & 2 managers (default: disabled)
             task_state: None,
             auth_level: None,

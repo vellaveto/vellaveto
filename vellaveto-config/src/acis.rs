@@ -53,6 +53,31 @@ pub struct AcisConfig {
     #[serde(default)]
     pub require_agent_identity: bool,
 
+    /// Require a verified client request signature before mediation.
+    /// Default: `false`.
+    #[serde(default)]
+    pub require_verified_signature: bool,
+
+    /// Require workload binding evidence to succeed when provenance is present.
+    /// Default: `false`.
+    #[serde(default)]
+    pub require_workload_binding: bool,
+
+    /// Deny requests marked as replays by the transport security context.
+    /// Default: `false`.
+    #[serde(default)]
+    pub deny_replay: bool,
+
+    /// Block privileged sinks when the request carries security-relevant taint.
+    /// Default: `false`.
+    #[serde(default)]
+    pub block_tainted_privileged_sinks: bool,
+
+    /// Require lineage evidence before privileged sinks may proceed.
+    /// Default: `false`.
+    #[serde(default)]
+    pub require_lineage_for_privileged_sinks: bool,
+
     /// Include evaluation timing (`evaluation_us`) in envelopes.
     /// Default: `true`.
     #[serde(default = "default_include_timing")]
@@ -102,6 +127,11 @@ impl Default for AcisConfig {
             emit_envelopes: default_emit_envelopes(),
             require_session_id: false,
             require_agent_identity: false,
+            require_verified_signature: false,
+            require_workload_binding: false,
+            deny_replay: false,
+            block_tainted_privileged_sinks: false,
+            require_lineage_for_privileged_sinks: false,
             include_timing: default_include_timing(),
             include_findings: default_include_findings(),
             default_transport: default_transport(),
@@ -196,6 +226,11 @@ mod tests {
         assert!(cfg.include_findings);
         assert!(!cfg.require_session_id);
         assert!(!cfg.require_agent_identity);
+        assert!(!cfg.require_verified_signature);
+        assert!(!cfg.require_workload_binding);
+        assert!(!cfg.deny_replay);
+        assert!(!cfg.block_tainted_privileged_sinks);
+        assert!(!cfg.require_lineage_for_privileged_sinks);
         assert_eq!(cfg.default_transport, "stdio");
     }
 
@@ -281,6 +316,11 @@ mod tests {
             emit_envelopes: true,
             require_session_id: true,
             require_agent_identity: false,
+            require_verified_signature: true,
+            require_workload_binding: true,
+            deny_replay: true,
+            block_tainted_privileged_sinks: true,
+            require_lineage_for_privileged_sinks: true,
             include_timing: true,
             include_findings: true,
             default_transport: "http".into(),

@@ -17,17 +17,20 @@ use super::ToolAnnotations;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use vellaveto_audit::AuditLogger;
-use vellaveto_types::AgentFingerprint;
+use vellaveto_types::{Action, AgentFingerprint, RuntimeSecurityContext, SinkClass};
 
 impl ProxyBridge {
+    fn rpc_meta(msg: &Value) -> Option<&Value> {
+        msg.get("_meta")
+            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")))
+    }
+
     /// Extract agent fingerprint from MCP message `_meta` field.
     ///
     /// MCP 2025-11-25 allows clients to include identity information in `_meta`.
     /// This extracts fingerprint components if present.
     pub(super) fn extract_fingerprint_from_meta(msg: &Value) -> AgentFingerprint {
-        let meta = msg
-            .get("_meta")
-            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")));
+        let meta = Self::rpc_meta(msg);
 
         AgentFingerprint {
             jwt_sub: meta
@@ -58,9 +61,7 @@ impl ProxyBridge {
         /// Matches `MAX_ENV_AGENT_ID_LENGTH` in relay.rs.
         const MAX_CLAIMED_AGENT_ID_LEN: usize = 256;
 
-        let meta = msg
-            .get("_meta")
-            .or_else(|| msg.get("params").and_then(|p| p.get("_meta")))?;
+        let meta = Self::rpc_meta(msg)?;
         let raw = meta
             .get("agent_id")
             .or_else(|| meta.get("agentId"))
@@ -81,6 +82,150 @@ impl ProxyBridge {
             return None;
         }
         Some(raw.to_string())
+    }
+
+    /// Extract a transport-supplied runtime security context from MCP message
+    /// metadata and fill in conservative sink classification when missing.
+    pub(super) fn build_runtime_security_context(
+        msg: &Value,
+        action: &Action,
+        annotations: Option<&ToolAnnotations>,
+    ) -> Option<RuntimeSecurityContext> {
+        let mut security_context = Self::extract_runtime_security_context(msg).unwrap_or_default();
+        if security_context.sink_class.is_none() {
+            security_context.sink_class = Self::infer_sink_class(action, annotations);
+        }
+        if security_context == RuntimeSecurityContext::default() {
+            None
+        } else {
+            Some(security_context)
+        }
+    }
+
+    fn extract_runtime_security_context(msg: &Value) -> Option<RuntimeSecurityContext> {
+        let meta = Self::rpc_meta(msg)?;
+        let candidate = meta
+            .get("vellaveto_security_context")
+            .or_else(|| meta.get("vellavetoSecurityContext"))?
+            .clone();
+        match serde_json::from_value::<RuntimeSecurityContext>(candidate) {
+            Ok(security_context) => match security_context.validate() {
+                Ok(()) => Some(security_context),
+                Err(error) => {
+                    tracing::warn!(
+                        error = %error,
+                        "Ignoring invalid vellaveto security context from MCP metadata"
+                    );
+                    None
+                }
+            },
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "Ignoring malformed vellaveto security context from MCP metadata"
+                );
+                None
+            }
+        }
+    }
+
+    fn infer_sink_class(
+        action: &Action,
+        annotations: Option<&ToolAnnotations>,
+    ) -> Option<SinkClass> {
+        let tool = action.tool.to_ascii_lowercase();
+        let function = action.function.to_ascii_lowercase();
+        let destructive_hint = annotations.is_some_and(|ann| ann.destructive_hint);
+        let read_only_hint =
+            annotations.is_some_and(|ann| ann.read_only_hint && !ann.destructive_hint);
+
+        if action.tool == "resources" && action.function == "read" {
+            return Some(SinkClass::ReadOnly);
+        }
+        if read_only_hint {
+            return Some(SinkClass::ReadOnly);
+        }
+        if Self::contains_security_keyword(&tool, &function, &["approval", "consent", "prompt"]) {
+            return Some(SinkClass::ApprovalUi);
+        }
+        if Self::contains_security_keyword(
+            &tool,
+            &function,
+            &[
+                "secret",
+                "credential",
+                "token",
+                "password",
+                "apikey",
+                "api_key",
+                "auth",
+            ],
+        ) {
+            return Some(SinkClass::CredentialAccess);
+        }
+        if Self::contains_security_keyword(
+            &tool,
+            &function,
+            &["policy", "config", "rule", "governance"],
+        ) {
+            return Some(SinkClass::PolicyMutation);
+        }
+        if Self::contains_security_keyword(&tool, &function, &["memory", "memo", "cache", "store"])
+        {
+            return Some(SinkClass::MemoryWrite);
+        }
+        if Self::contains_security_keyword(
+            &tool,
+            &function,
+            &[
+                "exec", "execute", "run", "shell", "bash", "python", "node", "script", "command",
+                "spawn", "terminal",
+            ],
+        ) {
+            return Some(SinkClass::CodeExecution);
+        }
+        if !action.target_domains.is_empty() {
+            return Some(SinkClass::NetworkEgress);
+        }
+        if !action.target_paths.is_empty() {
+            if destructive_hint || Self::looks_like_mutating_action(&tool, &function) {
+                return Some(SinkClass::FilesystemWrite);
+            }
+            return Some(SinkClass::ReadOnly);
+        }
+        if destructive_hint || Self::looks_like_mutating_action(&tool, &function) {
+            return Some(SinkClass::LowRiskWrite);
+        }
+        if Self::looks_like_read_only_action(&tool, &function) {
+            return Some(SinkClass::ReadOnly);
+        }
+        Some(SinkClass::LowRiskWrite)
+    }
+
+    fn contains_security_keyword(tool: &str, function: &str, keywords: &[&str]) -> bool {
+        keywords
+            .iter()
+            .any(|keyword| tool.contains(keyword) || function.contains(keyword))
+    }
+
+    fn looks_like_mutating_action(tool: &str, function: &str) -> bool {
+        Self::contains_security_keyword(
+            tool,
+            function,
+            &[
+                "write", "edit", "update", "delete", "remove", "create", "append", "save", "set",
+            ],
+        )
+    }
+
+    fn looks_like_read_only_action(tool: &str, function: &str) -> bool {
+        Self::contains_security_keyword(
+            tool,
+            function,
+            &[
+                "read", "get", "list", "fetch", "view", "show", "search", "query",
+            ],
+        )
     }
 
     /// Extract a presented approval ID from MCP message `_meta`.

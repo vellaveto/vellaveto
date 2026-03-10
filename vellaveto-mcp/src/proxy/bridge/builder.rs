@@ -127,6 +127,13 @@ impl ProxyBridge {
         self
     }
 
+    /// Override the canonical mediation settings used after transport-specific
+    /// prechecks in the stdio bridge.
+    pub fn with_mediation_config(mut self, config: crate::mediation::MediationConfig) -> Self {
+        self.mediation_config = config;
+        self
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // Phase 1 & 2 Manager Builder Methods (Phase 3.1 Integration)
     // ═══════════════════════════════════════════════════════════════════

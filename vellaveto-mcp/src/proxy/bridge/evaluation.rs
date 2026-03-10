@@ -17,11 +17,11 @@ use super::ToolAnnotations;
 use crate::extractor::{
     extract_action, extract_resource_action, make_approval_response, make_denial_response,
 };
-use crate::mediation::build_acis_envelope;
+use crate::mediation::{build_acis_envelope, mediate_with_security_context, MediationResult};
 use crate::proxy::types::ProxyDecision;
 use serde_json::{json, Value};
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
-use vellaveto_types::{EvaluationContext, EvaluationTrace, Verdict};
+use vellaveto_types::{EvaluationContext, EvaluationTrace, RuntimeSecurityContext, Verdict};
 
 /// Log evaluation trace details at debug level.
 fn log_trace(label: &str, trace: &EvaluationTrace) {
@@ -32,6 +32,12 @@ fn log_trace(label: &str, trace: &EvaluationTrace) {
         trace.policies_matched,
         trace.duration_us
     );
+}
+
+#[derive(Debug)]
+pub(super) struct MediatedProxyDecision {
+    pub decision: ProxyDecision,
+    pub result: MediationResult,
 }
 
 impl ProxyBridge {
@@ -225,6 +231,7 @@ impl ProxyBridge {
     /// with the HTTP/WebSocket/gRPC proxy handlers.
     ///
     /// SECURITY (FIND-R78-001): Added for DNS rebinding protection in stdio proxy.
+    #[allow(dead_code)] // Retained for focused bridge unit tests and edge-case callers.
     pub(super) fn evaluate_tool_call_with_action(
         &self,
         id: &Value,
@@ -233,74 +240,60 @@ impl ProxyBridge {
         annotations: Option<&ToolAnnotations>,
         context: Option<&EvaluationContext>,
     ) -> (ProxyDecision, Option<EvaluationTrace>) {
-        match self.evaluate_action_inner(action, context) {
-            Ok((Verdict::Allow, trace)) => {
-                if let Some(ann) = annotations {
-                    if ann.destructive_hint && !ann.read_only_hint {
-                        tracing::info!(
-                            "Allowing destructive tool '{}' (destructiveHint=true)",
-                            tool_name
-                        );
-                    }
-                }
-                if let Some(ref t) = trace {
-                    log_trace("allow", t);
-                }
-                (ProxyDecision::Forward, trace)
-            }
-            Ok((Verdict::Deny { reason }, trace)) => {
-                if let Some(ref t) = trace {
-                    log_trace("deny", t);
-                }
-                // SECURITY (R239-MCP-3): Genericize deny reason in response to avoid
-                // leaking policy details. Raw reason preserved in Verdict for audit.
-                let response =
-                    make_denial_response(id, "Request blocked: security policy violation");
-                (
-                    ProxyDecision::Block(response, Verdict::Deny { reason }),
-                    trace,
-                )
-            }
-            Ok((Verdict::RequireApproval { reason }, trace)) => {
-                if let Some(ref t) = trace {
-                    log_trace("approval", t);
-                }
-                // SECURITY (R239-MCP-3): Genericize approval reason in response.
-                let response =
-                    make_approval_response(id, "Request blocked: security policy violation");
-                (
-                    ProxyDecision::Block(response, Verdict::RequireApproval { reason }),
-                    trace,
-                )
-            }
-            // Handle future Verdict variants - fail closed (deny)
-            Ok((_, trace)) => {
-                let reason = "Unknown verdict type - failing closed".to_string();
-                (
-                    ProxyDecision::Block(
-                        make_denial_response(id, "Request blocked: security policy violation"),
-                        Verdict::Deny { reason },
-                    ),
-                    trace,
-                )
-            }
-            Err(e) => {
-                tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
-                let reason = "Policy evaluation failed".to_string();
-                (
-                    ProxyDecision::Block(
-                        make_denial_response(id, "Request blocked: security policy violation"),
-                        Verdict::Deny { reason },
-                    ),
-                    None,
-                )
-            }
-        }
+        let evaluated = self.evaluate_tool_call_with_security_context(
+            id,
+            action,
+            tool_name,
+            annotations,
+            context,
+            None,
+            None,
+            context.and_then(|ctx| ctx.tenant_id.as_deref()),
+        );
+        let trace = if self.enable_trace {
+            evaluated.result.trace.clone()
+        } else {
+            None
+        };
+        (evaluated.decision, trace)
+    }
+
+    pub(super) fn evaluate_tool_call_with_security_context(
+        &self,
+        id: &Value,
+        action: &vellaveto_types::Action,
+        tool_name: &str,
+        annotations: Option<&ToolAnnotations>,
+        context: Option<&EvaluationContext>,
+        security_context: Option<&RuntimeSecurityContext>,
+        session_id: Option<&str>,
+        tenant_id: Option<&str>,
+    ) -> MediatedProxyDecision {
+        let decision_id = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let result = mediate_with_security_context(
+            &decision_id,
+            action,
+            &self.engine,
+            context,
+            security_context,
+            "stdio",
+            &self.mediation_config,
+            session_id,
+            tenant_id,
+        );
+        let trace = if self.enable_trace {
+            result.trace.as_ref()
+        } else {
+            None
+        };
+        let decision = self.proxy_decision_from_result(id, tool_name, annotations, &result, trace);
+        MediatedProxyDecision { decision, result }
     }
 
     /// Evaluate a `resources/read` using a pre-built Action.
     ///
     /// SECURITY (FIND-R78-001): Added for DNS rebinding protection in stdio proxy.
+    #[allow(dead_code)] // Retained for focused bridge unit tests and edge-case callers.
     pub(super) fn evaluate_resource_read_with_action(
         &self,
         id: &Value,
@@ -308,42 +301,47 @@ impl ProxyBridge {
         uri: &str,
         context: Option<&EvaluationContext>,
     ) -> ProxyDecision {
-        match self.evaluate_action_inner(action, context) {
-            Ok((Verdict::Allow, trace)) => {
-                if let Some(ref t) = trace {
-                    log_trace("resource_read allow", t);
-                }
-                ProxyDecision::Forward
-            }
-            Ok((Verdict::Deny { reason }, _)) => {
-                // SECURITY (R239-MCP-3): Genericize deny reason in response.
-                let response =
-                    make_denial_response(id, "Request blocked: security policy violation");
-                ProxyDecision::Block(response, Verdict::Deny { reason })
-            }
-            Ok((Verdict::RequireApproval { reason }, _)) => {
-                // SECURITY (R239-MCP-3): Genericize approval reason in response.
-                let response =
-                    make_approval_response(id, "Request blocked: security policy violation");
-                ProxyDecision::Block(response, Verdict::RequireApproval { reason })
-            }
-            // Handle future Verdict variants - fail closed (deny)
-            Ok((_, _)) => {
-                let reason = "Unknown verdict type - failing closed".to_string();
-                ProxyDecision::Block(
-                    make_denial_response(id, "Request blocked: security policy violation"),
-                    Verdict::Deny { reason },
-                )
-            }
-            Err(e) => {
-                tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
-                let reason = "Policy evaluation failed".to_string();
-                ProxyDecision::Block(
-                    make_denial_response(id, "Request blocked: security policy violation"),
-                    Verdict::Deny { reason },
-                )
-            }
-        }
+        self.evaluate_resource_read_with_security_context(
+            id,
+            action,
+            uri,
+            context,
+            None,
+            None,
+            context.and_then(|ctx| ctx.tenant_id.as_deref()),
+        )
+        .decision
+    }
+
+    pub(super) fn evaluate_resource_read_with_security_context(
+        &self,
+        id: &Value,
+        action: &vellaveto_types::Action,
+        uri: &str,
+        context: Option<&EvaluationContext>,
+        security_context: Option<&RuntimeSecurityContext>,
+        session_id: Option<&str>,
+        tenant_id: Option<&str>,
+    ) -> MediatedProxyDecision {
+        let decision_id = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let result = mediate_with_security_context(
+            &decision_id,
+            action,
+            &self.engine,
+            context,
+            security_context,
+            "stdio",
+            &self.mediation_config,
+            session_id,
+            tenant_id,
+        );
+        let trace = if self.enable_trace {
+            result.trace.as_ref()
+        } else {
+            None
+        };
+        let decision = self.proxy_decision_from_resource_result(id, uri, &result, trace);
+        MediatedProxyDecision { decision, result }
     }
 
     /// Evaluate a `resources/read` request and decide whether to forward or block.
@@ -388,6 +386,106 @@ impl ProxyBridge {
                 ProxyDecision::Block(
                     make_denial_response(id, "Request blocked: security policy violation"),
                     Verdict::Deny { reason },
+                )
+            }
+        }
+    }
+
+    fn proxy_decision_from_result(
+        &self,
+        id: &Value,
+        tool_name: &str,
+        annotations: Option<&ToolAnnotations>,
+        result: &MediationResult,
+        trace: Option<&EvaluationTrace>,
+    ) -> ProxyDecision {
+        match &result.verdict {
+            Verdict::Allow => {
+                if let Some(ann) = annotations {
+                    if ann.destructive_hint && !ann.read_only_hint {
+                        tracing::info!(
+                            "Allowing destructive tool '{}' (destructiveHint=true)",
+                            tool_name
+                        );
+                    }
+                }
+                if let Some(trace) = trace {
+                    log_trace("allow", trace);
+                }
+                ProxyDecision::Forward
+            }
+            Verdict::Deny { reason } => {
+                if let Some(trace) = trace {
+                    log_trace("deny", trace);
+                }
+                ProxyDecision::Block(
+                    make_denial_response(id, "Request blocked: security policy violation"),
+                    Verdict::Deny {
+                        reason: reason.clone(),
+                    },
+                )
+            }
+            Verdict::RequireApproval { reason } => {
+                if let Some(trace) = trace {
+                    log_trace("approval", trace);
+                }
+                ProxyDecision::Block(
+                    make_approval_response(id, "Request blocked: security policy violation"),
+                    Verdict::RequireApproval {
+                        reason: reason.clone(),
+                    },
+                )
+            }
+            _ => {
+                if let Some(trace) = trace {
+                    log_trace("deny", trace);
+                }
+                ProxyDecision::Block(
+                    make_denial_response(id, "Request blocked: security policy violation"),
+                    Verdict::Deny {
+                        reason: "Unknown verdict type - failing closed".to_string(),
+                    },
+                )
+            }
+        }
+    }
+
+    fn proxy_decision_from_resource_result(
+        &self,
+        id: &Value,
+        uri: &str,
+        result: &MediationResult,
+        trace: Option<&EvaluationTrace>,
+    ) -> ProxyDecision {
+        match &result.verdict {
+            Verdict::Allow => {
+                if let Some(trace) = trace {
+                    log_trace("resource_read allow", trace);
+                }
+                ProxyDecision::Forward
+            }
+            Verdict::Deny { reason } => ProxyDecision::Block(
+                make_denial_response(id, "Request blocked: security policy violation"),
+                Verdict::Deny {
+                    reason: reason.clone(),
+                },
+            ),
+            Verdict::RequireApproval { reason } => ProxyDecision::Block(
+                make_approval_response(id, "Request blocked: security policy violation"),
+                Verdict::RequireApproval {
+                    reason: reason.clone(),
+                },
+            ),
+            _ => {
+                tracing::warn!(
+                    resource = %uri,
+                    "Unknown resource verdict type from mediation pipeline - failing closed"
+                );
+                ProxyDecision::Block(
+                    make_denial_response(id, "Request blocked: security policy violation"),
+                    Verdict::Deny {
+                        reason: "Unknown verdict type - failing closed".to_string(),
+                    },
                 )
             }
         }

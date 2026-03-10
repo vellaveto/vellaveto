@@ -205,6 +205,7 @@ fn test_acis_envelope_rejects_oversized_call_chain_depth() {
         tenant_id: None,
         agent_identity: None,
         agent_id: None,
+        client_provenance: None,
         action_summary: vellaveto_types::acis::AcisActionSummary {
             tool: "test".into(),
             function: "run".into(),
@@ -218,6 +219,12 @@ fn test_acis_envelope_rejects_oversized_call_chain_depth() {
         matched_policy_id: None,
         transport: "http".into(),
         findings: vec![],
+        semantic_taint: vec![],
+        lineage_refs: vec![],
+        effective_trust_tier: None,
+        sink_class: None,
+        containment_mode: None,
+        semantic_risk_score: None,
         evaluation_us: None,
         call_chain_depth: 257,
     };

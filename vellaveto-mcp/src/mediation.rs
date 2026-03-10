@@ -29,12 +29,17 @@
 
 use std::time::Instant;
 
+use vellaveto_canonical::{canonical_request_hash, CanonicalRequestInput};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::acis::{
     AcisActionSummary, AcisDecisionEnvelope, DecisionKind, DecisionOrigin,
 };
-use vellaveto_types::{Action, EvaluationContext, EvaluationTrace, Verdict};
+use vellaveto_types::{
+    is_security_relevant_taint, Action, ContainmentMode, EvaluationContext, EvaluationTrace,
+    ReplayStatus, RuntimeSecurityContext, SignatureVerificationStatus, Verdict,
+    WorkloadBindingStatus,
+};
 
 use crate::inspection;
 
@@ -80,6 +85,16 @@ pub struct MediationConfig {
     /// Require an authenticated agent identity.  When `true`, requests
     /// without agent identity produce a Deny verdict.  Default: `false`.
     pub require_agent_identity: bool,
+    /// Require a verified request signature in `client_provenance`.
+    pub require_verified_signature: bool,
+    /// Require workload binding to succeed when provenance is present.
+    pub require_workload_binding: bool,
+    /// Deny requests marked as replays in `client_provenance`.
+    pub deny_replay: bool,
+    /// Block privileged sinks when the context carries security-relevant taint.
+    pub block_tainted_privileged_sinks: bool,
+    /// Require lineage references before privileged sinks may proceed.
+    pub require_lineage_for_privileged_sinks: bool,
 }
 
 impl Default for MediationConfig {
@@ -93,6 +108,11 @@ impl Default for MediationConfig {
             include_findings: true,
             require_session_id: false,
             require_agent_identity: false,
+            require_verified_signature: false,
+            require_workload_binding: false,
+            deny_replay: false,
+            block_tainted_privileged_sinks: false,
+            require_lineage_for_privileged_sinks: false,
         }
     }
 }
@@ -131,6 +151,33 @@ pub fn mediate(
     session_id: Option<&str>,
     tenant_id: Option<&str>,
 ) -> MediationResult {
+    mediate_with_security_context(
+        decision_id,
+        action,
+        engine,
+        context,
+        None,
+        transport,
+        config,
+        session_id,
+        tenant_id,
+    )
+}
+
+/// Run the canonical mediation pipeline with optional provenance and semantic
+/// security context attached separately from the legacy evaluation context.
+#[allow(clippy::too_many_arguments)]
+pub fn mediate_with_security_context(
+    decision_id: &str,
+    action: &Action,
+    engine: &PolicyEngine,
+    context: Option<&EvaluationContext>,
+    security_context: Option<&RuntimeSecurityContext>,
+    transport: &str,
+    config: &MediationConfig,
+    session_id: Option<&str>,
+    tenant_id: Option<&str>,
+) -> MediationResult {
     let start = Instant::now();
     let dlp_findings: Vec<String> = Vec::new();
     let injection_findings: Vec<String> = Vec::new();
@@ -158,6 +205,7 @@ pub fn mediate(
             elapsed.as_micros() as u64,
             config,
             context,
+            security_context,
         );
     }
 
@@ -183,6 +231,27 @@ pub fn mediate(
             elapsed.as_micros() as u64,
             config,
             context,
+            security_context,
+        );
+    }
+
+    if let Some((verdict, origin)) = provenance_guard_verdict(config, security_context) {
+        let elapsed = start.elapsed();
+        return build_result(
+            decision_id,
+            action,
+            verdict,
+            origin,
+            None,
+            &dlp_findings,
+            &injection_findings,
+            transport,
+            session_id,
+            tenant_id,
+            elapsed.as_micros() as u64,
+            config,
+            context,
+            security_context,
         );
     }
 
@@ -214,6 +283,7 @@ pub fn mediate(
                 elapsed.as_micros() as u64,
                 config,
                 context,
+                security_context,
             );
         }
     }
@@ -245,8 +315,29 @@ pub fn mediate(
                 elapsed.as_micros() as u64,
                 config,
                 context,
+                security_context,
             );
         }
+    }
+
+    if let Some((verdict, origin)) = semantic_containment_verdict(config, security_context) {
+        let elapsed = start.elapsed();
+        return build_result(
+            decision_id,
+            action,
+            verdict,
+            origin,
+            None,
+            &dlp_findings,
+            &injection_findings,
+            transport,
+            session_id,
+            tenant_id,
+            elapsed.as_micros() as u64,
+            config,
+            context,
+            security_context,
+        );
     }
 
     // ── Step 3: Policy engine evaluation ─────────────────────────────────
@@ -284,6 +375,7 @@ pub fn mediate(
         elapsed.as_micros() as u64,
         config,
         context,
+        security_context,
     )
 }
 
@@ -304,58 +396,30 @@ fn build_result(
     evaluation_us: u64,
     config: &MediationConfig,
     context: Option<&EvaluationContext>,
+    security_context: Option<&RuntimeSecurityContext>,
 ) -> MediationResult {
-    let fingerprint = fingerprint_action(action);
-    let decision = DecisionKind::from(&verdict);
-
-    let reason = match &verdict {
-        Verdict::Allow => String::new(),
-        Verdict::Deny { reason } => reason.clone(),
-        Verdict::RequireApproval { reason } => reason.clone(),
-        _ => "unknown verdict variant".to_string(),
-    };
-
     let mut all_findings = Vec::new();
     if config.include_findings {
         all_findings.extend_from_slice(dlp_findings);
         all_findings.extend_from_slice(injection_findings);
     }
-
-    let call_chain_depth = context
-        .map(|ctx| {
-            u32::try_from(ctx.call_chain.len())
-                .unwrap_or(u32::MAX)
-                .min(256)
-        })
-        .unwrap_or(0);
-
-    let envelope = AcisDecisionEnvelope {
-        decision_id: decision_id.to_string(),
-        timestamp: now_utc(),
-        session_id: session_id.map(|s| s.to_string()),
-        tenant_id: tenant_id.map(|s| s.to_string()),
-        agent_identity: context.and_then(|ctx| ctx.agent_identity.clone()),
-        agent_id: context.and_then(|ctx| ctx.agent_id.clone()),
-        action_summary: AcisActionSummary {
-            tool: action.tool.clone(),
-            function: action.function.clone(),
-            target_path_count: u32::try_from(action.target_paths.len()).unwrap_or(u32::MAX),
-            target_domain_count: u32::try_from(action.target_domains.len()).unwrap_or(u32::MAX),
-        },
-        action_fingerprint: fingerprint,
-        decision,
+    let envelope = build_acis_envelope_with_security_context(
+        decision_id,
+        action,
+        &verdict,
         origin,
-        reason,
-        matched_policy_id: None, // Policy ID attribution is engine-internal
-        transport: transport.to_string(),
-        findings: all_findings,
-        evaluation_us: if config.include_timing {
+        transport,
+        &all_findings,
+        if config.include_timing {
             Some(evaluation_us)
         } else {
             None
         },
-        call_chain_depth,
-    };
+        session_id,
+        tenant_id,
+        context,
+        security_context,
+    );
 
     MediationResult {
         verdict,
@@ -390,6 +454,37 @@ pub fn build_acis_envelope(
     tenant_id: Option<&str>,
     context: Option<&EvaluationContext>,
 ) -> AcisDecisionEnvelope {
+    build_acis_envelope_with_security_context(
+        decision_id,
+        action,
+        verdict,
+        origin,
+        transport,
+        findings,
+        evaluation_us,
+        session_id,
+        tenant_id,
+        context,
+        None,
+    )
+}
+
+/// Build an ACIS decision envelope and enrich it with provenance and semantic
+/// containment metadata when a runtime security context is available.
+#[allow(clippy::too_many_arguments)]
+pub fn build_acis_envelope_with_security_context(
+    decision_id: &str,
+    action: &Action,
+    verdict: &Verdict,
+    origin: DecisionOrigin,
+    transport: &str,
+    findings: &[String],
+    evaluation_us: Option<u64>,
+    session_id: Option<&str>,
+    tenant_id: Option<&str>,
+    context: Option<&EvaluationContext>,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> AcisDecisionEnvelope {
     let fingerprint = fingerprint_action(action);
     let decision = DecisionKind::from(verdict);
 
@@ -407,6 +502,7 @@ pub fn build_acis_envelope(
                 .min(256)
         })
         .unwrap_or(0);
+    let client_provenance = enrich_client_provenance(action, session_id, context, security_context);
 
     AcisDecisionEnvelope {
         decision_id: decision_id.to_string(),
@@ -415,6 +511,7 @@ pub fn build_acis_envelope(
         tenant_id: tenant_id.map(|s| s.to_string()),
         agent_identity: context.and_then(|ctx| ctx.agent_identity.clone()),
         agent_id: context.and_then(|ctx| ctx.agent_id.clone()),
+        client_provenance,
         action_summary: AcisActionSummary {
             tool: action.tool.clone(),
             function: action.function.clone(),
@@ -428,6 +525,19 @@ pub fn build_acis_envelope(
         matched_policy_id: None,
         transport: transport.to_string(),
         findings: findings.to_vec(),
+        semantic_taint: security_context
+            .map(|security_context| security_context.semantic_taint.clone())
+            .unwrap_or_default(),
+        lineage_refs: security_context
+            .map(|security_context| security_context.lineage_refs.clone())
+            .unwrap_or_default(),
+        effective_trust_tier: security_context
+            .and_then(|security_context| security_context.effective_trust_tier),
+        sink_class: security_context.and_then(|security_context| security_context.sink_class),
+        containment_mode: security_context
+            .and_then(|security_context| security_context.containment_mode),
+        semantic_risk_score: security_context
+            .and_then(|security_context| security_context.semantic_risk_score),
         evaluation_us,
         call_chain_depth,
     }
@@ -469,12 +579,133 @@ fn now_utc() -> String {
         .to_string()
 }
 
+fn provenance_guard_verdict(
+    config: &MediationConfig,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> Option<(Verdict, DecisionOrigin)> {
+    let provenance = security_context
+        .and_then(|security_context| security_context.client_provenance.as_ref())?;
+
+    if config.require_verified_signature
+        && provenance.signature_status != SignatureVerificationStatus::Verified
+    {
+        return Some((
+            Verdict::Deny {
+                reason: "verified request signature required".to_string(),
+            },
+            DecisionOrigin::ProvenanceGuard,
+        ));
+    }
+
+    if config.require_workload_binding
+        && provenance.workload_binding_status != WorkloadBindingStatus::Bound
+    {
+        return Some((
+            Verdict::Deny {
+                reason: "workload binding required".to_string(),
+            },
+            DecisionOrigin::ProvenanceGuard,
+        ));
+    }
+
+    if config.deny_replay && provenance.replay_status == ReplayStatus::ReplayDetected {
+        return Some((
+            Verdict::Deny {
+                reason: "replayed request rejected".to_string(),
+            },
+            DecisionOrigin::ProvenanceGuard,
+        ));
+    }
+
+    None
+}
+
+fn semantic_containment_verdict(
+    config: &MediationConfig,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> Option<(Verdict, DecisionOrigin)> {
+    let security_context = security_context?;
+    let sink_class = security_context.sink_class?;
+
+    if config.require_lineage_for_privileged_sinks
+        && sink_class.is_privileged()
+        && security_context.lineage_refs.is_empty()
+    {
+        return Some((
+            Verdict::Deny {
+                reason: "privileged sink requires lineage evidence".to_string(),
+            },
+            DecisionOrigin::SemanticContainment,
+        ));
+    }
+
+    if config.block_tainted_privileged_sinks
+        && sink_class.is_privileged()
+        && security_context
+            .semantic_taint
+            .iter()
+            .copied()
+            .any(is_security_relevant_taint)
+    {
+        let verdict = match security_context
+            .containment_mode
+            .unwrap_or(ContainmentMode::Enforce)
+        {
+            ContainmentMode::RequireApproval => Verdict::RequireApproval {
+                reason: "tainted context requires approval before privileged sink".to_string(),
+            },
+            ContainmentMode::Sanitize => Verdict::Deny {
+                reason: "tainted context requires sanitization before privileged sink".to_string(),
+            },
+            ContainmentMode::Quarantine => Verdict::Deny {
+                reason: "tainted context requires quarantine before privileged sink".to_string(),
+            },
+            _ => Verdict::Deny {
+                reason: "tainted context cannot drive privileged sink".to_string(),
+            },
+        };
+        return Some((verdict, DecisionOrigin::SemanticContainment));
+    }
+
+    None
+}
+
+fn enrich_client_provenance(
+    action: &Action,
+    session_id: Option<&str>,
+    context: Option<&EvaluationContext>,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> Option<vellaveto_types::ClientProvenance> {
+    let mut provenance =
+        security_context.and_then(|security_context| security_context.client_provenance.clone())?;
+    if provenance.canonical_request_hash.is_some() {
+        return Some(provenance);
+    }
+
+    let routing_identity = context.and_then(|ctx| {
+        ctx.agent_identity
+            .as_ref()
+            .and_then(|identity| identity.subject.as_deref())
+            .or(ctx.agent_id.as_deref())
+    });
+    let input =
+        CanonicalRequestInput::from_action(action, session_id, Some(&provenance), routing_identity);
+    if let Ok(hash) = canonical_request_hash(&input) {
+        provenance.canonical_request_hash = Some(hash);
+    }
+    Some(provenance)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
     use vellaveto_types::identity::{AgentIdentity, CallChainEntry};
-    use vellaveto_types::{Policy, PolicyType};
+    use vellaveto_types::{
+        ClientProvenance, ContainmentMode, LineageRef, Policy, PolicyType, ReplayStatus,
+        RequestSignature, RuntimeSecurityContext, SignatureVerificationStatus, SinkClass,
+        TaintLabel, WorkloadBindingStatus,
+    };
 
     fn test_engine() -> PolicyEngine {
         PolicyEngine::with_policies(true, &[]).expect("test engine")
@@ -968,6 +1199,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_build_acis_envelope_enriches_canonical_request_hash() {
+        let action = test_action();
+        let security_context = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                request_signature: Some(RequestSignature {
+                    nonce: Some("nonce-123".into()),
+                    created_at: Some("2026-03-10T12:00:00Z".into()),
+                    ..RequestSignature::default()
+                }),
+                signature_status: SignatureVerificationStatus::Verified,
+                workload_binding_status: WorkloadBindingStatus::Bound,
+                replay_status: ReplayStatus::Fresh,
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        let env = build_acis_envelope_with_security_context(
+            "env-003",
+            &action,
+            &Verdict::Allow,
+            DecisionOrigin::PolicyEngine,
+            "stdio",
+            &[],
+            Some(7),
+            Some("session-123"),
+            None,
+            None,
+            Some(&security_context),
+        );
+
+        assert!(env.client_provenance.is_some());
+        assert!(env
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.canonical_request_hash.as_ref())
+            .is_some());
+        assert!(env.validate().is_ok());
+    }
+
     // ── Gap 3: AcisConfig enforcement tests ──────────────────────────────
 
     fn allow_policy() -> Policy {
@@ -1157,6 +1429,110 @@ mod tests {
         assert!(r.dlp_findings.is_empty(), "DLP should not have run");
     }
 
+    #[test]
+    fn test_require_verified_signature_denies_unverified_provenance() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_verified_signature: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Missing,
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "prov-1",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "http",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Deny { .. }));
+        assert_eq!(result.origin, DecisionOrigin::ProvenanceGuard);
+    }
+
+    #[test]
+    fn test_deny_replay_blocks_replayed_request() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            deny_replay: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Verified,
+                replay_status: ReplayStatus::ReplayDetected,
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "prov-2",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "http",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Deny { .. }));
+        assert_eq!(result.origin, DecisionOrigin::ProvenanceGuard);
+    }
+
+    #[test]
+    fn test_block_tainted_privileged_sink_requires_approval_when_configured() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            block_tainted_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CodeExecution),
+            semantic_taint: vec![TaintLabel::Untrusted],
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-1".into(),
+                channel: vellaveto_types::ContextChannel::ToolOutput,
+                content_hash: Some("abc123".into()),
+                source: Some("tool-output".into()),
+                trust_tier: None,
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-1",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
+        assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        assert_eq!(result.envelope.sink_class, Some(SinkClass::CodeExecution));
+    }
+
     // ── R254: Coverage gap tests ─────────────────────────────────────────
 
     #[test]
@@ -1214,6 +1590,7 @@ mod tests {
             include_findings: false,
             require_session_id: false,
             require_agent_identity: false,
+            ..MediationConfig::default()
         };
         let r = mediate(
             "noop-1", &action, &engine, None, "stdio", &config, None, None,

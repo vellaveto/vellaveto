@@ -5356,9 +5356,12 @@ dependencies = [
 name = "vellaveto-canonical"
 version = "6.0.2"
 dependencies = [
+ "hex",
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
  "vellaveto-types",
 ]
 
@@ -5574,6 +5577,7 @@ dependencies = [
  "uuid",
  "vellaveto-approval",
  "vellaveto-audit",
+ "vellaveto-canonical",
  "vellaveto-config",
  "vellaveto-discovery",
  "vellaveto-engine",

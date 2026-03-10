@@ -5,8 +5,132 @@
 // Copyright 2026 Paolo Vella
 // SPDX-License-Identifier: MPL-2.0
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
-use vellaveto_types::{Policy, PolicyType};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use thiserror::Error;
+use vellaveto_types::{
+    Action, ClientProvenance, ContextChannel, LineageRef, Policy, PolicyType, WorkloadIdentity,
+};
+
+#[derive(Debug, Error)]
+pub enum CanonicalizationError {
+    #[error("serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+}
+
+/// Transport-neutral request projection used for canonical hashing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CanonicalRequestInput {
+    pub session_id: Option<String>,
+    pub action_kind: String,
+    pub target_identity: serde_json::Value,
+    pub normalized_arguments: serde_json::Value,
+    pub client_nonce: Option<String>,
+    pub timestamp: Option<String>,
+    pub workload_identity: Option<WorkloadIdentity>,
+    pub routing_identity: Option<String>,
+}
+
+impl CanonicalRequestInput {
+    pub fn from_action(
+        action: &Action,
+        session_id: Option<&str>,
+        provenance: Option<&ClientProvenance>,
+        routing_identity: Option<&str>,
+    ) -> Self {
+        let request_signature = provenance.and_then(|p| p.request_signature.as_ref());
+        Self {
+            session_id: session_id.map(std::string::ToString::to_string),
+            action_kind: format!("{}:{}", action.tool, action.function),
+            target_identity: json!({
+                "tool": action.tool,
+                "function": action.function,
+                "target_paths": sorted_strings(&action.target_paths),
+                "target_domains": sorted_strings(&action.target_domains),
+                "resolved_ips": sorted_strings(&action.resolved_ips),
+            }),
+            normalized_arguments: canonicalize_value(&action.parameters),
+            client_nonce: request_signature.and_then(|sig| sig.nonce.clone()),
+            timestamp: request_signature.and_then(|sig| sig.created_at.clone()),
+            workload_identity: provenance.and_then(|p| p.workload_identity.clone()),
+            routing_identity: routing_identity.map(std::string::ToString::to_string),
+        }
+    }
+}
+
+/// Stable semantic lineage node used for provenance-aware audit correlation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SemanticLineageNode {
+    pub channel: ContextChannel,
+    pub source: Option<String>,
+    pub content_hash: Option<String>,
+    pub parents: Vec<LineageRef>,
+}
+
+/// Canonicalize a JSON value by sorting all object keys recursively.
+pub fn canonicalize_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut sorted = serde_json::Map::new();
+            let mut ordered = BTreeMap::new();
+            for (key, value) in map {
+                ordered.insert(key.clone(), canonicalize_value(value));
+            }
+            for (key, value) in ordered {
+                sorted.insert(key, value);
+            }
+            serde_json::Value::Object(sorted)
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(canonicalize_value).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+/// Compute the canonical request preimage as JSON bytes.
+pub fn canonical_request_preimage(
+    input: &CanonicalRequestInput,
+) -> Result<Vec<u8>, CanonicalizationError> {
+    let normalized = canonicalize_value(&serde_json::to_value(input)?);
+    Ok(serde_json::to_vec(&normalized)?)
+}
+
+/// Compute the canonical request hash (SHA-256 hex).
+pub fn canonical_request_hash(
+    input: &CanonicalRequestInput,
+) -> Result<String, CanonicalizationError> {
+    Ok(sha256_hex(&canonical_request_preimage(input)?))
+}
+
+/// Compute a stable hash for a semantic lineage node.
+pub fn semantic_lineage_hash(node: &SemanticLineageNode) -> Result<String, CanonicalizationError> {
+    let mut parents = node.parents.clone();
+    parents.sort_by(|left, right| left.id.cmp(&right.id));
+    let normalized = serde_json::json!({
+        "channel": node.channel,
+        "source": node.source,
+        "content_hash": node.content_hash,
+        "parents": parents,
+    });
+    let preimage = serde_json::to_vec(&canonicalize_value(&normalized))?;
+    Ok(sha256_hex(&preimage))
+}
+
+fn sorted_strings(values: &[String]) -> Vec<String> {
+    let mut sorted = values.to_vec();
+    sorted.sort();
+    sorted
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    hex::encode(digest)
+}
 
 pub struct CanonicalPolicies;
 
@@ -136,6 +260,8 @@ impl CanonicalPolicies {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use serde_json::json;
+    use vellaveto_types::{ContextChannel, LineageRef};
 
     #[test]
     fn test_canonical_policy_creation() {
@@ -210,6 +336,75 @@ mod tests {
         let allow = CanonicalPolicies::allow_all();
         assert!(matches!(allow.policy_type, PolicyType::Allow));
         assert_eq!(allow.id, "*");
+    }
+
+    #[test]
+    fn test_canonical_request_hash_is_deterministic_for_key_order() {
+        let action = Action {
+            tool: "http_request".into(),
+            function: "call".into(),
+            parameters: json!({"b": 2, "a": {"y": 2, "x": 1}}),
+            target_paths: vec![],
+            target_domains: vec!["example.com".into()],
+            resolved_ips: vec!["203.0.113.10".into()],
+        };
+        let input_a = CanonicalRequestInput::from_action(&action, Some("session-1"), None, None);
+        let input_b = CanonicalRequestInput {
+            normalized_arguments: json!({"a": {"x": 1, "y": 2}, "b": 2}),
+            ..input_a.clone()
+        };
+
+        let hash_a = canonical_request_hash(&input_a).unwrap();
+        let hash_b = canonical_request_hash(&input_b).unwrap();
+        assert_eq!(hash_a, hash_b);
+    }
+
+    #[test]
+    fn test_semantic_lineage_hash_sorts_parents() {
+        let node_a = SemanticLineageNode {
+            channel: ContextChannel::FreeText,
+            source: Some("tool-output".into()),
+            content_hash: Some("abc123".into()),
+            parents: vec![
+                LineageRef {
+                    id: "b".into(),
+                    channel: ContextChannel::ToolOutput,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: None,
+                },
+                LineageRef {
+                    id: "a".into(),
+                    channel: ContextChannel::ToolOutput,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: None,
+                },
+            ],
+        };
+        let node_b = SemanticLineageNode {
+            parents: vec![
+                LineageRef {
+                    id: "a".into(),
+                    channel: ContextChannel::ToolOutput,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: None,
+                },
+                LineageRef {
+                    id: "b".into(),
+                    channel: ContextChannel::ToolOutput,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: None,
+                },
+            ],
+            ..node_a.clone()
+        };
+
+        let hash_a = semantic_lineage_hash(&node_a).unwrap();
+        let hash_b = semantic_lineage_hash(&node_b).unwrap();
+        assert_eq!(hash_a, hash_b);
     }
 
     // ═══════════════════════════════════════════════════

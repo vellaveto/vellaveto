@@ -4811,6 +4811,34 @@ fn test_streamable_http_config_in_policy_config() {
     assert_eq!(config.streamable_http.sse_retry_ms, Some(3000));
 }
 
+#[test]
+fn test_acis_provenance_and_containment_config_in_policy_config() {
+    let toml_str = r#"
+        [[policies]]
+        name = "test"
+        tool_pattern = "*"
+        function_pattern = "*"
+        policy_type = "Allow"
+
+        [acis]
+        require_session_id = true
+        require_agent_identity = true
+        require_verified_signature = true
+        require_workload_binding = true
+        deny_replay = true
+        block_tainted_privileged_sinks = true
+        require_lineage_for_privileged_sinks = true
+    "#;
+    let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
+    assert!(config.acis.require_session_id);
+    assert!(config.acis.require_agent_identity);
+    assert!(config.acis.require_verified_signature);
+    assert!(config.acis.require_workload_binding);
+    assert!(config.acis.deny_replay);
+    assert!(config.acis.block_tainted_privileged_sinks);
+    assert!(config.acis.require_lineage_for_privileged_sinks);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // DISCOVERY CONFIG (Phase 34)
 // ═══════════════════════════════════════════════════════════════════════════════

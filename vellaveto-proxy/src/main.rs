@@ -391,6 +391,23 @@ async fn main() -> Result<()> {
     let mut bridge = ProxyBridge::new(engine, policies, audit)
         .with_timeout(timeout)
         .with_trace(cli.trace);
+    bridge = bridge.with_mediation_config(vellaveto_mcp::mediation::MediationConfig {
+        dlp_enabled: false,
+        dlp_blocking: false,
+        injection_enabled: false,
+        injection_blocking: false,
+        include_timing: policy_config.acis.include_timing,
+        include_findings: policy_config.acis.include_findings,
+        require_session_id: policy_config.acis.require_session_id,
+        require_agent_identity: policy_config.acis.require_agent_identity,
+        require_verified_signature: policy_config.acis.require_verified_signature,
+        require_workload_binding: policy_config.acis.require_workload_binding,
+        deny_replay: policy_config.acis.deny_replay,
+        block_tainted_privileged_sinks: policy_config.acis.block_tainted_privileged_sinks,
+        require_lineage_for_privileged_sinks: policy_config
+            .acis
+            .require_lineage_for_privileged_sinks,
+    });
 
     // Build injection scanner from config (supports extra/disabled patterns)
     let injection_config = &policy_config.injection;

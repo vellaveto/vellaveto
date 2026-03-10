@@ -12,12 +12,18 @@
 use super::*;
 use crate::extractor::classify_message;
 use crate::inspection::{scan_parameters_for_secrets, scan_response_for_injection};
+use crate::mediation::MediationConfig;
 use crate::proxy::types::ProxyDecision;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use vellaveto_types::{EvaluationContext, PolicyType, Verdict};
+use vellaveto_types::acis::DecisionOrigin;
+use vellaveto_types::minja::TaintLabel;
+use vellaveto_types::{
+    ContainmentMode, ContextChannel, EvaluationContext, PolicyType, RuntimeSecurityContext,
+    SinkClass, Verdict,
+};
 
 fn test_bridge(policies: Vec<vellaveto_types::Policy>) -> ProxyBridge {
     let dir = std::env::temp_dir().join("vellaveto-proxy-test");
@@ -1742,6 +1748,40 @@ fn test_extract_agent_id_max_length_accepted() {
     assert_eq!(result, Some(id));
 }
 
+#[test]
+fn test_build_runtime_security_context_extracts_meta_and_infers_sink_class() {
+    let msg = json!({
+        "params": {
+            "_meta": {
+                "vellaveto_security_context": {
+                    "semantic_taint": ["untrusted"],
+                    "lineage_refs": [{
+                        "id": "remote-output-1",
+                        "channel": "tool_output",
+                        "source": "remote-tool"
+                    }]
+                }
+            }
+        }
+    });
+    let action = vellaveto_types::Action::new(
+        "bash".to_string(),
+        "*".to_string(),
+        json!({"command": "echo hi"}),
+    );
+
+    let security_context = ProxyBridge::build_runtime_security_context(&msg, &action, None)
+        .expect("security context should be extracted");
+
+    assert_eq!(security_context.sink_class, Some(SinkClass::CodeExecution));
+    assert_eq!(security_context.semantic_taint, vec![TaintLabel::Untrusted]);
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ToolOutput
+    );
+}
+
 // ── R227: Per-tool sampling rate limit tests ──────────────────────
 
 /// R227: Per-tool sampling rate limit is enforced when limit exceeded.
@@ -2192,5 +2232,57 @@ fn test_evaluate_tool_call_with_action_denied() {
     assert!(
         matches!(decision, ProxyDecision::Block(_, Verdict::Deny { .. })),
         "Tool call should be blocked with deny-all policy"
+    );
+}
+
+#[test]
+fn test_evaluate_tool_call_with_security_context_blocks_tainted_privileged_sink() {
+    let policies = vec![vellaveto_types::Policy {
+        id: "*".to_string(),
+        name: "Allow all".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let bridge = test_bridge(policies).with_mediation_config(MediationConfig {
+        dlp_enabled: false,
+        dlp_blocking: false,
+        injection_enabled: false,
+        injection_blocking: false,
+        block_tainted_privileged_sinks: true,
+        ..MediationConfig::default()
+    });
+    let action = vellaveto_types::Action::new(
+        "bash".to_string(),
+        "*".to_string(),
+        json!({"command": "echo hi"}),
+    );
+    let security_context = RuntimeSecurityContext {
+        semantic_taint: vec![TaintLabel::Untrusted],
+        sink_class: Some(SinkClass::CodeExecution),
+        containment_mode: Some(ContainmentMode::RequireApproval),
+        ..RuntimeSecurityContext::default()
+    };
+
+    let evaluated = bridge.evaluate_tool_call_with_security_context(
+        &json!(1),
+        &action,
+        "bash",
+        None,
+        None,
+        Some(&security_context),
+        Some("session-1"),
+        None,
+    );
+
+    assert!(matches!(
+        evaluated.decision,
+        ProxyDecision::Block(_, Verdict::RequireApproval { .. })
+    ));
+    assert_eq!(evaluated.result.origin, DecisionOrigin::SemanticContainment);
+    assert_eq!(
+        evaluated.result.envelope.sink_class,
+        Some(SinkClass::CodeExecution)
     );
 }

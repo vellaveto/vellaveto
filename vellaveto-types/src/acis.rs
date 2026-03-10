@@ -26,6 +26,10 @@ use serde::{Deserialize, Serialize};
 use crate::core::Verdict;
 use crate::has_dangerous_chars;
 use crate::identity::AgentIdentity;
+use crate::provenance::{
+    validate_lineage_refs, ClientProvenance, ContainmentMode, LineageRef, SemanticRiskScore,
+    SemanticTaint, SinkClass, TrustTier,
+};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -65,6 +69,9 @@ const MAX_FINDINGS: usize = 64;
 
 /// Maximum length of a single finding summary string.
 const MAX_FINDING_LEN: usize = 512;
+
+/// Maximum number of semantic taint labels per envelope.
+const MAX_SEMANTIC_TAINT: usize = 32;
 
 /// Maximum evaluation latency in microseconds (1 hour = 3,600,000,000 µs).
 /// Any value beyond this indicates a measurement error or crafted input.
@@ -132,6 +139,10 @@ pub enum DecisionOrigin {
     TopologyGuard,
     /// Session guard state violation.
     SessionGuard,
+    /// Provenance verification or replay/binding enforcement.
+    ProvenanceGuard,
+    /// Semantic containment prevented the request from reaching a sink.
+    SemanticContainment,
 }
 
 /// Summary of the action that triggered the decision.
@@ -213,6 +224,9 @@ pub struct AcisDecisionEnvelope {
     /// Legacy agent identifier (when full `AgentIdentity` is unavailable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+    /// Provenance evidence collected for the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_provenance: Option<ClientProvenance>,
 
     // ── Action ───────────────────────────────────────────────────────────
     /// Summary of the action (tool, function, target counts).
@@ -248,6 +262,24 @@ pub struct AcisDecisionEnvelope {
     /// `"injection: prompt override pattern"`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<String>,
+    /// Semantic taint labels that contributed to the decision.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_taint: Vec<SemanticTaint>,
+    /// Lineage references that explain upstream semantic sources.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lineage_refs: Vec<LineageRef>,
+    /// Effective trust tier assigned to the context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_trust_tier: Option<TrustTier>,
+    /// Sink class the request attempted to drive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink_class: Option<SinkClass>,
+    /// Containment mode in force when the decision was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containment_mode: Option<ContainmentMode>,
+    /// Bounded semantic risk score for the effective context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_risk_score: Option<SemanticRiskScore>,
 
     // ── Timing ───────────────────────────────────────────────────────────
     /// Wall-clock evaluation latency in microseconds.
@@ -326,6 +358,11 @@ impl AcisDecisionEnvelope {
                 return Err(format!("acis: agent_identity validation failed: {e}"));
             }
         }
+        if let Some(ref provenance) = self.client_provenance {
+            provenance
+                .validate()
+                .map_err(|e| format!("acis: client_provenance validation failed: {e}"))?;
+        }
 
         // action_fingerprint
         if self.action_fingerprint.is_empty() {
@@ -382,6 +419,13 @@ impl AcisDecisionEnvelope {
                 return Err(format!("acis: findings[{i}] contains dangerous characters"));
             }
         }
+        if self.semantic_taint.len() > MAX_SEMANTIC_TAINT {
+            return Err("acis: semantic_taint exceeds maximum count".into());
+        }
+        validate_lineage_refs(&self.lineage_refs).map_err(|e| format!("acis: {e}"))?;
+        if let Some(ref risk_score) = self.semantic_risk_score {
+            risk_score.validate().map_err(|e| format!("acis: {e}"))?;
+        }
 
         // evaluation_us (R244-ACIS-7): reject absurdly large latency values
         if let Some(us) = self.evaluation_us {
@@ -416,6 +460,7 @@ mod tests {
             tenant_id: None,
             agent_identity: None,
             agent_id: None,
+            client_provenance: None,
             action_summary: AcisActionSummary {
                 tool: "file_write".into(),
                 function: "write".into(),
@@ -430,6 +475,12 @@ mod tests {
             matched_policy_id: Some("policy-001".into()),
             transport: "stdio".into(),
             findings: vec![],
+            semantic_taint: vec![],
+            lineage_refs: vec![],
+            effective_trust_tier: None,
+            sink_class: None,
+            containment_mode: None,
+            semantic_risk_score: None,
             evaluation_us: Some(42),
             call_chain_depth: 0,
         }
@@ -790,6 +841,8 @@ mod tests {
             DecisionOrigin::CircuitBreaker,
             DecisionOrigin::TopologyGuard,
             DecisionOrigin::SessionGuard,
+            DecisionOrigin::ProvenanceGuard,
+            DecisionOrigin::SemanticContainment,
         ];
         for origin in &origins {
             let json = serde_json::to_string(origin).expect("serialize");
@@ -818,6 +871,14 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DecisionOrigin::SessionGuard).unwrap(),
             "\"session_guard\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::ProvenanceGuard).unwrap(),
+            "\"provenance_guard\""
+        );
+        assert_eq!(
+            serde_json::to_string(&DecisionOrigin::SemanticContainment).unwrap(),
+            "\"semantic_containment\""
         );
     }
 

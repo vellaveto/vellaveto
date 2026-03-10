@@ -43,8 +43,9 @@ use vellaveto_engine::deputy::DeputyValidationBinding;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport,
-    sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, EvaluationContext,
-    EvaluationTrace, Verdict,
+    sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, ContextChannel,
+    EvaluationContext, EvaluationTrace, LineageRef, RuntimeSecurityContext, SemanticTaint,
+    TrustTier, Verdict,
 };
 
 const SYNTHETIC_DELEGATION_AGENT_ID: &str = "delegation-hop";
@@ -151,6 +152,9 @@ const RELAY_CHANNEL_BUFFER: usize = 64;
 /// this limit are dropped with a warning.
 const MAX_RELAY_MESSAGE_SIZE: usize = 4 * 1024 * 1024; // 4 MB
 
+/// Maximum lineage refs retained in relay-local semantic session state.
+const MAX_SESSION_LINEAGE_REFS: usize = 64;
+
 /// SECURITY (FIND-R212-012): Interval between pending-request timeout sweeps.
 /// Named constant (was hard-coded 5s) so it can be tuned for latency-sensitive
 /// deployments without code changes.
@@ -180,6 +184,59 @@ struct RequestPrincipalBinding {
     deputy_principal: Option<String>,
     claimed_agent_id: Option<String>,
     evaluation_agent_id: Option<String>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct SessionSemanticState {
+    taint: Vec<SemanticTaint>,
+    lineage_refs: VecDeque<LineageRef>,
+    next_lineage_seq: u64,
+}
+
+impl SessionSemanticState {
+    fn record_output(&mut self, source: &str, channel: ContextChannel, taints: &[SemanticTaint]) {
+        self.next_lineage_seq = self.next_lineage_seq.saturating_add(1);
+        if self.lineage_refs.len() >= MAX_SESSION_LINEAGE_REFS {
+            self.lineage_refs.pop_front();
+        }
+        self.lineage_refs.push_back(LineageRef {
+            id: format!("relay-session-{:016x}", self.next_lineage_seq),
+            channel,
+            content_hash: None,
+            source: Some(sanitize_for_log(source, 256)),
+            trust_tier: Some(match taints.first() {
+                Some(vellaveto_types::minja::TaintLabel::IntegrityFailed) => TrustTier::Low,
+                _ => TrustTier::Untrusted,
+            }),
+        });
+        for taint in taints {
+            if !self.taint.contains(taint) {
+                self.taint.push(*taint);
+            }
+        }
+    }
+
+    fn merge_into(&self, security_context: &mut RuntimeSecurityContext) {
+        for taint in &self.taint {
+            if !security_context.semantic_taint.contains(taint) {
+                security_context.semantic_taint.push(*taint);
+            }
+        }
+
+        let remaining =
+            MAX_SESSION_LINEAGE_REFS.saturating_sub(security_context.lineage_refs.len());
+        if remaining == 0 {
+            return;
+        }
+
+        let start = self.lineage_refs.len().saturating_sub(remaining);
+        security_context
+            .lineage_refs
+            .extend(self.lineage_refs.iter().skip(start).cloned());
+        if security_context.effective_trust_tier.is_none() && !self.lineage_refs.is_empty() {
+            security_context.effective_trust_tier = Some(TrustTier::Untrusted);
+        }
+    }
 }
 
 fn normalize_request_principal_id(principal: &str) -> String {
@@ -235,6 +292,8 @@ pub(super) struct RelayState {
     cross_call_dlp: Option<crate::inspection::cross_call_dlp::CrossCallDlpTracker>,
     /// TI-2026-001 (R233-MCPSEC-2): Sharded exfiltration tracker per session.
     sharded_exfil: Option<crate::inspection::dlp::ShardedExfilTracker>,
+    /// Relay-local semantic containment state propagated across forwarded calls.
+    session_semantics: SessionSemanticState,
 }
 
 impl RelayState {
@@ -298,6 +357,7 @@ impl RelayState {
             sampling_per_tool: HashMap::new(),
             cross_call_dlp: None,
             sharded_exfil: None,
+            session_semantics: SessionSemanticState::default(),
         }
     }
 
@@ -476,6 +536,29 @@ impl RelayState {
             capability_token: project_capability_token_from_transport(false, None),
             session_state: None,
         }
+    }
+
+    fn runtime_security_context(
+        &self,
+        security_context: Option<RuntimeSecurityContext>,
+    ) -> Option<RuntimeSecurityContext> {
+        let mut security_context = security_context.unwrap_or_default();
+        self.session_semantics.merge_into(&mut security_context);
+        if security_context == RuntimeSecurityContext::default() {
+            None
+        } else {
+            Some(security_context)
+        }
+    }
+
+    fn record_semantic_output(
+        &mut self,
+        source: &str,
+        channel: ContextChannel,
+        taints: &[SemanticTaint],
+    ) {
+        self.session_semantics
+            .record_output(source, channel, taints);
     }
 
     /// SECURITY (FIND-R46-007): Insert into flagged_tools with capacity check.
@@ -1850,9 +1933,27 @@ impl ProxyBridge {
         let ann = state.known_tool_annotations.get(&tool_name);
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
-        let (decision, eval_trace) =
-            self.evaluate_tool_call_with_action(&id, &action, &tool_name, ann, Some(&eval_ctx));
-        let decision = match decision {
+        let security_context = state
+            .runtime_security_context(Self::build_runtime_security_context(&msg, &action, ann));
+        let evaluated = self.evaluate_tool_call_with_security_context(
+            &id,
+            &action,
+            &tool_name,
+            ann,
+            Some(&eval_ctx),
+            security_context.as_ref(),
+            Some(state.session_id.as_str()),
+            eval_ctx.tenant_id.as_deref(),
+        );
+        let eval_trace = if self.enable_trace {
+            evaluated.result.trace.clone()
+        } else {
+            None
+        };
+        let mut acis_envelope = evaluated.result.envelope;
+        let mut final_origin = evaluated.result.origin;
+        let mut refresh_envelope = false;
+        let decision = match evaluated.decision {
             ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => match self
                 .presented_approval_matches_action(
                     presented_approval_id.as_deref(),
@@ -1883,19 +1984,47 @@ impl ProxyBridge {
                         )
                     } else {
                         matched_approval_id = Some(approval_id);
+                        final_origin = DecisionOrigin::PolicyEngine;
+                        refresh_envelope = true;
                         ProxyDecision::Forward
                     }
                 }
-                Err(()) => ProxyDecision::Block(
-                    make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
-                    Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    },
-                ),
+                Err(()) => {
+                    final_origin = DecisionOrigin::ApprovalGate;
+                    refresh_envelope = true;
+                    ProxyDecision::Block(
+                        make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        },
+                    )
+                }
                 Ok(None) => ProxyDecision::Block(response, verdict),
             },
             other => other,
         };
+        if refresh_envelope {
+            let findings = acis_envelope.findings.clone();
+            let evaluation_us = acis_envelope.evaluation_us;
+            let decision_id = acis_envelope.decision_id.clone();
+            let final_verdict = match &decision {
+                ProxyDecision::Forward => Verdict::Allow,
+                ProxyDecision::Block(_, verdict) => verdict.clone(),
+            };
+            acis_envelope = crate::mediation::build_acis_envelope_with_security_context(
+                &decision_id,
+                &action,
+                &final_verdict,
+                final_origin,
+                "stdio",
+                &findings,
+                evaluation_us,
+                Some(state.session_id.as_str()),
+                eval_ctx.tenant_id.as_deref(),
+                Some(&eval_ctx),
+                security_context.as_ref(),
+            );
+        }
         match decision {
             ProxyDecision::Forward => {
                 // SECURITY (FIND-R78-002): ABAC refinement — only runs when ABAC
@@ -2172,18 +2301,6 @@ impl ProxyBridge {
                         );
                     }
                 }
-                let acis_envelope = crate::mediation::build_acis_envelope(
-                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                    &action,
-                    &Verdict::Allow,
-                    DecisionOrigin::PolicyEngine,
-                    "stdio",
-                    &[],
-                    None,
-                    state.agent_id.as_deref(),
-                    None,
-                    Some(&eval_ctx),
-                );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(&action, &Verdict::Allow, meta, acis_envelope)
@@ -2243,22 +2360,6 @@ impl ProxyBridge {
                     }
                 }
                 let meta = Self::tool_call_audit_metadata(&tool_name, ann);
-                let origin = match &verdict {
-                    Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
-                    _ => DecisionOrigin::PolicyEngine,
-                };
-                let acis_envelope = crate::mediation::build_acis_envelope(
-                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                    &action,
-                    &verdict,
-                    origin,
-                    "stdio",
-                    &[],
-                    None,
-                    state.agent_id.as_deref(),
-                    None,
-                    Some(&eval_ctx),
-                );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(&action, &verdict, meta, acis_envelope)
@@ -2739,49 +2840,90 @@ impl ProxyBridge {
 
         let eval_ctx =
             state.evaluation_context(&request_principal_binding, deputy_binding.as_ref());
-        let decision =
-            match self.evaluate_resource_read_with_action(&id, &action, &uri, Some(&eval_ctx)) {
-                ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => {
-                    match self
-                        .presented_approval_matches_action(
-                            presented_approval_id.as_deref(),
-                            &action,
-                            Some(state.session_id.as_str()),
-                        )
-                        .await
-                    {
-                        Ok(Some(approval_id)) => {
-                            // SECURITY (R244-TOCTOU-1): Consume atomically after match.
-                            if let Err(()) = self
-                                .consume_presented_approval(
-                                    Some(approval_id.as_str()),
-                                    &action,
-                                    Some(state.session_id.as_str()),
-                                )
-                                .await
-                            {
-                                ProxyDecision::Block(
-                                    make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
-                                    Verdict::Deny {
-                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                                    },
-                                )
-                            } else {
-                                matched_approval_id = Some(approval_id);
-                                ProxyDecision::Forward
-                            }
+        let security_context = state
+            .runtime_security_context(Self::build_runtime_security_context(&msg, &action, None));
+        let evaluated = self.evaluate_resource_read_with_security_context(
+            &id,
+            &action,
+            &uri,
+            Some(&eval_ctx),
+            security_context.as_ref(),
+            Some(state.session_id.as_str()),
+            eval_ctx.tenant_id.as_deref(),
+        );
+        let mut acis_envelope = evaluated.result.envelope;
+        let mut final_origin = evaluated.result.origin;
+        let mut refresh_envelope = false;
+        let decision = match evaluated.decision {
+            ProxyDecision::Block(response, verdict @ Verdict::RequireApproval { .. }) => {
+                match self
+                    .presented_approval_matches_action(
+                        presented_approval_id.as_deref(),
+                        &action,
+                        Some(state.session_id.as_str()),
+                    )
+                    .await
+                {
+                    Ok(Some(approval_id)) => {
+                        // SECURITY (R244-TOCTOU-1): Consume atomically after match.
+                        if let Err(()) = self
+                            .consume_presented_approval(
+                                Some(approval_id.as_str()),
+                                &action,
+                                Some(state.session_id.as_str()),
+                            )
+                            .await
+                        {
+                            ProxyDecision::Block(
+                                make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
+                                Verdict::Deny {
+                                    reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                },
+                            )
+                        } else {
+                            matched_approval_id = Some(approval_id);
+                            final_origin = DecisionOrigin::PolicyEngine;
+                            refresh_envelope = true;
+                            ProxyDecision::Forward
                         }
-                        Err(()) => ProxyDecision::Block(
+                    }
+                    Err(()) => {
+                        final_origin = DecisionOrigin::ApprovalGate;
+                        refresh_envelope = true;
+                        ProxyDecision::Block(
                             make_denial_response(&id, INVALID_PRESENTED_APPROVAL_REASON),
                             Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             },
-                        ),
-                        Ok(None) => ProxyDecision::Block(response, verdict),
+                        )
                     }
+                    Ok(None) => ProxyDecision::Block(response, verdict),
                 }
-                other => other,
+            }
+            other => other,
+        };
+        if refresh_envelope {
+            let findings = acis_envelope.findings.clone();
+            let evaluation_us = acis_envelope.evaluation_us;
+            let decision_id = acis_envelope.decision_id.clone();
+            let final_verdict = match &decision {
+                ProxyDecision::Forward => Verdict::Allow,
+                ProxyDecision::Block(_, verdict) => verdict.clone(),
             };
+            acis_envelope = crate::mediation::build_acis_envelope_with_security_context(
+                &decision_id,
+                &action,
+                &final_verdict,
+                final_origin,
+                "stdio",
+                &findings,
+                evaluation_us,
+                Some(state.session_id.as_str()),
+                eval_ctx.tenant_id.as_deref(),
+                Some(&eval_ctx),
+                security_context.as_ref(),
+            );
+        }
         match decision {
             ProxyDecision::Forward => {
                 // SECURITY (R233-SHIELD-2): PII sanitization for resource reads.
@@ -2843,18 +2985,6 @@ impl ProxyBridge {
                         );
                     }
                 }
-                let acis_envelope = crate::mediation::build_acis_envelope(
-                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                    &action,
-                    &Verdict::Allow,
-                    DecisionOrigin::PolicyEngine,
-                    "stdio",
-                    &[],
-                    None,
-                    state.agent_id.as_deref(),
-                    None,
-                    Some(&eval_ctx),
-                );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(&action, &Verdict::Allow, audit_meta, acis_envelope)
@@ -2904,22 +3034,6 @@ impl ProxyBridge {
                         }
                     }
                 }
-                let origin = match &verdict {
-                    Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
-                    _ => DecisionOrigin::PolicyEngine,
-                };
-                let acis_envelope = crate::mediation::build_acis_envelope(
-                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                    &action,
-                    &verdict,
-                    origin,
-                    "stdio",
-                    &[],
-                    None,
-                    state.agent_id.as_deref(),
-                    None,
-                    Some(&eval_ctx),
-                );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -6962,6 +7076,28 @@ impl ProxyBridge {
             state.memory_tracker.record_response(&msg);
         }
 
+        if let Some(tool_name) = response_tool_name.as_deref() {
+            let mut response_taint = Vec::new();
+            if injection_found {
+                response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
+            }
+            if schema_violation_found {
+                if !response_taint.contains(&vellaveto_types::minja::TaintLabel::Untrusted) {
+                    response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
+                }
+                response_taint.push(vellaveto_types::minja::TaintLabel::IntegrityFailed);
+            }
+            if dlp_found {
+                response_taint.push(vellaveto_types::minja::TaintLabel::Sensitive);
+            }
+            let channel = if tool_name == "resources/read" {
+                ContextChannel::ResourceContent
+            } else {
+                ContextChannel::ToolOutput
+            };
+            state.record_semantic_output(tool_name, channel, &response_taint);
+        }
+
         // Phase 19: Art 50(1) transparency marking
         if self.transparency_marking {
             crate::transparency::mark_ai_mediated(&mut msg);
@@ -8015,6 +8151,74 @@ mod tests {
                 "write_file".to_string(),
                 "exec_command".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn test_relay_state_runtime_security_context_merges_session_semantics() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output(
+            "search_web",
+            ContextChannel::ToolOutput,
+            &[
+                vellaveto_types::minja::TaintLabel::Untrusted,
+                vellaveto_types::minja::TaintLabel::Sensitive,
+            ],
+        );
+
+        let merged = state
+            .runtime_security_context(Some(RuntimeSecurityContext {
+                sink_class: Some(vellaveto_types::SinkClass::CodeExecution),
+                ..RuntimeSecurityContext::default()
+            }))
+            .expect("session semantics should produce a context");
+
+        assert_eq!(
+            merged.sink_class,
+            Some(vellaveto_types::SinkClass::CodeExecution)
+        );
+        assert!(merged
+            .semantic_taint
+            .contains(&vellaveto_types::minja::TaintLabel::Untrusted));
+        assert!(merged
+            .semantic_taint
+            .contains(&vellaveto_types::minja::TaintLabel::Sensitive));
+        assert_eq!(merged.lineage_refs.len(), 1);
+        assert_eq!(merged.lineage_refs[0].channel, ContextChannel::ToolOutput);
+        assert_eq!(merged.lineage_refs[0].source.as_deref(), Some("search_web"));
+        assert_eq!(merged.effective_trust_tier, Some(TrustTier::Untrusted));
+    }
+
+    #[test]
+    fn test_relay_state_semantic_lineage_caps_at_limit() {
+        let mut state = RelayState::new(HashSet::new());
+        for i in 0..(MAX_SESSION_LINEAGE_REFS + 5) {
+            state.record_semantic_output(
+                &format!("tool_{i}"),
+                ContextChannel::ToolOutput,
+                &[vellaveto_types::minja::TaintLabel::Untrusted],
+            );
+        }
+
+        let merged = state
+            .runtime_security_context(None)
+            .expect("session semantics should produce a context");
+        let expected_last = format!("tool_{}", MAX_SESSION_LINEAGE_REFS + 4);
+
+        assert_eq!(merged.lineage_refs.len(), MAX_SESSION_LINEAGE_REFS);
+        assert_eq!(
+            merged
+                .lineage_refs
+                .first()
+                .and_then(|lineage| lineage.source.as_deref()),
+            Some("tool_5")
+        );
+        assert_eq!(
+            merged
+                .lineage_refs
+                .last()
+                .and_then(|lineage| lineage.source.as_deref()),
+            Some(expected_last.as_str())
         );
     }
 
