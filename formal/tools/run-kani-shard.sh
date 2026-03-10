@@ -73,6 +73,10 @@ if [ "${KANI_SHARD_DRY_RUN:-0}" = "1" ]; then
 fi
 
 KANI_ARGS=()
+if [ -n "${KANI_SOLVER:-}" ]; then
+    KANI_ARGS+=(--solver "$KANI_SOLVER")
+fi
+
 for harness in "${SELECTED_HARNESSES[@]}"; do
     KANI_ARGS+=(--harness "$harness")
 done

@@ -208,6 +208,8 @@ jobs:
         run: RUN_KANI_PARITY_TESTS=0 bash formal/tools/check-kani-parity.sh
 
       - name: Run Kani proofs (${{ matrix.label }})
+        env:
+          KANI_SOLVER: minisat
         run: bash formal/tools/run-kani-shard.sh "${{ matrix.shard_index }}" "${{ matrix.shard_count }}"
 
   verus:
