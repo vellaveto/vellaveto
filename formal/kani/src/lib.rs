@@ -42,7 +42,7 @@
 //! | K18 | sort produces sorted output (Verus bridge) | V6/V7, is_sorted |
 //! | K19 | ABAC forbid ignores priority order | S8, AbacForbidOverride |
 //! | K20 | ABAC permit requires no prior forbid | S9, AbacForbidOverride |
-//! | K21 | overlap_covers_secret for small secrets | D6, Verus bridge |
+//! | K21 | overlap_covers_secret for small secrets within retained overlap | D6, Verus bridge |
 //! | K22 | compute_overlap_region_size saturating | D6, region arithmetic |
 //! | K23 | extract_tail multibyte boundary (4-byte emoji) | D1, UTF-8 safety |
 //! | K24 | context_deny overrides allow | V3, context conditions |

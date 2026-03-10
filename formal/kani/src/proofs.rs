@@ -802,8 +802,8 @@ fn proof_abac_permit_requires_no_forbid() {
 // K21: overlap_covers_secret for small secrets (D6 bridge)
 // =========================================================================
 //
-// Verifies: for secrets <= 2 * overlap_size split at any point,
-// the combined buffer covers the entire secret.
+// Verifies: for secrets <= 2 * overlap_size with the first fragment fitting
+// in the retained overlap, the combined buffer covers the entire secret.
 
 #[kani::proof]
 fn proof_overlap_covers_small_secrets() {
@@ -817,6 +817,7 @@ fn proof_overlap_covers_small_secrets() {
     kani::assume(overlap_size >= 1 && overlap_size <= 32);
     kani::assume(secret_len >= 2 && secret_len <= 2 * overlap_size);
     kani::assume(split_point >= 1 && split_point < secret_len);
+    kani::assume(split_point <= overlap_size);
 
     // Make value lengths symbolic (bounded) to explore short-value guards
     let prev_value_len: usize = kani::any();

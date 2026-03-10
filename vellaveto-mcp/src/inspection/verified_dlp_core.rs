@@ -20,7 +20,7 @@
 //! | D3 | Total byte accounting correct | `update_total_bytes` is monotonically correct |
 //! | D4 | Capacity check fail-closed | At `max_fields`, `can_track_field` returns false |
 //! | D5 | No arithmetic underflow | Saturating subtraction prevents wrapping |
-//! | D6 | Overlap completeness | Secret <= 2 * overlap_size split at any byte is fully covered |
+//! | D6 | Overlap completeness | Secret <= 2 * overlap_size with split_point <= overlap_size is fully covered |
 //!
 //! The Verus-annotated version at `formal/verus/verified_dlp_core.rs`
 //! proves these properties for ALL possible inputs.
@@ -119,9 +119,9 @@ pub fn update_total_bytes(old_total: usize, old_buffer_len: usize, new_buffer_le
 /// of the combined scan region.
 ///
 /// # Property D6 (overlap completeness)
-/// If `secret_len <= 2 * overlap_size` and the secret is split at any
-/// byte boundary between two consecutive calls, the combined region
-/// `(prev_tail ++ current_value)` contains the entire secret.
+/// If `secret_len <= 2 * overlap_size` and the secret is split with
+/// `split_point <= overlap_size` between two consecutive calls, the combined
+/// region `(prev_tail ++ current_value)` contains the entire secret.
 pub fn compute_overlap_region_size(prev_tail_len: usize, current_value_len: usize) -> usize {
     prev_tail_len.saturating_add(current_value_len)
 }
@@ -132,7 +132,8 @@ pub fn compute_overlap_region_size(prev_tail_len: usize, current_value_len: usiz
 ///
 /// # Property D6
 /// Returns `true` when the combined buffer covers the entire secret.
-/// This is guaranteed when `secret_len <= 2 * overlap_size`.
+/// This is guaranteed when `secret_len <= 2 * overlap_size` and the first
+/// fragment fits in the retained overlap (`split_point <= overlap_size`).
 pub fn overlap_covers_secret(
     prev_value_len: usize,
     current_value_len: usize,
@@ -149,12 +150,14 @@ pub fn overlap_covers_secret(
     // to split_point in the current value. Check if combined covers it.
     // For secrets <= 2 * overlap_size, this is always true when:
     //   split_point > 0 && split_point < secret_len
-    //   prev_value_len >= split_point
+    //   prev_tail_len >= split_point
     //   current_value_len >= secret_len - split_point
     if split_point == 0 || split_point >= secret_len {
         return false; // Not actually split
     }
-    if prev_value_len < split_point || current_value_len < secret_len.saturating_sub(split_point) {
+    if prev_tail_len < split_point
+        || current_value_len < secret_len.saturating_sub(split_point)
+    {
         return false; // Values too short to contain secret parts
     }
 
@@ -410,6 +413,12 @@ mod tests {
     }
 
     #[test]
+    fn test_d6_split_beyond_overlap_returns_false() {
+        // The first fragment cannot fit in the retained overlap tail.
+        assert!(!overlap_covers_secret(100, 100, 32, 40, 33));
+    }
+
+    #[test]
     fn test_d6_overlap_region_size() {
         assert_eq!(compute_overlap_region_size(150, 1000), 1150);
         assert_eq!(compute_overlap_region_size(0, 1000), 1000);
@@ -433,7 +442,8 @@ mod tests {
 
         for pattern_len in 2..=max_pattern {
             for split_point in 1..pattern_len {
-                assert!(
+                let expected = split_point <= overlap_size;
+                assert_eq!(
                     overlap_covers_secret(
                         prev_len,
                         curr_len,
@@ -441,6 +451,7 @@ mod tests {
                         pattern_len,
                         split_point
                     ),
+                    expected,
                     "Failed for pattern_len={pattern_len}, split_point={split_point}"
                 );
             }

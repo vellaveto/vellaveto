@@ -208,7 +208,7 @@ pub fn update_total_bytes(
 
 /// D6: Overlap completeness lemma.
 ///
-/// If a secret of length secret_len <= overlap_size is split at any
+/// If a secret of length secret_len <= 2 * overlap_size is split at any
 /// byte boundary (split_point) between two consecutive calls, the combined
 /// scan buffer (prev_tail ++ current_value) contains the entire secret.
 ///
