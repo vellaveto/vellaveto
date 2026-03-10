@@ -1,6 +1,7 @@
 """Tests for vellaveto.langchain module."""
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -8,6 +9,11 @@ import pytest
 
 from vellaveto.client import PolicyDenied, ApprovalRequired, VellavetoClient
 from vellaveto.types import EvaluationResult, Verdict
+
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 10),
+    reason="LangChain integration dependencies require Python 3.10+",
+)
 
 
 class TestVellavetoCallbackHandler:
