@@ -3,7 +3,7 @@
 > **Version:** 6.0.0
 > **Frameworks:** 12 regulatory and industry standards
 > **Evidence formats:** JSON, HTML, OCSF, CEF, syslog
-> **Website:** [vellaveto.online/compliance](https://www.vellaveto.online/compliance)
+> **Website:** [vellaveto.online/compliance](https://vellaveto.online/compliance)
 
 ---
 

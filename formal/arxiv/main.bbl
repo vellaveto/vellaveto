@@ -1,0 +1,90 @@
+\begin{thebibliography}{10}
+
+\bibitem{jackson12}
+Daniel Jackson.
+\newblock {\em Software Abstractions: Logic, Language, and Analysis}.
+\newblock MIT Press, revised edition edition, 2012.
+
+\bibitem{kani}
+{Kani Rust Verifier Project}.
+\newblock Kani rust verifier.
+\newblock \url{https://github.com/model-checking/kani}, 2026.
+\newblock Accessed 2026-03-09.
+
+\bibitem{lamport94}
+Leslie Lamport.
+\newblock The temporal logic of actions.
+\newblock {\em ACM Transactions on Programming Languages and Systems},
+  16(3):872--923, 1994.
+
+\bibitem{lamport02}
+Leslie Lamport.
+\newblock {\em Specifying Systems: The TLA+ Language and Tools for Hardware and
+  Software Engineers}.
+\newblock Addison-Wesley, 2002.
+
+\bibitem{lean4}
+{Lean FRO}.
+\newblock Lean 4 theorem prover.
+\newblock \url{https://lean-lang.org/}, 2026.
+\newblock Accessed 2026-03-09.
+
+\bibitem{mcpSpec}
+{Model Context Protocol}.
+\newblock Model context protocol specification.
+\newblock \url{https://modelcontextprotocol.io/}, 2025.
+\newblock Referenced specification family, accessed 2026-03-09.
+
+\bibitem{coq}
+{The Coq Development Team}.
+\newblock The coq proof assistant.
+\newblock \url{https://coq.inria.fr/}, 2026.
+\newblock Accessed 2026-03-09.
+
+\bibitem{vellavetoFormalInventory}
+Paolo Vella.
+\newblock Formal verification --- vellaveto mcp policy engine.
+\newblock
+  \url{https://github.com/vellaveto/vellaveto/blob/main/formal/README.md},
+  2026.
+\newblock Repository formal inventory.
+
+\bibitem{vellavetoFormalScope}
+Paolo Vella.
+\newblock Formal verification scope.
+\newblock
+  \url{https://github.com/vellaveto/vellaveto/blob/main/docs/FORMAL_SCOPE.md},
+  2026.
+\newblock Repository scope and non-goals.
+
+\bibitem{vellavetoRefinementMap}
+Paolo Vella.
+\newblock Mcp policy engine refinement map.
+\newblock
+  \url{https://github.com/vellaveto/vellaveto/blob/main/formal/refinement/MCPPolicyEngine.md},
+  2026.
+\newblock Repository refinement artifact.
+
+\bibitem{vellavetoFormalDocker}
+Paolo Vella.
+\newblock Reproducible formal verification environment for vellaveto.
+\newblock
+  \url{https://github.com/vellaveto/vellaveto/blob/main/formal/Dockerfile},
+  2026.
+\newblock Pinned Docker environment for artifact replay.
+
+\bibitem{vellavetoTCB}
+Paolo Vella.
+\newblock Trusted computing base (tcb) --- vellaveto formal verification.
+\newblock
+  \url{https://github.com/vellaveto/vellaveto/blob/main/docs/TRUSTED_COMPUTING_BASE.md},
+  2026.
+\newblock Repository trust-boundary document.
+
+\bibitem{verus}
+{Verus Project}.
+\newblock Verus: Verified rust for low-level systems code.
+\newblock \url{https://github.com/verus-lang/verus}, 2026.
+\newblock Accessed 2026-03-09.
+
+\end{thebibliography}

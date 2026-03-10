@@ -3,7 +3,7 @@
   <img src="docs/readme-header.png" alt="VellaVeto — Agent Interaction Firewall" width="720">
   <br><br>
   <p>
-    <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/badge/version-6.0.0-blue.svg" alt="Version 6.0.0"></a>
+    <a href="https://github.com/vellaveto/vellaveto/releases"><img src="https://img.shields.io/github/v/release/vellaveto/vellaveto?display_name=release" alt="Latest release"></a>
     <a href="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml"><img src="https://github.com/vellaveto/vellaveto/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
     <a href="https://github.com/vellaveto/vellaveto/stargazers"><img src="https://img.shields.io/badge/stars-⭐_star_if_useful-yellow.svg?style=flat&logo=github" alt="GitHub Stars"></a>
     <a href="LICENSING.md"><img src="https://img.shields.io/badge/license-MPL--2.0_/_Apache--2.0_/_BUSL--1.1-blue.svg" alt="License: Three-tier"></a>
@@ -43,7 +43,7 @@ Agent receives prompt injection
   → no audit trail, no one notices
 ```
 
-This is not hypothetical. The MCP ecosystem has accumulated [30+ CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) in 15 months: command injection in `mcp-remote` ([CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514)), path traversal in Anthropic's official Git MCP server ([CVE-2025-68143/44/45](https://github.com/anthropics/anthropic-cookbook/security/advisories)), [SANDWORM](docs/THREAT_MODEL.md) npm supply-chain worms injecting rogue MCP servers into AI configs, and [SmartLoader](https://blog.morphisec.com/smartloader-malware-targets-manufacturing) trojans distributed as MCP packages. [8,000+ MCP servers](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks) have been found exposed with no authentication.
+This is not hypothetical. The MCP ecosystem has accumulated [dozens of published CVEs](https://www.practical-devsecops.com/mcp-security-vulnerabilities/) in roughly the last 15 months: command injection in `mcp-remote` ([CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514)), path traversal in Anthropic's official Git MCP server ([CVE-2025-68143/44/45](https://github.com/anthropics/anthropic-cookbook/security/advisories)), [SANDWORM](docs/THREAT_MODEL.md) npm supply-chain worms injecting rogue MCP servers into AI configs, and [SmartLoader](https://blog.morphisec.com/smartloader-malware-targets-manufacturing) trojans distributed as MCP packages. [Thousands of MCP servers](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks) have been found exposed with no authentication.
 
 VellaVeto is the runtime boundary between AI agents and tool servers. Every side-effecting call is evaluated against policy before execution. No policy match, missing context, or evaluation error results in `Deny`. Every decision is logged in a tamper-evident chain with a structured ACIS decision envelope.
 
@@ -329,6 +329,7 @@ We use formal methods to prove — not just test — critical security propertie
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
 
 Formal verification spans TLA+, Verus, Kani, Lean 4, Coq, and Alloy. The live property catalog and current counts are maintained in [formal/README.md](formal/README.md); the trust boundary and assumptions are documented in [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md).
+For a paper-style overview and the arXiv-ready manuscript sources, see [formal/FORMAL_VERIFICATION_SUBMISSION.md](formal/FORMAL_VERIFICATION_SUBMISSION.md) and [formal/arxiv/README.md](formal/arxiv/README.md).
 
 ### Former Limitations (Now Resolved)
 
@@ -343,7 +344,7 @@ Full details: [Security Guarantees](docs/SECURITY_GUARANTEES.md) | [Threat Model
 
 ### MCPSEC Benchmark
 
-We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. VellaVeto v6.0.0 scores **100/100 (Tier 5: Hardened)** — all 105 tests passed. Run it against any MCP gateway — including ours:
+We built [MCPSEC](mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. The current published reference result for VellaVeto is [mcpsec/results/vellaveto-v6.0.json](mcpsec/results/vellaveto-v6.0.json): **100/100 (Tier 5: Hardened)** on 105/105 tests. Run it against any MCP gateway — including ours:
 
 ```bash
 cargo run -p mcpsec -- --target http://localhost:3000 --format markdown
@@ -363,7 +364,7 @@ VellaVeto maps runtime security controls to **12 regulatory and industry framewo
 
 **Cross-regulation incident reporting** maps a single security incident to the notification timelines of every applicable framework (NIS2 24h pre-notification, DORA classification, EU AI Act Art 62 obligations). **10-framework gap analysis** provides a consolidated coverage report with priority-ranked remediation guidance.
 
-Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.online/compliance](https://www.vellaveto.online/compliance)
+Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.online/compliance](https://vellaveto.online/compliance)
 
 ## How It Compares
 
@@ -383,7 +384,7 @@ Full details: [Compliance Guide](docs/COMPLIANCE.md) | [Website: vellaveto.onlin
 | **Formal verification** | TLA+, Lean 4, Coq, Alloy, Kani, Verus | None | None | None |
 | **Consumer privacy** | PII sanitization, session isolation, credential vault, stylometric resistance | None | None | PII scanning (Presidio) |
 | **Enterprise IAM** | OIDC, SAML, RBAC, SCIM, DPoP | None | None | None |
-| **MCPSEC score** | 100/100 (Tier 5) | Not tested | Not applicable | Not tested |
+| **MCPSEC score** | 100/100 (Tier 5, reference run) | Not tested | Not applicable | Not tested |
 | **Ease of setup** | `--protect shield` (one flag) / Docker / Helm | Docker / binary | `pip install` | `pip install` |
 | **License** | MPL-2.0 / Apache-2.0 / BUSL-1.1 | Apache-2.0 | Apache-2.0 | MIT |
 

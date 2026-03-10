@@ -2,6 +2,5 @@ name = "vellaveto-site"
 compatibility_date = "2024-09-25"
 pages_build_output_dir = "./dist"
 
-# Custom domains configured in Cloudflare Dashboard:
-#   - www.vellaveto.online (primary)
-#   - vellaveto.online (redirect to www)
+# Custom domain configured in Cloudflare Dashboard:
+#   - vellaveto.online (primary)

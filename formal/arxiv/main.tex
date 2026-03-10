@@ -1,0 +1,426 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xurl}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue,
+  pdftitle={Formal Verification of a Runtime Security Boundary for Model Context Protocol Tool Calls},
+  pdfauthor={Paolo Vella}
+}
+
+\title{Formal Verification of a Runtime Security Boundary for Model Context Protocol Tool Calls}
+\author{Paolo Vella\\Vellaveto\\\texttt{security@vellaveto.online}}
+\date{March 9, 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Runtime mediation for AI agents is security-critical because the mediator
+decides whether side-effecting tool invocations may proceed. A mediator that
+fails open ceases to be a meaningful security control. This paper presents the
+formal verification program for Vellaveto, a runtime security boundary for
+Model Context Protocol (MCP) tool calls and adjacent agent actions. The
+verification stack combines TLA+ model checking~\cite{lamport94,lamport02},
+Alloy bounded relational modeling~\cite{jackson12}, Lean~4 and Coq theorem
+proving~\cite{lean4,coq}, Verus deductive verification over production Rust
+kernels~\cite{verus}, and Kani bounded model checking over production Rust
+code~\cite{kani}. The objective is not a monolithic proof of the entire system,
+but a layered proof architecture for the narrow waist of the security design:
+fail-closed verdict computation, delegation attenuation, approval safety,
+audit-chain integrity, and normalization kernels that could otherwise create
+bypass channels. The repository further exposes a checked trusted-assumption
+inventory, an explicit refinement map from abstract policy models to traced
+Rust evaluation, and pinned reproducibility entrypoints~\cite{vellavetoFormalInventory,vellavetoTCB,vellavetoRefinementMap,vellavetoFormalDocker}. The resulting
+claim is intentionally narrow: the security-critical pure logic at the runtime
+boundary is covered by a complementary proof mesh, and the remaining trust
+assumptions are explicit.
+\end{abstract}
+
+\noindent\textbf{Keywords:} formal verification, MCP, agent security, policy
+enforcement, Rust, Verus, Kani, TLA+, audit integrity, capability delegation
+
+\section{Introduction}
+
+Model Context Protocol servers and agent frameworks increase the set of actions
+large-language-model-based systems can take on the world~\cite{mcpSpec}. Those
+actions include filesystem access, network calls, command execution, resource
+reads, and other operations with persistent or externally visible consequences.
+The runtime mediator between an agent and the tool or service it invokes is
+therefore a natural enforcement point for security policy.
+
+That boundary is a difficult verification target. It is not enough to show that
+the policy language is expressive, or that common attacks are covered by a test
+suite. The crucial question is whether the implementation can make the wrong
+decision under edge conditions:
+
+\begin{itemize}[leftmargin=*]
+\item Can an unmatched request ever produce \texttt{Allow}?
+\item Can a delegated capability become broader than the parent that issued it?
+\item Can approval tokens be replayed across sessions or across different actions?
+\item Can normalization or decoding corner cases create a bypass around a deny rule?
+\item Can audit verification silently accept malformed state and thereby
+undermine later integrity claims?
+\end{itemize}
+
+This paper argues that such a boundary benefits from a layered proof strategy.
+Abstract state-machine models are necessary, but insufficient on their own. The
+implementation must also be targeted directly, especially the pure kernels that
+compute verdicts, validate structure, and project sensitive context.
+
+The work described here is implemented in the \texttt{formal/} subtree of the
+Vellaveto repository~\cite{vellavetoFormalInventory} and targets the runtime
+security logic in the Vellaveto workspace. The verified claims are narrower
+than ``the whole system is proved,'' but they cover the logic whose failure
+would most directly invalidate the system's security contract.
+
+The paper makes three main claims. First, the repository contains a
+multi-method verification architecture in which each proof technology is used
+for the class of property it models well. Second, the strongest proof layer is
+implementation-facing: Verus and Kani target production Rust kernels rather
+than a separate executable specification. Third, the artifact states its proof
+boundary explicitly through a refinement map and a checked trusted-assumption
+inventory, rather than leaving that boundary implicit.
+
+\section{Problem Statement}
+
+An MCP security boundary is only meaningful if it fails closed and preserves
+monotonicity across derived security state. In practice, that means at least
+the following properties:
+
+\begin{enumerate}[leftmargin=*]
+\item Missing policy, missing context, malformed derived state, or explicit deny
+conditions must not produce \texttt{Allow}.
+\item Capability delegation must only attenuate privilege, never expand it.
+\item Approval gates must be tied to the intended action and session and must
+not be reusable after successful consumption.
+\item Audit verification must reject malformed chains, malformed Merkle proofs,
+inconsistent rotation manifests, and malformed structured decision metadata.
+\item Parser, normalization, and decoding helpers must not create alternate
+interpretations that widen access beyond what policy intended.
+\end{enumerate}
+
+These are implementation-facing safety obligations. They cannot be discharged
+by benchmark numbers, API documentation, or integration tests alone.
+
+\section{Scope}
+
+The proof scope is the runtime security boundary implemented by the Vellaveto
+workspace. At a high level, requests arrive through one of several transport
+surfaces, are normalized into actions, are evaluated against policy and
+security-relevant context, and yield a verdict plus audit metadata.
+
+The proof-relevant subsystems include:
+
+\begin{itemize}[leftmargin=*]
+\item policy evaluation and rule override behavior in \texttt{vellaveto-engine},
+\item capability delegation, deputy validation, and context projection in
+\texttt{vellaveto-mcp},
+\item approval scope binding and approval consumption gates,
+\item audit append and verification logic in \texttt{vellaveto-audit},
+\item normalization kernels such as path normalization, IDNA handling, and DLP
+buffer arithmetic, and
+\item selected state machines such as task lifecycle, credential-vault
+behavior, and cascading-failure transitions.
+\end{itemize}
+
+The proof inventory is maintained in the repository's formal index, while the
+trusted boundary and non-goals are documented separately~\cite{vellavetoFormalInventory,vellavetoTCB,vellavetoFormalScope}.
+
+\section{Contributions}
+
+This work makes five concrete contributions.
+
+\subsection{A Multi-Method Verification Architecture}
+
+The repository combines TLA+, Alloy, Lean~4, Coq, Verus, and Kani rather than
+depending on a single proof technology. Each tool is assigned the class of
+claim it models well: state-machine properties, relational attenuation,
+abstract semantics, deductive Rust-kernel proofs, or bounded model checking of
+concrete code.
+
+\subsection{Implementation-Facing Deductive Proofs over Production Rust Kernels}
+
+The strongest component of the artifact is the Verus suite, which targets
+production Rust kernels rather than a separate reference implementation. This
+includes verdict computation, constraint evaluation, approval gates, capability
+checks, audit verification, Merkle structure, path normalization, DLP
+arithmetic, and ACIS envelope validation~\cite{verus,vellavetoFormalInventory}.
+
+\subsection{Bridge Harnesses between Abstract and Concrete Proof Layers}
+
+Kani harnesses are used not only for standalone properties, but also to bridge
+preconditions around deductive proofs. For example, bounded model checking is
+used to establish ordering properties that support proofs of priority-sensitive
+verdict behavior~\cite{kani,vellavetoFormalInventory}.
+
+\subsection{An Explicit Refinement and Trust-Boundary Story}
+
+The repository does not leave correspondence between abstract models and
+implementation logic implicit. Instead, it includes a refinement map and a
+checked trusted-assumption inventory~\cite{vellavetoRefinementMap,vellavetoTCB}.
+This makes the proof boundary inspectable.
+
+\subsection{Reproducibility Infrastructure}
+
+The repository exposes top-level reproduction entrypoints through
+\texttt{make formal} and \texttt{make verify}, and ships a pinned Docker image
+for replaying the formal environment~\cite{vellavetoFormalDocker}.
+
+\section{Verification Architecture}
+
+\subsection{TLA+}
+
+TLA+ is used for operational state-machine and protocol properties, including
+fail-closed policy-engine behavior, ABAC forbid-override semantics, task
+lifecycle safety, cascading-failure control flow, capability-delegation
+invariants, credential-vault transitions, and audit-chain integrity~\cite{lamport94,lamport02,vellavetoFormalInventory}.
+
+This layer is best suited to properties about allowed transitions and global
+invariants rather than line-by-line implementation behavior.
+
+\subsection{Alloy}
+
+Alloy is used for compact bounded relational models, especially around
+capability attenuation and ABAC combining logic~\cite{jackson12}. These models
+are useful where structure matters more than stepwise control flow.
+
+\subsection{Lean 4 and Coq}
+
+Lean~4 and Coq encode semantic properties over abstract models, including
+fail-closed evaluation, determinism, path normalization, ABAC
+forbid-override, and delegation attenuation~\cite{lean4,coq}. These proofs
+establish clean semantic baselines, but do not by themselves eliminate the
+refinement gap to the Rust implementation.
+
+\subsection{Verus}
+
+Verus is the implementation-oriented core of the stack. It proves properties
+over extracted or isolated Rust kernels from the production codebase. Examples
+include:
+
+\begin{itemize}[leftmargin=*]
+\item core verdict computation and rule overrides,
+\item constraint-evaluation fail-closed control flow,
+\item approval binding and single-use consumption gates,
+\item approval-ID validation on transport and server paths,
+\item capability matching, subset, grant-coverage, and identity-chain guards,
+\item deputy and principal handoff logic,
+\item audit append and audit verification guards,
+\item Merkle append, fold, path, and rotation-manifest structure,
+\item cross-call DLP arithmetic,
+\item path normalization, and
+\item ACIS envelope validation.
+\end{itemize}
+
+This is the layer that most directly supports the claim that the runtime
+boundary's security-critical pure logic has proof coverage on actual Rust
+code~\cite{verus,vellavetoFormalInventory}.
+
+\subsection{Kani}
+
+Kani complements Verus by exploring bounded concrete execution spaces in actual
+Rust code. It is well suited for finite-state and edge-condition properties,
+including IP classification, cache safety, grant subset behavior, constraint
+edge cases, Unicode and IDNA normalization, RwLock poisoning fail-closed
+behavior, sanitizer inversion properties, and cascading-failure finite-state
+machine transitions~\cite{kani,vellavetoFormalInventory}.
+
+\section{Representative Verified Properties}
+
+The repository contains many individual proof obligations. For exposition, they
+are grouped here by security meaning rather than by file count.
+
+\subsection{Fail-Closed Verdict Computation}
+
+The central safety claim is that unmatched or malformed evaluation state must
+not yield \texttt{Allow}. This is supported at multiple levels:
+
+\begin{itemize}[leftmargin=*]
+\item TLA+ models fail-closed defaults and priority ordering.
+\item Lean~4 and Coq prove abstract fail-closed semantics.
+\item Verus proves the core Rust verdict kernel for all inputs.
+\item Kani checks bounded concrete harnesses, including error and edge cases.
+\end{itemize}
+
+This property is the cornerstone of the runtime boundary. If it fails, the rest
+of the security design loses force.
+
+\subsection{Rule Override and Deny Dominance}
+
+Security boundaries often fail not because the base policy is wrong, but
+because an override path is mishandled. The proofs therefore isolate path and
+network block behavior and ensure that rule-level deny conditions dominate the
+final verdict when triggered.
+
+\subsection{Delegation Attenuation}
+
+Capability and identity delegation are first-class escalation surfaces. The
+proof stack covers them through abstract attenuation models and concrete Rust
+guards for matching, subset checks, grant coverage, identity-chain continuity,
+and depth restrictions.
+
+\subsection{Approval Safety}
+
+Approval paths are verified as gates, not merely as workflow artifacts. The
+implementation-facing proofs target session binding, action-fingerprint
+binding, single-use consumption, and the validation of approval identifiers
+carried through transport and HTTP-facing paths.
+
+\subsection{Audit Integrity}
+
+Tamper evidence is structurally verified through audit append and recovery
+counters, hash-chain verification guards, Merkle proof structure, rotation
+manifest linkage, and structured envelope validation. The verified claim is
+structural integrity, not proof of underlying cryptographic primitives.
+
+\subsection{Safe Normalization and Decoding}
+
+Several recent attack classes against agent tooling depend on alternate parsing
+or normalization paths. This repository therefore treats helpers such as path
+normalization, DLP buffer arithmetic, homoglyph collapse, IDNA fail-closed
+handling, and lock-poisoning handlers as proof-relevant kernels.
+
+\section{Refinement Boundary}
+
+This work does not claim a complete machine-checked forward simulation from the
+TLA+ models to the full Rust implementation. Instead, it documents the
+refinement boundary explicitly in the repository's refinement map~\cite{vellavetoRefinementMap}.
+
+That artifact defines:
+
+\begin{itemize}[leftmargin=*]
+\item an abstraction function from traced Rust evaluation to abstract TLA state,
+\item per-transition simulation obligations,
+\item executable witness tests for selected high-risk safety transitions, and
+\item explicit non-claims, including unfinished obligations such as full
+stuttering-refinement coverage.
+\end{itemize}
+
+This is a deliberate methodological choice. The artifact narrows the gap rather
+than obscuring it.
+
+\section{Trusted Assumptions}
+
+The verified claims in this paper are conditional on a named trust boundary.
+The relevant assumptions include:
+
+\begin{itemize}[leftmargin=*]
+\item compiler and proof-tool correctness,
+\item cryptographic primitive correctness,
+\item operating-system and filesystem semantics,
+\item DNS and network infrastructure behavior, and
+\item the assumption that the runtime boundary is actually invoked for the
+actions being controlled.
+\end{itemize}
+
+The repository treats this as an auditable part of the artifact through the
+trusted computing base documentation and the checked assumption inventory under
+\texttt{formal/tools/}~\cite{vellavetoTCB}.
+
+\section{Reproducibility}
+
+The artifact can be replayed using the repository entrypoints:
+
+\begin{verbatim}
+make formal
+make verify
+\end{verbatim}
+
+Tool-specific targets:
+
+\begin{verbatim}
+make formal-tla
+make formal-alloy
+make formal-lean
+make formal-coq
+make formal-kani
+make formal-verus
+make formal-trusted-assumptions
+\end{verbatim}
+
+Pinned Docker environment:
+
+\begin{verbatim}
+docker build -t vellaveto-formal formal/
+docker run --rm -v "$(pwd):/workspace" vellaveto-formal
+\end{verbatim}
+
+The Docker image pins the major formal toolchains used by the artifact,
+including Rust, Verus, Kani, TLA+, and Lean tooling~\cite{vellavetoFormalDocker}.
+
+\section{Related Work}
+
+This artifact sits at the intersection of formal methods and runtime security
+mediation.
+
+At the methods level, it builds on well-established verification ecosystems:
+TLA+ for state-machine model checking~\cite{lamport94,lamport02}, Alloy for
+bounded relational reasoning~\cite{jackson12}, Coq and Lean~4 for
+machine-checked semantics~\cite{coq,lean4}, and Verus and Kani for
+implementation-oriented verification of Rust code~\cite{verus,kani}.
+
+At the application level, the novelty is not a new logic, but the application
+of a mixed proof stack to the runtime mediation layer of MCP-style tool calls.
+The repository's proof strategy differs from work that verifies a standalone
+algorithm in isolation: the target here is a privilege-bearing security
+boundary.
+
+\section{Threats to Validity}
+
+Several limitations affect the strength of the overall claim.
+
+\subsection{No End-to-End Proof}
+
+The repository does not contain a full end-to-end mechanical proof of the
+entire deployed system. Glue code, network behavior, and external dependencies
+remain outside the strongest proof layer.
+
+\subsection{Bounded Tools Remain Bounded}
+
+TLA+ and Kani results are exhaustive only within their configured bounds or
+symbolic encodings. They are strong evidence, but they are not substitutes for
+unbounded deductive proofs in every domain.
+
+\subsection{Abstract-Model Correspondence Remains Partial}
+
+Lean~4 and Coq proofs target abstract semantics. They strengthen the semantic
+story, but do not remove the implementation-refinement problem on their own.
+
+\subsection{Cryptography and Environment Are Assumed}
+
+Cryptographic primitive correctness, operating-system behavior, filesystem
+semantics, and DNS or network infrastructure remain trusted assumptions rather
+than proved properties.
+
+\section{Conclusion}
+
+This paper presents a formal verification program for a runtime security
+boundary rather than for a single algorithm in isolation. The central design
+principle is to concentrate proof effort on the narrow waist of the system: the
+pure logic that decides whether a side effect may proceed and whether the
+evidence describing that decision is structurally sound.
+
+The resulting claim is intentionally modest but meaningful. The repository does
+not prove the entire system correct. It does, however, provide a layered and
+reproducible proof mesh over the logic whose failure would most directly break
+the security boundary: fail-closed verdict computation, delegation attenuation,
+approval safety, audit integrity, and normalization kernels. By pairing those
+proofs with an explicit trust boundary and an explicit refinement story, the
+artifact aims to make its strongest claims both useful and reviewable.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

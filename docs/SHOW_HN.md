@@ -5,7 +5,7 @@
 Pick one (recommendation: Option 1 — concrete, visceral, demo-first):
 
 1. `Show HN: VellaVeto – Firewall that blocks AI agents from reading your credentials (Rust, <5ms)`
-2. `Show HN: VellaVeto – Runtime firewall for AI agent tool calls, with formal proofs it can't fail open`
+2. `Show HN: VellaVeto – Runtime firewall for AI agent tool calls, with formal proofs of fail-closed verdict logic`
 3. `Show HN: VellaVeto – We wrote Coq proofs that our MCP firewall always denies on error`
 4. `Show HN: VellaVeto – One flag to stop AI agents from exfiltrating your AWS credentials`
 
@@ -21,7 +21,7 @@ Avoid: "security engine", "control plane", "governance layer", "policy engine" �
 
 Hi HN, I'm Paolo.
 
-I built VellaVeto because AI agents with tool access — reading files, making HTTP requests, executing commands — have no standard security layer. MCP gives agents a protocol to call tools, but the protocol itself has no policy enforcement, no audit trail, and no identity model. In the last 15 months, the ecosystem has accumulated 30+ CVEs: command injection in `mcp-remote` (CVE-2025-6514, CVSS 9.6), path traversal in Anthropic's own Git MCP server (CVE-2025-68143/44/45), SANDWORM npm supply-chain worms injecting rogue MCP servers into AI configs, and 8,000+ MCP servers found exposed with no authentication.
+I built VellaVeto because AI agents with tool access — reading files, making HTTP requests, executing commands — have no standard security layer. MCP gives agents a protocol to call tools, but the protocol itself has no policy enforcement, no audit trail, and no identity model. In roughly the last 15 months, the ecosystem has accumulated dozens of published CVEs: command injection in `mcp-remote` (CVE-2025-6514, CVSS 9.6), path traversal in Anthropic's own Git MCP server (CVE-2025-68143/44/45), SANDWORM npm supply-chain worms injecting rogue MCP servers into AI configs, and thousands of exposed MCP servers found with no authentication.
 
 **What VellaVeto does:** It sits between AI agents and tool servers as an agent interaction firewall. Every tool call is evaluated against policy before execution. No policy match, missing context, or any evaluation error produces `Deny`. It works across MCP (stdio, HTTP, WebSocket, gRPC, SSE) and function-calling APIs.
 
@@ -44,20 +44,20 @@ Beyond the one-liner, VellaVeto includes topology discovery (auto-inventorying M
 
 - *12-framework compliance evidence.* If you deploy AI agents in regulated industries, you need evidence for auditors. VellaVeto ships registries for EU AI Act, NIS2, DORA, SOC 2, ISO 42001, NIST AI 600-1, and 6 more frameworks. Each registry maps VellaVeto controls to specific regulatory requirements and generates evidence packs. Cross-regulation incident reporting maps a single event to every applicable notification timeline (NIS2 24h, DORA classification, EU AI Act Art 62). This is table-stakes for enterprise adoption but no other MCP gateway provides it.
 
-- *Formal verification.* We wrote TLA+ specs, Lean 4 proofs, and Coq theorems proving fail-closed behavior, evaluation determinism, and that capability delegation can't escalate privileges. I haven't seen this in other security tools in this space. The proofs are in `formal/` — they're real, not marketing.
+- *Formal verification.* We wrote TLA+ specs, Lean 4 proofs, Coq theorems, Verus proofs over Rust kernels, and Kani harnesses for narrow security-critical properties: fail-closed verdict computation, evaluation determinism, delegation attenuation, approval binding, audit integrity, and normalization kernels. The proof inventory, trust boundary, and arXiv-ready manuscript source are in `formal/`.
 
 - *Depth of threat detection.* Not just regex patterns — 20+ detection layers including Aho-Corasick pattern matching, NFKC Unicode normalization, ROT13/base64/leetspeak obfuscation decode, mathematical alphanumeric symbol normalization, emoji smuggling via regional indicators, schema poisoning detection, memory poisoning detection, multi-agent collusion analysis. Each layer was added because we found real bypasses.
 
 - *Transport parity.* Every security check works identically across HTTP, WebSocket, gRPC, stdio, and SSE. We maintain a 13-feature parity matrix and verify it on every change.
 
-- *Open security benchmark.* We built [MCPSEC](../mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. Run it against any gateway — including ours — and get a Tier 0-5 security score. We score 100/100 (Tier 5: Hardened, 105/105 tests passed). Run `cargo run -p mcpsec -- --target http://localhost:3000` to verify.
+- *Open security benchmark.* We built [MCPSEC](../mcpsec/), an open, vendor-neutral security benchmark for MCP gateways (Apache-2.0). It defines 10 formal security properties and 105 reproducible attack test cases across 16 attack classes. The current published reference result in the repo is `mcpsec/results/vellaveto-v6.0.json`, which reports 100/100 (Tier 5: Hardened, 105/105 tests passed). Run `cargo run -p mcpsec -- --target http://localhost:3000` against a live instance to verify.
 
 **Honest caveats:**
 
-- The 250 security audit rounds are **internal** — systematic red-teaming where we attack our own code. They are not third-party audits. The methodology and all findings are documented in the changelog and security review docs. We'd welcome independent review.
+- The 254+ security audit rounds are **internal** — systematic red-teaming where we attack our own code. They are not third-party audits. The methodology and all findings are documented in the changelog and security review docs. We'd welcome independent review.
 - Injection detection is a pre-filter, not a security boundary. A sufficiently novel injection will get through.
 - DLP does not detect secrets split across multiple tool calls.
-- The project is complex (19 Rust crates), but you don't need to understand any of it — `--protect shield` gives you solid defaults in one flag. If you want something simpler, [PipeLock](https://github.com/luckyPipewrench/pipelock) (single Go binary) is a good alternative.
+- The project is a multi-crate Rust workspace, but you don't need to understand any of it — `--protect shield` gives you solid defaults in one flag. If you want something simpler, [PipeLock](https://github.com/luckyPipewrench/pipelock) (single Go binary) is a good alternative.
 - Enterprise crates use BUSL-1.1, which is not OSI-approved open source. Core crates (types, engine, audit, config, discovery) are MPL-2.0. Each BSL version converts to MPL-2.0 after 3 years. Free for ≤3 nodes.
 
 I'd particularly value feedback on:
@@ -92,7 +92,7 @@ Happy to discuss design decisions, tradeoffs, or anything else.
 
 You're right — BUSL-1.1 is not OSI-approved. We use it for enterprise crates (server, http-proxy, operator) to sustain development. Core security crates — types, engine, audit, config, discovery — are MPL-2.0. Every BSL version converts to MPL-2.0 after 3 years. Free for ≤3 nodes / ≤25 endpoints. We chose this over AGPL because AGPL's network-use clause creates uncertainty for proxy deployments.
 
-### "250 audit rounds — by whom?"
+### "254 audit rounds — by whom?"
 
 Internal red-teaming, not third-party. We attack our own code systematically: pick an attack class, enumerate vectors, write exploits, document findings, fix them, write regression tests, verify fixes. It's documented in the changelog (every round has a commit) and docs/SECURITY_REVIEW.md. We'd welcome independent review — if a security firm wants to audit it, we'll make it easy.
 
