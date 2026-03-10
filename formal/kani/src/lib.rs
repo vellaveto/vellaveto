@@ -226,15 +226,18 @@ pub fn abac_evaluate(policies: &[AbacPolicy], matches: &dyn Fn(&AbacPolicy) -> b
 // Domain normalization (extracted from engine domain handling)
 // =========================================================================
 
-/// Normalize a domain name: lowercase, strip trailing dot.
+/// Normalize a domain name: ASCII lowercase, strip trailing dots.
 ///
 /// **Simplified extraction** from domain handling in `vellaveto-engine/src/lib.rs`.
 /// Production uses full IDNA normalization (74 lines: punycode, homoglyph mapping,
-/// Unicode confusable resolution). This function verifies only the idempotence of
-/// the lowercase + trim subset. This is a pure function — calling it twice yields
-/// the same result.
+/// Unicode confusable resolution). This function verifies only the post-IDNA
+/// ASCII lowercase + trim subset. This is a pure function — calling it twice
+/// yields the same result.
 pub fn normalize_domain(raw: &str) -> String {
-    let lower = raw.to_lowercase();
-    let trimmed = lower.trim_end_matches('.');
-    trimmed.to_string()
+    let bytes = raw.as_bytes();
+    let mut end = bytes.len();
+    while end > 0 && bytes[end - 1] == b'.' {
+        end -= 1;
+    }
+    raw[..end].to_ascii_lowercase()
 }

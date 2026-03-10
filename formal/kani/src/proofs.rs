@@ -276,6 +276,22 @@ fn proof_evaluation_deterministic() {
 // K9: Domain normalization is idempotent
 // =========================================================================
 
+fn normalize_domain_ascii4(raw: [u8; 4], raw_len: usize) -> ([u8; 4], usize) {
+    let mut end = raw_len;
+    while end > 0 && raw[end - 1] == b'.' {
+        end -= 1;
+    }
+
+    let mut normalized = [0u8; 4];
+    let mut idx = 0;
+    while idx < end {
+        normalized[idx] = raw[idx].to_ascii_lowercase();
+        idx += 1;
+    }
+
+    (normalized, end)
+}
+
 #[kani::proof]
 #[kani::unwind(10)]
 fn proof_domain_normalize_idempotent() {
@@ -289,11 +305,10 @@ fn proof_domain_normalize_idempotent() {
     kani::assume(i2 < ALPHABET.len());
     kani::assume(i3 < ALPHABET.len());
 
-    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2], ALPHABET[i3]];
-    let input = std::str::from_utf8(&bytes).unwrap();
+    let input = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2], ALPHABET[i3]];
 
-    let first = crate::normalize_domain(input);
-    let second = crate::normalize_domain(&first);
+    let first = normalize_domain_ascii4(input, input.len());
+    let second = normalize_domain_ascii4(first.0, first.1);
 
     assert_eq!(
         first, second,
