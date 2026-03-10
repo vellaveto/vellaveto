@@ -5,6 +5,7 @@ interface Props {
 }
 
 const { title, description = 'Agent interaction firewall for MCP and AI tool calls. Runtime boundary enforcement with fail-closed policy, bound approvals, session isolation, and tamper-evident audit.' } = Astro.props;
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -16,10 +17,12 @@ const { title, description = 'Agent interaction firewall for MCP and AI tool cal
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="canonical" href={canonicalURL}>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'">
   <meta property="og:title" content={title}>
   <meta property="og:description" content={description}>
   <meta property="og:type" content="website">
+  <meta property="og:url" content={canonicalURL}>
   <meta property="og:image" content="/og-card.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content={title}>

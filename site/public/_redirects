@@ -1,2 +1,2 @@
-# Redirect apex to www
-https://vellaveto.online/* https://www.vellaveto.online/:splat 301
+# Apex domain is canonical; redirect any www alias back to apex.
+https://www.vellaveto.online/* https://vellaveto.online/:splat 301
