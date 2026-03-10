@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `require_agent_identity` wired into `MediationConfig` as Step 0 in the
     `mediate()` pipeline. Unauthenticated traffic denied with `SessionGuard`
     origin before DLP/injection scanning runs. 6 enforcement tests.
-  - **Gap 5 (P2 — CLAUDE.md stale counts):** Updated Verus 321→523, total
-    545→747+ across CLAUDE.md.
+  - **Gap 5 (P2 — CLAUDE.md stale counts):** Updated Verus 321→534, total
+    545→767+ across CLAUDE.md.
   - **Gap 2+4 (P1 — secondary ACIS decision envelopes) — DONE:**
     `build_secondary_acis_envelope()` convenience helper in `mediation.rs`.
     194 secondary security-decision sites across all 4 transports wired
@@ -38,6 +38,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Window, Injection Pipeline) and complete source correspondence table
     mapping all 21 modules to production files.
   - **All 6 gaps closed.**
+
+### Changed
+
+- **Planning reset — roadmap sync (Mar 2026):**
+  `ROADMAP.md` no longer frames the next cycle as abstract Phase 73-81 market
+  positioning. It now reflects the actual repo state and 2026 execution order:
+  Phase 0 worktree cleanup and Sprint 2 closeout, then protocol-complete
+  runtime enforcement, policy/approval/operator productization, multi-agent
+  containment, compliance evidence generation, and supply-chain trust.
+- **Contributor guidance sync (Mar 2026):**
+  `CLAUDE.md` now matches the roadmap reset: the shared substrate is treated as
+  shipped foundation, the "all phases implemented" wording is removed, and the
+  current execution priorities point contributors at the active transport,
+  product, research, compliance, and trust tracks instead of the retired
+  phase-73-to-81 framing.
 
 ### Fixed
 
@@ -854,7 +869,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Centralized Audit Store (Phase 43):** Optional dual-write to PostgreSQL alongside the existing JSONL file log, with structured query support. `AuditSink` trait (`sink`, `flush`, `shutdown`, `is_healthy`, `pending_count`) for pluggable external stores. `PostgresAuditSink` with bounded mpsc channel (configurable 1–10K buffer), background tokio task for batch INSERT (configurable batch size/flush interval), exponential backoff retry (max 3 attempts), `ON CONFLICT (id) DO NOTHING` for idempotent inserts, DDL with B-tree indexes on sequence/timestamp/tool/verdict_type, GIN index on metadata JSONB, partial index on deny entries. `AuditQueryService` trait with two backends: `FileAuditQuery` (in-memory filtering on existing `load_entries()`, capped at 500K entries) and `PostgresAuditQuery` (SQL with parameterized queries — never string interpolation — ILIKE text search with wildcard escaping, GIN `@>` for metadata filtering). `AuditStoreConfig` with SSRF validation (rejects localhost/127.x/10.x/172.16–31.x/192.168.x/169.254.x/::1/metadata.google.internal), URL scheme enforcement (`postgres://`/`postgresql://`), SQL identifier validation for `table_name` (alphanumeric + underscore only), `deny_unknown_fields`, custom Debug redacting `database_url`. REST API: `GET /api/audit/search` (paginated with time range/tool/verdict/agent_id/text/sequence filters), `GET /api/audit/store/status` (backend type, enabled, sink health, pending count), `GET /api/audit/entry/{id}` (single entry lookup). Feature-gated behind `postgres-store` (sqlx 0.8). File log remains source of truth; sink failures non-fatal by default (`sink_failure_fatal: false`). ~55 new tests across types, config, audit, and server crates.
 - **OWASP Agentic Security Index (Phase 41):** 10-category, 33-control compliance registry mapping ASI01–ASI10 to Vellaveto detection capabilities. `GET /api/compliance/owasp-agentic` endpoint with 60s cache TTL, gated on `OwaspAsiConfig.enabled`. Integrated into gap analysis (8 frameworks), compliance status summary, and dashboard. SDK methods: Python `owasp_asi_coverage()` (sync+async), TypeScript `owaspAsiCoverage()` (typed response), Go `OwaspAsiCoverage()` (with nested types). `OwaspAsiConfig` with `deny_unknown_fields` and `validate()`. `AsiCoverageReport::validate()` with bounds on collections and `f32` range checks.
 - **Interactive Setup Wizard** (`/setup`): Web-based 7-step configuration wizard for first-time users (Welcome → Security → Policies → Detection → Audit → Compliance → Review/Apply). Server-side rendered HTML, CSRF protection, bounded session management, TOML config generation with hot-reload. Guard middleware locks wizard after initial setup via `.setup-complete` marker file.
-- **Cloudflare Pages deployment** for [www.vellaveto.online](https://www.vellaveto.online): `deploy-site.yml` workflow, `_redirects` (apex → www), `_headers` (security headers), Astro site URL updated from `vellaveto.dev`.
+- **Cloudflare Pages deployment** for [vellaveto.online](https://vellaveto.online): `deploy-site.yml` workflow, apex-canonical `_redirects`, `_headers` (security headers), Astro site URL updated from `vellaveto.dev`.
 
 ### Fixed
 
@@ -1696,7 +1711,7 @@ Dynamic report generation for SOC 2 Type II auditors, scanning audit entries and
 
 ### Changed
 
-- **CLAUDE.md trimmed** — 47,834 bytes → 11,675 bytes (76% reduction). Collapsed "What's Done" section to 16 one-line summaries, trimmed file locations table from ~120 to ~52 rows, simplified Bottega section to reference `.claude/rules/`.
+- **CLAUDE.md trimmed** — 47,834 bytes → 11,675 bytes (76% reduction). Collapsed "What's Done" section to 16 one-line summaries, trimmed file locations table from ~120 to ~52 rows, simplified Swarm section to reference `.claude/rules/`.
 
 ### Documentation
 

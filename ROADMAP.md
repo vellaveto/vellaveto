@@ -1,398 +1,325 @@
 # Vellaveto Roadmap
 
-> **Version:** 7.0.0-planning
-> **Updated:** 2026-02-28
-> **Status:** v6 foundation complete; next horizon planning
-> **Current baseline:** 10,930+ Rust tests passing | 250 audit rounds | 72 completed phases
-> **Strategic position:** Agent interaction firewall — the runtime boundary for agentic systems
-> **Primary mechanism:** Fail-closed boundary enforcement across all transports
-> **Licensing:** Multi-tier open-core (see LICENSING.md)
+> **Version:** 8.0.0-planning
+> **Updated:** 2026-03-11
+> **Status:** shared substrate shipped; 2026 execution roadmap
+> **Current focus:** close the dirty worktree, finish transport convergence, then expand runtime, product, research, compliance, and supply-chain coverage
+> **Strategic position:** fail-closed control plane for MCP and tool-calling agents
 
 ---
 
 ## Executive Summary
 
-The v6 program is complete. Vellaveto already ships the core runtime boundary for agentic systems: fail-closed enforcement with ACIS decision envelopes, identity-aware access controls, discovery, audit, analytics, policy portability, compliance mapping, consumer privacy modes, and enterprise deployment surfaces.
+The next roadmap does not start from zero. Vellaveto already has the core provenance, containment, mediation, audit, approval, discovery, and identity substrate in-tree. The 2026 plan starts from the real repo state:
 
-The next roadmap is no longer about filling foundational feature gaps. It is about turning that shipped platform into the default enterprise control plane for MCP and tool-calling agents before the category gets flattened into commodity "MCP gateway" offerings.
+1. finish the current worktree bundles cleanly;
+2. complete protocol-level runtime enforcement across MCP and HTTP transports;
+3. ship the buyer-facing controls competitors already expose;
+4. fund multi-agent and advanced containment research as product epics;
+5. turn compliance mapping into generated evidence artifacts;
+6. strengthen supply-chain trust and ecosystem reputation handling.
 
-This roadmap prioritizes:
-
-1. **Owning the registry and access plane** before gateway vendors normalize discovery and hosted onboarding
-2. **Productizing delegated identity and token brokerage** in direct response to MCP authorization requirements and the rise of auth-first competitors
-3. **Meeting managed-runtime expectations** as AWS, Microsoft, and platform vendors move toward hosted server-side execution
-4. **Converting compliance mapping into customer-grade evidence automation**
-5. **Improving adoption and distribution** so the product wins on deployment speed, not just depth
-
----
-
-## Market Reset (Verified 2026-02-28)
-
-The current market signal is clear:
-
-1. **MCP security is now explicit protocol surface, not optional hygiene.**
-   The MCP security guidance and authorization specification explicitly require token audience binding, consent controls, PKCE, and forbid token passthrough.
-
-2. **OWASP now treats secure MCP implementation as its own practical discipline.**
-   On **February 16, 2026**, OWASP published *A Practical Guide for Secure MCP Server Development*, focused on strong authn/authz, validation, session isolation, and hardened deployment.
-
-3. **"Gateway" is no longer differentiated language.**
-   MintMCP, TrueFoundry, Microsoft, AWS, and Permit all now market some combination of gateway, registry, auth, routing, or managed control-plane capabilities.
-
-4. **Discovery and hosted onboarding are becoming table stakes.**
-   MintMCP and TrueFoundry both emphasize registry, discovery, hosted/managed MCP server onboarding, and centralized governance.
-
-5. **Identity is becoming the primary buying wedge.**
-   Permit positions MCPermit around five-stage authz, ReBAC, and HITL approvals. The standards direction reinforces that.
-
-6. **Managed execution is accelerating.**
-   AWS moved from AgentCore GA (**October 13, 2025**) to API Gateway MCP proxy (**December 2, 2025**) to Bedrock server-side tool execution through AgentCore Gateway (**February 24, 2026**).
-
-7. **SDK-side guardrails are improving, but they do not replace external enforcement.**
-   OpenAI Agents SDK tool guardrails only cover function tools and do not cover hosted tools or local built-in runtime tools, preserving the need for an external enforcement layer.
-
-**Implication:** Vellaveto should not spend the next cycle adding more undifferentiated gateway mechanics. It should use the existing runtime core to win the control-plane layer above the gateway.
+This roadmap is therefore execution-first, not a fresh foundation plan.
 
 ---
 
-## Product Thesis
+## Planning Assumptions
 
-Vellaveto should be positioned and built as:
-
-**the security-first control plane for MCP and tool-calling agents, with a fail-closed runtime gateway at its core.**
-
-That means the next roadmap focuses on four defensible moats:
-
-1. **Identity plane**
-   User, agent, tenant, tool, and downstream-service identity bound together with explicit delegation.
-
-2. **Registry and inventory plane**
-   Verified tools, known topology, drift detection, and trust metadata that determine what can be called at all.
-
-3. **Evidence plane**
-   Audit trails become decision-ready evidence packs, not just logs.
-
-4. **Distribution plane**
-   Fast rollout for local, self-hosted, and managed deployment models.
+- Shared provenance and containment primitives already exist in `vellaveto-types`.
+- Canonical request hashing and mediation scaffolding already exist in `vellaveto-canonical` and `vellaveto-mcp`.
+- ACIS already carries provenance, lineage, sink, trust, and containment metadata.
+- NHI, MINJA, discovery, approval, cluster state, and runtime transport surfaces already exist and should be extended rather than rebuilt.
+- Research-heavy items are funded epics in the main roadmap, but they must ship behind explicit benchmarks, regression suites, and rollout gates before becoming defaults.
 
 ---
 
-## 2026 Priorities
+## What Is Already Shipped
 
-| Priority | Theme | Why It Matters Now |
-|----------|-------|--------------------|
-| **P1** | Registry + Access Plane | Strongest differentiation against MintMCP, TrueFoundry, and Permit |
-| **P2** | Managed Deployment + Ecosystem Reach | Required to stay relevant against AWS and Microsoft managed pathways |
-| **P3** | Evidence Automation + Posture Intelligence | Turns existing depth into enterprise buying leverage |
+The following are treated as foundation, not backlog:
 
----
+- Shared provenance, workload, trust, taint, lineage, and containment models
+- Canonical request and lineage hashing
+- Shared mediation pipeline and ACIS decision envelopes
+- NHI and MINJA substrate
+- Approval, audit, discovery, and cluster/runtime state foundations
+- MCP, HTTP proxy, server, stdio proxy, and shield transport surfaces
+- Formal and adversarial verification programs substantial enough to support incremental proof targets instead of greenfield formalization
 
-## Timeline
-
-```text
-Q1 2026 (Done):     Phase 71   — Cross-Call DLP State                        [P1]
-                    Phase 71.1 — TLS Crate + HTTP Proxy TLS                 [P1]
-                    Phase 72   — Grammar-Validated Injection                 [P1]
-                    Phase 72.1 — Independent Verification Pipeline          [P2]
-
-Q2 2026 (Planned):  Phase 73 — Verified Registry & Connector Trust         [P1]
-                    Phase 74 — Delegated Identity Broker & Access Graph    [P1]
-                    Phase 75 — Inventory, Posture & Exposure Views         [P3]
-
-Q3 2026 (Planned):  Phase 76 — Hosted Gateway & Remote MCP Onboarding      [P2]
-                    Phase 77 — Server-Side Tool Execution Integrations     [P2]
-                    Phase 78 — Policy Lifecycle Automation & GitOps        [P1]
-
-Q4 2026 (Planned):  Phase 79 — Evidence Automation & Audit Packs           [P3]
-                    Phase 80 — Adaptive Runtime Defense & Policy Tuning    [P3]
-                    Phase 81 — Verified Partner Marketplace & Channels     [P2]
-```
+The roadmap below assumes those pieces are extended in place.
 
 ---
 
-## Phase 73: Verified Registry & Connector Trust (P1)
+## Immediate Worktree Priorities
 
-**Goal:** Make the registry a trust boundary, not a catalog.
+Before opening large new tracks, the current dirty worktree should be reduced into clean, reviewable slices.
 
-### Why now
+### Bundle A: HTTP proxy transport convergence
 
-Competitors are normalizing server registries and discovery. Vellaveto needs the registry to become a security differentiator: verified publishers, connector trust state, risk metadata, and policy-aware admission.
+**Primary modules**
+- `vellaveto-http-proxy`
+- `vellaveto-mcp`
+- `vellaveto-engine`
+- `vellaveto-audit`
 
-### Deliverables
+**Current scope**
+- Finish unified HTTP and WebSocket mediation on the shared runtime-security-context path
+- Make transport evidence complete: signature status, replay result, canonical binding, workload binding, and origin lineage
+- Extend parity coverage to sampling, elicitation, tasks, and extension methods
 
-- Signed connector and server manifests with publisher identity
-- Trust tiers for tools and servers (`verified`, `internal`, `quarantined`, `blocked`)
-- Registry-side risk metadata: auth mode, data class, side effects, network reach, execution model
-- Admission policies that can deny or gate untrusted connectors before runtime
-- Unknown-tool and tool-drift workflows connected directly to the registry
-- Registry API/UX for approving, promoting, and revoking connectors
+**Exit criteria**
+- `cargo fmt --check`
+- `cargo test -p vellaveto-http-proxy`
+- no legacy HTTP admission path remains for policy-evaluated actions
 
-### Exit criteria
+### Bundle B: formal/docs/paper consolidation
 
-- A tenant can allow only verified connectors by policy
-- Registry trust metadata is enforceable at runtime without manual duplication
-- New connector onboarding produces both inventory and trust posture in one flow
+**Primary modules**
+- `formal/`
+- top-level metadata and release docs
 
----
+**Current scope**
+- Align proof counts, verification claims, manuscript direction, and inventory references
+- Complete migration away from the old paper entrypoint
+- Keep changelog, roadmap, assurance, and trusted-computing claims internally consistent
 
-## Phase 74: Delegated Identity Broker & Access Graph (P1)
+**Exit criteria**
+- proof counts and manuscript references are internally consistent
+- no stale roadmap or inventory claims remain in the edited doc set
 
-**Goal:** Make delegated access the strongest product wedge.
+### Bundle C: site/domain/package cleanup
 
-### Why now
+**Primary modules**
+- `site/`
+- `packages/create-vellaveto`
+- `sdk/typescript`
 
-The MCP authorization model and current vendor direction both push toward identity-bound access. Vellaveto already has the pieces (OIDC, SAML, DPoP, M2M, step-up auth, NHI lifecycle), but they need to become a unified product surface.
+**Current scope**
+- Finish apex/canonical routing and generated robots/sitemap assets
+- Align package metadata and site copy with the current product position
 
-### Deliverables
-
-- First-class delegation model: user -> agent -> gateway -> MCP server -> downstream service
-- Resource-indicator-aware token brokerage with explicit audience validation
-- Step-up auth and approval orchestration tied to risk policy
-- Access graph visualization for originator, agent, server, and downstream service relationships
-- Just-in-time scoped credentials for high-risk calls
-- Replay-safe short-lived service tokens and revocation hooks
-
-### Exit criteria
-
-- Every high-risk call can be explained as a concrete delegated path
-- Token issuance and validation are visible, auditable, and policy-addressable
-- Identity failures are diagnosable without exposing secrets or unsafe detail
-
----
-
-## Phase 75: Inventory, Posture & Exposure Views (P3)
-
-**Goal:** Turn topology and discovery into an operator-facing posture product.
-
-### Why now
-
-Discovery is already implemented, but the buyer value is not "a crawler exists." The buyer value is "I can see what agents can reach, what changed, and what is risky."
-
-### Deliverables
-
-- Unified inventory view for servers, tools, identities, transports, and trust state
-- Drift and exposure dashboards: new tool, changed schema, missing auth, broad scopes, high-risk tool chains
-- Policy coverage views tied to live inventory
-- Posture scoring per tenant and per environment
-- "Shadow MCP" detection for servers observed at runtime but not approved in registry
-- Exportable posture snapshots for internal review and audit workflows
-
-### Exit criteria
-
-- Admins can answer "what tools exist, who can use them, and what changed this week?" from one surface
-- Inventory feeds both enforcement and sales-proof posture reporting
+**Exit criteria**
+- canonical site routing is internally consistent
+- package metadata matches current branding and deployment URLs
 
 ---
 
-## Phase 76: Hosted Gateway & Remote MCP Onboarding (P2)
+## 2026 Execution Map
 
-**Goal:** Remove deployment friction as a blocker to adoption.
+### Phase 0: Sprint 2 Closeout and Worktree Cleanup
 
-### Why now
+**Window**
+- March 2026
 
-MintMCP, TrueFoundry, and Microsoft are all pushing centralized management and simpler onboarding. Vellaveto needs a clear path from local hardening to managed enterprise rollout.
+**Goal**
+- Cleanly land the active worktree and rebaseline planning around the code that actually exists.
 
-### Deliverables
+**Primary modules**
+- `vellaveto-http-proxy`
+- `formal/`
+- `site/`
+- top-level release and planning docs
 
-- Hosted control-plane deployment mode for remote MCP onboarding
-- One-click bring-your-own MCP server registration for HTTP and remote transports
-- Managed bootstrap flows for stdio-to-remote conversion where appropriate
-- Tenant-safe secret and OAuth bootstrap flows
-- Production-ready starter templates for common MCP server patterns
-- Simplified environment promotion (dev -> staging -> prod)
+**Deliverables**
+- HTTP proxy transport convergence committed in reviewable slices
+- formal/docs/site/package bundles split and landed cleanly
+- roadmap, changelog, and planning artifacts updated to the post-substrate reality
 
-### Exit criteria
-
-- Teams can onboard a remote MCP server in minutes without hand-editing multiple configs
-- The hosted path preserves the same enforcement semantics as self-hosted deployments
-
----
-
-## Phase 77: Server-Side Tool Execution Integrations (P2)
-
-**Goal:** Stay relevant as model providers absorb more orchestration.
-
-### Why now
-
-AWS has already moved to server-side tool execution with AgentCore Gateway. If the market shifts toward provider-side orchestration, Vellaveto must remain the control layer those providers connect through.
-
-### Deliverables
-
-- First-class gateway integration patterns for server-side tool execution platforms
-- Gateway-as-tool-connector interfaces for managed runtimes
-- Policy-preserving execution receipts for server-side invocation paths
-- Compatibility adapters for model-provider execution loops where feasible
-- Clear separation of provider execution from Vellaveto authorization and audit guarantees
-
-### Exit criteria
-
-- Vellaveto remains the policy and audit boundary even when the model provider executes tools server-side
-- The roadmap is no longer dependent on client-side orchestration staying dominant
+**Why this phase exists**
+- The current worktree already contains the next increment of the roadmap. Shipping it is higher leverage than inventing new quarter labels while the repo is still dirty.
 
 ---
 
-## Phase 78: Policy Lifecycle Automation & GitOps (P1)
+### Phase 1: Protocol-Complete Runtime Enforcement
 
-**Goal:** Turn policy from authored config into managed product lifecycle.
+**Window**
+- Q2 2026
 
-### Why now
+**Goal**
+- Make Vellaveto's shared mediation path protocol-complete across MCP and HTTP, including the newer attack and protocol surfaces that the current threat model only partially covers.
 
-As the platform grows, policy management becomes operational overhead unless it is versioned, promotable, explainable, and safe to roll out.
+**Primary modules**
+- `vellaveto-http-proxy`
+- `vellaveto-mcp`
+- `vellaveto-engine`
+- `vellaveto-config`
+- `vellaveto-audit`
+- `vellaveto-types`
 
-### Deliverables
+**Required epics**
+- Sampling-with-tools interception and tool allowlisting inside `sampling/createMessage`
+- Elicitation URL policy, rate limiting, domain validation, and audit evidence
+- Resource and prompt metadata normalization to neutralize poisoning attempts
+- Task lifecycle enforcement and durable security context across polling and deferred retrieval
+- Extension security policy so non-core methods do not bypass transport-neutral mediation
+- Stronger HTTP provenance evidence: detached request signatures where applicable, workload claims, replay cache coordination, target binding, and canonical hash binding
+- Continuous security-context propagation across tool chains and transport boundaries
+- Cross-tool lineage graph propagation for parasitic toolchain and Living-Off-AI style escalations
 
-- Native policy environments, drafts, approvals, rollout windows, and rollback
-- Git-backed policy sync and promotion pipelines
-- Change impact previews using coverage and analytics data
-- Staged rollout / canary enforcement for risky policy changes
-- Policy drift detection between Git, control plane, and runtime
-- Signed policy bundles and release provenance
-
-### Exit criteria
-
-- Policy teams can ship changes through controlled promotion, not manual edits
-- Operators can predict blast radius before rollout
-
----
-
-## Phase 79: Evidence Automation & Audit Packs (P3)
-
-**Goal:** Convert logs and mappings into enterprise-grade proof artifacts.
-
-### Why now
-
-Many vendors can claim "audit logs." Fewer can produce reusable evidence that makes security, compliance, and procurement easier.
-
-### Deliverables
-
-- Automated evidence packs for key frameworks and internal control sets
-- Scheduled access review, exception review, and approval review reporting
-- Incident-ready evidence exports with chain-of-custody metadata
-- Tenant-scoped control attestation bundles
-- Crosswalks from runtime events to control objectives
-- API and UI flows for exporting evidence by period, framework, or incident
-
-### Exit criteria
-
-- A buyer can pull auditor-ready evidence without reconstructing it manually from raw logs
-- Evidence exports become a repeatable enterprise workflow, not a services task
+**Exit criteria**
+- Sampling, elicitation, tasks, and extension methods are all policy-addressable through the shared mediation path
+- High-risk sinks fail closed when provenance or containment evidence is missing
+- Replay and target-binding failures are first-class audit outcomes, not opaque transport errors
 
 ---
 
-## Phase 80: Adaptive Runtime Defense & Policy Tuning (P3)
+### Phase 2: Policy, Approval, and Operator Productization
 
-**Goal:** Close the loop between telemetry and enforcement.
+**Window**
+- Q2-Q3 2026
 
-### Why now
+**Goal**
+- Turn the existing security core into a product surface buyers can operate without needing to understand every internal primitive.
 
-You already have analytics, adaptive throttling, and coverage signals. The next step is using those to recommend safer defaults and reduce manual tuning without weakening fail-closed behavior.
+**Primary modules**
+- `vellaveto-approval`
+- `vellaveto-server`
+- `vellaveto-config`
+- `vellaveto-engine`
+- `vellaveto-audit`
+- discovery and operator-facing inventory surfaces
 
-### Deliverables
+**Required epics**
+- Human-in-the-loop approval workflows for privileged sinks and destructive actions
+- Declarative policy DSL that compiles to the current formal/runtime policy substrate
+- ReBAC and ABAC with argument flattening for enterprise authorization use cases
+- Per-tool rate limiting and quotas as explicit policy controls
+- Secret substitution before model visibility, with late restore at execution boundaries
+- OpenTelemetry-native tracing alongside existing audit exports
+- Curated registry and server reputation scoring built on discovery, trust metadata, attestation inputs, and behavioral baselines
+- AI asset inventory expansion so discovery becomes an operator-facing AI BOM, not only an MCP topology graph
 
-- Policy recommendations derived from denied traffic, repeated approvals, drift, and unused rules
-- Adaptive protective modes for emerging abuse patterns (burst abuse, chained exfiltration, abnormal cross-tool behavior)
-- Tunable automatic safeguards that can recommend, simulate, or enforce based on operator policy
-- Feedback loops linking analytics, coverage, and rate controls
-- Safety rails for recommendation quality to avoid unsafe automation
-
-### Exit criteria
-
-- The platform helps operators tighten policy faster without turning into opaque auto-allow behavior
-- Auto-tuning remains recommendation-first and explicitly fail-closed by design
-
----
-
-## Phase 81: Verified Partner Marketplace & Channels (P2)
-
-**Goal:** Turn the ecosystem into a distribution advantage.
-
-### Why now
-
-If partners and customers can buy or install "managed tools" elsewhere with less friction, the best technical platform still loses attention.
-
-### Deliverables
-
-- Verified partner connector program with trust requirements
-- Marketplace flows tied to registry trust state and deployment templates
-- Partner bundles for regulated verticals (finance, healthcare, public sector)
-- Commercial packaging for verified connectors, templates, and evidence packs
-- Distribution integrations aligned with cloud and SI partner channels
-
-### Exit criteria
-
-- The marketplace is not just a list; it is a trusted distribution and onboarding channel
-- Channel partners can deploy opinionated Vellaveto packages without custom project assembly
+**Exit criteria**
+- Operators can author common rules without hand-editing low-level structures
+- High-risk flows can require explicit human approval with canonical fact summaries
+- Registry and discovery produce both runtime trust decisions and operator-facing posture views
 
 ---
 
-## Success Metrics
+### Phase 3: Multi-Agent and Advanced Containment
 
-The next roadmap should be judged by product adoption and control-plane leverage, not by raw feature count.
+**Window**
+- Q3 2026
 
-### Product metrics
+**Goal**
+- Close the gap between single-agent request mediation and adversarial multi-agent orchestration, where current guardrails are easiest to route around.
 
-- Time to first protected MCP server
-- Time to first approved remote onboarding
-- Percentage of calls governed by identity-bound policy
-- Registry coverage: approved vs observed tools
-- Evidence export usage per tenant
+**Primary modules**
+- `vellaveto-engine`
+- `vellaveto-mcp`
+- `vellaveto-approval`
+- `vellaveto-cluster`
+- adversarial and formal verification suites
 
-### Commercial metrics
+**Funded research epics**
+- Control-flow graph enforcement for multi-agent orchestration and cross-server delegation
+- Per-value capability metadata where taint labels are too coarse for safe sink decisions
+- Multi-agent indirect prompt injection calibration and containment thresholds
+- Context-learning contagion controls for tool-generated or model-generated follow-on actions
+- Approval invalidation on lineage drift, trust downgrade, or provenance drift
+- Masked re-execution and counterfactual validation for suspicious trajectories
+- Cryptographic inter-agent token experiments for bounded delegation chains
 
-- Design partners converted to production
-- Paid tenants with multi-environment deployments
-- Verified connectors installed per tenant
-- Expansion from gateway-only deployment to control-plane adoption
+**Delivery rule**
+- These are funded product epics, not a watchlist, but they ship behind feature flags, benchmark thresholds, and explicit rollback paths.
 
-### Security metrics
-
-- Percentage of high-risk calls requiring explicit identity and approval context
-- Unknown-tool denial rate
-- Drift detection time
-- Mean time to produce incident evidence pack
-
----
-
-## Risks
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Registry becomes a catalog, not a trust boundary | Weak differentiation | Tie registry state directly to runtime admission and policy |
-| Managed deployment dilutes security posture | Brand erosion | Preserve identical fail-closed semantics across hosted and self-hosted paths |
-| Over-automated policy tuning becomes opaque | Trust loss | Keep recommendations explicit and operator-approved by default |
-| Too much breadth slows delivery | Missed market window | Sequence around three wedges only: access plane, managed onboarding, evidence |
-| Competitors win on simpler onboarding | Adoption drag | Prioritize onboarding UX and verified templates ahead of more deep primitives |
+**Exit criteria**
+- Cross-server and multi-agent flows can be constrained by explicit orchestration policy
+- High-risk delegations are explainable as bounded control-flow transitions, not emergent tool hopping
+- At least one research-heavy containment mechanism graduates from prototype to supported feature
 
 ---
 
-## Foundation Already Shipped
+### Phase 4: Compliance Evidence Factory
 
-The following baseline is complete and should be treated as platform foundation, not backlog:
+**Window**
+- Q3-Q4 2026
 
-- Phases **36-72** delivered across DX, IAM, billing, MCP 2025-11-25 support, compliance expansion, observability, Wasm plugins, advanced security, Cedar compatibility, A2A hardening, formal verification, consumer shield, analytics, bulk policy operations, adaptive rate limiting, and policy coverage
-- **10,930+** Rust tests passing
-- **250** adversarial audit rounds completed
-- Core control-plane surfaces already exist: admin console, server APIs, stdio/HTTP gateways, discovery, audit, Terraform, Helm, operator, VS Code extension, SDKs
+**Goal**
+- Convert compliance mapping into generated evidence and document outputs that regulated buyers can actually use.
 
-The next roadmap assumes this foundation is stable enough to productize and distribute, not re-invent.
+**Primary modules**
+- `vellaveto-audit`
+- `vellaveto-server`
+- reporting and export surfaces
+- top-level compliance and operational docs
+
+**Required epics**
+- Annex IV technical documentation package generation
+- Article 73 incident-report exports with routing-ready metadata and timing classes
+- Quality Management System support for the security, monitoring, and control-enforcement sections Vellaveto can substantiate directly
+- Post-market monitoring plan generation tied to runtime evidence and policy posture
+- EU Declaration of Conformity support artifacts
+- FRIA-oriented data export for deployer workflows
+
+**Exit criteria**
+- Runtime evidence can be exported as structured compliance artifacts, not only raw logs
+- Serious-incident evidence packs can be generated without reconstructing provenance manually
+- Compliance documents are generated from the same control and audit substrate used at runtime
 
 ---
 
-## External Signals Used For This Reset
+### Phase 5: Supply-Chain and Ecosystem Trust
 
-Verified on **February 28, 2026**:
+**Window**
+- Q4 2026
 
-- MCP Security Best Practices: https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices
-- MCP Authorization (2025-11-25): https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
-- OWASP Secure MCP Guide (published February 16, 2026): https://genai.owasp.org/resource/a-practical-guide-for-secure-mcp-server-development/
-- Microsoft MCP Gateway: https://github.com/microsoft/mcp-gateway
-- MintMCP Gateway: https://www.mintmcp.com/mcp-gateway
-- TrueFoundry MCP Gateway: https://www.truefoundry.com/mcp-gateway
-- TrueFoundry MCP docs: https://www.truefoundry.com/docs/ai-gateway/mcp-overview
-- Permit MCP Permissions Overview: https://docs.permit.io/mcp-permissions/overview
-- Permit MCP Permissions Architecture: https://docs.permit.io/ai-security/mcp-permissions/architecture/
-- AWS AgentCore GA (October 13, 2025): https://aws.amazon.com/about-aws/whats-new/2025/10/amazon-bedrock-agentcore-available/
-- AWS API Gateway MCP proxy (December 2, 2025): https://aws.amazon.com/about-aws/whats-new/2025/12/api-gateway-mcp-proxy-support/
-- AWS Bedrock server-side tool execution (February 24, 2026): https://aws.amazon.com/about-aws/whats-new/2026/02/amazon-bedrock-server-side-tool-execution-agentcore-gateway/
-- OpenAI Agents SDK Guardrails: https://openai.github.io/openai-agents-python/guardrails/
+**Goal**
+- Raise trust from runtime-only enforcement to ecosystem-aware admission, reputation, and provenance handling.
 
+**Primary modules**
+- discovery and trust inventory surfaces
+- `vellaveto-server`
+- `vellaveto-mcp`
+- `vellaveto-http-proxy`
+- `vellaveto-audit`
+
+**Required epics**
+- Sigstore, attestation, and SBOM ingestion where registries or publishers provide them
+- Signed tool-description and connector-baseline verification to detect rug pulls and malicious drift
+- Reputation scoring that combines registry metadata, attestations, behavioral history, and trust downgrades
+- Stronger transport trust defaults, including mTLS-ready pathways and tighter authorization metadata validation
+- Client metadata and enterprise authorization support for newer MCP authorization patterns
+- Runtime containment hooks that can react to supply-chain trust degradation without waiting for manual review
+
+**Exit criteria**
+- Connector trust can be downgraded or blocked using signed or attestable provenance inputs
+- Discovery, registry, and runtime trust state converge on one operator-visible source of truth
+- Supply-chain trust changes can trigger policy outcomes and audit evidence automatically
+
+---
+
+## Cross-Cutting Verification Track
+
+Every phase above carries explicit regression and proof work. The platform should not ship major new controls without adversarial tests, canary scenarios, and narrowly scoped formal invariants where the property is crisp enough to prove.
+
+**Required cross-cutting work**
+- Extend `mcpsec` and related adversarial suites for sampling abuse, replay, retargeting, metadata poisoning, approval contamination, and multi-agent escalation
+- Add canary scenarios for provenance drift, semantic drift, and cross-server delegation abuse
+- Add focused formal invariants for replay non-admission, monotonic taint propagation, approval invalidation, and fail-closed unknown-provenance handling
+- Keep operator and audit surfaces aligned with new verdict types, quarantine paths, and containment transitions
+
+---
+
+## Portfolio Rules
+
+- Do not rebuild shared substrate that already exists unless a concrete design defect requires it.
+- Runtime enforcement, buyer-facing controls, and compliance evidence must all ship in 2026; none of the three can be deferred to a "later" bucket.
+- Research-heavy work belongs on the main roadmap, but only with bounded prototypes, benchmarks, and rollout gates.
+- New transport or protocol features must enter through shared mediation rather than ad hoc handler logic.
+- Compliance artifacts must be generated from runtime evidence wherever possible to avoid manual drift.
+- Registry, discovery, and supply-chain trust should converge into one trust model instead of parallel catalogs.
+
+---
+
+## 2026 Success Criteria
+
+By the end of 2026, Vellaveto should be able to claim all of the following with code, tests, and evidence:
+
+- Every mediated high-risk action is both cryptographically attributable and semantically contained
+- Sampling, elicitation, tasks, and extension flows are all enforced through shared runtime mediation
+- Operators can define common controls, approvals, quotas, and trust policy without editing low-level internals
+- Multi-agent delegation paths can be bounded, explained, and invalidated when provenance or lineage changes
+- Compliance evidence can be generated directly from runtime facts for regulated buyer workflows
+- Connector and server trust decisions can incorporate supply-chain provenance, drift, and reputation inputs
+
+That is the 2026 bar: not just a stronger MCP firewall, but a complete control plane that makes runtime enforcement, buyer usability, compliance evidence, and ecosystem trust reinforce each other.
