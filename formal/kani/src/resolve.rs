@@ -154,6 +154,10 @@ pub fn apply_policy_verified(
         return verdict_outcome_to_inline(compute_single_verdict(&rm));
     }
 
+    if !is_allow_type && !is_deny_type && !is_conditional {
+        return InlineVerdict::Deny;
+    }
+
     // Main policy type dispatch
     let rm = ResolvedMatch {
         matched: true,
@@ -224,5 +228,76 @@ mod tests {
             None, false, false, false,
         );
         assert_eq!(v, InlineVerdict::Deny);
+    }
+
+    #[test]
+    fn test_inline_verified_equivalence_exhaustive() {
+        for mask in 0u16..(1u16 << 13) {
+            let path_deny = (mask & (1 << 0)) != 0;
+            let network_deny = (mask & (1 << 1)) != 0;
+            let ip_deny = (mask & (1 << 2)) != 0;
+            let context_deny = (mask & (1 << 3)) != 0;
+            let has_context_conditions = (mask & (1 << 4)) != 0;
+            let context_provided = (mask & (1 << 5)) != 0;
+            let is_allow_type = (mask & (1 << 6)) != 0;
+            let is_deny_type = (mask & (1 << 7)) != 0;
+            let is_conditional = (mask & (1 << 8)) != 0;
+            let condition_fired = (mask & (1 << 9)) != 0;
+            let all_constraints_skipped = (mask & (1 << 10)) != 0;
+            let on_no_match_continue = (mask & (1 << 11)) != 0;
+            let require_approval = (mask & (1 << 12)) != 0;
+
+            if (is_allow_type && is_deny_type)
+                || (is_allow_type && is_conditional)
+                || (is_deny_type && is_conditional)
+            {
+                continue;
+            }
+
+            let condition_result = if condition_fired {
+                Some(InlineVerdict::Allow)
+            } else {
+                None
+            };
+
+            let inline = apply_policy_inline(
+                path_deny,
+                network_deny,
+                ip_deny,
+                context_deny,
+                has_context_conditions,
+                context_provided,
+                is_allow_type,
+                is_deny_type,
+                is_conditional,
+                condition_result,
+                all_constraints_skipped,
+                on_no_match_continue,
+                require_approval,
+            );
+
+            let verified = apply_policy_verified(
+                path_deny,
+                network_deny,
+                ip_deny,
+                context_deny,
+                has_context_conditions,
+                context_provided,
+                is_allow_type,
+                is_deny_type,
+                is_conditional,
+                condition_fired,
+                if condition_fired {
+                    VerdictKind::Allow
+                } else {
+                    VerdictKind::Deny
+                },
+                all_constraints_skipped,
+                on_no_match_continue,
+                require_approval,
+            );
+
+            assert_eq!(inline, verified, "mismatch for mask {mask:014b}");
+        }
     }
 }

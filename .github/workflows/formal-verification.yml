@@ -115,11 +115,12 @@ jobs:
           set -euo pipefail
           ELAN_VERSION="v4.2.0"
           ELAN_SHA256="620db834935d0da55ac9cda207b2e370e8034061cbb0228af5eb6c14b02f0c0c"
+          LEAN_TOOLCHAIN="$(tr -d '\r\n' < formal/lean/lean-toolchain)"
           curl -fsSL --retry 3 --retry-delay 2 -o elan.tar.gz \
             "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
           echo "${ELAN_SHA256}  elan.tar.gz" | sha256sum -c -
           tar -xzf elan.tar.gz
-          ./elan-init -y --default-toolchain none
+          ./elan-init -y --default-toolchain "${LEAN_TOOLCHAIN}"
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
       - name: Build Lean proofs
