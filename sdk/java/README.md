@@ -10,7 +10,7 @@ Java client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent in
 
 ```xml
 <dependency>
-  <groupId>com.vellaveto</groupId>
+  <groupId>io.github.vellaveto</groupId>
   <artifactId>vellaveto-java-sdk</artifactId>
   <version>6.0.3</version>
 </dependency>
@@ -19,7 +19,7 @@ Java client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent in
 ### Gradle
 
 ```groovy
-implementation 'com.vellaveto:vellaveto-java-sdk:6.0.3'
+implementation 'io.github.vellaveto:vellaveto-java-sdk:6.0.3'
 ```
 
 ## Quick Start
