@@ -12,8 +12,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_NAME="$(basename "$PROJECT_DIR")"
-WORKTREE_BASE="${PROJECT_DIR}/../bottega-worktrees/${PROJECT_NAME}"
-SHARED_BASE="${PROJECT_DIR}/../bottega-shared/${PROJECT_NAME}"
+WORKTREE_BASE="${PROJECT_DIR}/../swarm-worktrees/${PROJECT_NAME}"
+SHARED_BASE="${PROJECT_DIR}/../swarm-shared/${PROJECT_NAME}"
 COORD_DIR="$(cd "$SHARED_BASE/coordination" && pwd)"
 
 AGENT_TIMEOUT=900  # 15 minutes per agent for deep sweep
@@ -138,19 +138,19 @@ for agent_data in \
     WORKTREE="${WORKTREE_BASE}/${agent}"
 
     # Rotate log
-    if [ -f "$WORKTREE/.bottega-agent.log" ] && [ -s "$WORKTREE/.bottega-agent.log" ]; then
-        mv "$WORKTREE/.bottega-agent.log" "$WORKTREE/.bottega-agent.log.prev"
+    if [ -f "$WORKTREE/.swarm-agent.log" ] && [ -s "$WORKTREE/.swarm-agent.log" ]; then
+        mv "$WORKTREE/.swarm-agent.log" "$WORKTREE/.swarm-agent.log.prev"
     fi
 
     echo "  Launching $agent (${AGENT_TIMEOUT}s timeout)..."
     (
         cd "$WORKTREE"
-        export BOTTEGA_AGENT="$agent"
+        export SWARM_AGENT="$agent"
         printf '%s' "$prompt" | timeout "$AGENT_TIMEOUT" claude --print \
             --add-dir "$COORD_DIR" \
             --add-dir "$PROJECT_DIR" \
             --allowedTools "$DISCOVERY_TOOLS" \
-            > "$WORKTREE/.bottega-agent.log" 2>&1
+            > "$WORKTREE/.swarm-agent.log" 2>&1
     ) &
     PIDS+=($!)
     AGENTS+=("$agent")
@@ -173,7 +173,7 @@ for pid in "${PIDS[@]}"; do
         echo "  $agent finished (exit: $exit_code)"
     fi
     # Show output size
-    SIZE=$(wc -c < "${WORKTREE_BASE}/${agent}/.bottega-agent.log" 2>/dev/null || echo 0)
+    SIZE=$(wc -c < "${WORKTREE_BASE}/${agent}/.swarm-agent.log" 2>/dev/null || echo 0)
     echo "    Output: ${SIZE} bytes"
     idx=$((idx + 1))
 done
@@ -182,19 +182,19 @@ echo ""
 echo "--- Phase 2: Orchestrator Triage ---"
 
 WORKTREE="${WORKTREE_BASE}/orchestrator"
-if [ -f "$WORKTREE/.bottega-agent.log" ] && [ -s "$WORKTREE/.bottega-agent.log" ]; then
-    mv "$WORKTREE/.bottega-agent.log" "$WORKTREE/.bottega-agent.log.prev"
+if [ -f "$WORKTREE/.swarm-agent.log" ] && [ -s "$WORKTREE/.swarm-agent.log" ]; then
+    mv "$WORKTREE/.swarm-agent.log" "$WORKTREE/.swarm-agent.log.prev"
 fi
 
 echo "  Launching orchestrator (${AGENT_TIMEOUT}s timeout)..."
 (
     cd "$WORKTREE"
-    export BOTTEGA_AGENT="orchestrator"
+    export SWARM_AGENT="orchestrator"
     printf '%s' "$ORCHESTRATOR_PROMPT" | timeout "$AGENT_TIMEOUT" claude --print \
         --add-dir "$COORD_DIR" \
         --add-dir "$PROJECT_DIR" \
         --allowedTools "$ORCH_TOOLS" \
-        > "$WORKTREE/.bottega-agent.log" 2>&1
+        > "$WORKTREE/.swarm-agent.log" 2>&1
 )
 echo "  Orchestrator finished."
 
@@ -207,4 +207,4 @@ echo "Events: $EVENTS_COUNT | Kanban rev: $KANBAN_REV"
 echo ""
 echo "View findings:  cat coordination/events.jsonl | python3 -m json.tool"
 echo "View kanban:    cat coordination/kanban.json | python3 -m json.tool"
-echo "View agent logs: cat /home/paolo/.vella-workspace/bottega-worktrees/sentinel/<agent>/.bottega-agent.log"
+echo "View agent logs: cat /home/paolo/.vella-workspace/swarm-worktrees/sentinel/<agent>/.swarm-agent.log"

@@ -64,10 +64,10 @@ docs/STRATEGIC_REVIEW*.md
 docs/SESSION_AUTH_PASSKEY_PLAN.md
 docs/TOOL_DISCOVERY_USAGE_PLAN.md
 
-# Bottega multi-agent coordination
+# Local multi-agent coordination
 coordination
 coordination-templates/
-scripts/bottega-*.sh
+scripts/swarm-*.sh
 scripts/agents.conf
 scripts/lib/
 scripts/run-approved.sh
@@ -138,6 +138,9 @@ vellaveto_brandkit/
 
 # Paper drafts (work-in-progress)
 paper/
+formal/FORMAL_VERIFICATION_SUBMISSION.md
+formal/arxiv/
+vellaveto-formal-verification.pdf
 
 # Deepeval cache
 .deepeval/
