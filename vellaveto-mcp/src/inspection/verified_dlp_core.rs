@@ -155,9 +155,7 @@ pub fn overlap_covers_secret(
     if split_point == 0 || split_point >= secret_len {
         return false; // Not actually split
     }
-    if prev_tail_len < split_point
-        || current_value_len < secret_len.saturating_sub(split_point)
-    {
+    if prev_tail_len < split_point || current_value_len < secret_len.saturating_sub(split_point) {
         return false; // Values too short to contain secret parts
     }
 
