@@ -21,6 +21,7 @@ use super::*;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -28,9 +29,24 @@ use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
+use vellaveto_types::{
+    ContextChannel, EvaluationContext, SignatureVerificationStatus, SinkClass, TrustTier,
+};
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
 // These tests verify the integration through the shared module.
+
+fn make_dpop_proof(iat: u64, jti: &str) -> String {
+    let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","typ":"dpop+jwt"}"#);
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&json!({
+            "iat": iat,
+            "jti": jti,
+        }))
+        .expect("serialize dpop payload"),
+    );
+    format!("{header}.{payload}.sig")
+}
 
 #[test]
 fn test_classify_tool_call_via_shared_extractor() {
@@ -122,6 +138,226 @@ fn test_build_effective_request_uri_trusts_forwarded_headers_when_trusted() {
     let effective = build_effective_request_uri(&headers, bind_addr, &uri, true);
 
     assert_eq!(effective, "https://public.example/mcp?trace=true");
+}
+
+#[test]
+fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "dpop",
+        make_dpop_proof(1_741_608_000, "nonce-123")
+            .parse()
+            .expect("valid dpop header"),
+    );
+    let oauth_claims = crate::oauth::OAuthClaims {
+        sub: "agent-42".to_string(),
+        iss: "https://issuer.example".to_string(),
+        aud: vec!["mcp-server".to_string()],
+        exp: 0,
+        iat: 0,
+        scope: String::new(),
+        resource: None,
+        cnf: Some(crate::oauth::OAuthConfirmationClaim {
+            jkt: Some("thumbprint-123".to_string()),
+        }),
+    };
+    let eval_ctx = EvaluationContext {
+        call_chain: vec![vellaveto_types::CallChainEntry {
+            agent_id: "upstream-agent".to_string(),
+            tool: "fetch".to_string(),
+            function: "*".to_string(),
+            timestamp: "2026-03-10T12:00:00Z".to_string(),
+            hmac: Some("deadbeef".to_string()),
+            verified: Some(true),
+        }],
+        ..EvaluationContext::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        Some(&oauth_claims),
+        Some(&eval_ctx),
+    )
+    .expect("security context");
+
+    assert_eq!(security_context.sink_class, Some(SinkClass::CodeExecution));
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Verified)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ToolOutput
+    );
+    assert_eq!(
+        security_context
+            .client_provenance
+            .as_ref()
+            .expect("client provenance")
+            .signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.nonce.as_deref()),
+        Some("nonce-123")
+    );
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.created_at.as_deref()),
+        Some("2025-03-10T12:00:00+00:00")
+    );
+    assert_eq!(
+        provenance.replay_status,
+        vellaveto_types::ReplayStatus::Fresh
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_preserves_meta_overrides() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "sink_class": "memory_write",
+                "effective_trust_tier": "untrusted"
+            }
+        },
+        "method": "resources/read",
+        "params": {
+            "uri": "file:///tmp/test"
+        }
+    });
+    let action =
+        vellaveto_types::Action::new("resources", "read", json!({"uri": "file:///tmp/test"}));
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &HeaderMap::new(),
+        None,
+        None,
+    )
+    .expect("security context");
+
+    assert_eq!(security_context.sink_class, Some(SinkClass::MemoryWrite));
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Untrusted)
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "workload_identity": {
+                        "workload_id": "spiffe://cluster/ns/app",
+                        "platform": "spiffe"
+                    },
+                    "workload_binding_status": "bound",
+                    "session_key_scope": "ephemeral_session",
+                    "execution_is_ephemeral": true
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "dpop",
+        make_dpop_proof(1_741_609_600, "nonce-merged")
+            .parse()
+            .expect("valid dpop header"),
+    );
+    let oauth_claims = crate::oauth::OAuthClaims {
+        sub: "agent-42".to_string(),
+        iss: "https://issuer.example".to_string(),
+        aud: vec!["mcp-server".to_string()],
+        exp: 0,
+        iat: 0,
+        scope: String::new(),
+        resource: None,
+        cnf: Some(crate::oauth::OAuthConfirmationClaim {
+            jkt: Some("thumbprint-merged".to_string()),
+        }),
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        Some(&oauth_claims),
+        None,
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    assert_eq!(
+        provenance.client_key_id.as_deref(),
+        Some("thumbprint-merged")
+    );
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.nonce.as_deref()),
+        Some("nonce-merged")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|workload| workload.workload_id.as_str()),
+        Some("spiffe://cluster/ns/app")
+    );
+    assert_eq!(
+        provenance.workload_binding_status,
+        vellaveto_types::WorkloadBindingStatus::Bound
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::EphemeralSession
+    );
+    assert!(provenance.execution_is_ephemeral);
 }
 
 /// IMP-R122-004: Edge case — no headers at all falls back to bind_addr.
@@ -842,6 +1078,13 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: vellaveto_mcp::mediation::MediationConfig {
+            dlp_enabled: false,
+            dlp_blocking: false,
+            injection_enabled: false,
+            injection_blocking: false,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

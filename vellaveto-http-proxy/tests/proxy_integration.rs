@@ -30,6 +30,16 @@ use vellaveto_http_proxy::proxy::ProxyState;
 use vellaveto_http_proxy::session::SessionStore;
 use vellaveto_types::{NetworkRules, Policy, PolicyType};
 
+fn default_test_mediation_config() -> vellaveto_mcp::mediation::MediationConfig {
+    vellaveto_mcp::mediation::MediationConfig {
+        dlp_enabled: false,
+        dlp_blocking: false,
+        injection_enabled: false,
+        injection_blocking: false,
+        ..vellaveto_mcp::mediation::MediationConfig::default()
+    }
+}
+
 /// Start a mock upstream MCP server that echoes back tool call results.
 /// Returns the URL of the mock server.
 async fn start_mock_upstream() -> Option<String> {
@@ -254,6 +264,7 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -1991,6 +2002,7 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2404,6 +2416,7 @@ async fn trace_resource_read_denied_includes_trace() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2512,6 +2525,7 @@ async fn trace_constraint_details_visible() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2968,6 +2982,7 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4124,6 +4139,7 @@ fn build_api_key_test_state(
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4640,6 +4656,7 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4786,6 +4803,7 @@ async fn task_get_allowed_when_no_deny_policy() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4883,6 +4901,7 @@ async fn task_request_fail_closed_no_matching_policy() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4979,6 +4998,7 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5081,6 +5101,7 @@ async fn task_request_clean_params_not_dlp_blocked() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5181,6 +5202,7 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5244,6 +5266,145 @@ async fn task_request_dlp_blocks_github_token_in_params() {
     assert!(
         msg.contains("security policy violation"),
         "Error message should be generic, got: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn extension_method_fail_closed_no_matching_policy() {
+    let Some(upstream) = start_mock_upstream().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let policies = vec![Policy {
+        id: "read_file:*".to_string(),
+        name: "Allow only file reads".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
+    let state = ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(policies),
+        audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
+        sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
+        upstream_url: upstream.clone(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
+        canonicalize: false,
+        output_schema_registry: Arc::new(
+            vellaveto_mcp::output_validation::OutputSchemaRegistry::new(),
+        ),
+        response_dlp_enabled: false,
+        response_dlp_blocking: false,
+        audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
+        known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
+        elicitation_config: vellaveto_config::ElicitationConfig::default(),
+        sampling_config: vellaveto_config::SamplingConfig::default(),
+        tool_registry: None,
+        call_chain_hmac_key: None,
+        trace_enabled: false,
+        circuit_breaker: None,
+        shadow_agent: None,
+        deputy: None,
+        schema_lineage: None,
+        auth_level: None,
+        sampling_detector: None,
+        limits: vellaveto_config::LimitsConfig::default(),
+        ws_config: None,
+        extension_registry: None,
+        transport_config: vellaveto_config::TransportConfig::default(),
+        grpc_port: None,
+        gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
+        transport_health: None,
+        streamable_http: Default::default(),
+        federation: None,
+        #[cfg(feature = "discovery")]
+        discovery_engine: None,
+        #[cfg(feature = "projector")]
+        projector_registry: None,
+    };
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "x-vellaveto-audit/stats",
+        "params": {"scope": "daily"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert_eq!(
+        result["error"]["code"], -32001,
+        "Extension method with no matching policy should be denied, got: {result}"
+    );
+}
+
+#[tokio::test]
+async fn extension_method_forwards_when_allowed_by_policy() {
+    let Some(upstream) = start_mock_upstream().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream, &tmp);
+    let policies = vec![Policy {
+        id: "x-vellaveto-audit:*".to_string(),
+        name: "Allow audit extension".to_string(),
+        policy_type: PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = Arc::new(PolicyEngine::with_policies(false, &policies).expect("compile"));
+    state.policies = Arc::new(policies);
+    let app = build_router(state);
+
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "x-vellaveto-audit/stats",
+        "params": {"scope": "daily"}
+    });
+
+    let resp = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let result = json_body(resp).await;
+    assert!(
+        result.get("error").is_none(),
+        "Allowed extension method should be forwarded upstream, got: {result}"
     );
 }
 
@@ -5471,6 +5632,7 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -6033,6 +6195,7 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         response_dlp_enabled: false,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: default_test_mediation_config(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

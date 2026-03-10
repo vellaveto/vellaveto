@@ -10,17 +10,26 @@
 //! Utility functions for the HTTP proxy: DNS resolution, bounded reads,
 //! annotation extraction, and manifest verification.
 
+use axum::http::HeaderMap;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
+use serde::Deserialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use vellaveto_approval::ApprovalStatus;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope;
 use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{Action, Verdict};
+use vellaveto_types::{
+    Action, ClientProvenance, ContextChannel, EvaluationContext, LineageRef, ReplayStatus,
+    RequestSignature, RuntimeSecurityContext, SessionKeyScope, SignatureVerificationStatus,
+    SinkClass, TrustTier, Verdict, WorkloadBindingStatus,
+};
 
 use super::ProxyState;
+use crate::oauth::OAuthClaims;
 use crate::session::SessionStore;
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
@@ -73,6 +82,398 @@ pub(super) async fn resolve_domains(action: &mut Action) {
         }
     }
     action.resolved_ips = resolved;
+}
+
+fn rpc_meta(msg: &Value) -> Option<&Value> {
+    msg.get("_meta")
+        .or_else(|| msg.get("params").and_then(|params| params.get("_meta")))
+}
+
+fn extract_runtime_security_context(msg: &Value) -> Option<RuntimeSecurityContext> {
+    let meta = rpc_meta(msg)?;
+    let candidate = meta
+        .get("vellaveto_security_context")
+        .or_else(|| meta.get("vellavetoSecurityContext"))?
+        .clone();
+    match serde_json::from_value::<RuntimeSecurityContext>(candidate) {
+        Ok(security_context) => match security_context.validate() {
+            Ok(()) => Some(security_context),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "Ignoring invalid vellaveto security context from HTTP request metadata"
+                );
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "Ignoring malformed vellaveto security context from HTTP request metadata"
+            );
+            None
+        }
+    }
+}
+
+fn infer_sink_class(action: &Action) -> SinkClass {
+    let tool = action.tool.to_ascii_lowercase();
+    let function = action.function.to_ascii_lowercase();
+
+    if action.tool == "resources" && action.function == "read" {
+        return SinkClass::ReadOnly;
+    }
+    if contains_security_keyword(&tool, &function, &["approval", "consent", "prompt"]) {
+        return SinkClass::ApprovalUi;
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &[
+            "secret",
+            "credential",
+            "token",
+            "password",
+            "apikey",
+            "api_key",
+            "auth",
+        ],
+    ) {
+        return SinkClass::CredentialAccess;
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &["policy", "config", "rule", "governance"],
+    ) {
+        return SinkClass::PolicyMutation;
+    }
+    if contains_security_keyword(&tool, &function, &["memory", "memo", "cache", "store"]) {
+        return SinkClass::MemoryWrite;
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &[
+            "exec", "execute", "run", "shell", "bash", "python", "node", "script", "command",
+            "spawn", "terminal",
+        ],
+    ) {
+        return SinkClass::CodeExecution;
+    }
+    if !action.target_domains.is_empty() {
+        return SinkClass::NetworkEgress;
+    }
+    if !action.target_paths.is_empty() {
+        if looks_like_mutating_action(&tool, &function) {
+            return SinkClass::FilesystemWrite;
+        }
+        return SinkClass::ReadOnly;
+    }
+    if looks_like_mutating_action(&tool, &function) {
+        return SinkClass::LowRiskWrite;
+    }
+    if looks_like_read_only_action(&tool, &function) {
+        return SinkClass::ReadOnly;
+    }
+    SinkClass::LowRiskWrite
+}
+
+fn contains_security_keyword(tool: &str, function: &str, keywords: &[&str]) -> bool {
+    keywords
+        .iter()
+        .any(|keyword| tool.contains(keyword) || function.contains(keyword))
+}
+
+fn looks_like_mutating_action(tool: &str, function: &str) -> bool {
+    contains_security_keyword(
+        tool,
+        function,
+        &[
+            "write", "edit", "update", "delete", "remove", "create", "append", "save", "set",
+        ],
+    )
+}
+
+fn looks_like_read_only_action(tool: &str, function: &str) -> bool {
+    contains_security_keyword(
+        tool,
+        function,
+        &[
+            "read", "get", "list", "fetch", "view", "show", "search", "query",
+        ],
+    )
+}
+
+fn infer_signature_status(
+    headers: &HeaderMap,
+    oauth_claims: Option<&OAuthClaims>,
+) -> SignatureVerificationStatus {
+    if headers
+        .get("dpop")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| !value.trim().is_empty() && oauth_claims.is_some())
+    {
+        SignatureVerificationStatus::Verified
+    } else {
+        SignatureVerificationStatus::Missing
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DpopPayload {
+    #[serde(default)]
+    iat: u64,
+    #[serde(default)]
+    jti: String,
+}
+
+fn decode_dpop_request_signature(
+    headers: &HeaderMap,
+    oauth_claims: Option<&OAuthClaims>,
+) -> Option<RequestSignature> {
+    if oauth_claims.is_none() {
+        return None;
+    }
+
+    let proof_jwt = headers
+        .get("dpop")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let header = jsonwebtoken::decode_header(proof_jwt).ok()?;
+    let payload_segment = proof_jwt.split('.').nth(1)?;
+    let payload_bytes = URL_SAFE_NO_PAD.decode(payload_segment).ok()?;
+    let payload = serde_json::from_slice::<DpopPayload>(&payload_bytes).ok()?;
+    let created_at = i64::try_from(payload.iat)
+        .ok()
+        .and_then(|iat| chrono::DateTime::<chrono::Utc>::from_timestamp(iat, 0))
+        .map(|timestamp| timestamp.to_rfc3339());
+
+    Some(RequestSignature {
+        key_id: oauth_claims
+            .and_then(|claims| claims.cnf.as_ref())
+            .and_then(|cnf| cnf.jkt.clone()),
+        algorithm: Some(format!("{:?}", header.alg)),
+        nonce: (!payload.jti.trim().is_empty()).then_some(payload.jti),
+        created_at,
+        signature: None,
+    })
+}
+
+fn infer_replay_status(signature_status: SignatureVerificationStatus) -> ReplayStatus {
+    if signature_status == SignatureVerificationStatus::Verified {
+        ReplayStatus::Fresh
+    } else {
+        ReplayStatus::NotChecked
+    }
+}
+
+fn build_client_provenance(
+    headers: &HeaderMap,
+    oauth_claims: Option<&OAuthClaims>,
+) -> Option<ClientProvenance> {
+    let signature_status = infer_signature_status(headers, oauth_claims);
+    if oauth_claims.is_none() && signature_status == SignatureVerificationStatus::Missing {
+        return None;
+    }
+
+    let client_key_id = oauth_claims
+        .and_then(|claims| claims.cnf.as_ref())
+        .and_then(|cnf| cnf.jkt.clone());
+    let request_signature = if signature_status == SignatureVerificationStatus::Verified {
+        decode_dpop_request_signature(headers, oauth_claims).or_else(|| {
+            Some(RequestSignature {
+                key_id: client_key_id.clone(),
+                algorithm: Some("dpop+jwt".to_string()),
+                nonce: None,
+                created_at: None,
+                signature: None,
+            })
+        })
+    } else {
+        None
+    };
+
+    Some(ClientProvenance {
+        request_signature,
+        signature_status,
+        client_key_id,
+        session_key_scope: SessionKeyScope::Unknown,
+        workload_identity: None,
+        workload_binding_status: WorkloadBindingStatus::Unknown,
+        replay_status: infer_replay_status(signature_status),
+        canonical_request_hash: None,
+        execution_is_ephemeral: false,
+    })
+}
+
+fn merge_request_signature(
+    existing: Option<RequestSignature>,
+    transport: Option<RequestSignature>,
+) -> Option<RequestSignature> {
+    match (existing, transport) {
+        (None, None) => None,
+        (Some(signature), None) | (None, Some(signature)) => Some(signature),
+        (Some(mut existing), Some(transport)) => {
+            if existing.key_id.is_none() {
+                existing.key_id = transport.key_id;
+            }
+            if existing.algorithm.is_none() {
+                existing.algorithm = transport.algorithm;
+            }
+            if existing.nonce.is_none() {
+                existing.nonce = transport.nonce;
+            }
+            if existing.created_at.is_none() {
+                existing.created_at = transport.created_at;
+            }
+            if existing.signature.is_none() {
+                existing.signature = transport.signature;
+            }
+            Some(existing)
+        }
+    }
+}
+
+fn merge_client_provenance(
+    existing: Option<ClientProvenance>,
+    transport: Option<ClientProvenance>,
+) -> Option<ClientProvenance> {
+    match (existing, transport) {
+        (None, None) => None,
+        (Some(provenance), None) | (None, Some(provenance)) => Some(provenance),
+        (Some(mut existing), Some(transport)) => {
+            existing.request_signature =
+                merge_request_signature(existing.request_signature, transport.request_signature);
+
+            if existing.client_key_id.is_none() {
+                existing.client_key_id = transport.client_key_id;
+            }
+            if existing.signature_status == SignatureVerificationStatus::Missing
+                && transport.signature_status != SignatureVerificationStatus::Missing
+            {
+                existing.signature_status = transport.signature_status;
+            }
+            if existing.session_key_scope == SessionKeyScope::Unknown
+                && transport.session_key_scope != SessionKeyScope::Unknown
+            {
+                existing.session_key_scope = transport.session_key_scope;
+            }
+            if existing.workload_identity.is_none() {
+                existing.workload_identity = transport.workload_identity;
+            }
+            if existing.workload_binding_status == WorkloadBindingStatus::Unknown
+                && transport.workload_binding_status != WorkloadBindingStatus::Unknown
+            {
+                existing.workload_binding_status = transport.workload_binding_status;
+            }
+            if existing.replay_status == ReplayStatus::NotChecked
+                && transport.replay_status != ReplayStatus::NotChecked
+            {
+                existing.replay_status = transport.replay_status;
+            }
+            if existing.canonical_request_hash.is_none() {
+                existing.canonical_request_hash = transport.canonical_request_hash;
+            }
+            existing.execution_is_ephemeral |= transport.execution_is_ephemeral;
+            Some(existing)
+        }
+    }
+}
+
+fn lineage_refs_from_call_chain(eval_ctx: Option<&EvaluationContext>) -> Vec<LineageRef> {
+    const MAX_LINEAGE_REFS: usize = 64;
+
+    eval_ctx
+        .map(|ctx| {
+            ctx.call_chain
+                .iter()
+                .take(MAX_LINEAGE_REFS)
+                .map(|entry| {
+                    let mut hasher = Sha256::new();
+                    hasher.update(entry.agent_id.as_bytes());
+                    hasher.update(b"|");
+                    hasher.update(entry.tool.as_bytes());
+                    hasher.update(b"|");
+                    hasher.update(entry.function.as_bytes());
+                    hasher.update(b"|");
+                    hasher.update(entry.timestamp.as_bytes());
+
+                    let trust_tier = match entry.verified {
+                        Some(true) => Some(TrustTier::Verified),
+                        Some(false) => Some(TrustTier::Untrusted),
+                        None => Some(TrustTier::Low),
+                    };
+
+                    LineageRef {
+                        id: format!("call-chain:{}", hex::encode(hasher.finalize())),
+                        channel: ContextChannel::ToolOutput,
+                        content_hash: entry.hmac.clone(),
+                        source: Some(entry.agent_id.clone()),
+                        trust_tier,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn infer_trust_tier(
+    security_context: &RuntimeSecurityContext,
+    oauth_claims: Option<&OAuthClaims>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<TrustTier> {
+    if security_context
+        .client_provenance
+        .as_ref()
+        .is_some_and(|provenance| {
+            provenance.signature_status == SignatureVerificationStatus::Verified
+        })
+        || eval_ctx
+            .and_then(|ctx| ctx.agent_identity.as_ref())
+            .is_some()
+    {
+        return Some(TrustTier::Verified);
+    }
+    if oauth_claims.is_some() {
+        return Some(TrustTier::Medium);
+    }
+    if !security_context.lineage_refs.is_empty() {
+        return Some(TrustTier::Low);
+    }
+    None
+}
+
+pub(super) fn build_runtime_security_context(
+    msg: &Value,
+    action: &Action,
+    headers: &HeaderMap,
+    oauth_claims: Option<&OAuthClaims>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<RuntimeSecurityContext> {
+    let mut security_context = extract_runtime_security_context(msg).unwrap_or_default();
+
+    security_context.client_provenance = merge_client_provenance(
+        security_context.client_provenance,
+        build_client_provenance(headers, oauth_claims),
+    );
+    if security_context.sink_class.is_none() {
+        security_context.sink_class = Some(infer_sink_class(action));
+    }
+    if security_context.lineage_refs.is_empty() {
+        security_context.lineage_refs = lineage_refs_from_call_chain(eval_ctx);
+    }
+    if security_context.effective_trust_tier.is_none() {
+        security_context.effective_trust_tier =
+            infer_trust_tier(&security_context, oauth_claims, eval_ctx);
+    }
+
+    if security_context == RuntimeSecurityContext::default() {
+        None
+    } else {
+        Some(security_context)
+    }
 }
 
 /// Extract a presented approval ID from a JSON-RPC message `_meta`.

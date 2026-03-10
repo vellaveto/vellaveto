@@ -24,7 +24,10 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets,
 };
-use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
+use vellaveto_mcp::mediation::{
+    build_acis_envelope_with_security_context, build_secondary_acis_envelope,
+    mediate_with_security_context,
+};
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
 
@@ -37,8 +40,8 @@ use super::call_chain::{
     track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use super::helpers::{
-    consume_presented_approval, extract_approval_id_from_meta, presented_approval_matches_action,
-    resolve_domains,
+    build_runtime_security_context, consume_presented_approval, extract_approval_id_from_meta,
+    presented_approval_matches_action, resolve_domains,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
@@ -69,7 +72,6 @@ const INVALID_PRESENTED_APPROVAL_REASON: &str = "Supplied approval is not valid 
 /// 3. Manage session via Mcp-Session-Id header
 /// 4. Classify and evaluate the message
 /// 5. Forward allowed requests to upstream, return denials directly
-#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 pub async fn handle_mcp_post(
     State(state): State<ProxyState>,
     OriginalUri(original_uri): OriginalUri,
@@ -936,7 +938,7 @@ pub async fn handle_mcp_post(
             // This is safe because engine evaluation is synchronous (no await) and
             // fast (<5ms). The shard lock is released when `session` drops.
             // R244-PROXY-1: Return eval_ctx from closure so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) =
+            let (mediation_result, eval_ctx, security_context) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -950,21 +952,27 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                            .map(|v| (v, None))
-                    };
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        Some(&eval_ctx),
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        Some(&eval_ctx),
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
 
                     // Atomically update session while still holding the shard lock
-                    if let Ok((Verdict::Allow, _)) = &result {
+                    if matches!(result.verdict, Verdict::Allow) {
                         // SECURITY (FIND-045): Cap call_counts to prevent unbounded HashMap growth.
                         if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
                             || session.call_counts.contains_key(&tool_name)
@@ -980,27 +988,44 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(tool_name.clone());
                     }
 
-                    (result, eval_ctx)
+                    (result, eval_ctx, security_context)
                 } else {
                     // No session found: evaluate without context
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, None)
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, None)
-                            .map(|v| (v, None))
-                    };
-                    (result, EvaluationContext::default())
+                    let eval_ctx = EvaluationContext::default();
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        None,
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        None,
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
+                    (result, eval_ctx, security_context)
                 };
-
-            let eval_result = match eval_result {
-                Ok((Verdict::RequireApproval { reason }, trace)) => {
+            let mut final_origin = mediation_result.origin;
+            let mut acis_envelope = mediation_result.envelope.clone();
+            let mut refresh_envelope = false;
+            let trace = if params.trace && state.trace_enabled {
+                mediation_result.trace.clone()
+            } else {
+                None
+            };
+            let verdict = match mediation_result.verdict {
+                Verdict::RequireApproval { reason } => {
                     if matched_approval_id.is_some() {
-                        Ok((Verdict::Allow, trace))
+                        final_origin = DecisionOrigin::PolicyEngine;
+                        refresh_envelope = true;
+                        Verdict::Allow
                     } else {
                         match presented_approval_matches_action(
                             &state,
@@ -1012,23 +1037,44 @@ pub async fn handle_mcp_post(
                         {
                             Ok(Some(approval_id)) => {
                                 matched_approval_id = Some(approval_id);
-                                Ok((Verdict::Allow, trace))
+                                final_origin = DecisionOrigin::PolicyEngine;
+                                refresh_envelope = true;
+                                Verdict::Allow
                             }
-                            Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
-                            Err(()) => Ok((
+                            Ok(None) => Verdict::RequireApproval { reason },
+                            Err(()) => {
+                                final_origin = DecisionOrigin::ApprovalGate;
+                                refresh_envelope = true;
                                 Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                                },
-                                trace,
-                            )),
+                                }
+                            }
                         }
                     }
                 }
                 other => other,
             };
+            if refresh_envelope {
+                let findings = acis_envelope.findings.clone();
+                let evaluation_us = acis_envelope.evaluation_us;
+                let decision_id = acis_envelope.decision_id.clone();
+                acis_envelope = build_acis_envelope_with_security_context(
+                    &decision_id,
+                    &action,
+                    &verdict,
+                    final_origin,
+                    "http",
+                    &findings,
+                    evaluation_us,
+                    Some(&session_id),
+                    None,
+                    Some(&eval_ctx),
+                    security_context.as_ref(),
+                );
+            }
 
-            match eval_result {
-                Ok((Verdict::Allow, trace)) => {
+            match verdict {
+                Verdict::Allow => {
                     // OWASP ASI08: Check for privilege escalation before forwarding
                     let priv_check = check_privilege_escalation(
                         &state.engine,
@@ -1667,25 +1713,12 @@ pub async fn handle_mcp_post(
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }
-                Ok((Verdict::Deny { ref reason }, trace)) => {
+                Verdict::Deny { ref reason } => {
                     let reason = reason.clone();
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
 
-                    // Audit the denial with ACIS envelope
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &verdict,
-                        DecisionOrigin::PolicyEngine,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -1737,7 +1770,7 @@ pub async fn handle_mcp_post(
                         &session_id,
                     )
                 }
-                Ok((Verdict::RequireApproval { ref reason }, trace)) => {
+                Verdict::RequireApproval { ref reason } => {
                     let reason = reason.clone();
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
@@ -1773,18 +1806,6 @@ pub async fn handle_mcp_post(
                         None
                     };
 
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &verdict,
-                        DecisionOrigin::ApprovalGate,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -1847,28 +1868,13 @@ pub async fn handle_mcp_post(
                     )
                 }
                 // Handle future Verdict variants - fail closed (deny)
-                Ok((_, _trace)) => {
+                _ => {
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
                             "code": -32001,
                             "message": "Unknown verdict - failing closed"
-                        }
-                    });
-                    attach_session_header(
-                        (StatusCode::OK, Json(response)).into_response(),
-                        &session_id,
-                    )
-                }
-                Err(e) => {
-                    tracing::error!("Policy evaluation error for tool '{}': {}", tool_name, e);
-                    let response = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": {
-                            "code": -32001,
-                            "message": "Policy evaluation failed"
                         }
                     });
                     attach_session_header(
@@ -2154,7 +2160,7 @@ pub async fn handle_mcp_post(
             // max_calls evaluation, and all increment — bypassing rate limits.
             // Mirror the ToolCall TOCTOU fix (R19-TOCTOU).
             // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) =
+            let (mediation_result, eval_ctx, security_context) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -2168,21 +2174,27 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                            .map(|v| (v, None))
-                    };
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        Some(&eval_ctx),
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        Some(&eval_ctx),
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
 
                     // Atomically update session while still holding the shard lock
-                    if let Ok((Verdict::Allow, _)) = &result {
+                    if matches!(result.verdict, Verdict::Allow) {
                         let resource_key = format!(
                             "resources/read:{}",
                             uri.chars().take(128).collect::<String>()
@@ -2201,51 +2213,85 @@ pub async fn handle_mcp_post(
                             .push_back("resources/read".to_string());
                     }
 
-                    (result, eval_ctx)
+                    (result, eval_ctx, security_context)
                 } else {
                     // No session found: evaluate without context
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, None)
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, None)
-                            .map(|v| (v, None))
-                    };
-                    (result, EvaluationContext::default())
-                };
-
-            let eval_result = match eval_result {
-                Ok((Verdict::RequireApproval { reason }, trace)) => {
-                    match presented_approval_matches_action(
-                        &state,
-                        &session_id,
-                        presented_approval_id.as_deref(),
+                    let eval_ctx = EvaluationContext::default();
+                    let security_context = build_runtime_security_context(
+                        &msg,
                         &action,
-                    )
-                    .await
-                    {
-                        Ok(Some(approval_id)) => {
-                            matched_approval_id = Some(approval_id);
-                            Ok((Verdict::Allow, trace))
-                        }
-                        Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
-                        Err(()) => Ok((
-                            Verdict::Deny {
-                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                            },
-                            trace,
-                        )),
+                        &headers,
+                        oauth_claims.as_ref(),
+                        None,
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        None,
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
+                    (result, eval_ctx, security_context)
+                };
+            let mut final_origin = mediation_result.origin;
+            let mut acis_envelope = mediation_result.envelope.clone();
+            let mut refresh_envelope = false;
+            let trace = if params.trace && state.trace_enabled {
+                mediation_result.trace.clone()
+            } else {
+                None
+            };
+            let verdict = match mediation_result.verdict {
+                Verdict::RequireApproval { reason } => match presented_approval_matches_action(
+                    &state,
+                    &session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        final_origin = DecisionOrigin::PolicyEngine;
+                        refresh_envelope = true;
+                        Verdict::Allow
                     }
-                }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => {
+                        final_origin = DecisionOrigin::ApprovalGate;
+                        refresh_envelope = true;
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        }
+                    }
+                },
                 other => other,
             };
+            if refresh_envelope {
+                let findings = acis_envelope.findings.clone();
+                let evaluation_us = acis_envelope.evaluation_us;
+                let decision_id = acis_envelope.decision_id.clone();
+                acis_envelope = build_acis_envelope_with_security_context(
+                    &decision_id,
+                    &action,
+                    &verdict,
+                    final_origin,
+                    "http",
+                    &findings,
+                    evaluation_us,
+                    Some(&session_id),
+                    None,
+                    Some(&eval_ctx),
+                    security_context.as_ref(),
+                );
+            }
 
-            match eval_result {
-                Ok((Verdict::Allow, trace)) => {
+            match verdict {
+                Verdict::Allow => {
                     // SECURITY (FIND-R112-003): ABAC refinement for resource reads.
                     // Mirror ToolCall ABAC evaluation (R21-PROXY-2): if the PolicyEngine
                     // allowed the action, ABAC may still deny it based on principal/action/
@@ -2395,7 +2441,7 @@ pub async fn handle_mcp_post(
                     let response = attach_session_header(response, &session_id);
                     attach_trace_header(response, trace)
                 }
-                Ok((verdict, trace)) => {
+                verdict => {
                     let (code, reason) = match &verdict {
                         Verdict::Deny { reason } => (-32001, reason.clone()),
                         Verdict::RequireApproval { reason } => (-32002, reason.clone()),
@@ -2440,22 +2486,6 @@ pub async fn handle_mcp_post(
                         None
                     };
 
-                    let origin = match &verdict {
-                        Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
-                        _ => DecisionOrigin::PolicyEngine,
-                    };
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &verdict,
-                        origin,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -2516,21 +2546,6 @@ pub async fn handle_mcp_post(
                     if let Some(t) = &trace {
                         response["trace"] = serde_json::to_value(t).unwrap_or(Value::Null);
                     }
-                    attach_session_header(
-                        (StatusCode::OK, Json(response)).into_response(),
-                        &session_id,
-                    )
-                }
-                Err(e) => {
-                    tracing::error!("Policy evaluation error for resource '{}': {}", uri, e);
-                    let response = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": {
-                            "code": -32001,
-                            "message": "Policy evaluation failed"
-                        }
-                    });
                     attach_session_header(
                         (StatusCode::OK, Json(response)).into_response(),
                         &session_id,
@@ -3328,8 +3343,7 @@ pub async fn handle_mcp_post(
             // Read context and evaluate inside a single DashMap shard lock, matching
             // the ToolCall pattern (line 725-789). Without this, concurrent TaskRequests
             // can bypass max_calls_in_window by reading stale call_counts.
-            // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
-            let (eval_result, eval_ctx) =
+            let (mediation_result, eval_ctx, security_context) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -3343,21 +3357,27 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, Some(&eval_ctx))
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, Some(&eval_ctx))
-                            .map(|v| (v, None))
-                    };
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        Some(&eval_ctx),
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        Some(&eval_ctx),
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
 
                     // Atomically update session on Allow while holding shard lock
-                    if let Ok((Verdict::Allow, _)) = &result {
+                    if matches!(result.verdict, Verdict::Allow) {
                         session.touch();
                         if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
                             || session.call_counts.contains_key(&task_method)
@@ -3371,51 +3391,86 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(task_method.clone());
                     }
 
-                    (result, eval_ctx)
+                    (result, eval_ctx, security_context)
                 } else {
                     // No session: evaluate without context
-                    let result = if params.trace && state.trace_enabled {
-                        state
-                            .engine
-                            .evaluate_action_traced_with_context(&action, None)
-                            .map(|(v, t)| (v, Some(t)))
-                    } else {
-                        state
-                            .engine
-                            .evaluate_action_with_context(&action, &state.policies, None)
-                            .map(|v| (v, None))
-                    };
-                    (result, EvaluationContext::default())
+                    let eval_ctx = EvaluationContext::default();
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        None,
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        None,
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
+                    (result, eval_ctx, security_context)
                 };
 
-            let eval_result = match eval_result {
-                Ok((Verdict::RequireApproval { reason }, trace)) => {
-                    match presented_approval_matches_action(
-                        &state,
-                        &session_id,
-                        presented_approval_id.as_deref(),
-                        &action,
-                    )
-                    .await
-                    {
-                        Ok(Some(approval_id)) => {
-                            matched_approval_id = Some(approval_id);
-                            Ok((Verdict::Allow, trace))
-                        }
-                        Ok(None) => Ok((Verdict::RequireApproval { reason }, trace)),
-                        Err(()) => Ok((
-                            Verdict::Deny {
-                                reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                            },
-                            trace,
-                        )),
+            let mut final_origin = mediation_result.origin;
+            let mut acis_envelope = mediation_result.envelope.clone();
+            let mut refresh_envelope = false;
+            let trace = if params.trace && state.trace_enabled {
+                mediation_result.trace.clone()
+            } else {
+                None
+            };
+            let verdict = match mediation_result.verdict {
+                Verdict::RequireApproval { reason } => match presented_approval_matches_action(
+                    &state,
+                    &session_id,
+                    presented_approval_id.as_deref(),
+                    &action,
+                )
+                .await
+                {
+                    Ok(Some(approval_id)) => {
+                        matched_approval_id = Some(approval_id);
+                        final_origin = DecisionOrigin::PolicyEngine;
+                        refresh_envelope = true;
+                        Verdict::Allow
                     }
-                }
+                    Ok(None) => Verdict::RequireApproval { reason },
+                    Err(()) => {
+                        final_origin = DecisionOrigin::ApprovalGate;
+                        refresh_envelope = true;
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        }
+                    }
+                },
                 other => other,
             };
+            if refresh_envelope {
+                let findings = acis_envelope.findings.clone();
+                let evaluation_us = acis_envelope.evaluation_us;
+                let decision_id = acis_envelope.decision_id.clone();
+                acis_envelope = build_acis_envelope_with_security_context(
+                    &decision_id,
+                    &action,
+                    &verdict,
+                    final_origin,
+                    "http",
+                    &findings,
+                    evaluation_us,
+                    Some(&session_id),
+                    None,
+                    Some(&eval_ctx),
+                    security_context.as_ref(),
+                );
+            }
 
-            match eval_result {
-                Ok((Verdict::Allow, trace)) => {
+            match verdict {
+                Verdict::Allow => {
                     // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
                     // matching ToolCall/ResourceRead parity.
                     if let Some(ref abac) = state.abac_engine {
@@ -3509,18 +3564,6 @@ pub async fn handle_mcp_post(
                         );
                     }
 
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &Verdict::Allow,
-                        DecisionOrigin::PolicyEngine,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -3579,22 +3622,10 @@ pub async fn handle_mcp_post(
                     let response = attach_trace_header(response, trace);
                     attach_session_header(response, &session_id)
                 }
-                Ok((Verdict::Deny { reason }, trace)) => {
+                Verdict::Deny { reason } => {
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &verdict,
-                        DecisionOrigin::PolicyEngine,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -3651,7 +3682,7 @@ pub async fn handle_mcp_post(
                         &session_id,
                     )
                 }
-                Ok((Verdict::RequireApproval { reason }, trace)) => {
+                Verdict::RequireApproval { reason } => {
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
                     };
@@ -3669,18 +3700,6 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
-                    let acis_envelope = build_acis_envelope(
-                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                        &action,
-                        &verdict,
-                        DecisionOrigin::ApprovalGate,
-                        "http",
-                        &[],
-                        None,
-                        Some(&session_id),
-                        None,
-                        Some(&eval_ctx),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -3744,30 +3763,13 @@ pub async fn handle_mcp_post(
                         &session_id,
                     )
                 }
-                // Handle future Verdict variants - fail closed (deny)
-                Ok((_, _trace)) => {
+                _ => {
                     let response = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
                             "code": -32001,
                             "message": "Unknown verdict - failing closed"
-                        }
-                    });
-                    attach_session_header(
-                        (StatusCode::OK, Json(response)).into_response(),
-                        &session_id,
-                    )
-                }
-                Err(e) => {
-                    // Fail-closed: evaluation error → deny
-                    tracing::error!("Policy evaluation error for task '{}': {}", task_method, e);
-                    let response = json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": {
-                            "code": -32001,
-                            "message": "Policy evaluation failed"
                         }
                     });
                     attach_session_header(
@@ -4020,28 +4022,82 @@ pub async fn handle_mcp_post(
                 resolve_domains(&mut action).await;
             }
 
-            let eval_ctx = build_evaluation_context(&state.sessions, &session_id);
-
             let ext_key = format!("extension:{extension_id}:{method}");
 
-            let verdict = match state.engine.evaluate_action_with_context(
-                &action,
-                &state.policies,
-                eval_ctx.as_ref(),
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::error!(
-                        session_id = %session_id,
-                        "Extension policy evaluation error: {}", e
+            let (mediation_result, eval_ctx, security_context) =
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    let eval_ctx = EvaluationContext {
+                        timestamp: None,
+                        agent_id: session.oauth_subject.clone(),
+                        agent_identity: session.agent_identity.clone(),
+                        call_counts: session.call_counts.clone(),
+                        previous_actions: session.action_history.iter().cloned().collect(),
+                        call_chain: session.current_call_chain.clone(),
+                        tenant_id: None,
+                        verification_tier: None,
+                        capability_token: None,
+                        session_state: None,
+                    };
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        Some(&eval_ctx),
                     );
-                    Verdict::Deny {
-                        reason: format!("Policy evaluation failed: {e}"),
-                    }
-                }
-            };
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        Some(&eval_ctx),
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
 
-            let verdict = match verdict {
+                    if matches!(result.verdict, Verdict::Allow) {
+                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                            || session.call_counts.contains_key(&ext_key)
+                        {
+                            let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
+                            *count = count.saturating_add(1);
+                        }
+                        if session.action_history.len() >= MAX_ACTION_HISTORY {
+                            session.action_history.pop_front();
+                        }
+                        session.action_history.push_back(ext_key.clone());
+                    }
+
+                    (result, eval_ctx, security_context)
+                } else {
+                    let eval_ctx = EvaluationContext::default();
+                    let security_context = build_runtime_security_context(
+                        &msg,
+                        &action,
+                        &headers,
+                        oauth_claims.as_ref(),
+                        None,
+                    );
+                    let result = mediate_with_security_context(
+                        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                        &action,
+                        &state.engine,
+                        None,
+                        security_context.as_ref(),
+                        "http",
+                        &state.mediation_config,
+                        Some(&session_id),
+                        None,
+                    );
+                    (result, eval_ctx, security_context)
+                };
+
+            let mut final_origin = mediation_result.origin;
+            let mut acis_envelope = mediation_result.envelope.clone();
+            let mut refresh_envelope = false;
+            let verdict = match mediation_result.verdict {
                 Verdict::RequireApproval { reason } => match presented_approval_matches_action(
                     &state,
                     &session_id,
@@ -4052,15 +4108,39 @@ pub async fn handle_mcp_post(
                 {
                     Ok(Some(approval_id)) => {
                         matched_approval_id = Some(approval_id);
+                        final_origin = DecisionOrigin::PolicyEngine;
+                        refresh_envelope = true;
                         Verdict::Allow
                     }
                     Ok(None) => Verdict::RequireApproval { reason },
-                    Err(()) => Verdict::Deny {
-                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                    },
+                    Err(()) => {
+                        final_origin = DecisionOrigin::ApprovalGate;
+                        refresh_envelope = true;
+                        Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        }
+                    }
                 },
                 other => other,
             };
+            if refresh_envelope {
+                let findings = acis_envelope.findings.clone();
+                let evaluation_us = acis_envelope.evaluation_us;
+                let decision_id = acis_envelope.decision_id.clone();
+                acis_envelope = build_acis_envelope_with_security_context(
+                    &decision_id,
+                    &action,
+                    &verdict,
+                    final_origin,
+                    "http",
+                    &findings,
+                    evaluation_us,
+                    Some(&session_id),
+                    None,
+                    Some(&eval_ctx),
+                    security_context.as_ref(),
+                );
+            }
 
             match verdict {
                 Verdict::Allow => {
@@ -4177,28 +4257,6 @@ pub async fn handle_mcp_post(
                         );
                     }
 
-                    // SECURITY (FIND-R118-003): Track extension calls in call_counts/action_history.
-                    // Parity with ToolCall (line 759) and ResourceRead (line 1748).
-                    if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                        if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                            || session.call_counts.contains_key(&ext_key)
-                        {
-                            let count = session.call_counts.entry(ext_key.clone()).or_insert(0);
-                            *count = count.saturating_add(1);
-                        }
-                        if session.action_history.len() >= MAX_ACTION_HISTORY {
-                            session.action_history.pop_front();
-                        }
-                        session.action_history.push_back(ext_key.clone());
-                    }
-
-                    let envelope = build_secondary_acis_envelope(
-                        &action,
-                        &Verdict::Allow,
-                        DecisionOrigin::PolicyEngine,
-                        "http",
-                        Some(&session_id),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4213,7 +4271,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
-                            envelope,
+                            acis_envelope,
                         )
                         .await
                     {
@@ -4245,13 +4303,6 @@ pub async fn handle_mcp_post(
                     let ext_deny_verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
-                        &action,
-                        &ext_deny_verdict,
-                        DecisionOrigin::PolicyEngine,
-                        "http",
-                        Some(&session_id),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4267,7 +4318,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
-                            envelope,
+                            acis_envelope,
                         )
                         .await
                     {
@@ -4304,13 +4355,6 @@ pub async fn handle_mcp_post(
                     } else {
                         None
                     };
-                    let envelope = build_secondary_acis_envelope(
-                        &action,
-                        &verdict,
-                        DecisionOrigin::ApprovalGate,
-                        "http",
-                        Some(&session_id),
-                    );
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4325,7 +4369,7 @@ pub async fn handle_mcp_post(
                                 }),
                                 &oauth_claims,
                             ),
-                            envelope,
+                            acis_envelope,
                         )
                         .await
                     {
