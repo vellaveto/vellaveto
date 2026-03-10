@@ -59,9 +59,21 @@ jobs:
         run: bash formal/tools/check-formal-trusted-assumptions.sh
 
   tla-plus:
-    name: "TLA+ Model Checking (8 specs)"
+    name: "TLA+ Model Checking (${{ matrix.spec }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        spec:
+          - MCPPolicyEngine
+          - AbacForbidOverrides
+          - MCPTaskLifecycle
+          - CascadingFailure
+          - WorkflowConstraint
+          - CapabilityDelegation
+          - CredentialVault
+          - AuditChain
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -83,24 +95,10 @@ jobs:
             "https://github.com/tlaplus/tlaplus/releases/download/${TLA_VERSION}/tla2tools.jar"
           echo "${TLA_SHA256}  formal/tla/tla2tools.jar" | sha256sum -c -
 
-      - name: Run TLC on all 8 specifications
-        working-directory: formal/tla
-        run: |
-          set -e
-          for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do
-            mc="MC_${spec}.tla"
-            main="${spec}.tla"
-            cfg="${spec}.cfg"
-            if [ -f "$mc" ]; then
-              echo "=== TLA+ $spec (via MC_${spec}) ==="
-              java -Xms512m -Xmx10g -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$mc"
-            elif [ -f "$cfg" ] && [ -f "$main" ]; then
-              echo "=== TLA+ $spec (direct) ==="
-              java -Xms512m -Xmx10g -XX:+UseParallelGC -jar tla2tools.jar -config "$cfg" "$main"
-            else
-              echo "SKIP: $spec (files not found)"
-            fi
-          done
+      - name: Run TLC on ${{ matrix.spec }}
+        env:
+          TLA_JAVA_OPTS: -Xms512m -Xmx10g -XX:+UseParallelGC
+        run: bash formal/tools/run-tla-spec.sh "${{ matrix.spec }}"
 
   lean:
     name: "Lean 4 (5 files, 30 theorems)"
@@ -168,9 +166,25 @@ jobs:
           fi
 
   kani:
-    name: "Kani (77 harnesses — K1-K77)"
+    name: "Kani (${{ matrix.label }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: "shard 1/4"
+            shard_index: 0
+            shard_count: 4
+          - label: "shard 2/4"
+            shard_index: 1
+            shard_count: 4
+          - label: "shard 3/4"
+            shard_index: 2
+            shard_count: 4
+          - label: "shard 4/4"
+            shard_index: 3
+            shard_count: 4
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -193,9 +207,8 @@ jobs:
       - name: Verify extraction sync
         run: RUN_KANI_PARITY_TESTS=0 bash formal/tools/check-kani-parity.sh
 
-      - name: Run Kani proofs
-        working-directory: formal/kani
-        run: cargo kani
+      - name: Run Kani proofs (${{ matrix.label }})
+        run: bash formal/tools/run-kani-shard.sh "${{ matrix.shard_index }}" "${{ matrix.shard_count }}"
 
   verus:
     name: "Verus (20 kernels, 321 verified items)"
