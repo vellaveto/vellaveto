@@ -745,6 +745,13 @@ fn make_test_state() -> ProxyState {
         response_dlp_enabled: true,
         response_dlp_blocking: false,
         audit_strict_mode: false,
+        mediation_config: vellaveto_mcp::mediation::MediationConfig {
+            dlp_enabled: false,
+            dlp_blocking: false,
+            injection_enabled: false,
+            injection_blocking: false,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
         known_tools: std::collections::HashSet::new(),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

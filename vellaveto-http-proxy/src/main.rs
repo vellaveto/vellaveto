@@ -682,6 +682,25 @@ async fn main() -> Result<()> {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false),
         audit_strict_mode: policy_config.audit.strict_mode,
+        mediation_config: vellaveto_mcp::mediation::MediationConfig {
+            // The HTTP proxy already runs request-side DLP/injection scanning
+            // before mediation. Keep the shared mediation layer focused on
+            // provenance and semantic containment until the transports converge.
+            dlp_enabled: false,
+            dlp_blocking: false,
+            injection_enabled: false,
+            injection_blocking: false,
+            require_session_id: policy_config.acis.require_session_id,
+            require_agent_identity: policy_config.acis.require_agent_identity,
+            require_verified_signature: policy_config.acis.require_verified_signature,
+            require_workload_binding: policy_config.acis.require_workload_binding,
+            deny_replay: policy_config.acis.deny_replay,
+            block_tainted_privileged_sinks: policy_config.acis.block_tainted_privileged_sinks,
+            require_lineage_for_privileged_sinks: policy_config
+                .acis
+                .require_lineage_for_privileged_sinks,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),

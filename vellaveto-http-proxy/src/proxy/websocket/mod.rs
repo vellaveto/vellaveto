@@ -42,10 +42,13 @@ use vellaveto_mcp::inspection::{
     scan_response_for_secrets, scan_text_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
-use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
+use vellaveto_mcp::mediation::{
+    build_acis_envelope_with_security_context, build_secondary_acis_envelope,
+    mediate_with_security_context,
+};
 use vellaveto_mcp::output_validation::ValidationResult;
-use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{Action, EvaluationContext, Verdict};
+use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
+use vellaveto_types::{Action, EvaluationContext, RuntimeSecurityContext, Verdict};
 
 use super::auth::{validate_agent_identity, validate_api_key, validate_oauth};
 use super::call_chain::{
@@ -132,6 +135,40 @@ pub(crate) fn ws_connections_count() -> u64 {
 #[cfg(test)]
 pub(crate) fn ws_messages_count() -> u64 {
     WS_MESSAGES_TOTAL.load(Ordering::SeqCst)
+}
+
+fn build_ws_runtime_security_context(
+    msg: &Value,
+    action: &Action,
+    oauth_claims: Option<&crate::oauth::OAuthClaims>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<RuntimeSecurityContext> {
+    let headers = HeaderMap::new();
+    super::helpers::build_runtime_security_context(msg, action, &headers, oauth_claims, eval_ctx)
+}
+
+fn refresh_ws_acis_envelope(
+    envelope: &AcisDecisionEnvelope,
+    action: &Action,
+    verdict: &Verdict,
+    origin: DecisionOrigin,
+    session_id: &str,
+    eval_ctx: &EvaluationContext,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> AcisDecisionEnvelope {
+    build_acis_envelope_with_security_context(
+        &envelope.decision_id,
+        action,
+        verdict,
+        origin,
+        "websocket",
+        &envelope.findings,
+        envelope.evaluation_us,
+        Some(session_id),
+        None,
+        Some(eval_ctx),
+        security_context,
+    )
 }
 
 use vellaveto_types::is_unicode_format_char as is_unicode_format_char_ws;
@@ -310,7 +347,15 @@ pub async fn handle_ws_upgrade(
     // 4. Configure and upgrade
     ws.max_message_size(ws_config.max_message_size)
         .on_upgrade(move |socket| {
-            handle_ws_connection(socket, state, session_id, ws_config, addr, ws_trace_id)
+            handle_ws_connection(
+                socket,
+                state,
+                session_id,
+                ws_config,
+                addr,
+                ws_trace_id,
+                oauth_claims,
+            )
         })
 }
 
@@ -326,6 +371,7 @@ async fn handle_ws_connection(
     ws_config: WebSocketConfig,
     peer_addr: SocketAddr,
     trace_id: String,
+    oauth_claims: Option<crate::oauth::OAuthClaims>,
 ) {
     record_ws_connection();
     let start = std::time::Instant::now();
@@ -406,6 +452,7 @@ async fn handle_ws_connection(
         let rate_window_start = rate_window_start.clone();
         let ws_config = ws_config.clone();
         let last_activity = last_activity.clone();
+        let oauth_claims = oauth_claims.clone();
 
         relay_client_to_upstream(
             client_stream,
@@ -418,6 +465,7 @@ async fn handle_ws_connection(
             rate_window_start,
             last_activity,
             connection_epoch,
+            oauth_claims,
         )
     };
 
@@ -511,7 +559,6 @@ async fn handle_ws_connection(
 
 /// Relay messages from client to upstream with policy enforcement.
 #[allow(clippy::too_many_arguments)]
-#[allow(deprecated)] // evaluate_action_with_context: migration tracked in FIND-CREATIVE-005
 async fn relay_client_to_upstream(
     mut client_stream: futures_util::stream::SplitStream<WebSocket>,
     client_sink: Arc<Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
@@ -532,6 +579,7 @@ async fn relay_client_to_upstream(
     rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
     last_activity: Arc<AtomicU64>,
     connection_epoch: std::time::Instant,
+    oauth_claims: Option<crate::oauth::OAuthClaims>,
 ) {
     while let Some(msg_result) = client_stream.next().await {
         let msg = match msg_result {
@@ -1336,7 +1384,7 @@ async fn relay_client_to_upstream(
                         // clone the same stale call_counts, both pass evaluation, both
                         // increment. Matches HTTP handler R19-TOCTOU pattern
                         // (handlers.rs:725-789).
-                        let (verdict, ctx) = if let Some(mut session) =
+                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -1351,28 +1399,27 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 Some(&ctx),
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Policy evaluation error: {}",
-                                        e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                Some(&ctx),
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
 
                             // Atomically update session on Allow while still holding
                             // the shard lock — prevents TOCTOU bypass of call limits.
-                            if matches!(verdict, Verdict::Allow) {
+                            if matches!(result.verdict, Verdict::Allow) {
                                 session.touch();
                                 use crate::proxy::call_chain::{
                                     MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
@@ -1392,32 +1439,38 @@ async fn relay_client_to_upstream(
                                 session.action_history.push_back(tool_name.to_string());
                             }
 
-                            (verdict, ctx)
+                            (result, ctx, security_context)
                         } else {
                             // No session — evaluate without context (fail-closed)
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let ctx = EvaluationContext::default();
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 None,
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Policy evaluation error: {}",
-                                        e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
-                            (verdict, EvaluationContext::default())
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                None,
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
+                            (result, ctx, security_context)
                         };
 
-                        let verdict = match verdict {
+                        let mut final_origin = mediation_result.origin;
+                        let mut acis_envelope = mediation_result.envelope.clone();
+                        let mut refresh_envelope = false;
+                        let verdict = match mediation_result.verdict {
                             Verdict::RequireApproval { reason } => {
                                 if matched_approval_id.is_some() {
+                                    final_origin = DecisionOrigin::PolicyEngine;
+                                    refresh_envelope = true;
                                     Verdict::Allow
                                 } else {
                                     match super::helpers::presented_approval_matches_action(
@@ -1430,17 +1483,34 @@ async fn relay_client_to_upstream(
                                     {
                                         Ok(Some(approval_id)) => {
                                             matched_approval_id = Some(approval_id);
+                                            final_origin = DecisionOrigin::PolicyEngine;
+                                            refresh_envelope = true;
                                             Verdict::Allow
                                         }
                                         Ok(None) => Verdict::RequireApproval { reason },
                                         Err(()) => Verdict::Deny {
-                                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                            reason: {
+                                                final_origin = DecisionOrigin::ApprovalGate;
+                                                refresh_envelope = true;
+                                                INVALID_PRESENTED_APPROVAL_REASON.to_string()
+                                            },
                                         },
                                     }
                                 }
                             }
                             other => other,
                         };
+                        if refresh_envelope {
+                            acis_envelope = refresh_ws_acis_envelope(
+                                &acis_envelope,
+                                &action,
+                                &verdict,
+                                final_origin,
+                                &session_id,
+                                &ctx,
+                                security_context.as_ref(),
+                            );
+                        }
 
                         match verdict {
                             Verdict::Allow => {
@@ -1573,19 +1643,6 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
-                                // Audit the allow
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Allow,
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1668,20 +1725,6 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::Deny { ref reason } => {
                                 // Audit the denial with detailed reason
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: reason.clone(),
-                                    },
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1722,29 +1765,14 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                // Treat as deny for audit, but preserve approval semantics.
-                                let deny_reason = format!("Requires approval: {reason}");
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: deny_reason.clone(),
-                                    },
-                                    DecisionOrigin::ApprovalGate,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
+                                let approval_verdict = Verdict::RequireApproval {
+                                    reason: reason.clone(),
+                                };
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
                                         &action,
-                                        &Verdict::Deny {
-                                            reason: deny_reason.clone(),
-                                        },
+                                        &approval_verdict,
                                         json!({
                                             "source": "ws_proxy",
                                             "session": session_id,
@@ -2039,7 +2067,7 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for resource reads. Matches ToolCall fix above and HTTP
                         // handler FIND-R112-002 pattern (handlers.rs:1711-1774).
-                        let (verdict, ctx) = if let Some(mut session) =
+                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -2054,27 +2082,26 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 Some(&ctx),
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Resource policy evaluation error: {}",
-                                        e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                Some(&ctx),
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
 
                             // Atomically update session on Allow
-                            if matches!(verdict, Verdict::Allow) {
+                            if matches!(result.verdict, Verdict::Allow) {
                                 session.touch();
                                 use crate::proxy::call_chain::{
                                     MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
@@ -2098,29 +2125,33 @@ async fn relay_client_to_upstream(
                                     .push_back("resources/read".to_string());
                             }
 
-                            (verdict, ctx)
+                            (result, ctx, security_context)
                         } else {
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let ctx = EvaluationContext::default();
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 None,
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Resource policy evaluation error: {}",
-                                        e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
-                            (verdict, EvaluationContext::default())
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                None,
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
+                            (result, ctx, security_context)
                         };
 
-                        let verdict = match verdict {
+                        let mut final_origin = mediation_result.origin;
+                        let mut acis_envelope = mediation_result.envelope.clone();
+                        let mut refresh_envelope = false;
+                        let verdict = match mediation_result.verdict {
                             Verdict::RequireApproval { reason } => {
                                 match super::helpers::presented_approval_matches_action(
                                     &state,
@@ -2132,16 +2163,33 @@ async fn relay_client_to_upstream(
                                 {
                                     Ok(Some(approval_id)) => {
                                         matched_approval_id = Some(approval_id);
+                                        final_origin = DecisionOrigin::PolicyEngine;
+                                        refresh_envelope = true;
                                         Verdict::Allow
                                     }
                                     Ok(None) => Verdict::RequireApproval { reason },
-                                    Err(()) => Verdict::Deny {
-                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                                    },
+                                    Err(()) => {
+                                        final_origin = DecisionOrigin::ApprovalGate;
+                                        refresh_envelope = true;
+                                        Verdict::Deny {
+                                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                        }
+                                    }
                                 }
                             }
                             other => other,
                         };
+                        if refresh_envelope {
+                            acis_envelope = refresh_ws_acis_envelope(
+                                &acis_envelope,
+                                &action,
+                                &verdict,
+                                final_origin,
+                                &session_id,
+                                &ctx,
+                                security_context.as_ref(),
+                            );
+                        }
 
                         match verdict {
                             Verdict::Allow => {
@@ -2266,19 +2314,6 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
-                                // SECURITY (FIND-R46-WS-004): Audit log allowed resource reads
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Allow,
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2349,20 +2384,6 @@ async fn relay_client_to_upstream(
                             // SECURITY (FIND-R116-009): Separate handling for Deny vs RequireApproval
                             // with per-verdict audit logging. Parity with gRPC (service.rs:1051-1076).
                             Verdict::Deny { ref reason } => {
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: reason.clone(),
-                                    },
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2402,28 +2423,14 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {reason}");
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: deny_reason.clone(),
-                                    },
-                                    DecisionOrigin::ApprovalGate,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
+                                let approval_verdict = Verdict::RequireApproval {
+                                    reason: reason.clone(),
+                                };
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
                                         &action,
-                                        &Verdict::Deny {
-                                            reason: deny_reason,
-                                        },
+                                        &approval_verdict,
                                         json!({
                                             "source": "ws_proxy",
                                             "session": session_id,
@@ -2763,81 +2770,90 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R190-006): Update session state on Allow
                         // (touch + call_counts + action_history) while still holding
                         // the shard lock, matching ToolCall/ResourceRead parity.
-                        let (verdict, task_eval_ctx) = if let Some(mut session) =
-                            state.sessions.get_mut(&session_id)
-                        {
-                            let ctx = EvaluationContext {
-                                timestamp: None,
-                                agent_id: session.oauth_subject.clone(),
-                                agent_identity: session.agent_identity.clone(),
-                                call_counts: session.call_counts.clone(),
-                                previous_actions: session.action_history.iter().cloned().collect(),
-                                call_chain: session.current_call_chain.clone(),
-                                tenant_id: None,
-                                verification_tier: None,
-                                capability_token: None,
-                                session_state: None,
-                            };
-                            let verdict = match state.engine.evaluate_action_with_context(
-                                &action,
-                                &state.policies,
-                                Some(&ctx),
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Task policy evaluation error: {}", e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
-
-                            // Update session atomically on Allow
-                            if matches!(verdict, Verdict::Allow) {
-                                session.touch();
-                                use crate::proxy::call_chain::{
-                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                        let (mediation_result, task_eval_ctx, security_context) =
+                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                                let ctx = EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
                                 };
-                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                    || session.call_counts.contains_key(task_method)
-                                {
-                                    let count = session
-                                        .call_counts
-                                        .entry(task_method.to_string())
-                                        .or_insert(0);
-                                    *count = count.saturating_add(1);
-                                }
-                                if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                    session.action_history.pop_front();
-                                }
-                                session.action_history.push_back(task_method.to_string());
-                            }
+                                let security_context = build_ws_runtime_security_context(
+                                    &parsed,
+                                    &action,
+                                    oauth_claims.as_ref(),
+                                    Some(&ctx),
+                                );
+                                let result = mediate_with_security_context(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &state.engine,
+                                    Some(&ctx),
+                                    security_context.as_ref(),
+                                    "websocket",
+                                    &state.mediation_config,
+                                    Some(&session_id),
+                                    None,
+                                );
 
-                            (verdict, ctx)
-                        } else {
-                            let verdict = match state.engine.evaluate_action_with_context(
-                                &action,
-                                &state.policies,
-                                None,
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Task policy evaluation error: {}", e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
+                                // Update session atomically on Allow
+                                if matches!(result.verdict, Verdict::Allow) {
+                                    session.touch();
+                                    use crate::proxy::call_chain::{
+                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                    };
+                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                        || session.call_counts.contains_key(task_method)
+                                    {
+                                        let count = session
+                                            .call_counts
+                                            .entry(task_method.to_string())
+                                            .or_insert(0);
+                                        *count = count.saturating_add(1);
                                     }
+                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                        session.action_history.pop_front();
+                                    }
+                                    session.action_history.push_back(task_method.to_string());
                                 }
-                            };
-                            (verdict, EvaluationContext::default())
-                        };
 
-                        let verdict = match verdict {
+                                (result, ctx, security_context)
+                            } else {
+                                let ctx = EvaluationContext::default();
+                                let security_context = build_ws_runtime_security_context(
+                                    &parsed,
+                                    &action,
+                                    oauth_claims.as_ref(),
+                                    None,
+                                );
+                                let result = mediate_with_security_context(
+                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                    &action,
+                                    &state.engine,
+                                    None,
+                                    security_context.as_ref(),
+                                    "websocket",
+                                    &state.mediation_config,
+                                    Some(&session_id),
+                                    None,
+                                );
+                                (result, ctx, security_context)
+                            };
+
+                        let mut final_origin = mediation_result.origin;
+                        let mut acis_envelope = mediation_result.envelope.clone();
+                        let mut refresh_envelope = false;
+                        let verdict = match mediation_result.verdict {
                             Verdict::RequireApproval { reason } => {
                                 match super::helpers::presented_approval_matches_action(
                                     &state,
@@ -2849,16 +2865,33 @@ async fn relay_client_to_upstream(
                                 {
                                     Ok(Some(approval_id)) => {
                                         matched_approval_id = Some(approval_id);
+                                        final_origin = DecisionOrigin::PolicyEngine;
+                                        refresh_envelope = true;
                                         Verdict::Allow
                                     }
                                     Ok(None) => Verdict::RequireApproval { reason },
-                                    Err(()) => Verdict::Deny {
-                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                                    },
+                                    Err(()) => {
+                                        final_origin = DecisionOrigin::ApprovalGate;
+                                        refresh_envelope = true;
+                                        Verdict::Deny {
+                                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                        }
+                                    }
                                 }
                             }
                             other => other,
                         };
+                        if refresh_envelope {
+                            acis_envelope = refresh_ws_acis_envelope(
+                                &acis_envelope,
+                                &action,
+                                &verdict,
+                                final_origin,
+                                &session_id,
+                                &task_eval_ctx,
+                                security_context.as_ref(),
+                            );
+                        }
 
                         match verdict {
                             Verdict::Allow => {
@@ -2978,18 +3011,6 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Allow,
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&task_eval_ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3042,20 +3063,6 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: reason.clone(),
-                                    },
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&task_eval_ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3097,28 +3104,14 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {reason}");
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: deny_reason.clone(),
-                                    },
-                                    DecisionOrigin::ApprovalGate,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&task_eval_ctx),
-                                );
+                                let approval_verdict = Verdict::RequireApproval {
+                                    reason: reason.clone(),
+                                };
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
                                         &action,
-                                        &Verdict::Deny {
-                                            reason: deny_reason,
-                                        },
+                                        &approval_verdict,
                                         json!({
                                             "source": "ws_proxy",
                                             "session": session_id,
@@ -3291,7 +3284,7 @@ async fn relay_client_to_upstream(
 
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for extension methods. Matches ToolCall/ResourceRead fixes.
-                        let (verdict, ctx) = if let Some(mut session) =
+                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -3306,26 +3299,26 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 Some(&ctx),
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Extension policy evaluation error: {}", e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                Some(&ctx),
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
 
                             // Atomically update session on Allow
-                            if matches!(verdict, Verdict::Allow) {
+                            if matches!(result.verdict, Verdict::Allow) {
                                 session.touch();
                                 use crate::proxy::call_chain::{
                                     MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
@@ -3343,28 +3336,33 @@ async fn relay_client_to_upstream(
                                 session.action_history.push_back(ext_key.clone());
                             }
 
-                            (verdict, ctx)
+                            (result, ctx, security_context)
                         } else {
-                            let verdict = match state.engine.evaluate_action_with_context(
+                            let ctx = EvaluationContext::default();
+                            let security_context = build_ws_runtime_security_context(
+                                &parsed,
                                 &action,
-                                &state.policies,
+                                oauth_claims.as_ref(),
                                 None,
-                            ) {
-                                Ok(v) => v,
-                                Err(e) => {
-                                    tracing::error!(
-                                        session_id = %session_id,
-                                        "Extension policy evaluation error: {}", e
-                                    );
-                                    Verdict::Deny {
-                                        reason: format!("Policy evaluation failed: {e}"),
-                                    }
-                                }
-                            };
-                            (verdict, EvaluationContext::default())
+                            );
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                None,
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
+                            (result, ctx, security_context)
                         };
 
-                        let verdict = match verdict {
+                        let mut final_origin = mediation_result.origin;
+                        let mut acis_envelope = mediation_result.envelope.clone();
+                        let mut refresh_envelope = false;
+                        let verdict = match mediation_result.verdict {
                             Verdict::RequireApproval { reason } => {
                                 match super::helpers::presented_approval_matches_action(
                                     &state,
@@ -3376,16 +3374,33 @@ async fn relay_client_to_upstream(
                                 {
                                     Ok(Some(approval_id)) => {
                                         matched_approval_id = Some(approval_id);
+                                        final_origin = DecisionOrigin::PolicyEngine;
+                                        refresh_envelope = true;
                                         Verdict::Allow
                                     }
                                     Ok(None) => Verdict::RequireApproval { reason },
-                                    Err(()) => Verdict::Deny {
-                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
-                                    },
+                                    Err(()) => {
+                                        final_origin = DecisionOrigin::ApprovalGate;
+                                        refresh_envelope = true;
+                                        Verdict::Deny {
+                                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                        }
+                                    }
                                 }
                             }
                             other => other,
                         };
+                        if refresh_envelope {
+                            acis_envelope = refresh_ws_acis_envelope(
+                                &acis_envelope,
+                                &action,
+                                &verdict,
+                                final_origin,
+                                &session_id,
+                                &ctx,
+                                security_context.as_ref(),
+                            );
+                        }
 
                         match verdict {
                             Verdict::Allow => {
@@ -3511,18 +3526,6 @@ async fn relay_client_to_upstream(
                                     continue;
                                 }
 
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Allow,
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3587,20 +3590,6 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: reason.clone(),
-                                    },
-                                    DecisionOrigin::PolicyEngine,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3643,28 +3632,14 @@ async fn relay_client_to_upstream(
                                 let _ = sink.send(Message::Text(denial.into())).await;
                             }
                             Verdict::RequireApproval { ref reason, .. } => {
-                                let deny_reason = format!("Requires approval: {reason}");
-                                let acis_envelope = build_acis_envelope(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &Verdict::Deny {
-                                        reason: deny_reason.clone(),
-                                    },
-                                    DecisionOrigin::ApprovalGate,
-                                    "websocket",
-                                    &[],
-                                    None,
-                                    Some(&session_id),
-                                    None,
-                                    Some(&ctx),
-                                );
+                                let approval_verdict = Verdict::RequireApproval {
+                                    reason: reason.clone(),
+                                };
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
                                         &action,
-                                        &Verdict::Deny {
-                                            reason: deny_reason,
-                                        },
+                                        &approval_verdict,
                                         json!({
                                             "source": "ws_proxy",
                                             "session": session_id,

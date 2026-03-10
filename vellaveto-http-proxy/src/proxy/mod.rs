@@ -50,6 +50,7 @@ use vellaveto_engine::PolicyEngine;
 use vellaveto_engine::{circuit_breaker::CircuitBreakerManager, deputy::DeputyValidator};
 use vellaveto_mcp::extension_registry::ExtensionRegistry;
 use vellaveto_mcp::inspection::InjectionScanner;
+use vellaveto_mcp::mediation::MediationConfig;
 use vellaveto_mcp::output_validation::OutputSchemaRegistry;
 use vellaveto_mcp::{
     auth_level::AuthLevelTracker, sampling_detector::SamplingDetector,
@@ -125,6 +126,10 @@ pub struct ProxyState {
     /// This enforces non-repudiation guarantees — no unaudited security decisions
     /// can occur. Default: false (backward compatible).
     pub audit_strict_mode: bool,
+    /// Shared mediation-stage controls for provenance and semantic containment.
+    /// HTTP handlers keep their existing request scanners and use this config
+    /// for ACIS binding, provenance, and sink/lineage enforcement.
+    pub mediation_config: MediationConfig,
     /// Known legitimate tool names for squatting detection.
     /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
     pub known_tools: std::collections::HashSet<String>,
