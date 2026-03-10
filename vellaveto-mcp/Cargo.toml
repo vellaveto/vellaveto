@@ -80,7 +80,7 @@ vellaveto-mcp-shield = { path = "../vellaveto-mcp-shield", version = "6.0.2", op
 
 [dev-dependencies]
 proptest = "1.4"
-tempfile = "3.0"
+tempfile = "3.26"
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
