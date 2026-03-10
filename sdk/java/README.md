@@ -12,14 +12,14 @@ Java client for the [Vellaveto](https://github.com/vellaveto/vellaveto) agent in
 <dependency>
   <groupId>com.vellaveto</groupId>
   <artifactId>vellaveto-java-sdk</artifactId>
-  <version>6.0.0</version>
+  <version>6.0.2</version>
 </dependency>
 ```
 
 ### Gradle
 
 ```groovy
-implementation 'com.vellaveto:vellaveto-java-sdk:6.0.0'
+implementation 'com.vellaveto:vellaveto-java-sdk:6.0.2'
 ```
 
 ## Quick Start

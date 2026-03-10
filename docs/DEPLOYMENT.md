@@ -213,7 +213,7 @@ replicaCount: 3
 
 image:
   repository: ghcr.io/vellaveto/vellaveto
-  tag: "6.0.0"
+  tag: "6.0.2"
   pullPolicy: IfNotPresent
 
 # Resource limits
@@ -358,7 +358,7 @@ metadata:
   namespace: vellaveto
 spec:
   replicas: 3
-  image: ghcr.io/vellaveto/vellaveto:6.0.0
+  image: ghcr.io/vellaveto/vellaveto:6.0.2
   config:
     security_mode: strict
     audit_enabled: true

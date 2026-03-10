@@ -6,7 +6,7 @@
 
     <groupId>com.vellaveto</groupId>
     <artifactId>vellaveto-java-sdk</artifactId>
-    <version>6.0.0</version>
+    <version>6.0.2</version>
     <packaging>jar</packaging>
 
     <name>Vellaveto Java SDK</name>

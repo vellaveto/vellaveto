@@ -32,7 +32,7 @@ export function installCommand(language: SdkLanguage): string {
     case "go":
       return "go get github.com/vellaveto/vellaveto/sdk/go";
     case "java":
-      return "<!-- Add to pom.xml -->\n<dependency>\n  <groupId>com.vellaveto</groupId>\n  <artifactId>vellaveto-java-sdk</artifactId>\n  <version>6.0.0</version>\n</dependency>";
+      return "<!-- Add to pom.xml -->\n<dependency>\n  <groupId>com.vellaveto</groupId>\n  <artifactId>vellaveto-java-sdk</artifactId>\n  <version>6.0.2</version>\n</dependency>";
     case "skip":
       return "";
   }

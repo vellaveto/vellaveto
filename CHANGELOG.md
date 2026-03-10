@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.2] - 2026-03-10
+
+### Fixed
+
+- **Formal verification CI stability:** rebalanced Kani sharding for the
+  formal workflow and fixed universal `*` wildcard handling in both the
+  Kani proof kernel and the runtime glob matcher.
+- **Python SDK release gating:** restored the verified Python 3.9 hashed
+  lockfile and gated LangChain/LangGraph integration dependencies to
+  Python 3.10+ so the tagged publish path matches the tested matrix.
+- **Release metadata drift:** aligned Python and Java SDK versions,
+  `create-vellaveto` scaffolded image tags, TypeScript npm lock metadata,
+  OpenAPI metadata, and deployment/install docs to the 6.0.2 release line.
+
+### Changed
+
+- **Launch collateral:** made the apex domain canonical for the public site,
+  added `robots.txt` and `sitemap.xml`, published the formal verification
+  submission collateral under `formal/arxiv/`, and removed the superseded
+  `paper/` draft.
+
 ### Added
 
 - **Gap Analysis — ACIS coverage hardening (Mar 2026):**
@@ -2788,7 +2809,8 @@ This is the initial stable release. No breaking changes from previous versions.
 - **Fixed** for any bug fixes
 - **Security** for vulnerability fixes
 
-[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...HEAD
+[Unreleased]: https://github.com/vellaveto/vellaveto/compare/v6.0.2...HEAD
+[6.0.2]: https://github.com/vellaveto/vellaveto/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/vellaveto/vellaveto/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/vellaveto/vellaveto/compare/v3.0.0...v6.0.0
 [3.0.0]: https://github.com/vellaveto/vellaveto/compare/v2.2.1...v3.0.0

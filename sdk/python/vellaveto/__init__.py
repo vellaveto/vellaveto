@@ -31,7 +31,7 @@ try:
 except ImportError:
     ComposioGuard = None  # type: ignore[assignment,misc]
 
-__version__ = "6.0.0"
+__version__ = "6.0.2"
 __all__ = [
     "VellavetoClient",
     "AsyncVellavetoClient",
