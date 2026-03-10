@@ -25,6 +25,10 @@ pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
 ///
 /// Used by `capability_token` where case-insensitive byte matching is needed.
 pub(crate) fn glob_match_bytes(pattern: &[u8], text: &[u8]) -> bool {
+    if pattern.len() == 1 && pattern[0] == b'*' {
+        return true;
+    }
+
     let mut pi = 0;
     let mut ti = 0;
     let mut star_pi = usize::MAX;
@@ -90,6 +94,7 @@ mod tests {
     #[test]
     fn test_glob_match_bytes_star() {
         assert!(glob_match_bytes(b"*", b"anything"));
+        assert!(glob_match_bytes(b"*", b"*?"));
         assert!(glob_match_bytes(b"he*", b"hello"));
     }
 }

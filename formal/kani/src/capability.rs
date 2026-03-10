@@ -175,6 +175,10 @@ pub fn path_component_next_depth(
 /// This remains the bounded-model witness for the runtime metachar matcher now
 /// routed through `verified_capability_glob::literal_child_matches_parent_glob`.
 pub fn glob_match(pattern: &[u8], value: &[u8]) -> bool {
+    if pattern.len() == 1 && pattern[0] == b'*' {
+        return true;
+    }
+
     let mut pi = 0;
     let mut vi = 0;
     let mut star_pi = usize::MAX;
@@ -547,6 +551,7 @@ mod tests {
     fn test_glob_match_star() {
         assert!(glob_match(b"*", b"anything"));
         assert!(glob_match(b"*", b""));
+        assert!(glob_match(b"*", b"*?"));
         assert!(glob_match(b"fi*", b"file.txt"));
         assert!(!glob_match(b"fi*", b"Foo"));
     }
