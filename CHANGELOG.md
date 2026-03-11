@@ -146,6 +146,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now also lock in trusted-signer metadata projection, signer workload-mismatch
   propagation, and signer/transport scope-conflict invalidation on the non-HTTP
   transport path.
+- **Ephemeral client provenance guard (Mar 2026):**
+  Shared mediation can now require client provenance to represent an ephemeral
+  execution context before a request is admitted. The new global ACIS toggle
+  `require_ephemeral_client_provenance` denies non-ephemeral provenance in the
+  provenance-guard phase, and HTTP detached signer metadata can satisfy that
+  requirement when it projects ephemeral execution or ephemeral key scope.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

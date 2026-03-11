@@ -144,6 +144,11 @@ pub struct AcisConfig {
     #[serde(default)]
     pub require_workload_binding: bool,
 
+    /// Require client provenance to represent an ephemeral execution context.
+    /// Default: `false`.
+    #[serde(default)]
+    pub require_ephemeral_client_provenance: bool,
+
     /// Deny requests marked as replays by the transport security context.
     /// Default: `false`.
     #[serde(default)]
@@ -223,6 +228,7 @@ impl Default for AcisConfig {
             detached_request_signature_max_future_skew_secs:
                 default_detached_request_signature_max_future_skew_secs(),
             require_workload_binding: false,
+            require_ephemeral_client_provenance: false,
             deny_replay: false,
             block_tainted_privileged_sinks: false,
             require_lineage_for_privileged_sinks: false,
@@ -477,6 +483,7 @@ mod tests {
             detached_request_signature_max_age_secs: 900,
             detached_request_signature_max_future_skew_secs: 120,
             require_workload_binding: true,
+            require_ephemeral_client_provenance: true,
             deny_replay: true,
             block_tainted_privileged_sinks: true,
             require_lineage_for_privileged_sinks: true,

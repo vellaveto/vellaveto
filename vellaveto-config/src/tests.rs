@@ -4827,6 +4827,7 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         detached_request_signature_max_age_secs = 900
         detached_request_signature_max_future_skew_secs = 120
         require_workload_binding = true
+        require_ephemeral_client_provenance = true
         deny_replay = true
         block_tainted_privileged_sinks = true
         require_lineage_for_privileged_sinks = true
@@ -4854,6 +4855,7 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         120
     );
     assert!(config.acis.require_workload_binding);
+    assert!(config.acis.require_ephemeral_client_provenance);
     assert!(config.acis.deny_replay);
     assert!(config.acis.block_tainted_privileged_sinks);
     assert!(config.acis.require_lineage_for_privileged_sinks);

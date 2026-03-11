@@ -1980,6 +1980,87 @@ fn test_detached_signer_scope_conflict_hits_mediation_guard() {
 }
 
 #[test]
+fn test_detached_signer_ephemeral_projection_satisfies_mediation_guard() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[22u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::EphemeralExecution,
+            execution_is_ephemeral: true,
+            workload_identity: None,
+        },
+    )]);
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext::default()),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let engine = vellaveto_engine::PolicyEngine::with_policies(
+        true,
+        &[allow_tool_policy(action.tool.as_str())],
+    )
+    .expect("policy engine");
+    let result = vellaveto_mcp::mediation::mediate_with_security_context(
+        "detached-ephemeral",
+        &action,
+        &engine,
+        None,
+        Some(&security_context),
+        "http",
+        &vellaveto_mcp::mediation::MediationConfig {
+            require_verified_signature: true,
+            require_ephemeral_client_provenance: true,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
+        Some(&session_id),
+        None,
+    );
+
+    assert!(matches!(result.verdict, vellaveto_types::Verdict::Allow));
+    assert_eq!(result.origin, vellaveto_types::DecisionOrigin::PolicyEngine);
+}
+
+#[test]
 fn test_tool_discovery_integrity_security_context_marks_enforced_tool_output() {
     let security_context = super::helpers::tool_discovery_integrity_security_context(
         "manifest_verification",

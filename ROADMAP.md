@@ -119,6 +119,11 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   context coverage now also locks in signer metadata projection, workload-
   mismatch propagation, and scope-conflict invalidation on the transport-parity
   path.
+- Shared mediation now also supports an ephemeral-client provenance
+  requirement, so captured signer/transport metadata can drive a fail-closed
+  admission check instead of remaining audit-only. HTTP detached signer
+  projection now has direct policy value when operators require ephemeral
+  execution context at the provenance gate.
 - Verified detached request signatures now also enforce bounded `created_at`
   freshness, so stale or excessively future-skewed signed requests surface as
   `expired` transport provenance instead of remaining valid indefinitely after

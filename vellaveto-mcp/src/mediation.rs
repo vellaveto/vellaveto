@@ -89,6 +89,8 @@ pub struct MediationConfig {
     pub require_verified_signature: bool,
     /// Require workload binding to succeed when provenance is present.
     pub require_workload_binding: bool,
+    /// Require provenance to be bound to an ephemeral execution context.
+    pub require_ephemeral_client_provenance: bool,
     /// Deny requests marked as replays in `client_provenance`.
     pub deny_replay: bool,
     /// Block privileged sinks when the context carries security-relevant taint.
@@ -110,6 +112,7 @@ impl Default for MediationConfig {
             require_agent_identity: false,
             require_verified_signature: false,
             require_workload_binding: false,
+            require_ephemeral_client_provenance: false,
             deny_replay: false,
             block_tainted_privileged_sinks: false,
             require_lineage_for_privileged_sinks: false,
@@ -622,6 +625,15 @@ fn provenance_guard_verdict(
         return Some((
             Verdict::Deny {
                 reason: "workload binding required".to_string(),
+            },
+            DecisionOrigin::ProvenanceGuard,
+        ));
+    }
+
+    if config.require_ephemeral_client_provenance && !provenance.execution_is_ephemeral {
+        return Some((
+            Verdict::Deny {
+                reason: "ephemeral client provenance required".to_string(),
             },
             DecisionOrigin::ProvenanceGuard,
         ));
@@ -1617,6 +1629,72 @@ mod tests {
 
         assert!(matches!(result.verdict, Verdict::Deny { .. }));
         assert_eq!(result.origin, DecisionOrigin::ProvenanceGuard);
+    }
+
+    #[test]
+    fn test_require_ephemeral_client_provenance_denies_non_ephemeral_provenance() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_ephemeral_client_provenance: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Verified,
+                execution_is_ephemeral: false,
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "prov-ephemeral-1",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "http",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Deny { .. }));
+        assert_eq!(result.origin, DecisionOrigin::ProvenanceGuard);
+    }
+
+    #[test]
+    fn test_require_ephemeral_client_provenance_allows_ephemeral_provenance() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_ephemeral_client_provenance: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Verified,
+                execution_is_ephemeral: true,
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "prov-ephemeral-2",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "http",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Allow));
+        assert_eq!(result.origin, DecisionOrigin::PolicyEngine);
     }
 
     #[test]
