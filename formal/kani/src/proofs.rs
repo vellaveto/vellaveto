@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 82 harnesses verifying security properties using CBMC bounded model
+//! 84 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -34,6 +34,7 @@
 //! K71-K72: Collusion temporal window correctness
 //! K73-K75: Cascading failure FSM implementation-level transitions
 //! K76-K77: Injection scanner decode pipeline completeness
+//! K78-K79: Trust-containment gate checks
 
 use crate::path;
 use crate::Verdict;
@@ -2774,4 +2775,82 @@ fn proof_injection_known_patterns_detected() {
         contains_critical_pattern("javascript:"),
         "K77 violated: exact attack pattern not detected"
     );
+}
+
+fn any_trust_tier() -> crate::trust_containment::TrustTier {
+    use crate::trust_containment::TrustTier;
+
+    let tier: u8 = kani::any();
+    kani::assume(tier <= 6);
+    match tier {
+        0 => TrustTier::Unknown,
+        1 => TrustTier::Untrusted,
+        2 => TrustTier::Low,
+        3 => TrustTier::Medium,
+        4 => TrustTier::High,
+        5 => TrustTier::Verified,
+        _ => TrustTier::Quarantined,
+    }
+}
+
+fn any_sink_class() -> crate::trust_containment::SinkClass {
+    use crate::trust_containment::SinkClass;
+
+    let sink: u8 = kani::any();
+    kani::assume(sink <= 8);
+    match sink {
+        0 => SinkClass::ReadOnly,
+        1 => SinkClass::LowRiskWrite,
+        2 => SinkClass::FilesystemWrite,
+        3 => SinkClass::NetworkEgress,
+        4 => SinkClass::CodeExecution,
+        5 => SinkClass::MemoryWrite,
+        6 => SinkClass::ApprovalUi,
+        7 => SinkClass::CredentialAccess,
+        _ => SinkClass::PolicyMutation,
+    }
+}
+
+// =========================================================================
+// K78: Trust containment — insufficient trust requires explicit gate
+// =========================================================================
+
+#[kani::proof]
+fn proof_trust_containment_insufficient_trust_requires_gate() {
+    use crate::trust_containment::{
+        minimum_trust_tier_for_sink, requires_explicit_gate_for_sink,
+    };
+
+    let observed = any_trust_tier();
+    let sink = any_sink_class();
+    let required = minimum_trust_tier_for_sink(sink);
+
+    if !observed.at_least_as_trusted_as(required) {
+        assert!(
+            requires_explicit_gate_for_sink(observed, sink),
+            "K78 violated: lower-trust source reached sink without explicit gate"
+        );
+    }
+}
+
+// =========================================================================
+// K79: Trust containment — sufficient trust does not require gate
+// =========================================================================
+
+#[kani::proof]
+fn proof_trust_containment_sufficient_trust_skips_gate() {
+    use crate::trust_containment::{
+        minimum_trust_tier_for_sink, requires_explicit_gate_for_sink,
+    };
+
+    let observed = any_trust_tier();
+    let sink = any_sink_class();
+    let required = minimum_trust_tier_for_sink(sink);
+
+    if observed.at_least_as_trusted_as(required) {
+        assert!(
+            !requires_explicit_gate_for_sink(observed, sink),
+            "K79 violated: sufficient-trust source was forced through a gate"
+        );
+    }
 }

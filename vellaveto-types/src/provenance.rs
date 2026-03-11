@@ -146,9 +146,9 @@ impl SinkClass {
             Self::LowRiskWrite => 1,
             Self::FilesystemWrite => 2,
             Self::NetworkEgress => 3,
-            Self::CodeExecution => 4,
-            Self::MemoryWrite => 5,
-            Self::ApprovalUi => 6,
+            Self::MemoryWrite => 4,
+            Self::ApprovalUi => 5,
+            Self::CodeExecution => 6,
             Self::CredentialAccess => 7,
             Self::PolicyMutation => 8,
         }
@@ -189,6 +189,20 @@ impl SinkClass {
                 | Self::CredentialAccess
                 | Self::PolicyMutation
         )
+    }
+}
+
+/// Minimum trust floor required before content may reach the given sink
+/// without an explicit containment gate.
+pub const fn minimum_trust_tier_for_sink(sink_class: SinkClass) -> TrustTier {
+    match sink_class {
+        SinkClass::ReadOnly => TrustTier::Unknown,
+        SinkClass::LowRiskWrite => TrustTier::Low,
+        SinkClass::FilesystemWrite | SinkClass::NetworkEgress => TrustTier::Medium,
+        SinkClass::MemoryWrite | SinkClass::ApprovalUi => TrustTier::High,
+        SinkClass::CodeExecution | SinkClass::CredentialAccess | SinkClass::PolicyMutation => {
+            TrustTier::Verified
+        }
     }
 }
 
@@ -265,6 +279,15 @@ impl RuntimeSecurityContext {
             (None, Some(lineage)) => Some(lineage),
             (None, None) => None,
         }
+    }
+
+    /// Returns true when the effective trust floor is below the minimum
+    /// required for the target sink and therefore must be gated explicitly.
+    pub fn requires_explicit_gate_for_sink(&self, sink_class: SinkClass) -> bool {
+        let most_restrictive_trust_tier = self
+            .most_restrictive_trust_tier()
+            .unwrap_or(TrustTier::Unknown);
+        !most_restrictive_trust_tier.can_flow_to(minimum_trust_tier_for_sink(sink_class), false)
     }
 }
 
@@ -553,6 +576,20 @@ mod tests {
     }
 
     #[test]
+    fn test_minimum_trust_tier_for_sink_is_monotonic() {
+        assert!(minimum_trust_tier_for_sink(SinkClass::PolicyMutation)
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(SinkClass::CredentialAccess)));
+        assert!(minimum_trust_tier_for_sink(SinkClass::CredentialAccess)
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(SinkClass::CodeExecution)));
+        assert!(minimum_trust_tier_for_sink(SinkClass::CodeExecution)
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(SinkClass::ApprovalUi)));
+        assert!(minimum_trust_tier_for_sink(SinkClass::ApprovalUi)
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(SinkClass::NetworkEgress)));
+        assert!(minimum_trust_tier_for_sink(SinkClass::NetworkEgress)
+            .at_least_as_trusted_as(minimum_trust_tier_for_sink(SinkClass::LowRiskWrite)));
+    }
+
+    #[test]
     fn test_runtime_security_context_uses_most_restrictive_trust_tier() {
         let ctx = RuntimeSecurityContext {
             effective_trust_tier: Some(TrustTier::High),
@@ -576,5 +613,40 @@ mod tests {
         };
 
         assert_eq!(ctx.most_restrictive_trust_tier(), Some(TrustTier::Low));
+    }
+
+    #[test]
+    fn test_runtime_security_context_requires_explicit_gate_for_low_trust_privileged_sink() {
+        let ctx = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Low),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-low".into(),
+                channel: ContextChannel::ToolOutput,
+                content_hash: None,
+                source: Some("low-tier-server".into()),
+                trust_tier: Some(TrustTier::Low),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        assert!(ctx.requires_explicit_gate_for_sink(SinkClass::CredentialAccess));
+        assert!(!ctx.requires_explicit_gate_for_sink(SinkClass::LowRiskWrite));
+    }
+
+    #[test]
+    fn test_runtime_security_context_allows_verified_privileged_sink_without_gate() {
+        let ctx = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Verified),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-verified".into(),
+                channel: ContextChannel::ToolOutput,
+                content_hash: None,
+                source: Some("verified-server".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        assert!(!ctx.requires_explicit_gate_for_sink(SinkClass::CodeExecution));
     }
 }

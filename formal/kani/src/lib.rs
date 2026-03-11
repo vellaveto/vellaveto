@@ -99,6 +99,8 @@
 //! | K75 | Cascading FSM: recovery requires error_rate < threshold | Cascading FSM |
 //! | K76 | Injection decode pipeline completeness (7 stages ordered) | Injection completeness |
 //! | K77 | Injection: known patterns detected after decode chain | Injection completeness |
+//! | K78 | Trust containment: insufficient trust requires explicit gate | Trust containment |
+//! | K79 | Trust containment: sufficient trust does not require gate | Trust containment |
 //!
 //! # Source Correspondence
 //!
@@ -141,6 +143,7 @@ pub mod sanitizer;
 pub mod temporal_window;
 pub mod cascading_fsm;
 pub mod injection_pipeline;
+pub mod trust_containment;
 
 #[cfg(kani)]
 mod proofs;

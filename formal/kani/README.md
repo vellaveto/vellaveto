@@ -1,7 +1,7 @@
 # Kani Proof Harnesses — Vellaveto
 
 Bounded model checking proofs using [Kani](https://github.com/model-checking/kani)
-for critical security invariants. 82 harnesses verify security properties
+for critical security invariants. 84 harnesses verify security properties
 using CBMC on actual Rust implementation code.
 
 ## What's Verified
@@ -183,6 +183,13 @@ using CBMC on actual Rust implementation code.
 | K76 | `proof_injection_pipeline_completeness` | Injection decode pipeline covers all decode layers |
 | K77 | `proof_injection_known_patterns_detected` | Known injection patterns detected after decode chain |
 
+### K78-K79: Trust Containment
+
+| ID | Harness | Property |
+|----|---------|----------|
+| K78 | `proof_trust_containment_insufficient_trust_requires_gate` | Lower-trust sources require an explicit gate before privileged sinks |
+| K79 | `proof_trust_containment_sufficient_trust_skips_gate` | Sufficient-trust sources do not require an explicit gate |
+
 ## Source Correspondence
 
 | Kani Module | Production File | Verus Bridge | Harnesses |
@@ -205,6 +212,7 @@ using CBMC on actual Rust implementation code.
 | `src/temporal_window.rs` | `vellaveto-engine/src/collusion.rs` | — | K71-K72 |
 | `src/cascading_fsm.rs` | `vellaveto-engine/src/cascading.rs` | — | K73-K75 |
 | `src/injection_pipeline.rs` | `vellaveto-mcp/src/inspection/mod.rs` | — | K76-K77 |
+| `src/trust_containment.rs` | `vellaveto-types/src/provenance.rs` | — | K78-K79 |
 
 ## Running
 
@@ -218,7 +226,7 @@ cd formal/kani
 cargo kani --harness proof_fail_closed_no_match_produces_deny
 cargo kani --harness proof_path_normalize_idempotent
 cargo kani --harness proof_path_normalize_no_traversal
-# ... etc for all 82 harnesses
+# ... etc for all 84 harnesses
 
 # Run a specific harness
 cargo kani --harness proof_compute_verdict_fail_closed_empty

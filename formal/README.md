@@ -17,6 +17,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `CapabilityDelegation.tla` | TLA+ | D1–D5, DL1 | Capability delegation depth/expiry/issuer invariants |
 | `CredentialVault.tla` | TLA+ | CV1–CV8, CVL1 | Credential vault state machine (Available→Active→Consumed) |
 | `AuditChain.tla` | TLA+ | AC1–AC9, ACL1 | Audit hash chain integrity (append-only, tamper-evident) |
+| `TrustContainment.tla` | TLA+ | TC1–TC6, TCL1 | Trust-tier lattice and privileged-sink containment flow rules |
 | `CapabilityDelegation.als` | Alloy | S11–S16 | Capability token delegation with monotonic attenuation |
 | `AbacForbidOverride.als` | Alloy | S7–S10 | ABAC forbid-override combining algorithm |
 | `Determinism.lean` | Lean 4 | — | Policy evaluation determinism (same input → same verdict) |
@@ -64,7 +65,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9-V10 | Engine path normalization kernel idempotence + no-traversal on actual Rust |
-| `kani/src/proofs.rs` | Kani | K1–K82 | Bounded model checking of actual Rust (82 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K79 | Bounded model checking of actual Rust (84 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -82,11 +83,11 @@ Current formal suite across 6 tools:
   `cargo-verus` entrypoint, while `formal/tools/verify-verus.sh` keeps the
   direct per-file `verus` fallback for offline/local runs
 - **Verus:** 41 verified files / 534 verified items on actual Rust code; current local outputs are 19 verified (`verified_audit_append.rs`), 19 verified (`verified_audit_chain.rs`), 23 verified (`verified_merkle.rs`), 17 verified (`verified_merkle_fold.rs`), 15 verified (`verified_merkle_path.rs`), 16 verified (`verified_rotation_manifest.rs`), 13 verified (`verified_capability_attenuation.rs`), 10 verified (`verified_capability_coverage.rs`), 16 verified (`verified_capability_domain.rs`), 9 verified (`verified_capability_path.rs`), 8 verified (`verified_capability_selection.rs`), 12 verified (`verified_capability_context.rs`), 11 verified (`verified_context_delegation.rs`), 11 verified (`verified_capability_delegation_context.rs`), 12 verified (`verified_bridge_principal.rs`), 7 verified (`verified_delegation_projection.rs`), 9 verified (`verified_deputy_handoff.rs`), 9 verified (`verified_evaluation_context_projection.rs`), 9 verified (`verified_approval_scope.rs`), 7 verified (`verified_approval_consumption.rs`), 6 verified (`verified_presented_approval_id.rs`), 6 verified (`verified_server_approval_id.rs`), 10 verified (`verified_transport_context.rs`), 19 verified (`verified_capability_glob.rs`), 11 verified (`verified_capability_glob_subset.rs`), 10 verified (`verified_capability_grant.rs`), 11 verified (`verified_capability_identity.rs`), 15 verified (`verified_capability_verification.rs`), 15 verified (`verified_deputy.rs`), 11 verified (`verified_capability_literal.rs`), 12 verified (`verified_capability_pattern.rs`), 14 verified (`verified_constraint_eval.rs`), 11 verified (`verified_cross_call_dlp.rs`), 14 verified (`verified_core.rs`), 13 verified (`verified_entropy_gate.rs`), 19 verified (`verified_nhi_delegation.rs`), 9 verified (`verified_nhi_graph.rs`), 16 verified (`verified_dlp_core.rs`), 33 verified (`verified_path.rs`), 16 verified (`verified_refinement_safety.rs`), and 11 verified (`verified_acis_envelope.rs`)
-- **TLA+:** 51 safety invariants + 13 liveness/temporal properties (8 specs)
+- **TLA+:** 57 safety invariants + 14 liveness/temporal properties (9 specs)
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 32 theorems (5 files, no `sorry`)
 - **Coq:** 45 theorems (8 files, no `Admitted`)
-- **Kani:** 82 proof harnesses on actual Rust code (bounded) — K1-K82
+- **Kani:** 84 proof harnesses on actual Rust code (bounded) — K1-K79
 
 ## Coverage Matrix
 
@@ -177,6 +178,9 @@ formal/
     AuditChain.tla                   ← Audit hash chain integrity (AC1-AC9)
     MC_AuditChain.tla                ← Model companion (entries, hashes)
     AuditChain.cfg                   ← TLC configuration for audit chain
+    TrustContainment.tla             ← Trust-tier lattice and privileged-sink containment
+    MC_TrustContainment.tla          ← Model companion (edge-case trust/sink requests)
+    TrustContainment.cfg             ← TLC configuration for trust containment
   alloy/
     CapabilityDelegation.als         ← Capability token delegation model (S11-S16)
     AbacForbidOverride.als           ← ABAC forbid-override model (S7-S10)
@@ -251,8 +255,8 @@ formal/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K82 property catalog)
-      proofs.rs                      ← Proof harnesses (82 harnesses)
+      lib.rs                         ← Crate root (K1-K79 property catalog)
+      proofs.rs                      ← Proof harnesses (84 harnesses)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
@@ -418,6 +422,15 @@ java -jar tla2tools.jar -config AuditChain.cfg MC_AuditChain.tla
 ```
 
 Expected output: all 7 invariants and 2 temporal properties pass with zero violations.
+
+### TLA+ Trust Containment (TC1–TC6, TCL1)
+
+```bash
+cd formal/tla
+java -jar tla2tools.jar -config TrustContainment.cfg MC_TrustContainment.tla
+```
+
+Expected output: all 6 invariants and 1 temporal property pass with zero violations.
 
 ### Kani Extracted Code Parity Check
 
@@ -602,7 +615,7 @@ Expected output:
 - `verified_dlp_core.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 33 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K77)
+### Kani Proof Harnesses (K1–K79)
 
 ```bash
 cd formal/kani
@@ -623,9 +636,10 @@ cargo kani --harness proof_idna_failure_non_ascii_fail_closed  # K61
 cargo kani --harness proof_normalize_homoglyphs_idempotent     # K64
 cargo kani --harness proof_all_lock_poison_handlers_safe       # K68
 cargo kani --harness proof_injection_known_patterns_detected   # K77
+cargo kani --harness proof_trust_containment_insufficient_trust_requires_gate  # K78
 ```
 
-Expected output: all 82 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 84 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -735,7 +749,7 @@ Source: `formal/verus/verified_core.rs` (14 verified, 0 errors)
 
 Source: `formal/verus/verified_dlp_core.rs` (16 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K77, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K79, bounded model checking on actual Rust)
 
 | ID | Property | Bridge |
 |----|----------|--------|
@@ -807,6 +821,17 @@ Source: `formal/verus/verified_dlp_core.rs` (16 verified, 0 errors)
 | K66 | **Cache lock poison → miss** | Lock safety |
 | K67 | **Deputy lock poison → error** | Lock safety |
 | K68 | **All lock handlers fail-closed** | Lock safety |
+| K69 | **PII sanitizer round-trip inversion** | Sanitizer |
+| K70 | **PII token uniqueness** | Sanitizer |
+| K71 | **Temporal window expiry** | Temporal window |
+| K72 | **Temporal window cutoff precision** | Temporal window |
+| K73 | **Circuit break guard requires threshold + min_events** | Cascading FSM |
+| K74 | **Half-open probe timing correct** | Cascading FSM |
+| K75 | **Recovery requires error_rate below threshold** | Cascading FSM |
+| K76 | **Injection pipeline completeness** | Injection |
+| K77 | **Known injection patterns detected** | Injection |
+| K78 | **Insufficient trust requires explicit gate** | Trust containment |
+| K79 | **Sufficient trust skips explicit gate** | Trust containment |
 
 ### Harness Assurance Levels
 
@@ -815,15 +840,15 @@ each by input space coverage:
 
 | Level | Harnesses | Description |
 |-------|-----------|-------------|
-| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58, K66, K67, K68 | All fields symbolic within CBMC bounds. Explores full input space. |
+| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58, K66, K67, K68, K70, K71, K72, K73, K74, K75, K78, K79 | All fields symbolic within CBMC bounds. Explores full input space. |
 | **Partial symbolic** | K15, K21 | Some fields symbolic, others fixed. Explores a subspace. |
-| **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51, K59, K60, K61, K62, K63, K64, K65 | Specific scenario test. Confirms property for specific cases. |
+| **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51, K59, K60, K61, K62, K63, K64, K65, K69, K76, K77 | Specific scenario test. Confirms property for specific cases. |
 
 Single-case harnesses (K1, K5, K8) verify the trivial `evaluate_empty_policies()`
 stub, not the full production `evaluate_action()`. The production fail-closed
 property is proven by Verus V1/V2 on `compute_verdict` and by 10,990+ tests.
 
-### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1)
+### Liveness (L1–L3, TL1–TL2, CL1–CL2, DL1, TCL1)
 
 | ID | Property | Spec Location |
 |----|----------|---------------|
@@ -837,6 +862,7 @@ property is proven by Verus V1/V2 on `compute_verdict` and by 10,990+ tests.
 | DL1 | **Delegation terminates:** delegation chains exhaust depth budget | `CapabilityDelegation.tla` |
 | CVL1 | **Vault error recovery:** vault eventually recovers from errors | `CredentialVault.tla` |
 | ACL1 | **Audit error recovery:** audit chain eventually recovers from errors | `AuditChain.tla` |
+| TCL1 | **Containment drain:** every pending trust-containment request is eventually decided | `TrustContainment.tla` |
 
 ## Design Decisions
 
@@ -968,8 +994,8 @@ forward simulation proof.
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **534 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH, ACIS-ENV-1–ACIS-ENV-7 + 4 executable guards)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **82 proof harnesses (K1-K82)** |
-| **TLA+ (model checking)** | **Exhaustive state exploration** | **8 specs, 51 safety + 13 liveness/temporal** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **84 proof harnesses (K1-K79)** |
+| **TLA+ (model checking)** | **Exhaustive state exploration** | **9 specs, 57 safety + 14 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 32 theorems** |
 | **Coq (deductive)** | **Proof assistant** | **8 files, 45 theorems** |

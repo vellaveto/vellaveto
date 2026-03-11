@@ -44,11 +44,11 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Step 4: Formal verification (graceful skip when tools not installed)
 	@echo "── [4/6] Formal verification ───────────────────────────────"
 	@echo '{}' > $(EVIDENCE_DIR)/formal.json
-	@# TLA+ (8 specifications)
+	@# TLA+ (9 specifications)
 	@if command -v java >/dev/null 2>&1 && [ -f formal/tla/tla2tools.jar ]; then \
-		echo "Running TLA+ model checker (8 specs)..."; \
+		echo "Running TLA+ model checker (9 specs)..."; \
 		TLA_OK=true; \
-		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do \
+		for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain TrustContainment; do \
 			cfg="formal/tla/$${spec}.cfg"; \
 			mc="formal/tla/MC_$${spec}.tla"; \
 			main="formal/tla/$${spec}.tla"; \
@@ -102,9 +102,9 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Trusted formal assumption inventory
 	@echo "Checking trusted formal assumptions..."
 	bash formal/tools/check-formal-trusted-assumptions.sh
-	@# Kani (82 harnesses on actual Rust)
+	@# Kani (84 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking (82 harnesses)..."; \
+		echo "Running Kani bounded model checking (84 harnesses)..."; \
 		cd formal/kani && cargo kani 2>&1 | tail -10; \
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
@@ -185,8 +185,8 @@ formal: formal-trusted-assumptions formal-tla formal-alloy formal-lean formal-co
 verify-all: formal ## Run the full local formal verification mesh
 
 .PHONY: formal-tla
-formal-tla: ## Run TLA+ model checking (8 specs, requires Java 11+ and tla2tools.jar)
-	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain; do \
+formal-tla: ## Run TLA+ model checking (9 specs, requires Java 11+ and tla2tools.jar)
+	@for spec in MCPPolicyEngine AbacForbidOverrides MCPTaskLifecycle CascadingFailure WorkflowConstraint CapabilityDelegation CredentialVault AuditChain TrustContainment; do \
 		cfg="formal/tla/$${spec}.cfg"; \
 		mc="formal/tla/MC_$${spec}.tla"; \
 		main="formal/tla/$${spec}.tla"; \
@@ -213,7 +213,7 @@ formal-coq: ## Run Coq type checker (8 files, 45 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani
-formal-kani: ## Run Kani bounded model checking (82 harnesses)
+formal-kani: ## Run Kani bounded model checking (84 harnesses)
 	cd formal/kani && cargo kani
 
 .PHONY: formal-trusted-assumptions

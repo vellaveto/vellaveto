@@ -104,6 +104,7 @@ examples/proxy-audit.log
 formal/tla/states/
 formal/tla/*_TTrace_*.bin
 formal/tla/*_TTrace_*.tla
+formal/tla/tla2tools.jar
 formal/kani/target/
 formal/kani/Cargo.lock
 formal/verus/target/
