@@ -30,7 +30,7 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
 use vellaveto_types::{
-    ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore, SemanticTaint,
+    Action, ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore, SemanticTaint,
     SignatureVerificationStatus, SinkClass, TrustTier,
 };
 
@@ -971,6 +971,110 @@ fn test_abac_deny_security_context_marks_resource_content_for_resource_reads() {
     assert_eq!(
         security_context.semantic_risk_score,
         Some(SemanticRiskScore { value: 25 })
+    );
+}
+
+#[test]
+fn test_sampling_interception_security_context_marks_untrusted_free_text() {
+    let action = Action::new(
+        "vellaveto",
+        "sampling_interception",
+        json!({"method": "sampling/createMessage"}),
+    );
+
+    let security_context = super::helpers::sampling_interception_security_context(&action);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::LowRiskWrite));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::FreeText
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("sampling_interception")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 55 })
+    );
+}
+
+#[test]
+fn test_elicitation_interception_security_context_marks_approval_prompt() {
+    let action = Action::new(
+        "vellaveto",
+        "elicitation_interception",
+        json!({"method": "elicitation/create"}),
+    );
+
+    let security_context = super::helpers::elicitation_interception_security_context(&action);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::LowRiskWrite));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ApprovalPrompt
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("elicitation_interception")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 75 })
+    );
+}
+
+#[test]
+fn test_batch_rejection_security_context_marks_protocol_free_text() {
+    let action = Action::new("vellaveto", "batch_rejected", json!({}));
+
+    let security_context = super::helpers::batch_rejection_security_context(&action);
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::LowRiskWrite));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::FreeText
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("batch_rejected")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 50 })
     );
 }
 

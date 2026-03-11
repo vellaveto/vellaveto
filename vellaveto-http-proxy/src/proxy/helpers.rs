@@ -1048,6 +1048,51 @@ pub(super) fn abac_deny_security_context(action: &Action) -> RuntimeSecurityCont
     )
 }
 
+pub(super) fn sampling_interception_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "sampling_interception",
+            observed_channel: Some(ContextChannel::FreeText),
+            source: "sampling_interception",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: vec![SemanticTaint::Untrusted],
+            extra_risk: 15,
+        },
+    )
+}
+
+pub(super) fn elicitation_interception_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "elicitation_interception",
+            observed_channel: Some(ContextChannel::ApprovalPrompt),
+            source: "elicitation_interception",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: vec![SemanticTaint::Untrusted],
+            extra_risk: 20,
+        },
+    )
+}
+
+pub(super) fn batch_rejection_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "batch_rejected",
+            observed_channel: Some(ContextChannel::FreeText),
+            source: "batch_rejected",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: Vec::new(),
+            extra_risk: 10,
+        },
+    )
+}
+
 pub(super) fn unknown_tool_approval_gate_security_context(
     action: &Action,
 ) -> RuntimeSecurityContext {

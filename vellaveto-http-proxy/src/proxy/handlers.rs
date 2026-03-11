@@ -40,14 +40,15 @@ use super::call_chain::{
 };
 use super::helpers::{
     abac_deny_security_context, approval_containment_context_from_envelope,
-    approval_containment_context_from_security_context, build_runtime_security_context,
-    circuit_breaker_security_context, consume_presented_approval,
-    create_pending_approval_with_context, extract_approval_id_from_meta,
-    invalid_presented_approval_security_context, memory_poisoning_security_context,
-    notification_dlp_security_context, notification_injection_security_context,
-    notification_memory_poisoning_security_context, parameter_dlp_security_context,
-    parameter_injection_security_context, presented_approval_matches_action,
-    privilege_escalation_security_context, resolve_domains, rug_pull_security_context,
+    approval_containment_context_from_security_context, batch_rejection_security_context,
+    build_runtime_security_context, circuit_breaker_security_context, consume_presented_approval,
+    create_pending_approval_with_context, elicitation_interception_security_context,
+    extract_approval_id_from_meta, invalid_presented_approval_security_context,
+    memory_poisoning_security_context, notification_dlp_security_context,
+    notification_injection_security_context, notification_memory_poisoning_security_context,
+    parameter_dlp_security_context, parameter_injection_security_context,
+    presented_approval_matches_action, privilege_escalation_security_context, resolve_domains,
+    rug_pull_security_context, sampling_interception_security_context,
     unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
@@ -2632,12 +2633,14 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let sampling_security_context = sampling_interception_security_context(&action);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &verdict,
                         DecisionOrigin::PolicyEngine,
                         "http",
                         Some(&session_id),
+                        Some(&sampling_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -3075,12 +3078,15 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let elicitation_security_context =
+                        elicitation_interception_security_context(&action);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &verdict,
                         DecisionOrigin::PolicyEngine,
                         "http",
                         Some(&session_id),
+                        Some(&elicitation_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -3834,12 +3840,14 @@ pub async fn handle_mcp_post(
             let batch_verdict = Verdict::Deny {
                 reason: "JSON-RPC batching not supported".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(
+            let batch_security_context = batch_rejection_security_context(&batch_action);
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &batch_action,
                 &batch_verdict,
                 DecisionOrigin::PolicyEngine,
                 "http",
                 Some(&session_id),
+                Some(&batch_security_context),
             );
             if let Err(e) = state
                 .audit

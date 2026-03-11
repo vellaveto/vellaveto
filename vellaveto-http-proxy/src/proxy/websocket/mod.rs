@@ -2603,6 +2603,42 @@ async fn relay_client_to_upstream(
                     }
                     MessageType::Batch => {
                         // Reject batches per MCP spec
+                        let action = Action::new(
+                            "vellaveto",
+                            "batch_rejected",
+                            json!({
+                                "session": session_id,
+                                "transport": "websocket",
+                            }),
+                        );
+                        let batch_verdict = Verdict::Deny {
+                            reason: "JSON-RPC batching not supported".to_string(),
+                        };
+                        let batch_security_context =
+                            super::helpers::batch_rejection_security_context(&action);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &batch_verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "websocket",
+                            Some(&session_id),
+                            Some(&batch_security_context),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &batch_verdict,
+                                json!({
+                                    "source": "ws_proxy",
+                                    "event": "batch_rejected",
+                                }),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit WS batch rejection: {}", e);
+                        }
                         let error = json!({
                             "jsonrpc": "2.0",
                             "error": {
@@ -2703,12 +2739,15 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let sampling_security_context =
+                                    super::helpers::sampling_interception_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&sampling_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3987,12 +4026,17 @@ async fn relay_client_to_upstream(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let elicitation_security_context =
+                                    super::helpers::elicitation_interception_security_context(
+                                        &action,
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&elicitation_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit

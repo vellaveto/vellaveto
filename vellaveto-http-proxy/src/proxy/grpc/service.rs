@@ -59,15 +59,16 @@ use crate::proxy::call_chain::{
 };
 use crate::proxy::helpers::{
     abac_deny_security_context, approval_containment_context_from_security_context,
-    circuit_breaker_security_context, create_pending_approval_with_context,
+    batch_rejection_security_context, circuit_breaker_security_context,
+    create_pending_approval_with_context, elicitation_interception_security_context,
     invalid_presented_approval_security_context, memory_poisoning_security_context,
     notification_dlp_security_context, notification_injection_security_context,
     notification_memory_poisoning_security_context, output_schema_violation_security_context,
     parameter_dlp_security_context, parameter_injection_security_context,
     privilege_escalation_security_context, require_approval_security_context, resolve_domains,
     response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
-    tool_discovery_integrity_security_context, unknown_tool_approval_gate_security_context,
-    untrusted_tool_approval_gate_security_context,
+    sampling_interception_security_context, tool_discovery_integrity_security_context,
+    unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
 use crate::proxy_metrics::record_dlp_finding;
 
@@ -239,6 +240,50 @@ impl McpGrpcService {
                             session_id,
                             reason
                         );
+                        let action = Action::new(
+                            "vellaveto",
+                            "sampling_interception",
+                            json!({
+                                "method": "sampling/createMessage",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "reason": &reason,
+                            }),
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        let sampling_security_context =
+                            sampling_interception_security_context(&action);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "grpc",
+                            Some(session_id),
+                            Some(&sampling_security_context),
+                        );
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "sampling_interception",
+                                }),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit gRPC sampling interception: {}", e);
+                            if let Some(deny) =
+                                self.audit_strict_deny(proto_req, "sampling interception")
+                            {
+                                return deny;
+                            }
+                        }
                         make_proto_denial_response(proto_req, "Sampling request denied")
                     }
                 }
@@ -279,6 +324,50 @@ impl McpGrpcService {
                             session_id,
                             reason
                         );
+                        let action = Action::new(
+                            "vellaveto",
+                            "elicitation_interception",
+                            json!({
+                                "method": "elicitation/create",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "reason": &reason,
+                            }),
+                        );
+                        let verdict = Verdict::Deny {
+                            reason: reason.clone(),
+                        };
+                        let elicitation_security_context =
+                            elicitation_interception_security_context(&action);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "grpc",
+                            Some(session_id),
+                            Some(&elicitation_security_context),
+                        );
+                        if let Err(e) = self
+                            .state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                json!({
+                                    "source": "grpc_proxy",
+                                    "event": "elicitation_interception",
+                                }),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit gRPC elicitation interception: {}", e);
+                            if let Some(deny) =
+                                self.audit_strict_deny(proto_req, "elicitation interception")
+                            {
+                                return deny;
+                            }
+                        }
                         make_proto_denial_response(
                             proto_req,
                             "elicitation/create blocked by policy",
@@ -630,11 +719,52 @@ impl McpGrpcService {
                 )
                 .await
             }
-            MessageType::Batch => make_proto_error_response(
-                proto_req,
-                -32600,
-                "JSON-RPC batch requests are not supported",
-            ),
+            MessageType::Batch => {
+                let action = Action::new(
+                    "vellaveto",
+                    "batch_rejected",
+                    json!({
+                        "session": session_id,
+                        "transport": "grpc",
+                    }),
+                );
+                let batch_verdict = Verdict::Deny {
+                    reason: "JSON-RPC batching not supported".to_string(),
+                };
+                let batch_security_context = batch_rejection_security_context(&action);
+                let envelope = build_secondary_acis_envelope_with_security_context(
+                    &action,
+                    &batch_verdict,
+                    DecisionOrigin::PolicyEngine,
+                    "grpc",
+                    Some(session_id),
+                    Some(&batch_security_context),
+                );
+                if let Err(e) = self
+                    .state
+                    .audit
+                    .log_entry_with_acis(
+                        &action,
+                        &batch_verdict,
+                        json!({
+                            "source": "grpc_proxy",
+                            "event": "batch_rejected",
+                        }),
+                        envelope,
+                    )
+                    .await
+                {
+                    tracing::warn!("Failed to audit gRPC batch rejection: {}", e);
+                    if let Some(deny) = self.audit_strict_deny(proto_req, "batch rejection") {
+                        return deny;
+                    }
+                }
+                make_proto_error_response(
+                    proto_req,
+                    -32600,
+                    "JSON-RPC batch requests are not supported",
+                )
+            }
             MessageType::Invalid { ref reason, .. } => {
                 tracing::warn!("Invalid JSON-RPC request in gRPC transport: {}", reason);
                 make_proto_error_response(proto_req, -32600, "Invalid JSON-RPC request")
