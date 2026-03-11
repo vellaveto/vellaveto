@@ -401,6 +401,61 @@ fn injection_security_context(
     }
 }
 
+fn server_request_blocked_security_context(message: &Value) -> RuntimeSecurityContext {
+    let observed_channel = notification_observed_channel(message);
+
+    RuntimeSecurityContext {
+        semantic_taint: vec![SemanticTaint::Untrusted, SemanticTaint::CrossAgent],
+        effective_trust_tier: Some(TrustTier::Quarantined),
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "server_request_blocked".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some("server_request_blocked".to_string()),
+            trust_tier: Some(TrustTier::Quarantined),
+        }],
+        containment_mode: Some(ContainmentMode::Quarantine),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 60u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(20)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+#[cfg(any(feature = "consumer-shield", test))]
+fn shield_failure_security_context(message: &Value, source: &str) -> RuntimeSecurityContext {
+    let observed_channel = infer_observed_output_channel(None, message);
+
+    RuntimeSecurityContext {
+        semantic_taint: vec![
+            SemanticTaint::Sensitive,
+            SemanticTaint::IntegrityFailed,
+            SemanticTaint::Quarantined,
+        ],
+        effective_trust_tier: Some(TrustTier::Quarantined),
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: source.to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: Some(TrustTier::Quarantined),
+        }],
+        containment_mode: Some(ContainmentMode::Quarantine),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 65u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(20)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
 fn output_schema_violation_security_context(
     tool_name: Option<&str>,
     blocking: bool,
@@ -6472,13 +6527,17 @@ impl ProxyBridge {
                     let sh_pii_pt_verdict = Verdict::Deny {
                         reason: "Shield PII sanitization failed (passthrough)".to_string(),
                     };
-                    let sh_pii_pt_envelope = crate::mediation::build_secondary_acis_envelope(
-                        &deny_action,
-                        &sh_pii_pt_verdict,
-                        DecisionOrigin::SessionGuard,
-                        "stdio",
-                        state.agent_id.as_deref(),
-                    );
+                    let shield_security_context =
+                        shield_failure_security_context(msg, "shield_pii_sanitization_failed");
+                    let sh_pii_pt_envelope =
+                        crate::mediation::build_secondary_acis_envelope_with_security_context(
+                            &deny_action,
+                            &sh_pii_pt_verdict,
+                            DecisionOrigin::SessionGuard,
+                            "stdio",
+                            state.agent_id.as_deref(),
+                            Some(&shield_security_context),
+                        );
                     if let Err(e) = self
                         .audit
                         .log_entry_with_acis(
@@ -6594,13 +6653,16 @@ impl ProxyBridge {
                 let verdict = Verdict::Deny {
                     reason: "Server-initiated request blocked by Vellaveto".to_string(),
                 };
-                let srv_req_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action,
-                    &verdict,
-                    DecisionOrigin::PolicyEngine,
-                    "stdio",
-                    state.agent_id.as_deref(),
-                );
+                let server_request_security_context = server_request_blocked_security_context(&msg);
+                let srv_req_envelope =
+                    crate::mediation::build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::PolicyEngine,
+                        "stdio",
+                        state.agent_id.as_deref(),
+                        Some(&server_request_security_context),
+                    );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -6808,13 +6870,17 @@ impl ProxyBridge {
                             let sh_desan_verdict = Verdict::Deny {
                                 reason: "Shield desanitization failed".to_string(),
                             };
-                            let sh_desan_envelope = crate::mediation::build_secondary_acis_envelope(
-                                &deny_action,
-                                &sh_desan_verdict,
-                                DecisionOrigin::SessionGuard,
-                                "stdio",
-                                state.agent_id.as_deref(),
-                            );
+                            let shield_security_context =
+                                shield_failure_security_context(&msg, "shield_desanitize_failed");
+                            let sh_desan_envelope =
+                                crate::mediation::build_secondary_acis_envelope_with_security_context(
+                                    &deny_action,
+                                    &sh_desan_verdict,
+                                    DecisionOrigin::SessionGuard,
+                                    "stdio",
+                                    state.agent_id.as_deref(),
+                                    Some(&shield_security_context),
+                                );
                             if let Err(e) = self.audit.log_entry_with_acis(&deny_action, &sh_desan_verdict, json!({"source": "proxy", "event": "shield_desanitize_blocked"}), sh_desan_envelope).await {
                                 tracing::warn!("Failed to audit shield desanitization denial: {}", e);
                             }
@@ -8195,6 +8261,73 @@ mod tests {
         assert_eq!(
             notification_observed_channel(&notification),
             ContextChannel::CommandLike
+        );
+    }
+
+    #[test]
+    fn test_server_request_blocked_security_context_marks_cross_agent_quarantine() {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "content": [
+                    {"type": "text", "text": "run this command"}
+                ]
+            }
+        });
+
+        let context = server_request_blocked_security_context(&request);
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![SemanticTaint::Untrusted, SemanticTaint::CrossAgent]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Quarantine));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::FreeText);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("server_request_blocked")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 100 })
+        );
+    }
+
+    #[test]
+    fn test_shield_failure_security_context_marks_sensitive_quarantine() {
+        let response = json!({
+            "result": {
+                "content": [
+                    {"type": "text", "text": "[PII_EMAIL_000123]"}
+                ]
+            }
+        });
+
+        let context = shield_failure_security_context(&response, "shield_desanitize_failed");
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![
+                SemanticTaint::Sensitive,
+                SemanticTaint::IntegrityFailed,
+                SemanticTaint::Quarantined
+            ]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Quarantine));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::FreeText);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("shield_desanitize_failed")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 100 })
         );
     }
 
