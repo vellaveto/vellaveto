@@ -1212,6 +1212,68 @@ fn test_protocol_rate_limit_security_context_marks_enforced_network_egress() {
 }
 
 #[test]
+fn test_protocol_rejection_security_context_marks_quarantined_network_egress() {
+    let security_context =
+        super::helpers::protocol_rejection_security_context("smart_fallback_non_json_blocked");
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("smart_fallback_non_json_blocked")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 50 })
+    );
+}
+
+#[test]
+fn test_transport_failure_security_context_marks_enforced_tool_output() {
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let security_context =
+        super::helpers::transport_failure_security_context(&action, "gateway_no_backend");
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::CodeExecution));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ToolOutput
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("gateway_no_backend")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 80 })
+    );
+}
+
+#[test]
 fn test_protocol_message_forward_security_context_infers_message_channel() {
     let message = json!({
         "jsonrpc": "2.0",

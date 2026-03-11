@@ -24,8 +24,8 @@ use vellaveto_mcp::inspection::{
     scan_response_for_secrets,
 };
 use vellaveto_mcp::mediation::{
-    build_acis_envelope_with_security_context, build_secondary_acis_envelope,
-    build_secondary_acis_envelope_with_security_context, mediate_with_security_context,
+    build_acis_envelope_with_security_context, build_secondary_acis_envelope_with_security_context,
+    mediate_with_security_context,
 };
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
@@ -48,9 +48,11 @@ use super::helpers::{
     notification_dlp_security_context, notification_injection_security_context,
     notification_memory_poisoning_security_context, parameter_dlp_security_context,
     parameter_injection_security_context, presented_approval_matches_action,
-    privilege_escalation_security_context, protocol_forward_security_context, resolve_domains,
-    rug_pull_security_context, sampling_interception_security_context,
-    session_termination_security_context, unknown_tool_approval_gate_security_context,
+    privilege_escalation_security_context, protocol_forward_security_context,
+    protocol_rejection_security_context, resolve_domains, response_dlp_security_context,
+    response_injection_security_context, rug_pull_security_context,
+    sampling_interception_security_context, session_termination_security_context,
+    transport_failure_security_context, unknown_tool_approval_gate_security_context,
     untrusted_tool_approval_gate_security_context,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
@@ -1315,12 +1317,17 @@ pub async fn handle_mcp_post(
                                 let gw_verdict = Verdict::Deny {
                                     reason: "No healthy backend available".into(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let gateway_security_context = transport_failure_security_context(
+                                    &action,
+                                    "gateway_no_backend",
+                                );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &gw_verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&gateway_security_context),
                                 );
                                 let _ = state
                                     .audit
@@ -1446,13 +1453,19 @@ pub async fn handle_mcp_post(
                                         }
                                         // Audit if fallback occurred (>1 attempt).
                                         if result.history.attempts.len() > 1 {
-                                            let fallback_envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &Verdict::Allow,
-                                                DecisionOrigin::PolicyEngine,
-                                                "http",
-                                                Some(&session_id),
-                                            );
+                                            let fallback_security_context =
+                                                protocol_forward_security_context(
+                                                    "cross_transport_fallback",
+                                                );
+                                            let fallback_envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &Verdict::Allow,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "http",
+                                                    Some(&session_id),
+                                                    Some(&fallback_security_context),
+                                                );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1509,13 +1522,20 @@ pub async fn handle_mcp_post(
                                                                 "Smart-fallback response DLP blocked: {patterns:?}"
                                                             ),
                                                         };
+                                                        let response_security_context =
+                                                            response_dlp_security_context(
+                                                                Some(&tool_name),
+                                                                &response_json,
+                                                                true,
+                                                            );
                                                         let envelope =
-                                                            build_secondary_acis_envelope(
+                                                            build_secondary_acis_envelope_with_security_context(
                                                                 &action,
                                                                 &verdict,
                                                                 DecisionOrigin::Dlp,
                                                                 "http",
                                                                 Some(&session_id),
+                                                                Some(&response_security_context),
                                                             );
                                                         let _ = state
                                                             .audit
@@ -1579,7 +1599,21 @@ pub async fn handle_mcp_post(
                                                                         "Smart-fallback response injection blocked: {matches:?}"
                                                                     ),
                                                                 };
-                                                                let envelope = build_secondary_acis_envelope(&action, &verdict, DecisionOrigin::InjectionScanner, "http", Some(&session_id));
+                                                                let response_security_context =
+                                                                    response_injection_security_context(
+                                                                        Some(&tool_name),
+                                                                        &response_json,
+                                                                        true,
+                                                                        "smart_fallback_injection",
+                                                                    );
+                                                                let envelope = build_secondary_acis_envelope_with_security_context(
+                                                                    &action,
+                                                                    &verdict,
+                                                                    DecisionOrigin::InjectionScanner,
+                                                                    "http",
+                                                                    Some(&session_id),
+                                                                    Some(&response_security_context),
+                                                                );
                                                                 let _ = state
                                                                     .audit
                                                                     .log_entry_with_acis(
@@ -1616,13 +1650,19 @@ pub async fn handle_mcp_post(
                                             let verdict = Verdict::Deny {
                                                 reason: "Smart-fallback response is not valid JSON — blocked (fail-closed)".to_string(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "http",
-                                                Some(&session_id),
-                                            );
+                                            let response_security_context =
+                                                protocol_rejection_security_context(
+                                                    "smart_fallback_non_json_blocked",
+                                                );
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "http",
+                                                    Some(&session_id),
+                                                    Some(&response_security_context),
+                                                );
                                             let _ = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1667,13 +1707,20 @@ pub async fn handle_mcp_post(
                                         let fallback_fail_verdict = Verdict::Deny {
                                             reason: format!("all transports failed: {e}"),
                                         };
-                                        let envelope = build_secondary_acis_envelope(
-                                            &action,
-                                            &fallback_fail_verdict,
-                                            DecisionOrigin::PolicyEngine,
-                                            "http",
-                                            Some(&session_id),
-                                        );
+                                        let fallback_fail_security_context =
+                                            transport_failure_security_context(
+                                                &action,
+                                                "cross_transport_fallback_failed",
+                                            );
+                                        let envelope =
+                                            build_secondary_acis_envelope_with_security_context(
+                                                &action,
+                                                &fallback_fail_verdict,
+                                                DecisionOrigin::PolicyEngine,
+                                                "http",
+                                                Some(&session_id),
+                                                Some(&fallback_fail_security_context),
+                                            );
                                         let _ = state
                                             .audit
                                             .log_entry_with_acis(

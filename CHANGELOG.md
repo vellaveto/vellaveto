@@ -59,8 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DLP/injection/schema events, memory-poisoning and rug-pull denials, sampling
   and elicitation interception, invalid call-chain denials, WebSocket binary
   rejection/drop, upstream rate limiting, and forwarded protocol control
-  messages. The remaining context-free secondary envelopes are now confined to
-  the smart-fallback, auth, and inspection helper buckets.
+  messages.
+- **HTTP proxy smart-fallback audit parity (Mar 2026):**
+  Gateway unavailability, cross-transport fallback success/failure, smart-fallback
+  response DLP/injection blocking, and smart-fallback non-JSON rejection now
+  also preserve structured containment-aware secondary ACIS context. The
+  remaining context-free secondary envelopes in `vellaveto-http-proxy` are now
+  confined to the auth and inspection helper buckets.
 
 ### Fixed
 

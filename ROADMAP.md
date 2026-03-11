@@ -70,9 +70,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - Shared containment-aware secondary ACIS coverage is now in place for almost all
   HTTP proxy request, response, discovery, guard, and protocol control events
   across HTTP, WebSocket, and gRPC.
+- Smart-fallback and gateway availability outcomes are now on the same structured
+  containment-aware audit path as the rest of the transport handlers.
 - The remaining plain secondary-envelope work in this bundle is now concentrated
-  in smart-fallback, auth, and inspection helper paths rather than the main
-  transport handlers.
+  in auth and inspection helper paths rather than the main transport handlers.
 
 **Exit criteria**
 - `cargo fmt --check`

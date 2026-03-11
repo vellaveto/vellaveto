@@ -1115,9 +1115,7 @@ pub(super) fn invalid_call_chain_security_context() -> RuntimeSecurityContext {
     })
 }
 
-pub(super) fn protocol_binary_rejection_security_context(
-    source: &'static str,
-) -> RuntimeSecurityContext {
+pub(super) fn protocol_rejection_security_context(source: &'static str) -> RuntimeSecurityContext {
     network_security_context(NetworkSecurityContextSpec {
         lineage_id: source,
         observed_channel: ContextChannel::Data,
@@ -1127,6 +1125,12 @@ pub(super) fn protocol_binary_rejection_security_context(
         semantic_taint: vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined],
         extra_risk: 15,
     })
+}
+
+pub(super) fn protocol_binary_rejection_security_context(
+    source: &'static str,
+) -> RuntimeSecurityContext {
+    protocol_rejection_security_context(source)
 }
 
 pub(super) fn protocol_rate_limit_security_context(source: &'static str) -> RuntimeSecurityContext {
@@ -1152,6 +1156,24 @@ pub(super) fn circuit_breaker_security_context(action: &Action) -> RuntimeSecuri
             containment_mode: vellaveto_types::ContainmentMode::Enforce,
             semantic_taint: Vec::new(),
             extra_risk: 10,
+        },
+    )
+}
+
+pub(super) fn transport_failure_security_context(
+    action: &Action,
+    source: &'static str,
+) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: source,
+            observed_channel: None,
+            source,
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: Vec::new(),
+            extra_risk: 15,
         },
     )
 }
