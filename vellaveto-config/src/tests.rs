@@ -9108,10 +9108,12 @@ credential_epoch_interval = 0
 
 #[test]
 fn test_r250_cfg1_dlp_extra_patterns_bounded() {
-    let mut dlp = crate::DlpConfig::default();
-    dlp.extra_patterns = (0..201)
-        .map(|i| (format!("name_{i}"), format!("pattern_{i}")))
-        .collect();
+    let dlp = crate::DlpConfig {
+        extra_patterns: (0..201)
+            .map(|i| (format!("name_{i}"), format!("pattern_{i}")))
+            .collect(),
+        ..crate::DlpConfig::default()
+    };
     let result = dlp.validate();
     assert!(result.is_err(), "should reject >200 extra_patterns");
     assert!(result.unwrap_err().contains("200"));
@@ -9119,15 +9121,19 @@ fn test_r250_cfg1_dlp_extra_patterns_bounded() {
 
 #[test]
 fn test_r250_cfg1_dlp_extra_pattern_empty_name_rejected() {
-    let mut dlp = crate::DlpConfig::default();
-    dlp.extra_patterns = vec![("".to_string(), "pattern".to_string())];
+    let dlp = crate::DlpConfig {
+        extra_patterns: vec![("".to_string(), "pattern".to_string())],
+        ..crate::DlpConfig::default()
+    };
     assert!(dlp.validate().is_err());
 }
 
 #[test]
 fn test_r250_cfg1_dlp_extra_pattern_dangerous_chars_rejected() {
-    let mut dlp = crate::DlpConfig::default();
-    dlp.extra_patterns = vec![("name\x00bad".to_string(), "pattern".to_string())];
+    let dlp = crate::DlpConfig {
+        extra_patterns: vec![("name\x00bad".to_string(), "pattern".to_string())],
+        ..crate::DlpConfig::default()
+    };
     assert!(dlp.validate().is_err());
 }
 
@@ -9135,24 +9141,30 @@ fn test_r250_cfg1_dlp_extra_pattern_dangerous_chars_rejected() {
 
 #[test]
 fn test_r250_cfg2_injection_extra_patterns_bounded() {
-    let mut inj = crate::InjectionConfig::default();
-    inj.extra_patterns = (0..201).map(|i| format!("pattern_{i}")).collect();
+    let inj = crate::InjectionConfig {
+        extra_patterns: (0..201).map(|i| format!("pattern_{i}")).collect(),
+        ..crate::InjectionConfig::default()
+    };
     let result = inj.validate();
     assert!(result.is_err(), "should reject >200 extra_patterns");
 }
 
 #[test]
 fn test_r250_cfg2_injection_disabled_patterns_bounded() {
-    let mut inj = crate::InjectionConfig::default();
-    inj.disabled_patterns = (0..201).map(|i| format!("pattern_{i}")).collect();
+    let inj = crate::InjectionConfig {
+        disabled_patterns: (0..201).map(|i| format!("pattern_{i}")).collect(),
+        ..crate::InjectionConfig::default()
+    };
     let result = inj.validate();
     assert!(result.is_err(), "should reject >200 disabled_patterns");
 }
 
 #[test]
 fn test_r250_cfg2_injection_empty_pattern_rejected() {
-    let mut inj = crate::InjectionConfig::default();
-    inj.extra_patterns = vec!["".to_string()];
+    let inj = crate::InjectionConfig {
+        extra_patterns: vec!["".to_string()],
+        ..crate::InjectionConfig::default()
+    };
     assert!(inj.validate().is_err());
 }
 
@@ -9169,8 +9181,10 @@ fn test_r250_cfg3_fips_dangerous_chars_rejected() {
 
 #[test]
 fn test_r250_cfg3_topology_fallback_mode_dangerous_chars_rejected() {
-    let mut topo = crate::TopologyConfig::default();
-    topo.fallback_mode = "deny\x01".to_string();
+    let topo = crate::TopologyConfig {
+        fallback_mode: "deny\x01".to_string(),
+        ..crate::TopologyConfig::default()
+    };
     assert!(topo.validate().is_err());
 }
 
@@ -9178,34 +9192,40 @@ fn test_r250_cfg3_topology_fallback_mode_dangerous_chars_rejected() {
 
 #[test]
 fn test_r250_cfg4_audit_custom_pii_patterns_bounded() {
-    let mut audit = crate::AuditConfig::default();
-    audit.custom_pii_patterns = (0..101)
-        .map(|i| crate::CustomPiiPattern {
-            name: format!("name_{i}"),
-            pattern: format!("pattern_{i}"),
-        })
-        .collect();
+    let audit = crate::AuditConfig {
+        custom_pii_patterns: (0..101)
+            .map(|i| crate::CustomPiiPattern {
+                name: format!("name_{i}"),
+                pattern: format!("pattern_{i}"),
+            })
+            .collect(),
+        ..crate::AuditConfig::default()
+    };
     let result = audit.validate();
     assert!(result.is_err(), "should reject >100 custom_pii_patterns");
 }
 
 #[test]
 fn test_r250_cfg4_audit_custom_pii_pattern_empty_name_rejected() {
-    let mut audit = crate::AuditConfig::default();
-    audit.custom_pii_patterns = vec![crate::CustomPiiPattern {
-        name: "".to_string(),
-        pattern: "foo".to_string(),
-    }];
+    let audit = crate::AuditConfig {
+        custom_pii_patterns: vec![crate::CustomPiiPattern {
+            name: "".to_string(),
+            pattern: "foo".to_string(),
+        }],
+        ..crate::AuditConfig::default()
+    };
     assert!(audit.validate().is_err());
 }
 
 #[test]
 fn test_r250_cfg4_audit_custom_pii_pattern_dangerous_chars_rejected() {
-    let mut audit = crate::AuditConfig::default();
-    audit.custom_pii_patterns = vec![crate::CustomPiiPattern {
-        name: "bad\x07name".to_string(),
-        pattern: "foo".to_string(),
-    }];
+    let audit = crate::AuditConfig {
+        custom_pii_patterns: vec![crate::CustomPiiPattern {
+            name: "bad\x07name".to_string(),
+            pattern: "foo".to_string(),
+        }],
+        ..crate::AuditConfig::default()
+    };
     assert!(audit.validate().is_err());
 }
 

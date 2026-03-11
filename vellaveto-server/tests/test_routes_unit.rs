@@ -17,7 +17,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
-use vellaveto_approval::{ApprovalStore, PendingApproval};
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStore, PendingApproval};
 use vellaveto_audit::AuditLogger;
 use vellaveto_cluster::{ClusterBackend, ClusterError};
 use vellaveto_engine::PolicyEngine;
@@ -38,6 +38,20 @@ impl ClusterBackend for UnhealthyClusterBackend {
         _requested_by: Option<String>,
         _session_id: Option<String>,
         _action_fingerprint: Option<String>,
+    ) -> Result<String, ClusterError> {
+        Err(ClusterError::Connection(
+            "mock backend unavailable".to_string(),
+        ))
+    }
+
+    async fn approval_create_with_context(
+        &self,
+        _action: Action,
+        _reason: String,
+        _requested_by: Option<String>,
+        _session_id: Option<String>,
+        _action_fingerprint: Option<String>,
+        _containment_context: Option<ApprovalContainmentContext>,
     ) -> Result<String, ClusterError> {
         Err(ClusterError::Connection(
             "mock backend unavailable".to_string(),
