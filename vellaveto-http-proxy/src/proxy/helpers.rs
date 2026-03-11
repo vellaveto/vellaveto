@@ -1115,6 +1115,35 @@ pub(super) fn invalid_call_chain_security_context() -> RuntimeSecurityContext {
     })
 }
 
+pub(super) fn oauth_dpop_failure_security_context(
+    dpop_reason: &str,
+    has_dpop_header: bool,
+) -> RuntimeSecurityContext {
+    let quarantined = has_dpop_header && dpop_reason != "missing_proof";
+
+    network_security_context(NetworkSecurityContextSpec {
+        lineage_id: "oauth_dpop_validation_failed",
+        observed_channel: ContextChannel::Data,
+        source: "oauth_dpop_validation_failed",
+        effective_trust_tier: if quarantined {
+            TrustTier::Quarantined
+        } else {
+            TrustTier::Unknown
+        },
+        containment_mode: if quarantined {
+            vellaveto_types::ContainmentMode::Quarantine
+        } else {
+            vellaveto_types::ContainmentMode::Enforce
+        },
+        semantic_taint: if quarantined {
+            vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined]
+        } else {
+            Vec::new()
+        },
+        extra_risk: if quarantined { 20 } else { 10 },
+    })
+}
+
 pub(super) fn protocol_rejection_security_context(source: &'static str) -> RuntimeSecurityContext {
     network_security_context(NetworkSecurityContextSpec {
         lineage_id: source,

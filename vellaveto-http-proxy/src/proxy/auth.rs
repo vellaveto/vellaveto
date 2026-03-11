@@ -17,10 +17,11 @@ use axum::{
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use subtle::ConstantTimeEq;
-use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
+use super::helpers::oauth_dpop_failure_security_context;
 use super::{ProxyState, X_AGENT_IDENTITY};
 use crate::oauth::{OAuthClaims, OAuthError};
 use crate::proxy_metrics::{record_dpop_failure, record_dpop_replay_detected};
@@ -145,12 +146,15 @@ async fn audit_dpop_validation_failure(
     let verdict = Verdict::Deny {
         reason: format!("OAuth DPoP validation failed: {}", params.dpop_reason),
     };
-    let envelope = build_secondary_acis_envelope(
+    let auth_security_context =
+        oauth_dpop_failure_security_context(params.dpop_reason, params.has_dpop_header);
+    let envelope = build_secondary_acis_envelope_with_security_context(
         &action,
         &verdict,
         DecisionOrigin::PolicyEngine,
         "http",
         params.session_hint,
+        Some(&auth_security_context),
     );
     state
         .audit

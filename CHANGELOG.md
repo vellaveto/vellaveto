@@ -63,9 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTTP proxy smart-fallback audit parity (Mar 2026):**
   Gateway unavailability, cross-transport fallback success/failure, smart-fallback
   response DLP/injection blocking, and smart-fallback non-JSON rejection now
-  also preserve structured containment-aware secondary ACIS context. The
-  remaining context-free secondary envelopes in `vellaveto-http-proxy` are now
-  confined to the auth and inspection helper buckets.
+  also preserve structured containment-aware secondary ACIS context.
+- **HTTP proxy containment-audit parity complete (Mar 2026):**
+  OAuth DPoP validation failures and the remaining SSE inspection helper events
+  now preserve structured containment-aware secondary ACIS context as well. As
+  a result, `vellaveto-http-proxy` no longer has any plain
+  `build_secondary_acis_envelope(...)` audit paths left in the crate.
 
 ### Fixed
 

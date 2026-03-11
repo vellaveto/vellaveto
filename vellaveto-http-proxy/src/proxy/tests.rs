@@ -853,6 +853,59 @@ fn test_output_schema_violation_security_context_marks_integrity_failure() {
 }
 
 #[test]
+fn test_oauth_dpop_failure_security_context_missing_proof_stays_enforced() {
+    let security_context =
+        super::helpers::oauth_dpop_failure_security_context("missing_proof", false);
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 45 })
+    );
+}
+
+#[test]
+fn test_oauth_dpop_failure_security_context_invalid_proof_quarantines() {
+    let security_context =
+        super::helpers::oauth_dpop_failure_security_context("invalid_proof", true);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 55 })
+    );
+}
+
+#[test]
 fn test_unknown_tool_approval_gate_security_context_marks_require_approval() {
     let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
 

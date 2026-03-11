@@ -16,13 +16,16 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_response_for_secrets,
     scan_text_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
-use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationTrace, Verdict};
 
 use super::call_chain::take_tracked_tool_call;
-use super::helpers::{extract_annotations_from_response, verify_manifest_from_response};
+use super::helpers::{
+    extract_annotations_from_response, output_schema_violation_security_context,
+    text_dlp_security_context, text_injection_security_context, verify_manifest_from_response,
+};
 use super::{ProxyState, MCP_PROTOCOL_VERSION_HEADER, MCP_PROTOCOL_VERSION_VALUE, MCP_SESSION_ID};
 use crate::proxy_metrics::record_dlp_finding;
 
@@ -399,12 +402,18 @@ pub(super) async fn scan_sse_events_for_injection(
                 "blocking": state.injection_blocking,
             }),
         );
-        let envelope = build_secondary_acis_envelope(
+        let sse_security_context = text_injection_security_context(
+            &normalized,
+            state.injection_blocking,
+            "sse_injection_detected",
+        );
+        let envelope = build_secondary_acis_envelope_with_security_context(
             &action,
             &verdict,
             DecisionOrigin::InjectionScanner,
             "sse",
             Some(session_id),
+            Some(&sse_security_context),
         );
         if let Err(e) = state
             .audit
@@ -596,12 +605,18 @@ pub(super) async fn scan_sse_events_for_dlp(
                     "finding_count": dlp_findings.len(),
                 }),
             );
-            let envelope = build_secondary_acis_envelope(
+            let sse_security_context = text_dlp_security_context(
+                &data_payload,
+                state.response_dlp_blocking,
+                "sse_response_dlp",
+            );
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &verdict,
                 DecisionOrigin::Dlp,
                 "sse",
                 Some(session_id),
+                Some(&sse_security_context),
             );
             if let Err(e) = state
                 .audit
@@ -847,12 +862,15 @@ pub(super) async fn scan_sse_events_for_output_schema(
                 let deny_verdict = Verdict::Deny {
                     reason: format!("SSE structuredContent validation failed: {violations:?}"),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let schema_security_context =
+                    output_schema_violation_security_context(Some(tool_name), true);
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &deny_verdict,
                     DecisionOrigin::PolicyEngine,
                     "sse",
                     Some(session_id),
+                    Some(&schema_security_context),
                 );
                 if let Err(e) = state
                     .audit

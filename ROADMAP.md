@@ -72,8 +72,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   across HTTP, WebSocket, and gRPC.
 - Smart-fallback and gateway availability outcomes are now on the same structured
   containment-aware audit path as the rest of the transport handlers.
-- The remaining plain secondary-envelope work in this bundle is now concentrated
-  in auth and inspection helper paths rather than the main transport handlers.
+- OAuth DPoP failures and SSE inspection helper events are now on the same path
+  as well, so `vellaveto-http-proxy` no longer has any plain
+  `build_secondary_acis_envelope(...)` sites remaining.
 
 **Exit criteria**
 - `cargo fmt --check`
