@@ -104,6 +104,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropping them, explicit `x-workload-claims` metadata can enrich or override
   workload fields, and verified bearer-token custom claims can now synthesize
   session `agent_identity` context when no separate identity token is present.
+- **gRPC transport provenance parity (Mar 2026):**
+  gRPC now also accepts detached `x-request-signature` metadata, preserves it
+  in runtime provenance, and refreshes final tool/resource/task/extension ACIS
+  envelopes with transport-derived `RuntimeSecurityContext` instead of relying
+  on session identity alone. Approval-gate verdicts now merge that transport
+  provenance into the stored containment context as well.
 
 ### Fixed
 

@@ -94,6 +94,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - gRPC session identity now uses the same validated claim-merging path as
   HTTP/WS, so explicit workload claims and verified bearer-token custom claims
   no longer disappear on the gRPC transport before policy evaluation.
+- gRPC now ingests detached `x-request-signature` metadata too, and the final
+  tool/resource/task/extension verdict envelopes refresh against a transport-
+  derived runtime security context instead of auditing only the session-level
+  identity snapshot.
 - Session-miss fallbacks in HTTP request mediation now preserve the current
   transport-authenticated identity instead of collapsing to an empty evaluation
   context.

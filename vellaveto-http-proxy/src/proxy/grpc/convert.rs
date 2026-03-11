@@ -535,9 +535,11 @@ mod tests {
 
     #[test]
     fn test_json_to_prost_value_float() {
-        let r = json_to_prost_value(&json!(3.14), 0).unwrap();
+        let r = json_to_prost_value(&json!(std::f64::consts::PI), 0).unwrap();
         match &r.kind {
-            Some(Kind::NumberValue(n)) => assert!((n - 3.14).abs() < f64::EPSILON),
+            Some(Kind::NumberValue(n)) => {
+                assert!((n - std::f64::consts::PI).abs() < f64::EPSILON)
+            }
             other => panic!("Expected NumberValue, got {other:?}"),
         }
     }

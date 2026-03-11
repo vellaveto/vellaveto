@@ -256,12 +256,10 @@ struct DetachedRequestSignatureEvidence {
     signature_status: SignatureVerificationStatus,
 }
 
-fn decode_detached_request_signature(headers: &HeaderMap) -> DetachedRequestSignatureEvidence {
-    let header_value = match headers
-        .get(X_REQUEST_SIGNATURE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-    {
+fn decode_detached_request_signature_value(
+    header_value: Option<&str>,
+) -> DetachedRequestSignatureEvidence {
+    let header_value = match header_value.map(str::trim) {
         Some(value) if !value.is_empty() => value,
         Some(_) => {
             return DetachedRequestSignatureEvidence {
@@ -308,6 +306,13 @@ fn decode_detached_request_signature(headers: &HeaderMap) -> DetachedRequestSign
         request_signature: Some(signature),
         signature_status: SignatureVerificationStatus::Missing,
     }
+}
+
+fn decode_detached_request_signature(headers: &HeaderMap) -> DetachedRequestSignatureEvidence {
+    let header_value = headers
+        .get(X_REQUEST_SIGNATURE)
+        .and_then(|value| value.to_str().ok());
+    decode_detached_request_signature_value(header_value)
 }
 
 fn merge_signature_status(
@@ -463,12 +468,12 @@ fn build_workload_binding_status(
     }
 }
 
-fn build_client_provenance(
-    headers: &HeaderMap,
+fn build_client_provenance_from_transport(
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    dpop_request_signature: Option<RequestSignature>,
+    detached_signature: DetachedRequestSignatureEvidence,
 ) -> Option<ClientProvenance> {
-    let detached_signature = decode_detached_request_signature(headers);
     let transport_signature_status = oauth_evidence.map_or_else(
         || SignatureVerificationStatus::Missing,
         OAuthValidationEvidence::signature_status,
@@ -496,7 +501,7 @@ fn build_client_provenance(
         });
     let request_signature = if oauth_evidence.is_some_and(|evidence| evidence.dpop_proof_verified) {
         merge_request_signature(
-            decode_dpop_request_signature(headers, oauth_claims).or_else(|| {
+            dpop_request_signature.or_else(|| {
                 Some(RequestSignature {
                     key_id: client_key_id.clone(),
                     algorithm: Some("dpop+jwt".to_string()),
@@ -529,6 +534,21 @@ fn build_client_provenance(
         canonical_request_hash: None,
         execution_is_ephemeral: execution_is_ephemeral(eval_ctx, oauth_evidence, session_key_scope),
     })
+}
+
+fn build_client_provenance(
+    headers: &HeaderMap,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<ClientProvenance> {
+    let detached_signature = decode_detached_request_signature(headers);
+    let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
+    build_client_provenance_from_transport(
+        oauth_evidence,
+        eval_ctx,
+        decode_dpop_request_signature(headers, oauth_claims),
+        detached_signature,
+    )
 }
 
 fn merge_request_signature(
@@ -668,19 +688,17 @@ fn infer_trust_tier(
     None
 }
 
-pub(super) fn build_runtime_security_context(
+fn build_runtime_security_context_from_transport(
     msg: &Value,
     action: &Action,
-    headers: &HeaderMap,
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    transport_provenance: Option<ClientProvenance>,
 ) -> Option<RuntimeSecurityContext> {
     let mut security_context = extract_runtime_security_context(msg).unwrap_or_default();
 
-    security_context.client_provenance = merge_client_provenance(
-        security_context.client_provenance,
-        build_client_provenance(headers, oauth_evidence, eval_ctx),
-    );
+    security_context.client_provenance =
+        merge_client_provenance(security_context.client_provenance, transport_provenance);
     if security_context.sink_class.is_none() {
         security_context.sink_class = Some(infer_sink_class(action));
     }
@@ -697,6 +715,44 @@ pub(super) fn build_runtime_security_context(
     } else {
         Some(security_context)
     }
+}
+
+pub(super) fn build_runtime_security_context(
+    msg: &Value,
+    action: &Action,
+    headers: &HeaderMap,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<RuntimeSecurityContext> {
+    build_runtime_security_context_from_transport(
+        msg,
+        action,
+        oauth_evidence,
+        eval_ctx,
+        build_client_provenance(headers, oauth_evidence, eval_ctx),
+    )
+}
+
+#[cfg(feature = "grpc")]
+pub(super) fn build_runtime_security_context_with_request_signature(
+    msg: &Value,
+    action: &Action,
+    request_signature_header: Option<&str>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<RuntimeSecurityContext> {
+    build_runtime_security_context_from_transport(
+        msg,
+        action,
+        oauth_evidence,
+        eval_ctx,
+        build_client_provenance_from_transport(
+            oauth_evidence,
+            eval_ctx,
+            None,
+            decode_detached_request_signature_value(request_signature_header),
+        ),
+    )
 }
 
 pub(super) fn tool_discovery_integrity_security_context(

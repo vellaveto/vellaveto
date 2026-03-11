@@ -36,6 +36,7 @@ pub const METADATA_AUTHORIZATION: &str = "authorization";
 pub const METADATA_MCP_SESSION_ID: &str = "mcp-session-id";
 pub const METADATA_AGENT_IDENTITY: &str = "x-agent-identity";
 pub const METADATA_WORKLOAD_CLAIMS: &str = "x-workload-claims";
+pub const METADATA_REQUEST_SIGNATURE: &str = "x-request-signature";
 pub const METADATA_UPSTREAM_AGENTS: &str = "x-upstream-agents";
 pub const METADATA_REQUEST_ID: &str = "x-request-id";
 
@@ -332,6 +333,20 @@ pub fn extract_workload_claims(
         .map_err(|_| Status::invalid_argument("Invalid workload claims metadata"))
 }
 
+/// Extract detached request-signature metadata from gRPC metadata.
+///
+/// Returns the raw base64url payload when present and syntactically safe. The
+/// downstream runtime-security-context builder performs semantic validation and
+/// records invalid signatures fail-closed in provenance state.
+pub fn extract_request_signature(metadata: &tonic::metadata::MetadataMap) -> Option<String> {
+    metadata
+        .get(METADATA_REQUEST_SIGNATURE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && s.len() <= 8192 && !contains_dangerous_chars(s))
+        .map(|s| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +542,39 @@ mod tests {
         assert_eq!(err.code(), tonic::Code::InvalidArgument);
     }
 
+    #[test]
+    fn test_extract_request_signature_valid() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(
+            METADATA_REQUEST_SIGNATURE,
+            "eyJhbGciOiJFUzI1NiJ9".parse().unwrap(),
+        );
+
+        assert_eq!(
+            extract_request_signature(&m),
+            Some("eyJhbGciOiJFUzI1NiJ9".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_request_signature_empty_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_REQUEST_SIGNATURE, "".parse().unwrap());
+
+        assert_eq!(extract_request_signature(&m), None);
+    }
+
+    #[test]
+    fn test_extract_request_signature_overlong_rejected() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(
+            METADATA_REQUEST_SIGNATURE,
+            "s".repeat(8193).parse().unwrap(),
+        );
+
+        assert_eq!(extract_request_signature(&m), None);
+    }
+
     // RateLimitInterceptor
 
     #[test]
@@ -625,6 +673,7 @@ mod tests {
         assert_eq!(METADATA_MCP_SESSION_ID, "mcp-session-id");
         assert_eq!(METADATA_AGENT_IDENTITY, "x-agent-identity");
         assert_eq!(METADATA_WORKLOAD_CLAIMS, "x-workload-claims");
+        assert_eq!(METADATA_REQUEST_SIGNATURE, "x-request-signature");
         assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
         assert_eq!(METADATA_REQUEST_ID, "x-request-id");
         assert_eq!(METADATA_TRACEPARENT, "traceparent");

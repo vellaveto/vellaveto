@@ -952,8 +952,127 @@ fn test_metadata_constants() {
     assert_eq!(METADATA_MCP_SESSION_ID, "mcp-session-id");
     assert_eq!(METADATA_AGENT_IDENTITY, "x-agent-identity");
     assert_eq!(METADATA_WORKLOAD_CLAIMS, "x-workload-claims");
+    assert_eq!(METADATA_REQUEST_SIGNATURE, "x-request-signature");
     assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
     assert_eq!(METADATA_REQUEST_ID, "x-request-id");
+}
+
+#[test]
+fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_workload() {
+    use base64::Engine;
+
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let detached_signature = vellaveto_types::RequestSignature {
+        key_id: Some("detached-key".to_string()),
+        algorithm: Some("ed25519".to_string()),
+        nonce: Some("nonce-123".to_string()),
+        created_at: Some("2026-03-11T12:00:00Z".to_string()),
+        signature: Some("deadbeef".to_string()),
+    };
+    let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&detached_signature).expect("serialize detached signature"));
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            subject: Some("spiffe://cluster/ns/prod/sa/grpc".to_string()),
+            claims: std::collections::HashMap::from([
+                ("namespace".to_string(), json!("prod")),
+                ("service_account".to_string(), json!("grpc-sa")),
+                ("execution_is_ephemeral".to_string(), json!(true)),
+            ]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        Some(&eval_ctx),
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        security_context.sink_class,
+        Some(vellaveto_types::SinkClass::CodeExecution)
+    );
+    assert_eq!(
+        provenance.signature_status,
+        vellaveto_types::SignatureVerificationStatus::Missing
+    );
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.key_id.as_deref()),
+        Some("detached-key")
+    );
+    assert_eq!(
+        provenance.workload_binding_status,
+        vellaveto_types::WorkloadBindingStatus::Bound
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|identity| identity.namespace.as_deref()),
+        Some("prod")
+    );
+}
+
+#[test]
+fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/example"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "read_file",
+        &json!({
+            "path": "/tmp/example"
+        }),
+    );
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some("not-base64"),
+        Some(&vellaveto_types::EvaluationContext::default()),
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert!(provenance.request_signature.is_none());
+    assert_eq!(
+        provenance.signature_status,
+        vellaveto_types::SignatureVerificationStatus::Invalid
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -27,26 +27,25 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
-use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::mediation::{
-    build_acis_envelope, build_acis_envelope_with_security_context, build_secondary_acis_envelope,
-    build_secondary_acis_envelope_with_security_context,
+    build_acis_envelope_with_security_context, build_secondary_acis_envelope_with_security_context,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{Action, EvaluationContext, Verdict};
+use vellaveto_types::{Action, EvaluationContext, RuntimeSecurityContext, Verdict};
 
 use super::convert::{
     json_to_proto_response, make_proto_denial_response, make_proto_error_response,
     make_proto_error_response_with_data, proto_request_to_json,
 };
 use super::interceptors::{
-    contains_dangerous_chars, extract_or_generate_request_id, extract_session_id,
+    contains_dangerous_chars, extract_or_generate_request_id, extract_request_signature,
+    extract_session_id,
 };
 use super::proto::{
     mcp_service_server::McpService, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse,
@@ -59,15 +58,15 @@ use crate::proxy::call_chain::{
 };
 use crate::proxy::helpers::{
     abac_deny_security_context, approval_containment_context_from_security_context,
-    batch_rejection_security_context, circuit_breaker_security_context,
-    create_pending_approval_with_context, elicitation_interception_security_context,
-    invalid_presented_approval_security_context, memory_poisoning_security_context,
-    notification_dlp_security_context, notification_injection_security_context,
-    notification_memory_poisoning_security_context, output_schema_violation_security_context,
-    parameter_dlp_security_context, parameter_injection_security_context,
-    privilege_escalation_security_context, protocol_forward_security_context,
-    require_approval_security_context, resolve_domains, response_dlp_security_context,
-    response_injection_security_context, rug_pull_security_context,
+    batch_rejection_security_context, build_runtime_security_context_with_request_signature,
+    circuit_breaker_security_context, create_pending_approval_with_context,
+    elicitation_interception_security_context, invalid_presented_approval_security_context,
+    memory_poisoning_security_context, notification_dlp_security_context,
+    notification_injection_security_context, notification_memory_poisoning_security_context,
+    output_schema_violation_security_context, parameter_dlp_security_context,
+    parameter_injection_security_context, privilege_escalation_security_context,
+    protocol_forward_security_context, require_approval_security_context, resolve_domains,
+    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
     sampling_interception_security_context, tool_discovery_integrity_security_context,
     unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
@@ -101,6 +100,83 @@ fn record_grpc_message(direction: &str) {
         "direction" => direction.to_string()
     )
     .increment(1);
+}
+
+pub(super) fn build_grpc_runtime_security_context(
+    msg: &Value,
+    action: &Action,
+    request_signature_header: Option<&str>,
+    eval_ctx: Option<&EvaluationContext>,
+) -> Option<RuntimeSecurityContext> {
+    build_runtime_security_context_with_request_signature(
+        msg,
+        action,
+        request_signature_header,
+        None,
+        eval_ctx,
+    )
+}
+
+fn merge_grpc_security_context(
+    runtime_security_context: Option<&RuntimeSecurityContext>,
+    verdict_security_context: Option<&RuntimeSecurityContext>,
+) -> Option<RuntimeSecurityContext> {
+    let merged = match (
+        runtime_security_context.cloned(),
+        verdict_security_context.cloned(),
+    ) {
+        (None, None) => return None,
+        (Some(context), None) | (None, Some(context)) => context,
+        (Some(mut runtime), Some(verdict)) => {
+            if runtime.client_provenance.is_none() {
+                runtime.client_provenance = verdict.client_provenance;
+            }
+            for taint in verdict.semantic_taint {
+                if !runtime.semantic_taint.contains(&taint) {
+                    runtime.semantic_taint.push(taint);
+                }
+            }
+            runtime.effective_trust_tier =
+                match (runtime.effective_trust_tier, verdict.effective_trust_tier) {
+                    (Some(runtime_tier), Some(verdict_tier)) => {
+                        Some(runtime_tier.meet(verdict_tier))
+                    }
+                    (Some(runtime_tier), None) => Some(runtime_tier),
+                    (None, Some(verdict_tier)) => Some(verdict_tier),
+                    (None, None) => None,
+                };
+            if runtime.sink_class.is_none() {
+                runtime.sink_class = verdict.sink_class;
+            }
+            for lineage in verdict.lineage_refs {
+                if !runtime.lineage_refs.contains(&lineage) {
+                    runtime.lineage_refs.push(lineage);
+                }
+            }
+            if !matches!(
+                verdict.containment_mode,
+                None | Some(vellaveto_types::ContainmentMode::Disabled)
+            ) {
+                runtime.containment_mode = verdict.containment_mode;
+            }
+            if let Some(score) = verdict.semantic_risk_score {
+                runtime.merge_semantic_risk_score(score);
+            }
+            runtime
+        }
+    };
+
+    if merged == RuntimeSecurityContext::default() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GrpcRequestContext<'a> {
+    session_id: &'a str,
+    request_signature_header: Option<&'a str>,
 }
 
 async fn sync_transport_agent_identity(
@@ -259,7 +335,12 @@ impl McpGrpcService {
         &self,
         proto_req: &JsonRpcRequest,
         session_id: &str,
+        request_signature_header: Option<&str>,
     ) -> JsonRpcResponse {
+        let request_context = GrpcRequestContext {
+            session_id,
+            request_signature_header,
+        };
         // 1. Convert proto → JSON
         let json_req = match proto_request_to_json(proto_req) {
             Ok(v) => v,
@@ -293,11 +374,18 @@ impl McpGrpcService {
                 ref tool_name,
                 ref arguments,
             } => {
-                self.handle_tool_call(proto_req, &json_req, session_id, id, tool_name, arguments)
-                    .await
+                self.handle_tool_call(
+                    proto_req,
+                    &json_req,
+                    request_context,
+                    id,
+                    tool_name,
+                    arguments,
+                )
+                .await
             }
             MessageType::ResourceRead { ref id, ref uri } => {
-                self.handle_resource_read(proto_req, &json_req, session_id, id, uri)
+                self.handle_resource_read(proto_req, &json_req, request_context, id, uri)
                     .await
             }
             MessageType::SamplingRequest { id: _ } => {
@@ -792,7 +880,7 @@ impl McpGrpcService {
                 self.handle_task_request(
                     proto_req,
                     &json_req,
-                    session_id,
+                    request_context,
                     id,
                     task_method,
                     task_id.as_deref(),
@@ -807,7 +895,7 @@ impl McpGrpcService {
                 self.handle_extension_method(
                     proto_req,
                     &json_req,
-                    session_id,
+                    request_context,
                     id,
                     extension_id,
                     method,
@@ -1192,11 +1280,13 @@ impl McpGrpcService {
         &self,
         proto_req: &JsonRpcRequest,
         json_req: &Value,
-        session_id: &str,
+        request_context: GrpcRequestContext<'_>,
         _id: &Value,
         tool_name: &str,
         arguments: &Value,
     ) -> JsonRpcResponse {
+        let session_id = request_context.session_id;
+        let request_signature_header = request_context.request_signature_header;
         // SECURITY (FIND-R54-005): Strict MCP tool name validation.
         // Parity with HTTP handler (handlers.rs:354).
         if self.state.streamable_http.strict_tool_name_validation {
@@ -1400,7 +1490,7 @@ impl McpGrpcService {
         // This prefers agent_identity.subject, then falls back to oauth_subject.
         // Without it, pending approvals lose requester attribution and bypass the
         // self-approval check.
-        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+        let _requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
                 .and_then(|id| id.subject.clone())
@@ -1732,7 +1822,6 @@ impl McpGrpcService {
                 };
                 (verdict, EvaluationContext::default(), None, vec![])
             };
-
         let verdict = match verdict {
             Verdict::RequireApproval { reason } => {
                 if matched_approval_id.is_some() {
@@ -1759,6 +1848,13 @@ impl McpGrpcService {
             }
             other => other,
         };
+
+        let security_context = build_grpc_runtime_security_context(
+            json_req,
+            &action,
+            request_signature_header,
+            Some(&ctx),
+        );
 
         match &verdict {
             Verdict::Allow => {
@@ -1918,7 +2014,7 @@ impl McpGrpcService {
                 }
 
                 // Audit the allow
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &Verdict::Allow,
@@ -1929,6 +2025,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -1955,7 +2052,7 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -1966,6 +2063,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -1997,6 +2095,10 @@ impl McpGrpcService {
                 let approval_verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
+                let combined_security_context = merge_grpc_security_context(
+                    security_context.as_ref(),
+                    Some(&approval_security_context),
+                );
                 let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
@@ -2008,7 +2110,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
-                    Some(&approval_security_context),
+                    combined_security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -2032,14 +2134,16 @@ impl McpGrpcService {
                     }
                 }
                 let containment_context = approval_containment_context_from_security_context(
-                    &approval_security_context,
-                    &reason,
+                    combined_security_context
+                        .as_ref()
+                        .unwrap_or(&approval_security_context),
+                    reason,
                 );
                 let approval_id = create_pending_approval_with_context(
                     &self.state,
                     session_id,
                     &action,
-                    &reason,
+                    reason,
                     containment_context,
                 )
                 .await;
@@ -2056,16 +2160,18 @@ impl McpGrpcService {
         &self,
         proto_req: &JsonRpcRequest,
         json_req: &Value,
-        session_id: &str,
+        request_context: GrpcRequestContext<'_>,
         _id: &Value,
         uri: &str,
     ) -> JsonRpcResponse {
+        let session_id = request_context.session_id;
+        let request_signature_header = request_context.request_signature_header;
         let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Without this, gRPC approval requests lose requester attribution and
         // bypass the self-approval check.
-        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+        let _requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
                 .and_then(|id| id.subject.clone())
@@ -2385,6 +2491,13 @@ impl McpGrpcService {
             other => other,
         };
 
+        let security_context = build_grpc_runtime_security_context(
+            json_req,
+            &action,
+            request_signature_header,
+            Some(&ctx),
+        );
+
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R114-004): ABAC refinement — parity with handle_tool_call.
@@ -2471,7 +2584,7 @@ impl McpGrpcService {
                 }
 
                 // SECURITY (FIND-R114-007): Audit Allow verdict for resource reads.
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &Verdict::Allow,
@@ -2482,6 +2595,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -2506,7 +2620,7 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -2517,6 +2631,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -2544,6 +2659,10 @@ impl McpGrpcService {
             }
             Verdict::RequireApproval { reason, .. } => {
                 let approval_security_context = require_approval_security_context(&action);
+                let combined_security_context = merge_grpc_security_context(
+                    security_context.as_ref(),
+                    Some(&approval_security_context),
+                );
                 let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
@@ -2555,7 +2674,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
-                    Some(&approval_security_context),
+                    combined_security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -2582,14 +2701,16 @@ impl McpGrpcService {
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
                 let containment_context = approval_containment_context_from_security_context(
-                    &approval_security_context,
-                    &reason,
+                    combined_security_context
+                        .as_ref()
+                        .unwrap_or(&approval_security_context),
+                    reason,
                 );
                 let approval_id = create_pending_approval_with_context(
                     &self.state,
                     session_id,
                     &action,
-                    &reason,
+                    reason,
                     containment_context,
                 )
                 .await;
@@ -3045,17 +3166,19 @@ impl McpGrpcService {
         &self,
         proto_req: &JsonRpcRequest,
         json_req: &Value,
-        session_id: &str,
+        request_context: GrpcRequestContext<'_>,
         _id: &Value,
         task_method: &str,
         task_id: Option<&str>,
     ) -> JsonRpcResponse {
+        let session_id = request_context.session_id;
+        let request_signature_header = request_context.request_signature_header;
         let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // Without this, gRPC approval requests lose requester attribution and
         // bypass the self-approval check.
-        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+        let _requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
                 .and_then(|id| id.subject.clone())
@@ -3355,6 +3478,13 @@ impl McpGrpcService {
             other => other,
         };
 
+        let security_context = build_grpc_runtime_security_context(
+            json_req,
+            &action,
+            request_signature_header,
+            Some(&ctx),
+        );
+
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R190-001): ABAC refinement for TaskRequest,
@@ -3444,7 +3574,7 @@ impl McpGrpcService {
                 {
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &Verdict::Allow,
@@ -3455,6 +3585,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -3480,7 +3611,7 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -3491,6 +3622,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -3523,6 +3655,10 @@ impl McpGrpcService {
                 let approval_verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
+                let combined_security_context = merge_grpc_security_context(
+                    security_context.as_ref(),
+                    Some(&approval_security_context),
+                );
                 let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
@@ -3534,7 +3670,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
-                    Some(&approval_security_context),
+                    combined_security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -3559,14 +3695,16 @@ impl McpGrpcService {
                     }
                 }
                 let containment_context = approval_containment_context_from_security_context(
-                    &approval_security_context,
-                    &reason,
+                    combined_security_context
+                        .as_ref()
+                        .unwrap_or(&approval_security_context),
+                    reason,
                 );
                 let approval_id = create_pending_approval_with_context(
                     &self.state,
                     session_id,
                     &action,
-                    &reason,
+                    reason,
                     containment_context,
                 )
                 .await;
@@ -3583,13 +3721,15 @@ impl McpGrpcService {
         &self,
         proto_req: &JsonRpcRequest,
         json_req: &Value,
-        session_id: &str,
+        request_context: GrpcRequestContext<'_>,
         _id: &Value,
         extension_id: &str,
         method: &str,
     ) -> JsonRpcResponse {
+        let session_id = request_context.session_id;
+        let request_signature_header = request_context.request_signature_header;
         let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
-        let requested_by = self.state.sessions.get(session_id).and_then(|s| {
+        let _requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
                 .and_then(|id| id.subject.clone())
@@ -3892,6 +4032,13 @@ impl McpGrpcService {
             other => other,
         };
 
+        let security_context = build_grpc_runtime_security_context(
+            json_req,
+            &action,
+            request_signature_header,
+            Some(&ctx),
+        );
+
         match &verdict {
             Verdict::Allow => {
                 // SECURITY (FIND-R118-002): ABAC refinement for extension methods.
@@ -3979,7 +4126,7 @@ impl McpGrpcService {
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
 
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &Verdict::Allow,
@@ -3990,6 +4137,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -4015,7 +4163,7 @@ impl McpGrpcService {
                 self.forward_and_scan(proto_req, json_req, session_id).await
             }
             Verdict::Deny { reason } => {
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -4026,6 +4174,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -4058,6 +4207,10 @@ impl McpGrpcService {
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
+                let combined_security_context = merge_grpc_security_context(
+                    security_context.as_ref(),
+                    Some(&approval_security_context),
+                );
                 let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
@@ -4069,7 +4222,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
-                    Some(&approval_security_context),
+                    combined_security_context.as_ref(),
                 );
                 if let Err(e) = self
                     .state
@@ -4095,14 +4248,16 @@ impl McpGrpcService {
                     }
                 }
                 let containment_context = approval_containment_context_from_security_context(
-                    &approval_security_context,
-                    &reason,
+                    combined_security_context
+                        .as_ref()
+                        .unwrap_or(&approval_security_context),
+                    reason,
                 );
                 let approval_id = create_pending_approval_with_context(
                     &self.state,
                     session_id,
                     &action,
-                    &reason,
+                    reason,
                     containment_context,
                 )
                 .await;
@@ -4349,8 +4504,11 @@ impl McpService for McpGrpcService {
             }
         }
 
+        let request_signature = extract_request_signature(&metadata);
         let proto_req = request.into_inner();
-        let response = self.evaluate_request(&proto_req, &session_id).await;
+        let response = self
+            .evaluate_request(&proto_req, &session_id, request_signature.as_deref())
+            .await;
 
         record_grpc_message("unary_response");
         Ok(Response::new(response))
@@ -4437,6 +4595,7 @@ impl McpService for McpGrpcService {
             }
         }
 
+        let request_signature = extract_request_signature(&metadata);
         let mut stream = request.into_inner();
         let (tx, rx) = mpsc::channel(32);
 
@@ -4555,7 +4714,9 @@ impl McpService for McpGrpcService {
                     }
                 }
 
-                let response = svc.evaluate_request(&proto_req, &session_id).await;
+                let response = svc
+                    .evaluate_request(&proto_req, &session_id, request_signature.as_deref())
+                    .await;
                 record_grpc_message("stream_response");
 
                 if tx.send(Ok(response)).await.is_err() {
