@@ -215,6 +215,51 @@ fn trusted_request_signers_for(
     )])
 }
 
+async fn read_matching_audit_entry(
+    audit_path: &std::path::Path,
+    source: &str,
+    registry: &str,
+) -> Value {
+    let content = tokio::fs::read_to_string(audit_path)
+        .await
+        .expect("read audit log");
+    content
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+        .find(|entry| {
+            entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
+        })
+        .expect("matching audit entry")
+}
+
+fn assert_audit_entry_has_clamped_transport_provenance(
+    entry: &Value,
+    session_id: &str,
+    session_scope_binding: &str,
+) {
+    assert_eq!(entry["acis_envelope"]["session_id"], session_id);
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
+        session_scope_binding
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_key_scope"],
+        "persisted_client"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
+        false
+    );
+}
+
 fn make_oauth_validation_evidence(
     sub: &str,
     jkt: &str,
@@ -2784,6 +2829,8 @@ fn test_detached_signer_ephemeral_projection_satisfies_mediation_guard() {
 async fn test_http_unknown_tool_approval_persists_clamped_transport_provenance() {
     let mut state = make_test_proxy_state(false);
     let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
     let approval_store = vellaveto_approval::ApprovalStore::new(
         dir.path().join("approvals.jsonl"),
         std::time::Duration::from_secs(300),
@@ -2906,12 +2953,21 @@ async fn test_http_unknown_tool_approval_persists_clamped_transport_provenance()
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Verified)
     );
+
+    let audit_entry = read_matching_audit_entry(&audit_path, "http_proxy", "unknown_tool").await;
+    assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
 }
 
 #[tokio::test]
 async fn test_http_untrusted_tool_approval_persists_clamped_transport_provenance() {
     let mut state = make_test_proxy_state(false);
     let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
     let approval_store = vellaveto_approval::ApprovalStore::new(
         dir.path().join("approvals.jsonl"),
         std::time::Duration::from_secs(300),
@@ -3039,6 +3095,13 @@ async fn test_http_untrusted_tool_approval_persists_clamped_transport_provenance
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+
+    let audit_entry = read_matching_audit_entry(&audit_path, "http_proxy", "untrusted_tool").await;
+    assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
     );
 }
 

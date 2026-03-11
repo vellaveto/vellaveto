@@ -182,6 +182,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `/mcp/ws` approval path too. That live-path coverage now includes both the
   first-seen unknown-tool branch and the already-registered untrusted-tool
   branch across HTTP, WebSocket, and gRPC.
+  Those same live-path tests now also assert the emitted ACIS audit envelope,
+  so approval-gate audit JSONL entries and stored pending approvals stay in
+  lockstep on transport-clamped `client_provenance`.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

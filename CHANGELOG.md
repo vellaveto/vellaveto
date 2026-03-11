@@ -283,6 +283,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persisted approval state on the real POST `/mcp` approval gate, and live
   WebSocket integration coverage now locks the same stored approval context on
   the real `/mcp/ws` unknown-tool and untrusted-tool branches.
+  Live HTTP, WebSocket, and gRPC coverage now also locks the emitted approval-
+  gate audit entry, so the persisted pending approval and the ACIS JSONL record
+  both preserve the same clamped `client_provenance` summary.
 
 ### Fixed
 

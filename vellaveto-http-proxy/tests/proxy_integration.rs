@@ -500,6 +500,51 @@ async fn recv_ws_json(
     serde_json::from_str(&text).expect("websocket json response")
 }
 
+async fn read_matching_audit_entry(
+    audit_path: &std::path::Path,
+    source: &str,
+    registry: &str,
+) -> Value {
+    let content = tokio::fs::read_to_string(audit_path)
+        .await
+        .expect("read audit log");
+    content
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+        .find(|entry| {
+            entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
+        })
+        .expect("matching audit entry")
+}
+
+fn assert_audit_entry_has_clamped_transport_provenance(
+    entry: &Value,
+    session_id: &str,
+    session_scope_binding: &str,
+) {
+    assert_eq!(entry["acis_envelope"]["session_id"], session_id);
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
+        session_scope_binding
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_key_scope"],
+        "persisted_client"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
+        false
+    );
+}
+
 async fn json_body(resp: axum::response::Response) -> Value {
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
         .await
@@ -6843,6 +6888,22 @@ async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
         Some(SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+
+    let audit_entry = read_matching_audit_entry(
+        &tmp.path().join("audit.log"),
+        "ws_proxy",
+        if pre_register_untrusted {
+            "untrusted_tool"
+        } else {
+            "unknown_tool"
+        },
+    )
+    .await;
+    assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
 
     let _ = client_ws.close(None).await;
 }

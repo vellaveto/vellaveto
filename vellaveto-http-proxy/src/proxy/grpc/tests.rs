@@ -17,7 +17,7 @@ use super::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use prost_types::value::Kind;
-use serde_json::json;
+use serde_json::{json, Value};
 use tonic::Request as TonicRequest;
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_types::{ClientProvenance, RequestSignature, SignatureVerificationStatus};
@@ -177,6 +177,51 @@ fn trusted_request_signers_for(
             workload_identity: None,
         },
     )])
+}
+
+async fn read_matching_audit_entry(
+    audit_path: &std::path::Path,
+    source: &str,
+    registry: &str,
+) -> Value {
+    let content = tokio::fs::read_to_string(audit_path)
+        .await
+        .expect("read audit log");
+    content
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+        .find(|entry| {
+            entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
+        })
+        .expect("matching audit entry")
+}
+
+fn assert_audit_entry_has_clamped_transport_provenance(
+    entry: &Value,
+    session_id: &str,
+    session_scope_binding: &str,
+) {
+    assert_eq!(entry["acis_envelope"]["session_id"], session_id);
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
+        session_scope_binding
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_key_scope"],
+        "persisted_client"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
+        false
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1834,6 +1879,8 @@ async fn test_create_pending_grpc_approval_preserves_clamped_transport_provenanc
 async fn test_grpc_unary_unknown_tool_approval_persists_clamped_transport_provenance() {
     let mut state = make_test_state();
     let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
     let approval_store = vellaveto_approval::ApprovalStore::new(
         dir.path().join("approvals.jsonl"),
         std::time::Duration::from_secs(300),
@@ -1958,12 +2005,21 @@ async fn test_grpc_unary_unknown_tool_approval_persists_clamped_transport_proven
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Verified)
     );
+
+    let audit_entry = read_matching_audit_entry(&audit_path, "grpc_proxy", "unknown_tool").await;
+    assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
 }
 
 #[tokio::test]
 async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_provenance() {
     let mut state = make_test_state();
     let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
     let approval_store = vellaveto_approval::ApprovalStore::new(
         dir.path().join("approvals.jsonl"),
         std::time::Duration::from_secs(300),
@@ -2093,6 +2149,13 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+
+    let audit_entry = read_matching_audit_entry(&audit_path, "grpc_proxy", "untrusted_tool").await;
+    assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
     );
 }
 
