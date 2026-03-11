@@ -635,6 +635,20 @@ fn looks_like_command(text: &str) -> bool {
     })
 }
 
+fn text_observed_channel(text: &str) -> ContextChannel {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return ContextChannel::FreeText;
+    }
+    if looks_like_command(trimmed) {
+        return ContextChannel::CommandLike;
+    }
+    if contains_url(trimmed) {
+        return ContextChannel::Url;
+    }
+    ContextChannel::FreeText
+}
+
 fn wrapped_value_observed_channel(value: &Value) -> ContextChannel {
     const MAX_DEPTH: usize = 16;
     const MAX_PARTS: usize = 256;
@@ -725,6 +739,14 @@ pub(super) fn parameter_dlp_security_context(
     )
 }
 
+pub(super) fn text_dlp_security_context(
+    text: &str,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    dlp_security_context(text_observed_channel(text), blocking, "text_dlp", source)
+}
+
 fn injection_security_context(
     observed_channel: ContextChannel,
     blocking: bool,
@@ -793,6 +815,78 @@ pub(super) fn parameter_injection_security_context(
     source: &str,
 ) -> RuntimeSecurityContext {
     injection_security_context(wrapped_value_observed_channel(params), blocking, source)
+}
+
+pub(super) fn text_injection_security_context(
+    text: &str,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    injection_security_context(text_observed_channel(text), blocking, source)
+}
+
+pub(super) fn memory_poisoning_security_context(
+    value: &Value,
+    source: &str,
+) -> RuntimeSecurityContext {
+    let observed_channel = wrapped_value_observed_channel(value);
+
+    RuntimeSecurityContext {
+        semantic_taint: vec![
+            SemanticTaint::Untrusted,
+            SemanticTaint::IntegrityFailed,
+            SemanticTaint::Quarantined,
+        ],
+        effective_trust_tier: Some(TrustTier::Quarantined),
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "memory_poisoning".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: Some(TrustTier::Quarantined),
+        }],
+        containment_mode: Some(vellaveto_types::ContainmentMode::Quarantine),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 60u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(20)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+pub(super) fn notification_memory_poisoning_security_context(
+    message: &Value,
+    source: &str,
+) -> RuntimeSecurityContext {
+    let observed_channel = message_payload_observed_channel(message);
+
+    RuntimeSecurityContext {
+        semantic_taint: vec![
+            SemanticTaint::Untrusted,
+            SemanticTaint::IntegrityFailed,
+            SemanticTaint::Quarantined,
+        ],
+        effective_trust_tier: Some(TrustTier::Quarantined),
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "memory_poisoning".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: Some(TrustTier::Quarantined),
+        }],
+        containment_mode: Some(vellaveto_types::ContainmentMode::Quarantine),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 60u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(20)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
 }
 
 pub(super) fn output_schema_violation_security_context(

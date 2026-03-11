@@ -26,7 +26,7 @@ use vellaveto_mcp::inspection::{
 };
 use vellaveto_mcp::mediation::{
     build_acis_envelope_with_security_context, build_secondary_acis_envelope,
-    mediate_with_security_context,
+    build_secondary_acis_envelope_with_security_context, mediate_with_security_context,
 };
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{is_unicode_format_char, Action, EvaluationContext, Verdict};
@@ -41,6 +41,9 @@ use super::call_chain::{
 };
 use super::helpers::{
     build_runtime_security_context, consume_presented_approval, extract_approval_id_from_meta,
+    memory_poisoning_security_context, notification_dlp_security_context,
+    notification_injection_security_context, notification_memory_poisoning_security_context,
+    parameter_dlp_security_context, parameter_injection_security_context,
     presented_approval_matches_action, resolve_domains,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
@@ -545,12 +548,15 @@ pub async fn handle_mcp_post(
                 let dlp_verdict = Verdict::Deny {
                     reason: audit_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let parameter_security_context =
+                    parameter_dlp_security_context(&arguments, true, "tool_parameter_dlp");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &dlp_action,
                     &dlp_verdict,
                     DecisionOrigin::Dlp,
                     "http",
                     Some(&session_id),
+                    Some(&parameter_security_context),
                 );
                 if let Err(e) = state
                     .audit
@@ -610,12 +616,15 @@ pub async fn handle_mcp_post(
                     let poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let poisoning_security_context =
+                        memory_poisoning_security_context(&arguments, "memory_poisoning");
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &poison_verdict,
                         DecisionOrigin::MemoryPoisoning,
                         "http",
                         Some(&session_id),
+                        Some(&poisoning_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -1921,12 +1930,15 @@ pub async fn handle_mcp_post(
                     let poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let poisoning_security_context =
+                        memory_poisoning_security_context(&uri_params, "memory_poisoning");
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &poison_verdict,
                         DecisionOrigin::MemoryPoisoning,
                         "http",
                         Some(&session_id),
+                        Some(&poisoning_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -2048,12 +2060,15 @@ pub async fn handle_mcp_post(
                     let dlp_verdict = Verdict::Deny {
                         reason: audit_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let parameter_security_context =
+                        parameter_dlp_security_context(&uri_params, true, "resource_uri_dlp");
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &dlp_action,
                         &dlp_verdict,
                         DecisionOrigin::Dlp,
                         "http",
                         Some(&session_id),
+                        Some(&parameter_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -2740,12 +2755,15 @@ pub async fn handle_mcp_post(
                             "session": session_id,
                         }),
                     );
-                    let envelope = build_secondary_acis_envelope(
+                    let notification_security_context =
+                        notification_dlp_security_context(&msg, state.response_dlp_blocking);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &n_action,
                         &verdict,
                         DecisionOrigin::Dlp,
                         "http",
                         Some(&session_id),
+                        Some(&notification_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -2822,12 +2840,18 @@ pub async fn handle_mcp_post(
                                 "session": session_id,
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(
+                        let injection_security_context = notification_injection_security_context(
+                            &msg,
+                            state.injection_blocking,
+                            "passthrough_injection",
+                        );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &inj_action,
                             &verdict,
                             DecisionOrigin::InjectionScanner,
                             "http",
                             Some(&session_id),
+                            Some(&injection_security_context),
                         );
                         if let Err(e) = state
                             .audit
@@ -2894,12 +2918,15 @@ pub async fn handle_mcp_post(
                             poisoning_matches.len()
                         ),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let poisoning_security_context =
+                        notification_memory_poisoning_security_context(&msg, "memory_poisoning");
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &poison_action,
                         &pt_poison_verdict,
                         DecisionOrigin::MemoryPoisoning,
                         "http",
                         Some(&session_id),
+                        Some(&poisoning_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -3135,12 +3162,17 @@ pub async fn handle_mcp_post(
                     let task_poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let poisoning_security_context = memory_poisoning_security_context(
+                        &task_params_for_poison,
+                        "memory_poisoning",
+                    );
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &task_poison_verdict,
                         DecisionOrigin::MemoryPoisoning,
                         "http",
                         Some(&session_id),
+                        Some(&poisoning_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -3224,12 +3256,18 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let injection_security_context = parameter_injection_security_context(
+                            &task_params_for_poison,
+                            state.injection_blocking,
+                            "task_injection",
+                        );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &inj_action,
                             &verdict,
                             DecisionOrigin::InjectionScanner,
                             "http",
                             Some(&session_id),
+                            Some(&injection_security_context),
                         );
                         if let Err(e) = state
                             .audit
@@ -3295,12 +3333,15 @@ pub async fn handle_mcp_post(
                 let task_dlp_verdict = Verdict::Deny {
                     reason: audit_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let parameter_security_context =
+                    parameter_dlp_security_context(&task_params, true, "task_parameter_dlp");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &dlp_action,
                     &task_dlp_verdict,
                     DecisionOrigin::Dlp,
                     "http",
                     Some(&session_id),
+                    Some(&parameter_security_context),
                 );
                 if let Err(e) = state
                     .audit
@@ -3882,12 +3923,18 @@ pub async fn handle_mcp_post(
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let injection_security_context = parameter_injection_security_context(
+                            &params,
+                            state.injection_blocking,
+                            "extension_injection",
+                        );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &inj_action,
                             &verdict,
                             DecisionOrigin::InjectionScanner,
                             "http",
                             Some(&session_id),
+                            Some(&injection_security_context),
                         );
                         if let Err(e) = state
                             .audit
@@ -3938,12 +3985,15 @@ pub async fn handle_mcp_post(
                         "DLP blocked: secret detected in extension parameters: {patterns:?}"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let parameter_security_context =
+                    parameter_dlp_security_context(&params, true, "extension_parameter_dlp");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &audit_verdict,
                     DecisionOrigin::Dlp,
                     "http",
                     Some(&session_id),
+                    Some(&parameter_security_context),
                 );
                 if let Err(e) = state.audit.log_entry_with_acis(
                     &action, &audit_verdict,
@@ -3982,12 +4032,15 @@ pub async fn handle_mcp_post(
                     let ext_poison_verdict = Verdict::Deny {
                         reason: deny_reason.clone(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let poisoning_security_context =
+                        memory_poisoning_security_context(&params, "memory_poisoning");
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &ext_poison_verdict,
                         DecisionOrigin::MemoryPoisoning,
                         "http",
                         Some(&session_id),
+                        Some(&poisoning_security_context),
                     );
                     if let Err(e) = state
                         .audit

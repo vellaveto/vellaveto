@@ -58,7 +58,8 @@ use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use crate::proxy::helpers::{
-    notification_dlp_security_context, notification_injection_security_context,
+    memory_poisoning_security_context, notification_dlp_security_context,
+    notification_injection_security_context, notification_memory_poisoning_security_context,
     output_schema_violation_security_context, parameter_dlp_security_context,
     parameter_injection_security_context, resolve_domains, response_dlp_security_context,
     response_injection_security_context, tool_discovery_integrity_security_context,
@@ -511,12 +512,18 @@ impl McpGrpcService {
                                 poisoning_matches.len()
                             ),
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let poisoning_security_context =
+                            notification_memory_poisoning_security_context(
+                                &json_req,
+                                "memory_poisoning",
+                            );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &poison_action,
                             &poison_verdict,
                             DecisionOrigin::MemoryPoisoning,
                             "grpc",
                             Some(session_id),
+                            Some(&poisoning_security_context),
                         );
                         if let Err(e) = self
                             .state
@@ -857,12 +864,18 @@ impl McpGrpcService {
                                 poisoning_matches.len()
                             ),
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let poisoning_security_context =
+                            notification_memory_poisoning_security_context(
+                                &json_req,
+                                "memory_poisoning",
+                            );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &poison_action,
                             &poison_verdict,
                             DecisionOrigin::MemoryPoisoning,
                             "grpc",
                             Some(session_id),
+                            Some(&poisoning_security_context),
                         );
                         if let Err(e) = self
                             .state
@@ -1105,12 +1118,15 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let poisoning_security_context =
+                    memory_poisoning_security_context(arguments, "memory_poisoning");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &mp_verdict,
                     DecisionOrigin::MemoryPoisoning,
                     "grpc",
                     Some(session_id),
+                    Some(&poisoning_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -1834,12 +1850,15 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let poisoning_security_context =
+                    memory_poisoning_security_context(&uri_params, "memory_poisoning");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &mp_verdict,
                     DecisionOrigin::MemoryPoisoning,
                     "grpc",
                     Some(session_id),
+                    Some(&poisoning_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -1941,12 +1960,15 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: "DLP blocked: secret detected in resource URI".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(
+            let parameter_security_context =
+                parameter_dlp_security_context(&uri_params, true, "resource_uri_dlp");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &audit_verdict,
                 DecisionOrigin::Dlp,
                 "grpc",
                 Some(session_id),
+                Some(&parameter_security_context),
             );
             if let Err(e) = self
                 .state
@@ -2967,12 +2989,15 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let poisoning_security_context =
+                    memory_poisoning_security_context(&params, "memory_poisoning");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &mp_verdict,
                     DecisionOrigin::MemoryPoisoning,
                     "grpc",
                     Some(session_id),
+                    Some(&poisoning_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -3485,12 +3510,15 @@ impl McpGrpcService {
                 let mp_verdict = Verdict::Deny {
                     reason: deny_reason.clone(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let poisoning_security_context =
+                    memory_poisoning_security_context(&params, "memory_poisoning");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &mp_verdict,
                     DecisionOrigin::MemoryPoisoning,
                     "grpc",
                     Some(session_id),
+                    Some(&poisoning_security_context),
                 );
                 if let Err(e) = self
                     .state

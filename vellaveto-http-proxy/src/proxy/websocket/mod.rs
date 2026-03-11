@@ -1083,12 +1083,18 @@ async fn relay_client_to_upstream(
                                 let poison_verdict = Verdict::Deny {
                                     reason: deny_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let poisoning_security_context =
+                                    super::helpers::memory_poisoning_security_context(
+                                        arguments,
+                                        "memory_poisoning",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &poison_action,
                                     &poison_verdict,
                                     DecisionOrigin::MemoryPoisoning,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&poisoning_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1879,12 +1885,18 @@ async fn relay_client_to_upstream(
                                 let resource_poison_verdict = Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let poisoning_security_context =
+                                    super::helpers::memory_poisoning_security_context(
+                                        &json!({ "uri": uri }),
+                                        "memory_poisoning",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &poison_action,
                                     &resource_poison_verdict,
                                     DecisionOrigin::MemoryPoisoning,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&poisoning_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2002,12 +2014,19 @@ async fn relay_client_to_upstream(
                                     reason: "DLP blocked: secret detected in resource URI"
                                         .to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let parameter_security_context =
+                                    super::helpers::parameter_dlp_security_context(
+                                        &uri_params,
+                                        true,
+                                        "resource_uri_dlp",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &audit_verdict,
                                     DecisionOrigin::Dlp,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&parameter_security_context),
                                 );
                                 if let Err(e) = state.audit.log_entry_with_acis(
                                     &action, &audit_verdict,
@@ -2676,12 +2695,18 @@ async fn relay_client_to_upstream(
                                 let task_poison_verdict = Verdict::Deny {
                                     reason: deny_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let poisoning_security_context =
+                                    super::helpers::memory_poisoning_security_context(
+                                        &task_params,
+                                        "memory_poisoning",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &poison_action,
                                     &task_poison_verdict,
                                     DecisionOrigin::MemoryPoisoning,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&poisoning_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3276,12 +3301,18 @@ async fn relay_client_to_upstream(
                                 let ext_poison_verdict = Verdict::Deny {
                                     reason: deny_reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let poisoning_security_context =
+                                    super::helpers::memory_poisoning_security_context(
+                                        &params,
+                                        "memory_poisoning",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &ext_poison_verdict,
                                     DecisionOrigin::MemoryPoisoning,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&poisoning_security_context),
                                 );
                                 if let Err(e) = state.audit.log_entry_with_acis(
                                     &action,
@@ -4099,12 +4130,18 @@ async fn relay_client_to_upstream(
                                         poisoning_matches.len()
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let poisoning_security_context =
+                                    super::helpers::notification_memory_poisoning_security_context(
+                                        &parsed,
+                                        "memory_poisoning",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &poison_action,
                                     &passthrough_poison_verdict,
                                     DecisionOrigin::MemoryPoisoning,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&poisoning_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -4795,12 +4832,18 @@ async fn relay_upstream_to_client(
                                 json!({ "findings": patterns, "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
-                            let envelope = build_secondary_acis_envelope(
+                            let text_security_context = super::helpers::text_dlp_security_context(
+                                text_str,
+                                state.response_dlp_blocking,
+                                "ws_nonjson_dlp",
+                            );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::Dlp,
                                 "websocket",
                                 Some(&session_id),
+                                Some(&text_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &verdict,
@@ -4856,12 +4899,19 @@ async fn relay_upstream_to_client(
                                 json!({ "alerts": alerts.len(), "session": session_id, "transport": "websocket" }),
                             );
                             // SECURITY (SE-004): Log audit failures instead of silently discarding.
-                            let envelope = build_secondary_acis_envelope(
+                            let text_security_context =
+                                super::helpers::text_injection_security_context(
+                                    text_str,
+                                    state.injection_blocking,
+                                    "ws_nonjson_injection",
+                                );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::InjectionScanner,
                                 "websocket",
                                 Some(&session_id),
+                                Some(&text_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &verdict,
@@ -4933,12 +4983,18 @@ async fn relay_upstream_to_client(
                             let binary_dlp_verdict = Verdict::Deny {
                                 reason: format!("WS binary frame DLP: {patterns:?}"),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let text_security_context = super::helpers::text_dlp_security_context(
+                                &text_repr,
+                                true,
+                                "ws_binary_dlp",
+                            );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &binary_dlp_verdict,
                                 DecisionOrigin::Dlp,
                                 "websocket",
                                 Some(&session_id),
+                                Some(&text_security_context),
                             );
                             if let Err(e) = state
                                 .audit
