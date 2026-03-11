@@ -14,7 +14,9 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use subtle::ConstantTimeEq;
@@ -144,6 +146,23 @@ impl Deref for OAuthValidationEvidence {
     fn deref(&self) -> &Self::Target {
         &self.claims
     }
+}
+
+fn extract_custom_identity_claims(identity_token: &str) -> Option<HashMap<String, Value>> {
+    const RESERVED_CLAIMS: &[&str] = &[
+        "iss", "sub", "aud", "exp", "iat", "nbf", "scope", "resource", "cnf",
+    ];
+
+    let payload_segment = identity_token.split('.').nth(1)?;
+    let payload_bytes = URL_SAFE_NO_PAD.decode(payload_segment).ok()?;
+    let mut payload =
+        serde_json::from_slice::<serde_json::Map<String, Value>>(&payload_bytes).ok()?;
+
+    for key in RESERVED_CLAIMS {
+        payload.remove(*key);
+    }
+
+    Some(payload.into_iter().collect())
 }
 
 async fn audit_dpop_validation_failure(
@@ -480,8 +499,23 @@ pub(super) async fn validate_agent_identity(
                     Some(claims.sub)
                 },
                 audience: claims.aud,
-                claims: std::collections::HashMap::new(),
+                claims: extract_custom_identity_claims(identity_token).unwrap_or_default(),
             };
+            if let Err(error) = identity.validate() {
+                tracing::warn!("X-Agent-Identity claims validation failed: {}", error);
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32001,
+                            "message": "Invalid agent identity token"
+                        },
+                        "id": null
+                    })),
+                )
+                    .into_response());
+            }
 
             tracing::debug!(
                 "X-Agent-Identity validated: issuer={:?}, subject={:?}",
@@ -680,5 +714,38 @@ mod tests {
             dpop_failure_label(&OAuthError::InvalidFormat),
             "validation_error"
         );
+    }
+
+    #[test]
+    fn test_extract_custom_identity_claims_filters_standard_fields() {
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "iss": "https://issuer.example",
+                "sub": "spiffe://cluster/ns/app",
+                "aud": ["mcp-server"],
+                "scope": "tool:read",
+                "namespace": "prod",
+                "service_account": "frontend",
+                "execution_is_ephemeral": true,
+            }))
+            .expect("serialize payload"),
+        );
+        let token = format!("{header}.{payload}.sig");
+
+        let claims = extract_custom_identity_claims(&token).expect("custom claims");
+
+        assert_eq!(claims.get("namespace"), Some(&json!("prod")));
+        assert_eq!(claims.get("service_account"), Some(&json!("frontend")));
+        assert_eq!(claims.get("execution_is_ephemeral"), Some(&json!(true)));
+        assert!(!claims.contains_key("iss"));
+        assert!(!claims.contains_key("sub"));
+        assert!(!claims.contains_key("aud"));
+        assert!(!claims.contains_key("scope"));
+    }
+
+    #[test]
+    fn test_extract_custom_identity_claims_invalid_token_returns_none() {
+        assert!(extract_custom_identity_claims("not-a-jwt").is_none());
     }
 }

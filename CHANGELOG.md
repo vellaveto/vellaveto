@@ -77,6 +77,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workload_binding_status`, and no-session mediation fallbacks still preserve
   the current request's authenticated identity instead of collapsing to an
   empty evaluation context.
+- **HTTP proxy verified workload claims (Mar 2026):**
+  Verified custom claims from `X-Agent-Identity` JWTs are now preserved instead
+  of being discarded. That allows the HTTP proxy to derive richer
+  `workload_identity` fields (`namespace`, `service_account`,
+  `process_identity`, `attestation_level`) plus `session_key_scope` and
+  `execution_is_ephemeral` from validated transport identity claims.
 
 ### Fixed
 

@@ -79,6 +79,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   evidence rather than inferring signature and replay state from raw headers,
   and verified agent identity is promoted into transport workload identity and
   workload-binding status.
+- Verified custom `X-Agent-Identity` claims now survive validation, so HTTP
+  transport provenance can populate richer workload fields as well as
+  `session_key_scope` and `execution_is_ephemeral` from authenticated identity
+  claims instead of relying on metadata-only overrides.
 - Session-miss fallbacks in HTTP request mediation now preserve the current
   transport-authenticated identity instead of collapsing to an empty evaluation
   context.

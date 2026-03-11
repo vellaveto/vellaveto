@@ -275,8 +275,40 @@ fn build_workload_identity(eval_ctx: Option<&EvaluationContext>) -> Option<Workl
         namespace: identity.claim_str("namespace").map(str::to_string),
         service_account: identity.claim_str("service_account").map(str::to_string),
         process_identity: identity.claim_str("process_identity").map(str::to_string),
-        attestation_level: Some("jwt".to_string()),
+        attestation_level: identity
+            .claim_str("attestation_level")
+            .map(str::to_string)
+            .or_else(|| Some("jwt".to_string())),
     })
+}
+
+fn build_session_key_scope(eval_ctx: Option<&EvaluationContext>) -> SessionKeyScope {
+    match agent_identity_from_eval_ctx(eval_ctx)
+        .and_then(|identity| identity.claim_str("session_key_scope"))
+    {
+        Some("ephemeral_execution") => SessionKeyScope::EphemeralExecution,
+        Some("ephemeral_session") => SessionKeyScope::EphemeralSession,
+        Some("persisted_client") => SessionKeyScope::PersistedClient,
+        Some("persisted_service") => SessionKeyScope::PersistedService,
+        _ => SessionKeyScope::Unknown,
+    }
+}
+
+fn execution_is_ephemeral(
+    eval_ctx: Option<&EvaluationContext>,
+    session_key_scope: SessionKeyScope,
+) -> bool {
+    if matches!(
+        session_key_scope,
+        SessionKeyScope::EphemeralExecution | SessionKeyScope::EphemeralSession
+    ) {
+        return true;
+    }
+
+    agent_identity_from_eval_ctx(eval_ctx)
+        .and_then(|identity| identity.claims.get("execution_is_ephemeral"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 fn build_workload_binding_status(
@@ -328,12 +360,13 @@ fn build_client_provenance(
     let workload_identity = build_workload_identity(eval_ctx);
     let workload_binding_status =
         build_workload_binding_status(eval_ctx, workload_identity.as_ref(), oauth_evidence);
+    let session_key_scope = build_session_key_scope(eval_ctx);
 
     Some(ClientProvenance {
         request_signature,
         signature_status,
         client_key_id,
-        session_key_scope: SessionKeyScope::Unknown,
+        session_key_scope,
         workload_identity,
         workload_binding_status,
         replay_status: oauth_evidence.map_or_else(
@@ -341,7 +374,7 @@ fn build_client_provenance(
             OAuthValidationEvidence::replay_status,
         ),
         canonical_request_hash: None,
-        execution_is_ephemeral: false,
+        execution_is_ephemeral: execution_is_ephemeral(eval_ctx, session_key_scope),
     })
 }
 

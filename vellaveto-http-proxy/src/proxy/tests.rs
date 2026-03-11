@@ -391,7 +391,17 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
             issuer: Some("https://issuer.example".to_string()),
             subject: Some("spiffe://cluster/ns/app".to_string()),
             audience: vec!["mcp-server".to_string()],
-            claims: std::collections::HashMap::new(),
+            claims: std::collections::HashMap::from([
+                ("namespace".to_string(), json!("prod")),
+                ("service_account".to_string(), json!("frontend")),
+                ("process_identity".to_string(), json!("pid://worker/42")),
+                ("attestation_level".to_string(), json!("hardware")),
+                (
+                    "session_key_scope".to_string(),
+                    json!("ephemeral_execution"),
+                ),
+                ("execution_is_ephemeral".to_string(), json!(true)),
+            ]),
         }),
         ..EvaluationContext::default()
     };
@@ -432,8 +442,34 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
             .workload_identity
             .as_ref()
             .and_then(|workload| workload.attestation_level.as_deref()),
-        Some("jwt")
+        Some("hardware")
     );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.namespace.as_deref()),
+        Some("prod")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.service_account.as_deref()),
+        Some("frontend")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.process_identity.as_deref()),
+        Some("pid://worker/42")
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::EphemeralExecution
+    );
+    assert!(provenance.execution_is_ephemeral);
 }
 
 #[test]
