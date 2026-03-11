@@ -773,12 +773,25 @@ async fn relay_client_to_upstream(
                                     "direction": "client_to_upstream",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(
+                            let request_payload = parsed
+                                .get("params")
+                                .or_else(|| parsed.get("result"))
+                                .cloned();
+                            let injection_security_context =
+                                request_payload.as_ref().map(|payload| {
+                                    super::helpers::parameter_injection_security_context(
+                                        payload,
+                                        state.injection_blocking,
+                                        "request_injection",
+                                    )
+                                });
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::InjectionScanner,
                                 "websocket",
                                 Some(&session_id),
+                                injection_security_context.as_ref(),
                             );
                             if let Err(e) = state
                                 .audit
@@ -992,12 +1005,19 @@ async fn relay_client_to_upstream(
                                 let dlp_verdict = Verdict::Deny {
                                     reason: audit_reason,
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let parameter_security_context =
+                                    super::helpers::parameter_dlp_security_context(
+                                        arguments,
+                                        true,
+                                        "tool_parameter_dlp",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &dlp_action,
                                     &dlp_verdict,
                                     DecisionOrigin::Dlp,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&parameter_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2723,12 +2743,19 @@ async fn relay_client_to_upstream(
                                         "DLP: secrets detected in task request: {patterns:?}"
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let parameter_security_context =
+                                    super::helpers::parameter_dlp_security_context(
+                                        &task_params,
+                                        true,
+                                        "task_parameter_dlp",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &dlp_action,
                                     &task_dlp_verdict,
                                     DecisionOrigin::Dlp,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&parameter_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3192,12 +3219,19 @@ async fn relay_client_to_upstream(
                                     "DLP blocked: secret detected in extension parameters: {patterns:?}"
                                 ),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let parameter_security_context =
+                                super::helpers::parameter_dlp_security_context(
+                                    &params,
+                                    true,
+                                    "extension_parameter_dlp",
+                                );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &audit_verdict,
                                 DecisionOrigin::Dlp,
                                 "websocket",
                                 Some(&session_id),
+                                Some(&parameter_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action, &audit_verdict,
@@ -3887,12 +3921,18 @@ async fn relay_client_to_upstream(
                                 } else {
                                     Verdict::Allow
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let notification_security_context =
+                                    super::helpers::notification_dlp_security_context(
+                                        &parsed,
+                                        state.response_dlp_blocking,
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &n_action,
                                     &verdict,
                                     DecisionOrigin::Dlp,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&notification_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3973,13 +4013,21 @@ async fn relay_client_to_upstream(
                                             "direction": "client_to_upstream",
                                         }),
                                     );
-                                    let envelope = build_secondary_acis_envelope(
-                                        &inj_action,
-                                        &verdict,
-                                        DecisionOrigin::InjectionScanner,
-                                        "websocket",
-                                        Some(&session_id),
-                                    );
+                                    let injection_security_context =
+                                        super::helpers::notification_injection_security_context(
+                                            &parsed,
+                                            state.injection_blocking,
+                                            "passthrough_injection",
+                                        );
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &inj_action,
+                                            &verdict,
+                                            DecisionOrigin::InjectionScanner,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(&injection_security_context),
+                                        );
                                     if let Err(e) = state
                                         .audit
                                         .log_entry_with_acis(

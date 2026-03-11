@@ -14,7 +14,7 @@ use axum::http::HeaderMap;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use vellaveto_approval::ApprovalStatus;
 use vellaveto_audit::AuditLogger;
@@ -561,6 +561,132 @@ fn dlp_security_context(
     }
 }
 
+fn extract_strings_for_channel_inference(
+    value: &Value,
+    parts: &mut Vec<String>,
+    depth: usize,
+    max_depth: usize,
+    max_parts: usize,
+) {
+    if depth > max_depth || parts.len() >= max_parts {
+        return;
+    }
+
+    match value {
+        Value::String(text) => parts.push(text.clone()),
+        Value::Array(items) => {
+            for item in items {
+                extract_strings_for_channel_inference(item, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        Value::Object(map) => {
+            for (key, item) in map {
+                if parts.len() >= max_parts {
+                    break;
+                }
+                parts.push(key.clone());
+                extract_strings_for_channel_inference(item, parts, depth + 1, max_depth, max_parts);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn contains_url(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("http://")
+        || lower.contains("https://")
+        || lower.contains("file://")
+        || lower.contains("ssh://")
+        || lower.contains("mailto:")
+        || lower.contains("www.")
+}
+
+fn looks_like_command(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    let trimmed = lower.trim_start();
+
+    if trimmed.contains("```bash")
+        || trimmed.contains("```sh")
+        || trimmed.contains("```shell")
+        || trimmed.contains("```powershell")
+        || trimmed.contains("cmd /c")
+        || trimmed.contains("powershell -")
+    {
+        return true;
+    }
+
+    trimmed.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("curl ")
+            || line.starts_with("wget ")
+            || line.starts_with("bash ")
+            || line.starts_with("sh ")
+            || line.starts_with("python ")
+            || line.starts_with("python3 ")
+            || line.starts_with("node ")
+            || line.starts_with("npm ")
+            || line.starts_with("chmod ")
+            || line.starts_with("rm ")
+            || line.starts_with("sudo ")
+            || line.starts_with("git clone ")
+            || line.starts_with("kubectl ")
+            || line.starts_with("docker ")
+    })
+}
+
+fn wrapped_value_observed_channel(value: &Value) -> ContextChannel {
+    const MAX_DEPTH: usize = 16;
+    const MAX_PARTS: usize = 256;
+
+    let response_channel = infer_observed_output_channel(None, &json!({ "result": value }));
+    if !matches!(response_channel, ContextChannel::ToolOutput) {
+        return response_channel;
+    }
+
+    let mut parts = Vec::new();
+    extract_strings_for_channel_inference(value, &mut parts, 0, MAX_DEPTH, MAX_PARTS);
+
+    let mut saw_free_text = false;
+    let mut saw_url = false;
+    let mut saw_command_like = false;
+    for part in parts {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if looks_like_command(trimmed) {
+            saw_command_like = true;
+        }
+        if contains_url(trimmed) {
+            saw_url = true;
+        }
+        saw_free_text = true;
+    }
+
+    if saw_command_like {
+        ContextChannel::CommandLike
+    } else if saw_url {
+        ContextChannel::Url
+    } else if saw_free_text {
+        ContextChannel::FreeText
+    } else if value.is_object() || value.is_array() {
+        ContextChannel::Data
+    } else {
+        ContextChannel::FreeText
+    }
+}
+
+fn message_payload_observed_channel(message: &Value) -> ContextChannel {
+    if let Some(params) = message.get("params") {
+        return wrapped_value_observed_channel(params);
+    }
+    if let Some(result) = message.get("result") {
+        return wrapped_value_observed_channel(result);
+    }
+    ContextChannel::FreeText
+}
+
 pub(super) fn response_dlp_security_context(
     tool_name: Option<&str>,
     response: &Value,
@@ -574,13 +700,36 @@ pub(super) fn response_dlp_security_context(
     )
 }
 
-pub(super) fn response_injection_security_context(
-    tool_name: Option<&str>,
-    response: &Value,
+pub(super) fn notification_dlp_security_context(
+    message: &Value,
+    blocking: bool,
+) -> RuntimeSecurityContext {
+    dlp_security_context(
+        message_payload_observed_channel(message),
+        blocking,
+        "notification_dlp",
+        "notification_dlp",
+    )
+}
+
+pub(super) fn parameter_dlp_security_context(
+    params: &Value,
     blocking: bool,
     source: &str,
 ) -> RuntimeSecurityContext {
-    let observed_channel = infer_observed_output_channel(tool_name, response);
+    dlp_security_context(
+        wrapped_value_observed_channel(params),
+        blocking,
+        "parameter_dlp",
+        source,
+    )
+}
+
+fn injection_security_context(
+    observed_channel: ContextChannel,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
     let effective_trust_tier = Some(if blocking {
         TrustTier::Quarantined
     } else {
@@ -615,6 +764,35 @@ pub(super) fn response_injection_security_context(
         }),
         ..RuntimeSecurityContext::default()
     }
+}
+
+pub(super) fn response_injection_security_context(
+    tool_name: Option<&str>,
+    response: &Value,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    injection_security_context(
+        infer_observed_output_channel(tool_name, response),
+        blocking,
+        source,
+    )
+}
+
+pub(super) fn notification_injection_security_context(
+    message: &Value,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    injection_security_context(message_payload_observed_channel(message), blocking, source)
+}
+
+pub(super) fn parameter_injection_security_context(
+    params: &Value,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    injection_security_context(wrapped_value_observed_channel(params), blocking, source)
 }
 
 pub(super) fn output_schema_violation_security_context(

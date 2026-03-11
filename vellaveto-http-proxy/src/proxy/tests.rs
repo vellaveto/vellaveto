@@ -480,6 +480,47 @@ fn test_response_dlp_security_context_marks_sensitive_resource_content() {
 }
 
 #[test]
+fn test_notification_dlp_security_context_marks_sensitive_free_text() {
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+            "content": [
+                {"type": "text", "text": "api_key=secret-value"}
+            ]
+        }
+    });
+
+    let security_context = super::helpers::notification_dlp_security_context(&notification, false);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Sensitive]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Untrusted)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Sanitize)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::FreeText
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("notification_dlp")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 75 })
+    );
+}
+
+#[test]
 fn test_response_injection_security_context_marks_quarantined_command_like_output() {
     let response = json!({
         "jsonrpc": "2.0",
@@ -518,6 +559,85 @@ fn test_response_injection_security_context_marks_quarantined_command_like_outpu
     assert_eq!(
         security_context.lineage_refs[0].source.as_deref(),
         Some("response_injection")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 100 })
+    );
+}
+
+#[test]
+fn test_notification_injection_security_context_marks_quarantined_command_like_payload() {
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {
+            "message": "```bash\nrm -rf /tmp/build\n```"
+        }
+    });
+
+    let security_context = super::helpers::notification_injection_security_context(
+        &notification,
+        true,
+        "passthrough_injection",
+    );
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::CommandLike
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("passthrough_injection")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 100 })
+    );
+}
+
+#[test]
+fn test_parameter_dlp_security_context_marks_sensitive_command_like_payload() {
+    let params = json!({
+        "message": "```bash\ncat ~/.ssh/id_rsa\n```"
+    });
+
+    let security_context =
+        super::helpers::parameter_dlp_security_context(&params, true, "task_parameter_dlp");
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Sensitive, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::CommandLike
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("task_parameter_dlp")
     );
     assert_eq!(
         security_context.semantic_risk_score,

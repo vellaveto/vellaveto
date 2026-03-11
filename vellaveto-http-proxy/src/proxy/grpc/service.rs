@@ -58,7 +58,9 @@ use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use crate::proxy::helpers::{
-    output_schema_violation_security_context, resolve_domains, response_dlp_security_context,
+    notification_dlp_security_context, notification_injection_security_context,
+    output_schema_violation_security_context, parameter_dlp_security_context,
+    parameter_injection_security_context, resolve_domains, response_dlp_security_context,
     response_injection_security_context, tool_discovery_integrity_security_context,
 };
 use crate::proxy_metrics::record_dlp_finding;
@@ -326,12 +328,17 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let notification_security_context = notification_dlp_security_context(
+                            &json_req,
+                            self.state.response_dlp_blocking,
+                        );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &n_action,
                             &verdict,
                             DecisionOrigin::Dlp,
                             "grpc",
                             Some(session_id),
+                            Some(&notification_security_context),
                         );
                         if let Err(e) = self
                             .state
@@ -415,12 +422,19 @@ impl McpGrpcService {
                                     "message_type": "progress_notification",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(
+                            let injection_security_context =
+                                notification_injection_security_context(
+                                    &json_req,
+                                    self.state.injection_blocking,
+                                    "passthrough_injection",
+                                );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &inj_action,
                                 &verdict,
                                 DecisionOrigin::InjectionScanner,
                                 "grpc",
                                 Some(session_id),
+                                Some(&injection_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -662,12 +676,17 @@ impl McpGrpcService {
                         } else {
                             Verdict::Allow
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let notification_security_context = notification_dlp_security_context(
+                            &json_req,
+                            self.state.response_dlp_blocking,
+                        );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &n_action,
                             &verdict,
                             DecisionOrigin::Dlp,
                             "grpc",
                             Some(session_id),
+                            Some(&notification_security_context),
                         );
                         if let Err(e) = self
                             .state
@@ -751,12 +770,19 @@ impl McpGrpcService {
                                     "transport": "grpc",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(
+                            let injection_security_context =
+                                notification_injection_security_context(
+                                    &json_req,
+                                    self.state.injection_blocking,
+                                    "passthrough_injection",
+                                );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &inj_action,
                                 &verdict,
                                 DecisionOrigin::InjectionScanner,
                                 "grpc",
                                 Some(session_id),
+                                Some(&injection_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -964,12 +990,15 @@ impl McpGrpcService {
             let audit_verdict = Verdict::Deny {
                 reason: format!("DLP blocked: secret detected in parameters: {:?}", patterns),
             };
-            let envelope = build_secondary_acis_envelope(
+            let parameter_security_context =
+                parameter_dlp_security_context(arguments, true, "tool_parameter_dlp");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &audit_verdict,
                 DecisionOrigin::Dlp,
                 "grpc",
                 Some(session_id),
+                Some(&parameter_security_context),
             );
             if let Err(e) = self
                 .state
@@ -2762,6 +2791,8 @@ impl McpGrpcService {
         // (websocket/mod.rs pre-classify scan). Task methods (tasks/send,
         // tasks/sendSubscribe) carry a `message` parameter vulnerable to
         // prompt injection attacks.
+        let params = json_req.get("params").cloned().unwrap_or(json!({}));
+
         if !self.state.injection_disabled {
             let scannable = extract_passthrough_text_for_injection(json_req);
             if !scannable.is_empty() {
@@ -2797,12 +2828,18 @@ impl McpGrpcService {
                     };
 
                     let inj_action = extractor::extract_task_action(task_method, task_id);
-                    let envelope = build_secondary_acis_envelope(
+                    let injection_security_context = parameter_injection_security_context(
+                        &params,
+                        self.state.injection_blocking,
+                        "task_injection",
+                    );
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &inj_action,
                         &verdict,
                         DecisionOrigin::InjectionScanner,
                         "grpc",
                         Some(session_id),
+                        Some(&injection_security_context),
                     );
                     if let Err(e) = self
                         .state
@@ -2842,7 +2879,6 @@ impl McpGrpcService {
         // Parity with tools/call handler (service.rs:354) and WS (websocket/mod.rs:700).
         // Task methods (tasks/send, tasks/sendSubscribe) carry a `message` parameter that
         // may contain secrets — apply the same DLP scanning as tools/call.
-        let params = json_req.get("params").cloned().unwrap_or(json!({}));
         let dlp_findings = scan_parameters_for_secrets(&params);
         if !dlp_findings.is_empty() {
             for finding in &dlp_findings {
@@ -2868,12 +2904,15 @@ impl McpGrpcService {
                     patterns
                 ),
             };
-            let envelope = build_secondary_acis_envelope(
+            let parameter_security_context =
+                parameter_dlp_security_context(&params, true, "task_parameter_dlp");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &verdict,
                 DecisionOrigin::Dlp,
                 "grpc",
                 Some(session_id),
+                Some(&parameter_security_context),
             );
             if let Err(e) = self
                 .state
@@ -3282,6 +3321,8 @@ impl McpGrpcService {
 
         // SECURITY (FIND-R222-001): Injection scanning on extension method parameters.
         // Parity with PassThrough handler and handle_task_request.
+        let params = json_req.get("params").cloned().unwrap_or(json!({}));
+
         if !self.state.injection_disabled {
             let scannable = extract_passthrough_text_for_injection(json_req);
             if !scannable.is_empty() {
@@ -3318,13 +3359,19 @@ impl McpGrpcService {
                     };
 
                     let inj_action =
-                        extractor::extract_extension_action(extension_id, method, &json!({}));
-                    let envelope = build_secondary_acis_envelope(
+                        extractor::extract_extension_action(extension_id, method, &params);
+                    let injection_security_context = parameter_injection_security_context(
+                        &params,
+                        self.state.injection_blocking,
+                        "extension_injection",
+                    );
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &inj_action,
                         &verdict,
                         DecisionOrigin::InjectionScanner,
                         "grpc",
                         Some(session_id),
+                        Some(&injection_security_context),
                     );
                     if let Err(e) = self
                         .state
@@ -3362,8 +3409,6 @@ impl McpGrpcService {
             }
         }
 
-        let params = json_req.get("params").cloned().unwrap_or(json!({}));
-
         // SECURITY (FIND-R114-003): DLP scan extension method parameters.
         // Parity with handle_tool_call (line 401) and handle_task_request (line 1244).
         let dlp_findings = scan_parameters_for_secrets(&params);
@@ -3386,12 +3431,15 @@ impl McpGrpcService {
                     patterns
                 ),
             };
-            let envelope = build_secondary_acis_envelope(
+            let parameter_security_context =
+                parameter_dlp_security_context(&params, true, "extension_parameter_dlp");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &audit_verdict,
                 DecisionOrigin::Dlp,
                 "grpc",
                 Some(session_id),
+                Some(&parameter_security_context),
             );
             if let Err(e) = self
                 .state
