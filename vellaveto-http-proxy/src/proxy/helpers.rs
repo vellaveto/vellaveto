@@ -1033,6 +1033,21 @@ pub(super) fn privilege_escalation_security_context(action: &Action) -> RuntimeS
     )
 }
 
+pub(super) fn abac_deny_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "abac_deny",
+            observed_channel: None,
+            source: "abac_deny",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: Vec::new(),
+            extra_risk: 5,
+        },
+    )
+}
+
 pub(super) fn unknown_tool_approval_gate_security_context(
     action: &Action,
 ) -> RuntimeSecurityContext {

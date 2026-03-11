@@ -945,6 +945,36 @@ fn test_rug_pull_security_context_marks_quarantined_tool_output() {
 }
 
 #[test]
+fn test_abac_deny_security_context_marks_resource_content_for_resource_reads() {
+    let action = extractor::extract_resource_action("https://example.test/private.txt");
+
+    let security_context = super::helpers::abac_deny_security_context(&action);
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::ReadOnly));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ResourceContent
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("abac_deny")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 25 })
+    );
+}
+
+#[test]
 fn test_approval_containment_context_from_security_context_preserves_guard_fields() {
     let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
     let security_context = super::helpers::untrusted_tool_approval_gate_security_context(&action);

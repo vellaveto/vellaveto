@@ -58,14 +58,14 @@ use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use crate::proxy::helpers::{
-    approval_containment_context_from_security_context, circuit_breaker_security_context,
-    create_pending_approval_with_context, invalid_presented_approval_security_context,
-    memory_poisoning_security_context, notification_dlp_security_context,
-    notification_injection_security_context, notification_memory_poisoning_security_context,
-    output_schema_violation_security_context, parameter_dlp_security_context,
-    parameter_injection_security_context, privilege_escalation_security_context,
-    require_approval_security_context, resolve_domains, response_dlp_security_context,
-    response_injection_security_context, rug_pull_security_context,
+    abac_deny_security_context, approval_containment_context_from_security_context,
+    circuit_breaker_security_context, create_pending_approval_with_context,
+    invalid_presented_approval_security_context, memory_poisoning_security_context,
+    notification_dlp_security_context, notification_injection_security_context,
+    notification_memory_poisoning_security_context, output_schema_violation_security_context,
+    parameter_dlp_security_context, parameter_injection_security_context,
+    privilege_escalation_security_context, require_approval_security_context, resolve_domains,
+    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
     tool_discovery_integrity_security_context, unknown_tool_approval_gate_security_context,
     untrusted_tool_approval_gate_security_context,
 };
@@ -1169,9 +1169,9 @@ impl McpGrpcService {
         let mut matched_approval_id: Option<String> = None;
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
-        // Parity with WS handler (create_ws_approval) which tries agent_identity.subject
-        // first, then falls back to oauth_subject. Without this, approval_store.create()
-        // receives None as requested_by, bypassing the self-approval check.
+        // This prefers agent_identity.subject, then falls back to oauth_subject.
+        // Without it, pending approvals lose requester attribution and bypass the
+        // self-approval check.
         let requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
@@ -1550,12 +1550,14 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let abac_security_context = abac_deny_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &deny_verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&abac_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -1763,13 +1765,14 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
-                let deny_reason = format!("Requires approval: {}", reason);
-                let acis_envelope = build_acis_envelope(
+                let approval_security_context = require_approval_security_context(&action);
+                let approval_verdict = Verdict::RequireApproval {
+                    reason: reason.clone(),
+                };
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
-                    &Verdict::Deny {
-                        reason: deny_reason.clone(),
-                    },
+                    &approval_verdict,
                     DecisionOrigin::ApprovalGate,
                     "grpc",
                     &[],
@@ -1777,15 +1780,14 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    Some(&approval_security_context),
                 );
                 if let Err(e) = self
                     .state
                     .audit
                     .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &approval_verdict,
                         json!({
                             "source": "grpc_proxy",
                             "session": session_id,
@@ -1801,22 +1803,18 @@ impl McpGrpcService {
                         return deny;
                     }
                 }
-                // SECURITY (FIND-R211-002): Create pending approval in store — parity
-                // with HTTP handler (handlers.rs:1384) and WS (create_ws_approval).
-                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
-                    approval_store
-                        .create(
-                            action.clone(),
-                            reason.clone(),
-                            requested_by.clone(),
-                            Some(session_id.to_string()),
-                            Some(fingerprint_action(&action)),
-                        )
-                        .await
-                        .ok()
-                } else {
-                    None
-                };
+                let containment_context = approval_containment_context_from_security_context(
+                    &approval_security_context,
+                    &reason,
+                );
+                let approval_id = create_pending_approval_with_context(
+                    &self.state,
+                    session_id,
+                    &action,
+                    &reason,
+                    containment_context,
+                )
+                .await;
                 self.approval_required_response(proto_req, approval_id)
             }
             // Fail-closed: unknown Verdict variants produce Deny
@@ -1837,8 +1835,8 @@ impl McpGrpcService {
         let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
-        // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
-        // receives None as requested_by, bypassing the self-approval check.
+        // Without this, gRPC approval requests lose requester attribution and
+        // bypass the self-approval check.
         let requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
@@ -1929,12 +1927,14 @@ impl McpGrpcService {
                     uri
                 ),
             };
-            let envelope = build_secondary_acis_envelope(
+            let rug_pull_security_context = rug_pull_security_context(&action);
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &verdict,
                 DecisionOrigin::CapabilityEnforcement,
                 "grpc",
                 Some(session_id),
+                Some(&rug_pull_security_context),
             );
             if let Err(e) = self
                 .state
@@ -2175,12 +2175,14 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let abac_security_context = abac_deny_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &deny_verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&abac_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -2823,8 +2825,8 @@ impl McpGrpcService {
         let presented_approval_id = crate::proxy::helpers::extract_approval_id_from_meta(json_req);
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
-        // Parity with WS handler (create_ws_approval) — without this, gRPC approval_store.create()
-        // receives None as requested_by, bypassing the self-approval check.
+        // Without this, gRPC approval requests lose requester attribution and
+        // bypass the self-approval check.
         let requested_by = self.state.sessions.get(session_id).and_then(|s| {
             s.agent_identity
                 .as_ref()
@@ -3148,12 +3150,14 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let abac_security_context = abac_deny_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &deny_verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&abac_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -3287,13 +3291,14 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
-                let deny_reason = format!("Requires approval: {}", reason);
-                let acis_envelope = build_acis_envelope(
+                let approval_security_context = require_approval_security_context(&action);
+                let approval_verdict = Verdict::RequireApproval {
+                    reason: reason.clone(),
+                };
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
-                    &Verdict::Deny {
-                        reason: deny_reason.clone(),
-                    },
+                    &approval_verdict,
                     DecisionOrigin::ApprovalGate,
                     "grpc",
                     &[],
@@ -3301,15 +3306,14 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    Some(&approval_security_context),
                 );
                 if let Err(e) = self
                     .state
                     .audit
                     .log_entry_with_acis(
                         &action,
-                        &Verdict::Deny {
-                            reason: deny_reason.clone(),
-                        },
+                        &approval_verdict,
                         json!({
                             "source": "grpc_proxy",
                             "session": session_id,
@@ -3326,22 +3330,18 @@ impl McpGrpcService {
                         return deny;
                     }
                 }
-                // SECURITY (FIND-R211-002): Create pending approval in store — parity
-                // with HTTP handler (handlers.rs:2942) and WS (create_ws_approval).
-                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
-                    approval_store
-                        .create(
-                            action.clone(),
-                            reason.clone(),
-                            requested_by.clone(),
-                            Some(session_id.to_string()),
-                            Some(fingerprint_action(&action)),
-                        )
-                        .await
-                        .ok()
-                } else {
-                    None
-                };
+                let containment_context = approval_containment_context_from_security_context(
+                    &approval_security_context,
+                    &reason,
+                );
+                let approval_id = create_pending_approval_with_context(
+                    &self.state,
+                    session_id,
+                    &action,
+                    &reason,
+                    containment_context,
+                )
+                .await;
                 self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log
@@ -3682,12 +3682,14 @@ impl McpGrpcService {
                             let deny_verdict = Verdict::Deny {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let abac_security_context = abac_deny_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &deny_verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&abac_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -3824,10 +3826,11 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
+                let approval_security_context = require_approval_security_context(&action);
                 let verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
-                let acis_envelope = build_acis_envelope(
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -3838,6 +3841,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    Some(&approval_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -3862,20 +3866,18 @@ impl McpGrpcService {
                         return deny;
                     }
                 }
-                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
-                    approval_store
-                        .create(
-                            action.clone(),
-                            reason.clone(),
-                            requested_by.clone(),
-                            Some(session_id.to_string()),
-                            Some(fingerprint_action(&action)),
-                        )
-                        .await
-                        .ok()
-                } else {
-                    None
-                };
+                let containment_context = approval_containment_context_from_security_context(
+                    &approval_security_context,
+                    &reason,
+                );
+                let approval_id = create_pending_approval_with_context(
+                    &self.state,
+                    session_id,
+                    &action,
+                    &reason,
+                    containment_context,
+                )
+                .await;
                 self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log

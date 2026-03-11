@@ -35,7 +35,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -1602,13 +1601,17 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &deny_verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "websocket",
-                                                Some(&session_id),
-                                            );
+                                            let abac_security_context =
+                                                super::helpers::abac_deny_security_context(&action);
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "websocket",
+                                                    Some(&session_id),
+                                                    Some(&abac_security_context),
+                                                );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -2002,12 +2005,15 @@ async fn relay_client_to_upstream(
                                         "Resource '{uri}' blocked: server flagged by rug-pull detection"
                                     ),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let rug_pull_security_context =
+                                    super::helpers::rug_pull_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::CapabilityEnforcement,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&rug_pull_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2310,13 +2316,17 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &deny_verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "websocket",
-                                                Some(&session_id),
-                                            );
+                                            let abac_security_context =
+                                                super::helpers::abac_deny_security_context(&action);
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "websocket",
+                                                    Some(&session_id),
+                                                    Some(&abac_security_context),
+                                                );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -3047,13 +3057,17 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &deny_verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "websocket",
-                                                Some(&session_id),
-                                            );
+                                            let abac_security_context =
+                                                super::helpers::abac_deny_security_context(&action);
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "websocket",
+                                                    Some(&session_id),
+                                                    Some(&abac_security_context),
+                                                );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -3235,6 +3249,11 @@ async fn relay_client_to_upstream(
                                 let approval_verdict = Verdict::RequireApproval {
                                     reason: reason.clone(),
                                 };
+                                let containment_context =
+                                    super::helpers::approval_containment_context_from_envelope(
+                                        &acis_envelope,
+                                        reason,
+                                    );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3266,16 +3285,22 @@ async fn relay_client_to_upstream(
                                         continue;
                                     }
                                 }
-                                let approval_reason = "Approval required";
                                 let approval_id =
-                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                    super::helpers::create_pending_approval_with_context(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        reason,
+                                        containment_context,
+                                    )
+                                    .await;
                                 let denial = make_ws_error_response_with_data(
                                     Some(id),
                                     -32001,
-                                    approval_reason,
+                                    "Approval required",
                                     Some(json!({
                                         "verdict": "require_approval",
-                                        "reason": approval_reason,
+                                        "reason": reason,
                                         "approval_id": approval_id,
                                     })),
                                 );
@@ -3569,13 +3594,17 @@ async fn relay_client_to_upstream(
                                             let deny_verdict = Verdict::Deny {
                                                 reason: reason.clone(),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &deny_verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "websocket",
-                                                Some(&session_id),
-                                            );
+                                            let abac_security_context =
+                                                super::helpers::abac_deny_security_context(&action);
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &deny_verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "websocket",
+                                                    Some(&session_id),
+                                                    Some(&abac_security_context),
+                                                );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -3776,6 +3805,11 @@ async fn relay_client_to_upstream(
                                 let approval_verdict = Verdict::RequireApproval {
                                     reason: reason.clone(),
                                 };
+                                let containment_context =
+                                    super::helpers::approval_containment_context_from_envelope(
+                                        &acis_envelope,
+                                        reason,
+                                    );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3807,16 +3841,22 @@ async fn relay_client_to_upstream(
                                         continue;
                                     }
                                 }
-                                let approval_reason = "Approval required";
                                 let approval_id =
-                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                    super::helpers::create_pending_approval_with_context(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        reason,
+                                        containment_context,
+                                    )
+                                    .await;
                                 let denial = make_ws_error_response_with_data(
                                     Some(id),
                                     -32001,
-                                    approval_reason,
+                                    "Approval required",
                                     Some(json!({
                                         "verdict": "require_approval",
-                                        "reason": approval_reason,
+                                        "reason": reason,
                                         "approval_id": approval_id,
                                     })),
                                 );
@@ -5446,8 +5486,8 @@ fn extract_scannable_text(json_val: &Value) -> String {
     text_parts.join("\n")
 }
 
-/// Create a pending approval for WebSocket-denied actions when an approval store
-/// is configured. Returns the pending approval ID on success.
+/// Test-only compatibility helper for approval-store assertions.
+#[cfg(test)]
 async fn create_ws_approval(
     state: &ProxyState,
     session_id: &str,
@@ -5468,7 +5508,7 @@ async fn create_ws_approval(
             reason.to_string(),
             requested_by,
             Some(session_id.to_string()),
-            Some(fingerprint_action(action)),
+            Some(vellaveto_engine::acis::fingerprint_action(action)),
         )
         .await
     {

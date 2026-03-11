@@ -18,7 +18,6 @@ use axum::{
 };
 use bytes::Bytes;
 use serde_json::{json, Value};
-use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::extractor::{self, make_denial_response, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
@@ -40,8 +39,9 @@ use super::call_chain::{
     track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use super::helpers::{
-    approval_containment_context_from_envelope, approval_containment_context_from_security_context,
-    build_runtime_security_context, circuit_breaker_security_context, consume_presented_approval,
+    abac_deny_security_context, approval_containment_context_from_envelope,
+    approval_containment_context_from_security_context, build_runtime_security_context,
+    circuit_breaker_security_context, consume_presented_approval,
     create_pending_approval_with_context, extract_approval_id_from_meta,
     invalid_presented_approval_security_context, memory_poisoning_security_context,
     notification_dlp_security_context, notification_injection_security_context,
@@ -211,11 +211,6 @@ pub async fn handle_mcp_post(
         Ok(identity) => identity,
         Err(response) => return response,
     };
-
-    // SECURITY (R36-PROXY-2): Extract the authenticated principal for self-approval
-    // prevention. Without this, approval_store.create() receives None as requested_by,
-    // which bypasses the self-approval check.
-    let requested_by = oauth_claims.as_ref().map(|c| c.sub.clone());
 
     // Phase 28: Extract W3C Trace Context from incoming request headers.
     // Creates a new trace context if none is present (fail-open for observability).
@@ -1204,12 +1199,14 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let abac_security_context = abac_deny_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&abac_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1806,36 +1803,25 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
                     };
+                    let containment_context =
+                        approval_containment_context_from_envelope(&acis_envelope, &reason);
 
                     // Create pending approval if store is configured
-                    let approval_id = if let Some(ref store) = state.approval_store {
-                        match store
-                            .create(
-                                action.clone(),
-                                reason.clone(),
-                                requested_by.clone(),
-                                Some(session_id.clone()),
-                                Some(fingerprint_action(&action)),
-                            )
-                            .await
-                        {
-                            Ok(id) => {
-                                tracing::info!(
-                                    "Created pending approval {} for tool '{}'",
-                                    id,
-                                    tool_name
-                                );
-                                Some(id)
-                            }
-                            Err(e) => {
-                                // Fail-closed: log error but still return RequireApproval
-                                tracing::error!("Failed to create approval (fail-closed): {}", e);
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    };
+                    let approval_id = create_pending_approval_with_context(
+                        &state,
+                        &session_id,
+                        &action,
+                        &reason,
+                        containment_context,
+                    )
+                    .await;
+                    if let Some(ref approval_id) = approval_id {
+                        tracing::info!(
+                            "Created pending approval {} for tool '{}'",
+                            approval_id,
+                            tool_name
+                        );
+                    }
 
                     if let Err(e) = state
                         .audit
@@ -2015,12 +2001,14 @@ pub async fn handle_mcp_post(
                         "Resource '{uri}' blocked: server flagged by rug-pull detection"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let rug_pull_security_context = rug_pull_security_context(&action);
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &verdict,
                     DecisionOrigin::CapabilityEnforcement,
                     "http",
                     Some(&session_id),
+                    Some(&rug_pull_security_context),
                 );
                 if let Err(e) = state
                     .audit
@@ -2356,12 +2344,14 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let abac_security_context = abac_deny_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&abac_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3548,12 +3538,14 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let abac_security_context = abac_deny_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&abac_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -3740,20 +3732,16 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
                     };
-                    let approval_id = if let Some(ref store) = state.approval_store {
-                        store
-                            .create(
-                                action.clone(),
-                                reason.clone(),
-                                requested_by.clone(),
-                                Some(session_id.clone()),
-                                Some(fingerprint_action(&action)),
-                            )
-                            .await
-                            .ok()
-                    } else {
-                        None
-                    };
+                    let containment_context =
+                        approval_containment_context_from_envelope(&acis_envelope, &reason);
+                    let approval_id = create_pending_approval_with_context(
+                        &state,
+                        &session_id,
+                        &action,
+                        &reason,
+                        containment_context,
+                    )
+                    .await;
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
@@ -4233,12 +4221,14 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: reason.clone(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let abac_security_context = abac_deny_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&abac_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -4407,20 +4397,16 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::RequireApproval {
                         reason: reason.clone(),
                     };
-                    let approval_id = if let Some(ref store) = state.approval_store {
-                        store
-                            .create(
-                                action.clone(),
-                                reason.clone(),
-                                requested_by.clone(),
-                                Some(session_id.clone()),
-                                Some(fingerprint_action(&action)),
-                            )
-                            .await
-                            .ok()
-                    } else {
-                        None
-                    };
+                    let containment_context =
+                        approval_containment_context_from_envelope(&acis_envelope, &reason);
+                    let approval_id = create_pending_approval_with_context(
+                        &state,
+                        &session_id,
+                        &action,
+                        &reason,
+                        containment_context,
+                    )
+                    .await;
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
