@@ -108,6 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repeated nonces surface as `replay_detected` to the shared mediation path.
   Unknown signers, malformed signatures, and canonical-binding failures fail
   closed as `invalid` or `error` instead of being treated as unaudited metadata.
+- **HTTP proxy detached request-signature freshness (Mar 2026):**
+  Verified detached request signatures now also enforce bounded `created_at`
+  freshness in transport provenance. Signatures with malformed timestamps,
+  stale timestamps, or excessive future skew are downgraded to
+  `signature_status = expired` before replay handling, so detached signatures
+  are no longer treated as timeless once the cryptographic check passes.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

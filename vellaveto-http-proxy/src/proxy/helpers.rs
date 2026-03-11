@@ -17,6 +17,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
 use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::{
@@ -41,6 +42,8 @@ use crate::proxy::X_REQUEST_SIGNATURE;
 use crate::session::SessionStore;
 
 const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
+const DETACHED_SIGNATURE_MAX_AGE_SECS: u64 = 600;
+const DETACHED_SIGNATURE_MAX_FUTURE_SKEW_SECS: u64 = 300;
 
 pub(super) type TrustedRequestSignerMap = std::collections::HashMap<String, [u8; 32]>;
 
@@ -849,6 +852,31 @@ fn verify_detached_request_signature(
     } else {
         SignatureVerificationStatus::Invalid
     };
+    if provenance.signature_status != SignatureVerificationStatus::Verified {
+        return;
+    }
+    if let Some(created_at) = request_signature.created_at.as_deref() {
+        let created_at_secs = match vellaveto_types::time_util::parse_iso8601_secs(created_at) {
+            Ok(timestamp) => timestamp,
+            Err(_) => {
+                provenance.signature_status = SignatureVerificationStatus::Invalid;
+                return;
+            }
+        };
+        let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs(),
+            Err(_) => {
+                provenance.signature_status = SignatureVerificationStatus::Error;
+                return;
+            }
+        };
+        if created_at_secs > now_secs.saturating_add(DETACHED_SIGNATURE_MAX_FUTURE_SKEW_SECS)
+            || now_secs.saturating_sub(created_at_secs) > DETACHED_SIGNATURE_MAX_AGE_SECS
+        {
+            provenance.signature_status = SignatureVerificationStatus::Expired;
+            return;
+        }
+    }
     if provenance.signature_status != SignatureVerificationStatus::Verified
         || provenance.replay_status != ReplayStatus::NotChecked
     {

@@ -44,7 +44,7 @@ fn make_signed_detached_request_signature_header_with_scope(
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
         nonce: Some("detached-nonce".to_string()),
-        created_at: Some("2026-03-11T16:30:00Z".to_string()),
+        created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         signature: None,
     };
     let input = CanonicalRequestInput::from_action(

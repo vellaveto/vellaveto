@@ -98,6 +98,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   of silently treating them as transport metadata. Verified detached
   signatures now also feed session-local replay status, so mediation can deny
   repeated signed nonces the same way it already denies DPoP replay.
+- Verified detached request signatures now also enforce bounded `created_at`
+  freshness, so stale or excessively future-skewed signed requests surface as
+  `expired` transport provenance instead of remaining valid indefinitely after
+  the signature check succeeds.
 - gRPC session identity now uses the same validated claim-merging path as
   HTTP/WS, so explicit workload claims and verified bearer-token custom claims
   no longer disappear on the gRPC transport before policy evaluation.
