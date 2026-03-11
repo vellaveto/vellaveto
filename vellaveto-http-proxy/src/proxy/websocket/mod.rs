@@ -1221,6 +1221,41 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R46-013): Tool registry trust check.
                         // If tool registry is configured, check trust level before evaluation.
                         if let Some(ref registry) = state.tool_registry {
+                            let registry_eval_ctx = state
+                                .sessions
+                                .get(&session_id)
+                                .map(|session| EvaluationContext {
+                                    timestamp: None,
+                                    agent_id: session.oauth_subject.clone(),
+                                    agent_identity: session.agent_identity.clone(),
+                                    call_counts: session.call_counts.clone(),
+                                    previous_actions: session
+                                        .action_history
+                                        .iter()
+                                        .cloned()
+                                        .collect(),
+                                    call_chain: session.current_call_chain.clone(),
+                                    tenant_id: None,
+                                    verification_tier: None,
+                                    capability_token: None,
+                                    session_state: None,
+                                })
+                                .unwrap_or_default();
+                            let registry_runtime_security_context =
+                                build_ws_runtime_security_context(
+                                    &parsed,
+                                    &action,
+                                    &handshake_headers,
+                                    super::helpers::TransportSecurityInputs {
+                                        oauth_evidence: oauth_claims.as_ref(),
+                                        eval_ctx: Some(&registry_eval_ctx),
+                                        sessions: &state.sessions,
+                                        session_id: Some(&session_id),
+                                        trusted_request_signers: &state.trusted_request_signers,
+                                        detached_signature_freshness: state
+                                            .detached_signature_freshness,
+                                    },
+                                );
                             let trust = registry.check_trust_level(tool_name).await;
                             match trust {
                                 vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
@@ -1243,6 +1278,15 @@ async fn relay_client_to_upstream(
                                             };
                                             let approval_security_context =
                                                 super::helpers::unknown_tool_approval_gate_security_context(&action);
+                                            let combined_security_context =
+                                                super::helpers::merge_transport_security_context(
+                                                    registry_runtime_security_context.as_ref(),
+                                                    Some(&approval_security_context),
+                                                );
+                                            let effective_security_context =
+                                                combined_security_context
+                                                    .as_ref()
+                                                    .unwrap_or(&approval_security_context);
                                             let envelope =
                                                 build_secondary_acis_envelope_with_security_context(
                                                     &action,
@@ -1250,7 +1294,7 @@ async fn relay_client_to_upstream(
                                                     DecisionOrigin::PolicyEngine,
                                                     "websocket",
                                                     Some(&session_id),
-                                                    Some(&approval_security_context),
+                                                    Some(effective_security_context),
                                                 );
                                             if let Err(e) = state
                                                 .audit
@@ -1276,7 +1320,7 @@ async fn relay_client_to_upstream(
                                             let approval_reason = "Approval required";
                                             let containment_context =
                                                 super::helpers::approval_containment_context_from_security_context(
-                                                    &approval_security_context,
+                                                    effective_security_context,
                                                     approval_reason,
                                                 );
                                             let approval_id =
@@ -1365,6 +1409,15 @@ async fn relay_client_to_upstream(
                                             };
                                             let approval_security_context =
                                                 super::helpers::untrusted_tool_approval_gate_security_context(&action);
+                                            let combined_security_context =
+                                                super::helpers::merge_transport_security_context(
+                                                    registry_runtime_security_context.as_ref(),
+                                                    Some(&approval_security_context),
+                                                );
+                                            let effective_security_context =
+                                                combined_security_context
+                                                    .as_ref()
+                                                    .unwrap_or(&approval_security_context);
                                             let envelope =
                                                 build_secondary_acis_envelope_with_security_context(
                                                     &action,
@@ -1372,7 +1425,7 @@ async fn relay_client_to_upstream(
                                                     DecisionOrigin::PolicyEngine,
                                                     "websocket",
                                                     Some(&session_id),
-                                                    Some(&approval_security_context),
+                                                    Some(effective_security_context),
                                                 );
                                             if let Err(e) = state
                                                 .audit
@@ -1398,7 +1451,7 @@ async fn relay_client_to_upstream(
                                             let approval_reason = "Approval required";
                                             let containment_context =
                                                 super::helpers::approval_containment_context_from_security_context(
-                                                    &approval_security_context,
+                                                    effective_security_context,
                                                     approval_reason,
                                                 );
                                             let approval_id =

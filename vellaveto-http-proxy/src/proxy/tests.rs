@@ -18,6 +18,8 @@ use super::inspection::{attach_session_header, extract_text_from_result};
 use super::origin::{extract_authority_from_origin, validate_origin};
 use super::upstream::canonicalize_body;
 use super::*;
+use axum::body::to_bytes;
+use axum::extract::{OriginalUri, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -579,7 +581,7 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
     );
     assert_eq!(
         provenance.workload_binding_status,
-        vellaveto_types::WorkloadBindingStatus::Bound
+        vellaveto_types::WorkloadBindingStatus::Missing
     );
     assert_eq!(
         provenance.session_key_scope,
@@ -2776,6 +2778,268 @@ fn test_detached_signer_ephemeral_projection_satisfies_mediation_guard() {
 
     assert!(matches!(result.verdict, vellaveto_types::Verdict::Allow));
     assert_eq!(result.origin, vellaveto_types::DecisionOrigin::PolicyEngine);
+}
+
+#[tokio::test]
+async fn test_http_unknown_tool_approval_persists_clamped_transport_provenance() {
+    let mut state = make_test_proxy_state(false);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+    state.tool_registry = Some(std::sync::Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            dir.path().join("tool-registry"),
+            0.8,
+        ),
+    ));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "unknown_tool",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("unknown_tool", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[47u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        "application/json".parse().expect("content type header"),
+    );
+    headers.insert(
+        super::MCP_SESSION_ID,
+        session_id.parse().expect("session header"),
+    );
+    headers.insert(
+        super::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        super::handlers::handle_mcp_post(
+            State(state.clone()),
+            OriginalUri("/mcp".parse().expect("mcp uri")),
+            Query(super::McpQueryParams::default()),
+            None,
+            headers,
+            Bytes::from(serde_json::to_vec(&msg).expect("json body")),
+        ),
+    )
+    .await
+    .expect("http untrusted-tool approval handler timeout");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        to_bytes(response.into_body(), usize::MAX),
+    )
+    .await
+    .expect("http untrusted-tool approval body timeout")
+    .expect("response body");
+    let parsed: Value = serde_json::from_slice(&body).expect("json response");
+    let error_message = parsed["error"]["message"]
+        .as_str()
+        .expect("error message string");
+    assert!(error_message.contains("Approval required"));
+    assert!(error_message.contains("require_approval"));
+
+    let pending = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        state
+            .approval_store
+            .as_ref()
+            .expect("approval store")
+            .list_pending(),
+    )
+    .await
+    .expect("http untrusted-tool approval store timeout");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+}
+
+#[tokio::test]
+async fn test_http_untrusted_tool_approval_persists_clamped_transport_provenance() {
+    let mut state = make_test_proxy_state(false);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+    state.tool_registry = Some(std::sync::Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            dir.path().join("tool-registry"),
+            0.8,
+        ),
+    ));
+    state
+        .tool_registry
+        .as_ref()
+        .expect("tool registry")
+        .register_unknown("untrusted_tool")
+        .await;
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "untrusted_tool",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("untrusted_tool", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[48u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        "application/json".parse().expect("content type header"),
+    );
+    headers.insert(
+        super::MCP_SESSION_ID,
+        session_id.parse().expect("session header"),
+    );
+    headers.insert(
+        super::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        super::handlers::handle_mcp_post(
+            State(state.clone()),
+            OriginalUri("/mcp".parse().expect("mcp uri")),
+            Query(super::McpQueryParams::default()),
+            None,
+            headers,
+            Bytes::from(serde_json::to_vec(&msg).expect("json body")),
+        ),
+    )
+    .await
+    .expect("http untrusted-tool approval handler timeout");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        to_bytes(response.into_body(), usize::MAX),
+    )
+    .await
+    .expect("http untrusted-tool approval body timeout")
+    .expect("response body");
+    let parsed: Value = serde_json::from_slice(&body).expect("json response");
+    let error_message = parsed["error"]["message"]
+        .as_str()
+        .expect("error message string");
+    assert!(error_message.contains("Approval required"));
+    assert!(error_message.contains("require_approval"));
+
+    let pending = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        state
+            .approval_store
+            .as_ref()
+            .expect("approval store")
+            .list_pending(),
+    )
+    .await
+    .expect("http untrusted-tool approval store timeout");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
 }
 
 #[test]

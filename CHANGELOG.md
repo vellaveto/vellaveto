@@ -185,6 +185,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coverage too, so `_meta.client_provenance.session_key_scope` and
   `execution_is_ephemeral` cannot override persisted transport scope on those
   entrypoints either.
+  Approval-containment derivation is now covered on WebSocket and gRPC too, so
+  the reviewer-facing provenance summary reflects the clamped transport scope
+  rather than the original `_meta` scope claims.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral
@@ -252,6 +255,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mediation. Pre-mediation deny, approval-gate, and transport-control audits
   therefore carry the same opaque session-bound canonical request hash as the
   final mediated verdict path.
+- **HTTP proxy transport provenance audit parity (Mar 2026):**
+  WebSocket and gRPC regression coverage now also proves that secondary ACIS
+  envelopes preserve clamped transport provenance rather than spoofed
+  `_meta.client_provenance` fields. Approval-gate audit paths now have
+  explicit parity coverage for transport-owned signature fields, runtime-owned
+  scope/hash bindings, and persisted session-scope clamping.
+- **HTTP proxy approval-envelope provenance parity (Mar 2026):**
+  WebSocket and gRPC regression coverage now also proves that
+  `approval_containment_context_from_envelope(...)` preserves those same
+  clamped transport provenance fields. Reviewer-visible approval summaries
+  therefore stay aligned with transport truth after the ACIS envelope hop, not
+  just before it.
+- **HTTP proxy pending-approval provenance parity (Mar 2026):**
+  WebSocket and gRPC regression coverage now also proves that
+  `create_pending_approval_with_context(...)` persists the clamped transport
+  provenance summary into stored pending approvals. The approval store now has
+  transport-parity coverage for opaque session binding plus persisted
+  `session_key_scope`, `execution_is_ephemeral`, and signature-status fields.
+- **HTTP proxy live approval-gate provenance merge (Mar 2026):**
+  Unknown-tool and untrusted-tool approval gates now merge transport-derived
+  runtime provenance into the approval security context before emitting ACIS or
+  persisting pending approvals. HTTP, WebSocket, and gRPC approval-gate paths
+  no longer drop detached-signature, scope, or canonical-binding provenance at
+  the point where a live approval is created. gRPC unary service coverage now
+  locks that end-to-end path, direct HTTP handler coverage proves the same
+  persisted approval state on the real POST `/mcp` approval gate, and live
+  WebSocket integration coverage now locks the same stored approval context on
+  the real `/mcp/ws` unknown-tool and untrusted-tool branches.
 
 ### Fixed
 

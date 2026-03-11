@@ -468,6 +468,419 @@ fn test_ws_runtime_security_context_clamps_meta_ephemeral_scope_with_transport_s
     assert!(!provenance.execution_is_ephemeral);
 }
 
+#[test]
+fn test_ws_approval_context_uses_clamped_transport_scope() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[38u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        crate::proxy::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            None,
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let mut security_context = build_ws_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let context = super::super::helpers::approval_containment_context_from_security_context(
+        &security_context,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+}
+
+#[test]
+fn test_ws_secondary_acis_envelope_uses_clamped_transport_provenance() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "client_key_id": "caller-kid",
+                    "session_scope_binding": "caller-scope",
+                    "canonical_request_hash": "caller-hash",
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true,
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[40u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        crate::proxy::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = build_ws_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "ws",
+        Some(session_id.as_str()),
+        Some(&security_context),
+    );
+    let provenance = envelope
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    let request_signature = provenance
+        .request_signature
+        .as_ref()
+        .expect("request signature");
+
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
+    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
+    assert_ne!(
+        request_signature.created_at.as_deref(),
+        Some("2025-01-01T00:00:00Z")
+    );
+    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
+    assert_eq!(
+        provenance.session_scope_binding.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    assert_ne!(
+        provenance.canonical_request_hash.as_deref(),
+        Some("caller-hash")
+    );
+    assert!(provenance.canonical_request_hash.is_some());
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::PersistedClient
+    );
+    assert!(!provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_ws_approval_context_from_envelope_uses_clamped_transport_provenance() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true,
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        crate::proxy::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            None,
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let mut security_context = build_ws_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "ws",
+        None,
+        Some(&security_context),
+    );
+
+    let context = super::super::helpers::approval_containment_context_from_envelope(
+        &envelope,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Missing)
+    );
+}
+
+#[tokio::test]
+async fn test_create_pending_ws_approval_preserves_clamped_transport_provenance() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[45u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        crate::proxy::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let mut security_context = build_ws_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: state.sessions.as_ref(),
+            session_id: Some(&session_id),
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "ws",
+        Some(session_id.as_str()),
+        Some(&security_context),
+    );
+    let containment_context = super::super::helpers::approval_containment_context_from_envelope(
+        &envelope,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    let approval_id = super::super::helpers::create_pending_approval_with_context(
+        &state,
+        &session_id,
+        &action,
+        "Approval required",
+        Some(containment_context),
+    )
+    .await;
+    assert!(approval_id.is_some(), "approval should be created");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Missing)
+    );
+}
+
 // ==========================================================================
 // make_ws_error_response tests
 // ==========================================================================

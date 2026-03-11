@@ -14,21 +14,33 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ed25519_dalek::{Signer, SigningKey};
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
+use tokio_tungstenite::tungstenite::http::Request as WsRequest;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
+use vellaveto_approval::ApprovalStore;
 use vellaveto_audit::AuditLogger;
+use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_engine::PolicyEngine;
 use vellaveto_http_proxy::oauth::{
     default_allowed_algorithms, default_dpop_allowed_algorithms, DpopMode, OAuthConfig,
     OAuthValidator,
 };
-use vellaveto_http_proxy::proxy::ProxyState;
+use vellaveto_http_proxy::proxy::{ProxyState, TrustedRequestSigner};
 use vellaveto_http_proxy::session::SessionStore;
-use vellaveto_types::{NetworkRules, Policy, PolicyType};
+use vellaveto_mcp::extractor;
+use vellaveto_mcp::tool_registry::ToolRegistry;
+use vellaveto_types::{
+    AgentIdentity, ClientProvenance, NetworkRules, Policy, PolicyType, RequestSignature,
+    SessionKeyScope, SignatureVerificationStatus,
+};
 
 fn default_test_mediation_config() -> vellaveto_mcp::mediation::MediationConfig {
     vellaveto_mcp::mediation::MediationConfig {
@@ -38,6 +50,53 @@ fn default_test_mediation_config() -> vellaveto_mcp::mediation::MediationConfig 
         injection_blocking: false,
         ..vellaveto_mcp::mediation::MediationConfig::default()
     }
+}
+
+fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
+    URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
+}
+
+fn make_signed_detached_request_signature_header_with_scope(
+    action: &vellaveto_types::Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+) -> String {
+    let mut request_signature = RequestSignature {
+        key_id: Some(key_id.to_string()),
+        algorithm: Some("ed25519".to_string()),
+        nonce: Some("detached-nonce".to_string()),
+        created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        signature: None,
+    };
+    let input = CanonicalRequestInput::from_action(
+        action,
+        session_scope_binding,
+        Some(&ClientProvenance {
+            request_signature: Some(request_signature.clone()),
+            ..ClientProvenance::default()
+        }),
+        None,
+    );
+    let preimage = canonical_request_preimage(&input).expect("canonical request preimage");
+    request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
+    make_detached_request_signature_header(&request_signature)
+}
+
+fn trusted_request_signers_for(
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> std::collections::HashMap<String, TrustedRequestSigner> {
+    std::collections::HashMap::from([(
+        key_id.to_string(),
+        TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: SessionKeyScope::Unknown,
+            execution_is_ephemeral: false,
+            workload_identity: None,
+        },
+    )])
 }
 
 /// Start a mock upstream MCP server that echoes back tool call results.
@@ -65,6 +124,44 @@ async fn start_mock_upstream() -> Option<String> {
     // Give the server a moment to start
     tokio::time::sleep(Duration::from_millis(50)).await;
 
+    Some(url)
+}
+
+async fn mock_ws_upstream_handler(
+    ws: axum::extract::ws::WebSocketUpgrade,
+) -> axum::response::Response {
+    ws.on_upgrade(|mut socket| async move {
+        while let Some(Ok(message)) = socket.recv().await {
+            match message {
+                axum::extract::ws::Message::Ping(payload) => {
+                    let _ = socket.send(axum::extract::ws::Message::Pong(payload)).await;
+                }
+                axum::extract::ws::Message::Close(_) => break,
+                _ => {}
+            }
+        }
+    })
+}
+
+async fn start_mock_upstream_ws() -> Option<String> {
+    let app = axum::Router::new().route("/mcp", axum::routing::get(mock_ws_upstream_handler));
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("skipping proxy integration test: cannot bind mock upstream ws: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind mock upstream ws: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
     Some(url)
 }
 
@@ -338,6 +435,69 @@ fn build_router(state: ProxyState) -> axum::Router {
         )
         .route("/health", axum::routing::get(|| async { "ok" }))
         .with_state(state)
+}
+
+fn build_ws_router(state: ProxyState) -> axum::Router {
+    axum::Router::new()
+        .route(
+            "/mcp",
+            axum::routing::post(vellaveto_http_proxy::proxy::handle_mcp_post)
+                .delete(vellaveto_http_proxy::proxy::handle_mcp_delete),
+        )
+        .route(
+            "/mcp/ws",
+            axum::routing::get(vellaveto_http_proxy::proxy::handle_ws_upgrade),
+        )
+        .route("/health", axum::routing::get(|| async { "ok" }))
+        .with_state(state)
+}
+
+async fn start_proxy_ws_server(state: ProxyState) -> Option<String> {
+    let app = build_ws_router(state);
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("skipping proxy integration test: cannot bind proxy ws server: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind proxy ws server: {error}"),
+    };
+    let addr = listener.local_addr().unwrap();
+    let ws_url = format!("ws://{addr}/mcp/ws");
+
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    Some(ws_url)
+}
+
+async fn recv_ws_json(
+    client_ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> Value {
+    let text = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match client_ws.next().await {
+                Some(Ok(WsMessage::Text(text))) => break text.to_string(),
+                Some(Ok(WsMessage::Ping(_))) | Some(Ok(WsMessage::Pong(_))) => continue,
+                Some(Ok(message)) => panic!("unexpected websocket message: {message:?}"),
+                Some(Err(error)) => panic!("websocket receive error: {error}"),
+                None => panic!("websocket closed before response"),
+            }
+        }
+    })
+    .await
+    .expect("websocket response timeout");
+
+    serde_json::from_str(&text).expect("websocket json response")
 }
 
 async fn json_body(resp: axum::response::Response) -> Value {
@@ -6565,4 +6725,134 @@ async fn oversized_session_id_gets_new_session() {
     // FIND-R73-SRV-011: Oversized session IDs are now rejected with 400
     // before OAuth validation, matching the DELETE handler pattern.
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
+    tool_name: &str,
+    pre_register_untrusted: bool,
+) {
+    let Some(upstream_url) = start_mock_upstream_ws().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    let approval_store = Arc::new(ApprovalStore::new(
+        tmp.path().join("approvals.jsonl"),
+        Duration::from_secs(300),
+    ));
+    state.approval_store = Some(approval_store.clone());
+
+    let registry = Arc::new(ToolRegistry::with_threshold(
+        tmp.path().join("tool-registry"),
+        0.8,
+    ));
+    if pre_register_untrusted {
+        registry.register_unknown(tool_name).await;
+    }
+    state.tool_registry = Some(registry);
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("ws-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_action(tool_name, &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[61u8; 32]);
+    state.trusted_request_signers =
+        Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+
+    let Some(proxy_ws_url) = start_proxy_ws_server(state.clone()).await else {
+        return;
+    };
+    let request = WsRequest::builder()
+        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
+        .header(
+            "x-request-signature",
+            make_signed_detached_request_signature_header_with_scope(
+                &action,
+                "detached-kid",
+                &signing_key,
+                Some(session_scope_binding.as_str()),
+            ),
+        )
+        .body(())
+        .unwrap();
+
+    let (mut client_ws, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .expect("websocket connect timeout")
+    .expect("websocket connect");
+
+    let message = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        client_ws.send(WsMessage::Text(message.to_string().into())),
+    )
+    .await
+    .expect("websocket send timeout")
+    .expect("websocket send");
+
+    let response = recv_ws_json(&mut client_ws).await;
+    assert_eq!(response["error"]["code"], -32001, "{response:?}");
+    assert_eq!(response["error"]["message"], "Approval required");
+    assert_eq!(response["error"]["data"]["verdict"], "require_approval");
+
+    let pending = approval_store.list_pending().await;
+    assert_eq!(pending.len(), 1, "{pending:?}");
+    let approval = &pending[0];
+    let context = approval
+        .containment_context
+        .as_ref()
+        .expect("approval containment context");
+    assert_eq!(approval.reason, "Approval required");
+    assert_eq!(
+        approval.session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    assert_eq!(
+        context.signature_status,
+        Some(SignatureVerificationStatus::Verified)
+    );
+    assert_eq!(
+        context.session_key_scope,
+        Some(SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+
+    let _ = client_ws.close(None).await;
+}
+
+#[tokio::test]
+async fn ws_unknown_tool_approval_persists_clamped_transport_provenance() {
+    assert_ws_tool_approval_persists_clamped_transport_provenance("unknown_tool", false).await;
+}
+
+#[tokio::test]
+async fn ws_untrusted_tool_approval_persists_clamped_transport_provenance() {
+    assert_ws_tool_approval_persists_clamped_transport_provenance("untrusted_tool", true).await;
 }

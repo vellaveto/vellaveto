@@ -156,6 +156,32 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   regression coverage, so `_meta.client_provenance.session_key_scope` and
   `execution_is_ephemeral` cannot override persisted transport scope outside
   the HTTP entrypoint either.
+- Approval-containment derivation now also has WebSocket and gRPC regression
+  coverage for those clamped scope fields, so reviewer-visible provenance
+  summary follows transport truth rather than `_meta` scope claims.
+- Secondary ACIS envelope derivation now also has WebSocket and gRPC
+  regression coverage for those same clamped provenance fields, so approval-
+  gate audit events preserve transport-owned signature data, runtime-owned
+  scope/hash bindings, and persisted session-scope clamping instead of
+  replaying spoofed `_meta.client_provenance` values.
+- Approval-context derivation from those secondary ACIS envelopes now also has
+  explicit WebSocket and gRPC regression coverage, so reviewer-facing approval
+  summaries remain aligned with clamped transport provenance even after the
+  audit-envelope conversion step.
+- Stored pending-approval records now also have explicit WebSocket and gRPC
+  regression coverage for that same provenance summary, so the
+  `create_pending_approval_with_context(...)` path preserves opaque session
+  binding and clamped signer/scope fields all the way into reviewer state.
+- Live tool-registry approval gates now also merge transport-derived runtime
+  provenance into their approval context before ACIS emission and persistence,
+  so HTTP, WebSocket, and gRPC unknown/untrusted-tool approval paths no longer
+  shed detached-signature, scope, or canonical-binding fields at the last hop.
+  gRPC unary service coverage now locks the end-to-end stored-approval path,
+  direct HTTP handler coverage locks the same POST `/mcp` approval-gate
+  persistence path, and live WebSocket integration coverage now locks the real
+  `/mcp/ws` approval path too. That live-path coverage now includes both the
+  first-seen unknown-tool branch and the already-registered untrusted-tool
+  branch across HTTP, WebSocket, and gRPC.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

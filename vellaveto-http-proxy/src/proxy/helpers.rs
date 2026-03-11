@@ -1245,6 +1245,62 @@ pub(super) fn build_runtime_security_context_with_request_signature(
     )
 }
 
+pub(super) fn merge_transport_security_context(
+    runtime_security_context: Option<&RuntimeSecurityContext>,
+    verdict_security_context: Option<&RuntimeSecurityContext>,
+) -> Option<RuntimeSecurityContext> {
+    let merged = match (
+        runtime_security_context.cloned(),
+        verdict_security_context.cloned(),
+    ) {
+        (None, None) => return None,
+        (Some(context), None) | (None, Some(context)) => context,
+        (Some(mut runtime), Some(verdict)) => {
+            if runtime.client_provenance.is_none() {
+                runtime.client_provenance = verdict.client_provenance;
+            }
+            for taint in verdict.semantic_taint {
+                if !runtime.semantic_taint.contains(&taint) {
+                    runtime.semantic_taint.push(taint);
+                }
+            }
+            runtime.effective_trust_tier =
+                match (runtime.effective_trust_tier, verdict.effective_trust_tier) {
+                    (Some(runtime_tier), Some(verdict_tier)) => {
+                        Some(runtime_tier.meet(verdict_tier))
+                    }
+                    (Some(runtime_tier), None) => Some(runtime_tier),
+                    (None, Some(verdict_tier)) => Some(verdict_tier),
+                    (None, None) => None,
+                };
+            if runtime.sink_class.is_none() {
+                runtime.sink_class = verdict.sink_class;
+            }
+            for lineage in verdict.lineage_refs {
+                if !runtime.lineage_refs.contains(&lineage) {
+                    runtime.lineage_refs.push(lineage);
+                }
+            }
+            if !matches!(
+                verdict.containment_mode,
+                None | Some(vellaveto_types::ContainmentMode::Disabled)
+            ) {
+                runtime.containment_mode = verdict.containment_mode;
+            }
+            if let Some(score) = verdict.semantic_risk_score {
+                runtime.merge_semantic_risk_score(score);
+            }
+            runtime
+        }
+    };
+
+    if merged == RuntimeSecurityContext::default() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
 pub(super) fn tool_discovery_integrity_security_context(
     lineage_id: &str,
     observed_channel: ContextChannel,

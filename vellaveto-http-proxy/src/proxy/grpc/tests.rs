@@ -18,6 +18,7 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use prost_types::value::Kind;
 use serde_json::json;
+use tonic::Request as TonicRequest;
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_types::{ClientProvenance, RequestSignature, SignatureVerificationStatus};
 
@@ -32,6 +33,78 @@ fn empty_trusted_request_signers(
 
 fn default_detached_signature_freshness() -> crate::proxy::DetachedSignatureFreshnessConfig {
     crate::proxy::DetachedSignatureFreshnessConfig::default()
+}
+
+fn make_test_state() -> crate::proxy::ProxyState {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use vellaveto_audit::AuditLogger;
+    use vellaveto_engine::PolicyEngine;
+    use vellaveto_mcp::output_validation::OutputSchemaRegistry;
+
+    let engine = PolicyEngine::new(false);
+    let audit = AuditLogger::new(std::path::PathBuf::from("/dev/null"));
+    let sessions = crate::session::SessionStore::new(Duration::from_secs(300), 100);
+
+    crate::proxy::ProxyState {
+        engine: Arc::new(engine),
+        policies: Arc::new(vec![]),
+        audit: Arc::new(audit),
+        sessions: Arc::new(sessions),
+        upstream_url: "http://localhost:8000/mcp".to_string(),
+        http_client: reqwest::Client::new(),
+        oauth: None,
+        injection_scanner: None,
+        injection_disabled: false,
+        injection_blocking: false,
+        api_key: None,
+        approval_store: None,
+        manifest_config: None,
+        allowed_origins: vec![],
+        bind_addr: "127.0.0.1:3001".parse().unwrap(),
+        canonicalize: true,
+        output_schema_registry: Arc::new(OutputSchemaRegistry::new()),
+        response_dlp_enabled: true,
+        response_dlp_blocking: false,
+        audit_strict_mode: false,
+        mediation_config: vellaveto_mcp::mediation::MediationConfig {
+            dlp_enabled: false,
+            dlp_blocking: false,
+            injection_enabled: false,
+            injection_blocking: false,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
+        trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness: crate::proxy::DetachedSignatureFreshnessConfig::default(),
+        known_tools: std::collections::HashSet::new(),
+        elicitation_config: vellaveto_config::ElicitationConfig::default(),
+        sampling_config: vellaveto_config::SamplingConfig::default(),
+        tool_registry: None,
+        call_chain_hmac_key: None,
+        trace_enabled: false,
+        circuit_breaker: None,
+        shadow_agent: None,
+        deputy: None,
+        schema_lineage: None,
+        auth_level: None,
+        sampling_detector: None,
+        limits: vellaveto_config::LimitsConfig::default(),
+        ws_config: Some(crate::proxy::websocket::WebSocketConfig::default()),
+        extension_registry: None,
+        transport_config: vellaveto_config::TransportConfig::default(),
+        grpc_port: None,
+        gateway: None,
+        abac_engine: None,
+        least_agency: None,
+        continuous_auth_config: None,
+        transport_health: None,
+        streamable_http: Default::default(),
+        federation: None,
+        #[cfg(feature = "discovery")]
+        discovery_engine: None,
+        #[cfg(feature = "projector")]
+        projector_registry: None,
+    }
 }
 
 #[derive(Default)]
@@ -1349,6 +1422,681 @@ fn test_build_grpc_runtime_security_context_clamps_meta_ephemeral_scope_with_tra
 }
 
 #[test]
+fn test_build_grpc_approval_context_uses_clamped_transport_scope() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[39u8; 32]);
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        None,
+    );
+
+    let mut security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let context = crate::proxy::helpers::approval_containment_context_from_security_context(
+        &security_context,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_grpc_secondary_acis_envelope_uses_clamped_transport_provenance() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "client_key_id": "caller-kid",
+                    "session_scope_binding": "caller-scope",
+                    "canonical_request_hash": "caller-hash",
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true,
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[41u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "grpc",
+        Some(session_id.as_str()),
+        Some(&security_context),
+    );
+    let provenance = envelope
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    let request_signature = provenance
+        .request_signature
+        .as_ref()
+        .expect("request signature");
+
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
+    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
+    assert_ne!(
+        request_signature.created_at.as_deref(),
+        Some("2025-01-01T00:00:00Z")
+    );
+    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
+    assert_eq!(
+        provenance.session_scope_binding.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    assert_ne!(
+        provenance.canonical_request_hash.as_deref(),
+        Some("caller-hash")
+    );
+    assert!(provenance.canonical_request_hash.is_some());
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::PersistedClient
+    );
+    assert!(!provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_grpc_approval_context_from_envelope_uses_clamped_transport_provenance() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true,
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[43u8; 32]);
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        None,
+    );
+
+    let mut security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "grpc",
+        None,
+        Some(&security_context),
+    );
+
+    let context = crate::proxy::helpers::approval_containment_context_from_envelope(
+        &envelope,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Missing)
+    );
+}
+
+#[tokio::test]
+async fn test_create_pending_grpc_approval_preserves_clamped_transport_provenance() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "session_key_scope": "ephemeral_execution",
+                    "execution_is_ephemeral": true
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[44u8; 32]);
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+
+    let mut security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext {
+                agent_identity: Some(vellaveto_types::AgentIdentity {
+                    claims: std::collections::HashMap::from([
+                        ("session_key_scope".to_string(), json!("persisted_client")),
+                        ("execution_is_ephemeral".to_string(), json!(false)),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            sessions: state.sessions.as_ref(),
+            session_id: Some(&session_id),
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.sink_class = Some(vellaveto_types::SinkClass::CodeExecution);
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::RequireApproval);
+
+    let envelope = vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context(
+        &action,
+        &vellaveto_types::Verdict::RequireApproval {
+            reason: "Approval required".to_string(),
+        },
+        vellaveto_types::DecisionOrigin::ApprovalGate,
+        "grpc",
+        Some(session_id.as_str()),
+        Some(&security_context),
+    );
+    let containment_context = crate::proxy::helpers::approval_containment_context_from_envelope(
+        &envelope,
+        "Approval required",
+    )
+    .expect("approval containment context");
+
+    let approval_id = crate::proxy::helpers::create_pending_approval_with_context(
+        &state,
+        &session_id,
+        &action,
+        "Approval required",
+        Some(containment_context),
+    )
+    .await;
+    assert!(approval_id.is_some(), "approval should be created");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Missing)
+    );
+}
+
+#[tokio::test]
+async fn test_grpc_unary_unknown_tool_approval_persists_clamped_transport_provenance() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+    state.tool_registry = Some(std::sync::Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            dir.path().join("tool-registry"),
+            0.8,
+        ),
+    ));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(vellaveto_types::AgentIdentity {
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id_oneof: Some(json_rpc_request::IdOneof::IdInt(1)),
+        method: "tools/call".to_string(),
+        params: Some(prost_types::Struct {
+            fields: vec![
+                (
+                    "name".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StringValue("unknown_tool".to_string())),
+                    },
+                ),
+                (
+                    "arguments".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StructValue(prost_types::Struct {
+                            fields: vec![(
+                                "command".to_string(),
+                                prost_types::Value {
+                                    kind: Some(Kind::StringValue("echo hi".to_string())),
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                        })),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }),
+    };
+    let action = vellaveto_mcp::extractor::extract_action(
+        "unknown_tool",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[46u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+
+    let state = std::sync::Arc::new(state);
+    let svc = service::McpGrpcService::new(state.clone(), 100);
+    let mut request = TonicRequest::new(req);
+    request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        header.parse().expect("request signature metadata"),
+    );
+
+    let response =
+        <service::McpGrpcService as proto::mcp_service_server::McpService>::call(&svc, request)
+            .await
+            .expect("grpc response")
+            .into_inner();
+
+    let error = response.error.expect("grpc approval error");
+    assert_eq!(error.code, -32001);
+    assert_eq!(error.message, "Approval required");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+}
+
+#[tokio::test]
+async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_provenance() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+    state.tool_registry = Some(std::sync::Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            dir.path().join("tool-registry"),
+            0.8,
+        ),
+    ));
+    state
+        .tool_registry
+        .as_ref()
+        .expect("tool registry")
+        .register_unknown("untrusted_tool")
+        .await;
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(vellaveto_types::AgentIdentity {
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id_oneof: Some(json_rpc_request::IdOneof::IdInt(1)),
+        method: "tools/call".to_string(),
+        params: Some(prost_types::Struct {
+            fields: vec![
+                (
+                    "name".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StringValue("untrusted_tool".to_string())),
+                    },
+                ),
+                (
+                    "arguments".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StructValue(prost_types::Struct {
+                            fields: vec![(
+                                "command".to_string(),
+                                prost_types::Value {
+                                    kind: Some(Kind::StringValue("echo hi".to_string())),
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                        })),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }),
+    };
+    let action = vellaveto_mcp::extractor::extract_action(
+        "untrusted_tool",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[49u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+
+    let state = std::sync::Arc::new(state);
+    let svc = service::McpGrpcService::new(state.clone(), 100);
+    let mut request = TonicRequest::new(req);
+    request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        header.parse().expect("request signature metadata"),
+    );
+
+    let response =
+        <service::McpGrpcService as proto::mcp_service_server::McpService>::call(&svc, request)
+            .await
+            .expect("grpc response")
+            .into_inner();
+
+    let error = response.error.expect("grpc approval error");
+    assert_eq!(error.code, -32001);
+    assert_eq!(error.message, "Approval required");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(
+        pending[0].session_id.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    let context = pending[0]
+        .containment_context
+        .as_ref()
+        .expect("containment context");
+    assert_eq!(
+        context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::PersistedClient)
+    );
+    assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+}
+
+#[test]
 fn test_build_grpc_runtime_security_context_verifies_detached_signature_with_trusted_signer() {
     let msg = json!({
         "jsonrpc": "2.0",
@@ -1458,14 +2206,7 @@ fn test_build_grpc_runtime_security_context_projects_trusted_signer_metadata() {
         DetachedSignatureBinding {
             session_scope_binding: Some(session_scope_binding.as_str()),
             routing_identity: None,
-            workload_identity: Some(vellaveto_types::WorkloadIdentity {
-                platform: Some("spiffe".into()),
-                workload_id: "spiffe://cluster/ns/meta/sa/meta".into(),
-                namespace: Some("meta".into()),
-                service_account: Some("meta".into()),
-                process_identity: None,
-                attestation_level: Some("jwt".into()),
-            }),
+            workload_identity: None,
         },
     );
 

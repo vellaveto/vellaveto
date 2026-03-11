@@ -120,56 +120,10 @@ fn merge_grpc_security_context(
     runtime_security_context: Option<&RuntimeSecurityContext>,
     verdict_security_context: Option<&RuntimeSecurityContext>,
 ) -> Option<RuntimeSecurityContext> {
-    let merged = match (
-        runtime_security_context.cloned(),
-        verdict_security_context.cloned(),
-    ) {
-        (None, None) => return None,
-        (Some(context), None) | (None, Some(context)) => context,
-        (Some(mut runtime), Some(verdict)) => {
-            if runtime.client_provenance.is_none() {
-                runtime.client_provenance = verdict.client_provenance;
-            }
-            for taint in verdict.semantic_taint {
-                if !runtime.semantic_taint.contains(&taint) {
-                    runtime.semantic_taint.push(taint);
-                }
-            }
-            runtime.effective_trust_tier =
-                match (runtime.effective_trust_tier, verdict.effective_trust_tier) {
-                    (Some(runtime_tier), Some(verdict_tier)) => {
-                        Some(runtime_tier.meet(verdict_tier))
-                    }
-                    (Some(runtime_tier), None) => Some(runtime_tier),
-                    (None, Some(verdict_tier)) => Some(verdict_tier),
-                    (None, None) => None,
-                };
-            if runtime.sink_class.is_none() {
-                runtime.sink_class = verdict.sink_class;
-            }
-            for lineage in verdict.lineage_refs {
-                if !runtime.lineage_refs.contains(&lineage) {
-                    runtime.lineage_refs.push(lineage);
-                }
-            }
-            if !matches!(
-                verdict.containment_mode,
-                None | Some(vellaveto_types::ContainmentMode::Disabled)
-            ) {
-                runtime.containment_mode = verdict.containment_mode;
-            }
-            if let Some(score) = verdict.semantic_risk_score {
-                runtime.merge_semantic_risk_score(score);
-            }
-            runtime
-        }
-    };
-
-    if merged == RuntimeSecurityContext::default() {
-        None
-    } else {
-        Some(merged)
-    }
+    crate::proxy::helpers::merge_transport_security_context(
+        runtime_security_context,
+        verdict_security_context,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -1552,6 +1506,20 @@ impl McpGrpcService {
         // SECURITY (FIND-R54-007): Tool registry trust check.
         // Parity with HTTP handler (handlers.rs:621) and WS (websocket/mod.rs:936).
         if let Some(ref registry) = self.state.tool_registry {
+            let registry_eval_ctx = self.build_evaluation_context(session_id);
+            let registry_runtime_security_context = build_grpc_runtime_security_context(
+                json_req,
+                &action,
+                request_signature_header,
+                crate::proxy::helpers::TransportSecurityInputs {
+                    oauth_evidence: None,
+                    eval_ctx: Some(&registry_eval_ctx),
+                    sessions: &self.state.sessions,
+                    session_id: Some(session_id),
+                    trusted_request_signers: &self.state.trusted_request_signers,
+                    detached_signature_freshness: self.state.detached_signature_freshness,
+                },
+            );
             let trust = registry.check_trust_level(tool_name).await;
             match trust {
                 vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
@@ -1573,13 +1541,20 @@ impl McpGrpcService {
                             };
                             let approval_security_context =
                                 unknown_tool_approval_gate_security_context(&action);
+                            let combined_security_context = merge_grpc_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
-                                Some(&approval_security_context),
+                                Some(effective_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -1603,7 +1578,7 @@ impl McpGrpcService {
                             let approval_reason = "Unknown tool requires approval";
                             let containment_context =
                                 approval_containment_context_from_security_context(
-                                    &approval_security_context,
+                                    effective_security_context,
                                     approval_reason,
                                 );
                             let approval_id = create_pending_approval_with_context(
@@ -1667,13 +1642,20 @@ impl McpGrpcService {
                             };
                             let approval_security_context =
                                 untrusted_tool_approval_gate_security_context(&action);
+                            let combined_security_context = merge_grpc_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
-                                Some(&approval_security_context),
+                                Some(effective_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -1697,7 +1679,7 @@ impl McpGrpcService {
                             let approval_reason = "Untrusted tool requires approval";
                             let containment_context =
                                 approval_containment_context_from_security_context(
-                                    &approval_security_context,
+                                    effective_security_context,
                                     approval_reason,
                                 );
                             let approval_id = create_pending_approval_with_context(

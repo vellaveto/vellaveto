@@ -45,12 +45,12 @@ use super::helpers::{
     create_pending_approval_with_context, elicitation_interception_security_context,
     extract_approval_id_from_meta, invalid_call_chain_security_context,
     invalid_presented_approval_security_context, memory_poisoning_security_context,
-    notification_dlp_security_context, notification_injection_security_context,
-    notification_memory_poisoning_security_context, parameter_dlp_security_context,
-    parameter_injection_security_context, presented_approval_matches_action,
-    privilege_escalation_security_context, protocol_forward_security_context,
-    protocol_rejection_security_context, resolve_domains, response_dlp_security_context,
-    response_injection_security_context, rug_pull_security_context,
+    merge_transport_security_context, notification_dlp_security_context,
+    notification_injection_security_context, notification_memory_poisoning_security_context,
+    parameter_dlp_security_context, parameter_injection_security_context,
+    presented_approval_matches_action, privilege_escalation_security_context,
+    protocol_forward_security_context, protocol_rejection_security_context, resolve_domains,
+    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
     sampling_interception_security_context, session_termination_security_context,
     transport_failure_security_context, unknown_tool_approval_gate_security_context,
     untrusted_tool_approval_gate_security_context, TransportSecurityInputs,
@@ -756,6 +756,39 @@ pub async fn handle_mcp_post(
             // require approval before engine evaluation. This runs before the
             // shard lock to avoid holding it during async registry reads.
             if let Some(ref registry) = state.tool_registry {
+                let registry_eval_ctx = state
+                    .sessions
+                    .get(&session_id)
+                    .map(|session| EvaluationContext {
+                        timestamp: None,
+                        agent_id: session.oauth_subject.clone(),
+                        agent_identity: session.agent_identity.clone(),
+                        call_counts: session.call_counts.clone(),
+                        previous_actions: session.action_history.iter().cloned().collect(),
+                        call_chain: session.current_call_chain.clone(),
+                        tenant_id: None,
+                        verification_tier: None,
+                        capability_token: None,
+                        session_state: None,
+                    })
+                    .unwrap_or_else(|| EvaluationContext {
+                        agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                        agent_identity: agent_identity.clone(),
+                        ..EvaluationContext::default()
+                    });
+                let registry_runtime_security_context = build_runtime_security_context(
+                    &msg,
+                    &action,
+                    &headers,
+                    TransportSecurityInputs {
+                        oauth_evidence: oauth_claims.as_ref(),
+                        eval_ctx: Some(&registry_eval_ctx),
+                        sessions: &state.sessions,
+                        session_id: Some(&session_id),
+                        trusted_request_signers: &state.trusted_request_signers,
+                        detached_signature_freshness: state.detached_signature_freshness,
+                    },
+                );
                 let trust = registry.check_trust_level(&tool_name).await;
                 match trust {
                     vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
@@ -825,13 +858,20 @@ pub async fn handle_mcp_post(
                             };
                             let approval_security_context =
                                 unknown_tool_approval_gate_security_context(&action);
+                            let combined_security_context = merge_transport_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "http",
                                 Some(&session_id),
-                                Some(&approval_security_context),
+                                Some(effective_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
@@ -844,7 +884,7 @@ pub async fn handle_mcp_post(
                             // Create pending approval if store is configured
                             let containment_context =
                                 approval_containment_context_from_security_context(
-                                    &approval_security_context,
+                                    effective_security_context,
                                     &reason,
                                 );
                             let approval_id = create_pending_approval_with_context(
@@ -931,13 +971,20 @@ pub async fn handle_mcp_post(
                             };
                             let approval_security_context =
                                 untrusted_tool_approval_gate_security_context(&action);
+                            let combined_security_context = merge_transport_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "http",
                                 Some(&session_id),
-                                Some(&approval_security_context),
+                                Some(effective_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
@@ -949,7 +996,7 @@ pub async fn handle_mcp_post(
                             }
                             let containment_context =
                                 approval_containment_context_from_security_context(
-                                    &approval_security_context,
+                                    effective_security_context,
                                     &reason,
                                 );
                             let approval_id = create_pending_approval_with_context(
