@@ -1018,10 +1018,15 @@ fn build_runtime_security_context_from_transport(
         security_context.lineage_refs = lineage_refs_from_call_chain(inputs.eval_ctx);
     }
     verify_detached_request_signature(action, inputs, &mut security_context);
-    if security_context.effective_trust_tier.is_none() {
-        security_context.effective_trust_tier =
-            infer_trust_tier(&security_context, inputs.oauth_evidence, inputs.eval_ctx);
-    }
+    let inferred_trust_tier =
+        infer_trust_tier(&security_context, inputs.oauth_evidence, inputs.eval_ctx);
+    security_context.effective_trust_tier =
+        match (security_context.effective_trust_tier, inferred_trust_tier) {
+            (Some(explicit), Some(inferred)) => Some(explicit.meet(inferred)),
+            (Some(explicit), None) => Some(explicit),
+            (None, Some(inferred)) => Some(inferred),
+            (None, None) => None,
+        };
     attach_canonical_request_hash(action, inputs.eval_ctx, &mut security_context);
 
     if security_context == RuntimeSecurityContext::default() {

@@ -1615,6 +1615,50 @@ fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
     );
 }
 
+#[test]
+fn test_build_grpc_runtime_security_context_clamps_meta_trust_with_invalid_detached_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "effective_trust_tier": "verified"
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/example"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "read_file",
+        &json!({
+            "path": "/tmp/example"
+        }),
+    );
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some("not-base64"),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext::default()),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Untrusted)
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // TaskRequest and ExtensionMethod policy enforcement tests
 // ═══════════════════════════════════════════════════════════════════════

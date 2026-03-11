@@ -148,6 +148,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `quarantined`, while `invalid` and `error` signatures project `untrusted`,
   so semantic-containment policy never sees stale or broken detached
   provenance as implicitly high-trust.
+  Transport-derived trust downgrades now also clamp any explicit
+  `_meta.vellavetoSecurityContext.effective_trust_tier` instead of only filling
+  it when absent, so caller-supplied trust metadata cannot mask replayed,
+  expired, mismatched, or invalid detached provenance.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

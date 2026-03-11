@@ -120,6 +120,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `quarantined`, and `invalid` or verification-error detached signatures
   downgrade to `untrusted`, so broken detached provenance cannot retain a
   useful trust floor simply because other transport hints are present.
+- Transport-inferred trust floors now also clamp explicit runtime
+  `effective_trust_tier` metadata instead of only supplying a default, so
+  caller-provided security context cannot override replay, mismatch, expiry,
+  or invalid-signature downgrades on the HTTP proxy path.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and
