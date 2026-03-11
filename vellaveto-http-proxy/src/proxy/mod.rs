@@ -130,6 +130,9 @@ pub struct ProxyState {
     /// HTTP handlers keep their existing request scanners and use this config
     /// for ACIS binding, provenance, and sink/lineage enforcement.
     pub mediation_config: MediationConfig,
+    /// Trusted detached request-signature signers keyed by `RequestSignature.key_id`.
+    /// Used to promote detached per-request signatures from metadata to verified provenance.
+    pub trusted_request_signers: Arc<std::collections::HashMap<String, [u8; 32]>>,
     /// Known legitimate tool names for squatting detection.
     /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
     pub known_tools: std::collections::HashSet<String>,

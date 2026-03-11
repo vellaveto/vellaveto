@@ -14,11 +14,58 @@ use super::interceptors::*;
 use super::proto::*;
 use super::upstream::*;
 use super::*;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ed25519_dalek::{Signer, SigningKey};
 use prost_types::value::Kind;
 use serde_json::json;
+use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
+use vellaveto_types::{ClientProvenance, RequestSignature, SignatureVerificationStatus};
 
 fn empty_session_store() -> crate::session::SessionStore {
     crate::session::SessionStore::new(std::time::Duration::from_secs(300), 8)
+}
+
+fn empty_trusted_request_signers() -> std::collections::HashMap<String, [u8; 32]> {
+    std::collections::HashMap::new()
+}
+
+fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
+    URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
+}
+
+fn make_signed_detached_request_signature_header_with_scope(
+    action: &vellaveto_types::Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+) -> String {
+    let mut request_signature = RequestSignature {
+        key_id: Some(key_id.to_string()),
+        algorithm: Some("ed25519".to_string()),
+        nonce: Some("detached-nonce".to_string()),
+        created_at: Some("2026-03-11T16:30:00Z".to_string()),
+        signature: None,
+    };
+    let input = CanonicalRequestInput::from_action(
+        action,
+        session_scope_binding,
+        Some(&ClientProvenance {
+            request_signature: Some(request_signature.clone()),
+            ..ClientProvenance::default()
+        }),
+        None,
+    );
+    let preimage = canonical_request_preimage(&input).expect("canonical request preimage");
+    request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
+    make_detached_request_signature_header(&request_signature)
+}
+
+fn trusted_request_signers_for(
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> std::collections::HashMap<String, [u8; 32]> {
+    std::collections::HashMap::from([(key_id.to_string(), signing_key.verifying_key().to_bytes())])
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1009,6 +1056,7 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
         Some(&eval_ctx),
         &empty_session_store(),
         None,
+        &empty_trusted_request_signers(),
     )
     .expect("security context");
     let provenance = security_context
@@ -1049,6 +1097,129 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
 }
 
 #[test]
+fn test_build_grpc_runtime_security_context_verifies_detached_signature_with_trusted_signer() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[11u8; 32]);
+    let trusted_request_signers = trusted_request_signers_for("detached-key", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-key",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        Some(&vellaveto_types::EvaluationContext::default()),
+        &sessions,
+        Some(&session_id),
+        &trusted_request_signers,
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    assert_eq!(
+        provenance.replay_status,
+        vellaveto_types::ReplayStatus::Fresh
+    );
+}
+
+#[test]
+fn test_build_grpc_runtime_security_context_detects_replayed_detached_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[12u8; 32]);
+    let trusted_request_signers = trusted_request_signers_for("detached-key", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-key",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let eval_ctx = vellaveto_types::EvaluationContext::default();
+
+    let first = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        Some(&eval_ctx),
+        &sessions,
+        Some(&session_id),
+        &trusted_request_signers,
+    )
+    .expect("first security context");
+    let second = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        Some(&eval_ctx),
+        &sessions,
+        Some(&session_id),
+        &trusted_request_signers,
+    )
+    .expect("second security context");
+
+    assert_eq!(
+        first.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::Fresh)
+    );
+    assert_eq!(
+        second.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::ReplayDetected)
+    );
+}
+
+#[test]
 fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
     let msg = json!({
         "jsonrpc": "2.0",
@@ -1073,6 +1244,7 @@ fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
         Some(&vellaveto_types::EvaluationContext::default()),
         &empty_session_store(),
         None,
+        &empty_trusted_request_signers(),
     )
     .expect("security context");
     let provenance = security_context

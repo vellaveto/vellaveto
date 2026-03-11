@@ -24,15 +24,17 @@ use axum::Json;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
 use chrono::Utc;
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
+use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
 use vellaveto_types::{
-    Action, AgentIdentity, ContainmentMode, ContextChannel, EvaluationContext, RequestSignature,
-    SemanticRiskScore, SemanticTaint, SignatureVerificationStatus, SinkClass, TrustTier,
-    WorkloadBindingStatus,
+    Action, AgentIdentity, ClientProvenance, ContainmentMode, ContextChannel, EvaluationContext,
+    RequestSignature, SemanticRiskScore, SemanticTaint, SignatureVerificationStatus, SinkClass,
+    TrustTier, WorkloadBindingStatus,
 };
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
@@ -53,6 +55,52 @@ fn make_dpop_proof(iat: u64, jti: &str) -> String {
 fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
     URL_SAFE_NO_PAD
         .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
+}
+
+fn empty_trusted_request_signers() -> std::collections::HashMap<String, [u8; 32]> {
+    std::collections::HashMap::new()
+}
+
+fn make_signed_detached_request_signature_header_with_scope(
+    action: &Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+) -> String {
+    let mut request_signature = RequestSignature {
+        key_id: Some(key_id.to_string()),
+        algorithm: Some("ed25519".to_string()),
+        nonce: Some("detached-nonce".to_string()),
+        created_at: Some("2026-03-11T16:30:00Z".to_string()),
+        signature: None,
+    };
+    let input = CanonicalRequestInput::from_action(
+        action,
+        session_scope_binding,
+        Some(&ClientProvenance {
+            request_signature: Some(request_signature.clone()),
+            ..ClientProvenance::default()
+        }),
+        None,
+    );
+    let preimage = canonical_request_preimage(&input).expect("canonical request preimage");
+    request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
+    make_detached_request_signature_header(&request_signature)
+}
+
+fn make_signed_detached_request_signature_header(
+    action: &Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> String {
+    make_signed_detached_request_signature_header_with_scope(action, key_id, signing_key, None)
+}
+
+fn trusted_request_signers_for(
+    key_id: &str,
+    signing_key: &SigningKey,
+) -> std::collections::HashMap<String, [u8; 32]> {
+    std::collections::HashMap::from([(key_id.to_string(), signing_key.verifying_key().to_bytes())])
 }
 
 fn make_oauth_validation_evidence(
@@ -242,10 +290,13 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
         &msg,
         &action,
         &headers,
-        Some(&oauth_claims),
-        Some(&eval_ctx),
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: Some(&oauth_claims),
+            eval_ctx: Some(&eval_ctx),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
 
@@ -322,10 +373,13 @@ fn test_build_runtime_security_context_preserves_meta_overrides() {
         &msg,
         &action,
         &HeaderMap::new(),
-        None,
-        None,
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
 
@@ -374,10 +428,13 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
         &msg,
         &action,
         &headers,
-        Some(&oauth_claims),
-        None,
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: Some(&oauth_claims),
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -463,10 +520,13 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
         &msg,
         &action,
         &headers,
-        Some(&oauth_claims),
-        Some(&eval_ctx),
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: Some(&oauth_claims),
+            eval_ctx: Some(&eval_ctx),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -573,10 +633,13 @@ fn test_build_runtime_security_context_uses_projected_transport_identity_for_wor
         &msg,
         &action,
         &headers,
-        Some(&oauth_claims),
-        Some(&eval_ctx),
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: Some(&oauth_claims),
+            eval_ctx: Some(&eval_ctx),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -676,13 +739,16 @@ fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_pro
         &msg,
         &action,
         &headers,
-        Some(&oauth_claims),
-        Some(&EvaluationContext {
-            agent_identity: Some(projected_identity),
-            ..EvaluationContext::default()
-        }),
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: Some(&oauth_claims),
+            eval_ctx: Some(&EvaluationContext {
+                agent_identity: Some(projected_identity),
+                ..EvaluationContext::default()
+            }),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -766,10 +832,13 @@ fn test_build_runtime_security_context_uses_detached_request_signature_without_o
         &msg,
         &action,
         &headers,
-        None,
-        None,
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -828,10 +897,13 @@ fn test_build_runtime_security_context_marks_invalid_detached_request_signature(
         &msg,
         &action,
         &headers,
-        None,
-        None,
-        &empty_session_store(),
-        None,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -845,6 +917,172 @@ fn test_build_runtime_security_context_marks_invalid_detached_request_signature(
     );
     assert!(provenance.request_signature.is_none());
     assert!(provenance.client_key_id.is_none());
+}
+
+#[test]
+fn test_build_runtime_security_context_verifies_detached_request_signature_with_trusted_signer() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let mut headers = HeaderMap::new();
+    let trusted_request_signers = trusted_request_signers_for("detached-kid", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    assert_eq!(
+        provenance.replay_status,
+        vellaveto_types::ReplayStatus::Fresh
+    );
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+}
+
+#[test]
+fn test_build_runtime_security_context_detects_replayed_detached_request_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[8u8; 32]);
+    let mut headers = HeaderMap::new();
+    let trusted_request_signers = trusted_request_signers_for("detached-kid", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let inputs = super::helpers::TransportSecurityInputs {
+        oauth_evidence: None,
+        eval_ctx: None,
+        sessions: &sessions,
+        session_id: Some(&session_id),
+        trusted_request_signers: &trusted_request_signers,
+    };
+
+    let first = super::helpers::build_runtime_security_context(&msg, &action, &headers, inputs)
+        .expect("first security context");
+    let second = super::helpers::build_runtime_security_context(&msg, &action, &headers, inputs)
+        .expect("second security context");
+
+    assert_eq!(
+        first.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::Fresh)
+    );
+    assert_eq!(
+        second.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::ReplayDetected)
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_rejects_detached_signature_with_unknown_trusted_key() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header(&action, "detached-kid", &signing_key)
+            .parse()
+            .expect("detached signature header"),
+    );
+    let trusted_request_signers = trusted_request_signers_for("different-kid", &signing_key);
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &trusted_request_signers,
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Invalid
+    );
 }
 
 #[test]
@@ -2661,6 +2899,7 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
             injection_blocking: false,
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
+        trusted_request_signers: Arc::new(std::collections::HashMap::new()),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

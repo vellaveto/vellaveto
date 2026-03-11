@@ -91,6 +91,13 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   header for request-signature metadata, preserving non-DPoP signature inputs
   in `client_provenance` while still treating them as non-authoritative unless
   separately verified.
+- Detached request signatures can now also be verified against configured
+  trusted signer keys across HTTP, WebSocket, and gRPC. The HTTP proxy now
+  binds those checks to the canonical request preimage and fails closed on
+  unknown key IDs, malformed signatures, and canonical-binding errors instead
+  of silently treating them as transport metadata. Verified detached
+  signatures now also feed session-local replay status, so mediation can deny
+  repeated signed nonces the same way it already denies DPoP replay.
 - gRPC session identity now uses the same validated claim-merging path as
   HTTP/WS, so explicit workload claims and verified bearer-token custom claims
   no longer disappear on the gRPC transport before policy evaluation.

@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use vellaveto_config::ToolManifest;
 use vellaveto_mcp::memory_tracking::MemoryTracker;
 use vellaveto_mcp::rug_pull::ToolAnnotations;
-use vellaveto_types::AgentIdentity;
+use vellaveto_types::{AgentIdentity, ReplayStatus};
 
 /// Type alias for backward compatibility with existing code.
 pub type ToolAnnotationsCompact = ToolAnnotations;
@@ -79,6 +79,13 @@ pub struct SessionState {
     /// Used for per-session rate limiting of `sampling/createMessage` requests.
     /// SECURITY (FIND-R125-001): Parity with elicitation rate limiting.
     pub sampling_count: u32,
+    /// Verified detached request-signature nonces observed in this session.
+    /// Used for session-local replay detection when detached signatures are
+    /// promoted to verified provenance.
+    pub(crate) verified_request_nonces: HashSet<String>,
+    /// FIFO order for verified detached request-signature nonces so the session
+    /// replay cache remains bounded.
+    pub(crate) verified_request_nonce_order: VecDeque<String>,
     /// Pending tool call correlation map: JSON-RPC response id key -> tool name.
     /// Used to recover tool context for `structuredContent` validation when
     /// upstream responses omit `result._meta.tool`.
@@ -145,6 +152,9 @@ const MAX_GLOBAL_FLAGGED_TOOLS: usize = 10_000;
 /// After this period, a flagged tool is no longer blocked globally.
 /// Operators who want permanent blocking should use policy rules instead.
 const GLOBAL_FLAGGED_TOOL_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+/// SECURITY: Maximum number of verified detached request-signature nonces kept
+/// per session for replay detection.
+const MAX_VERIFIED_REQUEST_NONCES: usize = 1024;
 
 /// Entry in the global flagged-tools registry.
 /// Records when a tool was flagged so it can be expired after TTL.
@@ -202,6 +212,8 @@ impl SessionState {
             memory_tracker: MemoryTracker::new(),
             elicitation_count: 0,
             sampling_count: 0,
+            verified_request_nonces: HashSet::new(),
+            verified_request_nonce_order: VecDeque::new(),
             pending_tool_calls: HashMap::new(),
             token_expires_at: None,
             current_call_chain: Vec::new(),
@@ -396,6 +408,26 @@ impl SessionState {
         self.last_activity = Instant::now();
         // SECURITY (FIND-R51-007): Use saturating_add for debug-build safety.
         self.request_count = self.request_count.saturating_add(1);
+    }
+
+    /// Record a verified detached request-signature nonce for replay detection.
+    pub fn record_verified_request_nonce(&mut self, nonce: &str) -> ReplayStatus {
+        if nonce.is_empty() || vellaveto_types::has_dangerous_chars(nonce) {
+            return ReplayStatus::NotChecked;
+        }
+        if self.verified_request_nonces.contains(nonce) {
+            return ReplayStatus::ReplayDetected;
+        }
+        if self.verified_request_nonce_order.len() >= MAX_VERIFIED_REQUEST_NONCES {
+            if let Some(evicted) = self.verified_request_nonce_order.pop_front() {
+                self.verified_request_nonces.remove(&evicted);
+            }
+        }
+        let bounded_nonce = nonce.to_string();
+        self.verified_request_nonce_order
+            .push_back(bounded_nonce.clone());
+        self.verified_request_nonces.insert(bounded_nonce);
+        ReplayStatus::Fresh
     }
 
     /// Check if this session has expired.

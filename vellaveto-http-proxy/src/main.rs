@@ -25,6 +25,7 @@ use axum::{
 use clap::{Parser, ValueEnum};
 use governor::{Quota, RateLimiter};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -306,6 +307,28 @@ fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
     }
 
     Ok(dpop_mode)
+}
+
+fn build_trusted_request_signers(
+    policy_config: &PolicyConfig,
+) -> Result<HashMap<String, [u8; 32]>> {
+    let mut trusted_request_signers = HashMap::new();
+    for signer in &policy_config.acis.trusted_request_signers {
+        let key_bytes = hex::decode(&signer.public_key).with_context(|| {
+            format!(
+                "Invalid acis.trusted_request_signers public key for key_id '{}'",
+                signer.key_id
+            )
+        })?;
+        let key_array: [u8; 32] = key_bytes.as_slice().try_into().map_err(|_| {
+            anyhow::anyhow!(
+                "acis.trusted_request_signers public key for '{}' must be 32 bytes",
+                signer.key_id
+            )
+        })?;
+        trusted_request_signers.insert(signer.key_id.clone(), key_array);
+    }
+    Ok(trusted_request_signers)
 }
 
 fn parse_trusted_proxies_env() -> Vec<std::net::IpAddr> {
@@ -701,6 +724,7 @@ async fn main() -> Result<()> {
                 .require_lineage_for_privileged_sinks,
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
+        trusted_request_signers: Arc::new(build_trusted_request_signers(&policy_config)?),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),

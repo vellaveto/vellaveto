@@ -4828,6 +4828,10 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         deny_replay = true
         block_tainted_privileged_sinks = true
         require_lineage_for_privileged_sinks = true
+
+        [[acis.trusted_request_signers]]
+        key_id = "client-key-1"
+        public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     "#;
     let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
     assert!(config.acis.require_session_id);
@@ -4837,6 +4841,11 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
     assert!(config.acis.deny_replay);
     assert!(config.acis.block_tainted_privileged_sinks);
     assert!(config.acis.require_lineage_for_privileged_sinks);
+    assert_eq!(config.acis.trusted_request_signers.len(), 1);
+    assert_eq!(
+        config.acis.trusted_request_signers[0].key_id,
+        "client-key-1"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

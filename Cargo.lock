@@ -5460,6 +5460,7 @@ dependencies = [
  "clap",
  "criterion",
  "dashmap",
+ "ed25519-dalek",
  "futures-util",
  "governor",
  "hex",

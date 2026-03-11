@@ -143,16 +143,20 @@ fn build_ws_runtime_security_context(
     eval_ctx: Option<&EvaluationContext>,
     sessions: &crate::session::SessionStore,
     session_id: Option<&str>,
+    trusted_request_signers: &std::collections::HashMap<String, [u8; 32]>,
 ) -> Option<RuntimeSecurityContext> {
     let headers = HeaderMap::new();
     super::helpers::build_runtime_security_context(
         msg,
         action,
         &headers,
-        oauth_evidence,
-        eval_ctx,
-        sessions,
-        session_id,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence,
+            eval_ctx,
+            sessions,
+            session_id,
+            trusted_request_signers,
+        },
     )
 }
 
@@ -1501,6 +1505,7 @@ async fn relay_client_to_upstream(
                                 Some(&ctx),
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -1547,6 +1552,7 @@ async fn relay_client_to_upstream(
                                 None,
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2223,6 +2229,7 @@ async fn relay_client_to_upstream(
                                 Some(&ctx),
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2271,6 +2278,7 @@ async fn relay_client_to_upstream(
                                 None,
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3011,6 +3019,7 @@ async fn relay_client_to_upstream(
                                     Some(&ctx),
                                     &state.sessions,
                                     Some(&session_id),
+                                    &state.trusted_request_signers,
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3055,6 +3064,7 @@ async fn relay_client_to_upstream(
                                     None,
                                     &state.sessions,
                                     Some(&session_id),
+                                    &state.trusted_request_signers,
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3554,6 +3564,7 @@ async fn relay_client_to_upstream(
                                 Some(&ctx),
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3596,6 +3607,7 @@ async fn relay_client_to_upstream(
                                 None,
                                 &state.sessions,
                                 Some(&session_id),
+                                &state.trusted_request_signers,
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),

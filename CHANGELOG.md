@@ -98,6 +98,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signature fields now survive into `client_provenance` for audit and policy
   inputs, and malformed detached signature headers are surfaced as
   `signature_status = invalid` instead of being silently ignored.
+- **HTTP proxy detached request-signature verification (Mar 2026):**
+  `acis.trusted_request_signers` now lets operators configure trusted detached
+  Ed25519 request-signature signers by `key_id`. When present, HTTP, WebSocket,
+  and gRPC transport provenance verifies detached signatures against the
+  canonical request preimage and upgrades them to verified provenance only on a
+  successful cryptographic check. Verified detached signatures now also get
+  session-local replay treatment through the HTTP proxy session store, so
+  repeated nonces surface as `replay_detected` to the shared mediation path.
+  Unknown signers, malformed signatures, and canonical-binding failures fail
+  closed as `invalid` or `error` instead of being treated as unaudited metadata.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

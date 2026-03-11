@@ -109,15 +109,19 @@ pub(super) fn build_grpc_runtime_security_context(
     eval_ctx: Option<&EvaluationContext>,
     sessions: &crate::session::SessionStore,
     session_id: Option<&str>,
+    trusted_request_signers: &std::collections::HashMap<String, [u8; 32]>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_with_request_signature(
         msg,
         action,
         request_signature_header,
-        None,
-        eval_ctx,
-        sessions,
-        session_id,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx,
+            sessions,
+            session_id,
+            trusted_request_signers,
+        },
     )
 }
 
@@ -1860,6 +1864,7 @@ impl McpGrpcService {
             Some(&ctx),
             &self.state.sessions,
             Some(session_id),
+            &self.state.trusted_request_signers,
         );
 
         match &verdict {
@@ -2504,6 +2509,7 @@ impl McpGrpcService {
             Some(&ctx),
             &self.state.sessions,
             Some(session_id),
+            &self.state.trusted_request_signers,
         );
 
         match &verdict {
@@ -3493,6 +3499,7 @@ impl McpGrpcService {
             Some(&ctx),
             &self.state.sessions,
             Some(session_id),
+            &self.state.trusted_request_signers,
         );
 
         match &verdict {
@@ -4049,6 +4056,7 @@ impl McpGrpcService {
             Some(&ctx),
             &self.state.sessions,
             Some(session_id),
+            &self.state.trusted_request_signers,
         );
 
         match &verdict {

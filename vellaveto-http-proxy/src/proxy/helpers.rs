@@ -13,12 +13,15 @@
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use bytes::Bytes;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_audit::AuditLogger;
-use vellaveto_canonical::{canonical_request_hash, CanonicalRequestInput};
+use vellaveto_canonical::{
+    canonical_request_hash, canonical_request_preimage, CanonicalRequestInput,
+};
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
@@ -38,6 +41,17 @@ use crate::proxy::X_REQUEST_SIGNATURE;
 use crate::session::SessionStore;
 
 const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
+
+pub(super) type TrustedRequestSignerMap = std::collections::HashMap<String, [u8; 32]>;
+
+#[derive(Clone, Copy)]
+pub(super) struct TransportSecurityInputs<'a> {
+    pub oauth_evidence: Option<&'a OAuthValidationEvidence>,
+    pub eval_ctx: Option<&'a EvaluationContext>,
+    pub sessions: &'a SessionStore,
+    pub session_id: Option<&'a str>,
+    pub trusted_request_signers: &'a TrustedRequestSignerMap,
+}
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
 ///
@@ -757,12 +771,106 @@ fn attach_canonical_request_hash(
     }
 }
 
+fn verify_detached_request_signature(
+    action: &Action,
+    inputs: TransportSecurityInputs<'_>,
+    security_context: &mut RuntimeSecurityContext,
+) {
+    if inputs.trusted_request_signers.is_empty() {
+        return;
+    }
+
+    let Some(provenance) = security_context.client_provenance.as_mut() else {
+        return;
+    };
+    if provenance.signature_status != SignatureVerificationStatus::Missing {
+        return;
+    }
+    let Some(request_signature) = provenance.request_signature.as_ref() else {
+        return;
+    };
+    let request_nonce = request_signature.nonce.clone();
+    let Some(key_id) = request_signature.key_id.as_deref() else {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    };
+    let Some(public_key) = inputs.trusted_request_signers.get(key_id) else {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    };
+    if !request_signature
+        .algorithm
+        .as_deref()
+        .is_some_and(|algorithm| algorithm.eq_ignore_ascii_case("ed25519"))
+    {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    }
+    let Some(signature_hex) = request_signature.signature.as_deref() else {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    };
+    let signature_bytes = match hex::decode(signature_hex) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Invalid;
+            return;
+        }
+    };
+    let signature = match Signature::try_from(signature_bytes.as_slice()) {
+        Ok(signature) => signature,
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Invalid;
+            return;
+        }
+    };
+    let verifying_key = match VerifyingKey::from_bytes(public_key) {
+        Ok(verifying_key) => verifying_key,
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Error;
+            return;
+        }
+    };
+    let input = CanonicalRequestInput::from_action(
+        action,
+        provenance.session_scope_binding.as_deref(),
+        Some(&*provenance),
+        routing_identity_from_eval_ctx(inputs.eval_ctx),
+    );
+    let preimage = match canonical_request_preimage(&input) {
+        Ok(preimage) => preimage,
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Error;
+            return;
+        }
+    };
+    provenance.signature_status = if verifying_key.verify(&preimage, &signature).is_ok() {
+        SignatureVerificationStatus::Verified
+    } else {
+        SignatureVerificationStatus::Invalid
+    };
+    if provenance.signature_status != SignatureVerificationStatus::Verified
+        || provenance.replay_status != ReplayStatus::NotChecked
+    {
+        return;
+    }
+    let Some(session_id) = inputs.session_id else {
+        return;
+    };
+    let Some(nonce) = request_nonce.as_deref() else {
+        return;
+    };
+    let Some(mut session) = inputs.sessions.get_mut(session_id) else {
+        return;
+    };
+    provenance.replay_status = session.record_verified_request_nonce(nonce);
+}
+
 fn build_runtime_security_context_from_transport(
     msg: &Value,
     action: &Action,
-    oauth_evidence: Option<&OAuthValidationEvidence>,
-    eval_ctx: Option<&EvaluationContext>,
     transport_provenance: Option<ClientProvenance>,
+    inputs: TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
     let mut security_context = extract_runtime_security_context(msg).unwrap_or_default();
 
@@ -772,13 +880,14 @@ fn build_runtime_security_context_from_transport(
         security_context.sink_class = Some(infer_sink_class(action));
     }
     if security_context.lineage_refs.is_empty() {
-        security_context.lineage_refs = lineage_refs_from_call_chain(eval_ctx);
+        security_context.lineage_refs = lineage_refs_from_call_chain(inputs.eval_ctx);
     }
     if security_context.effective_trust_tier.is_none() {
         security_context.effective_trust_tier =
-            infer_trust_tier(&security_context, oauth_evidence, eval_ctx);
+            infer_trust_tier(&security_context, inputs.oauth_evidence, inputs.eval_ctx);
     }
-    attach_canonical_request_hash(action, eval_ctx, &mut security_context);
+    verify_detached_request_signature(action, inputs, &mut security_context);
+    attach_canonical_request_hash(action, inputs.eval_ctx, &mut security_context);
 
     if security_context == RuntimeSecurityContext::default() {
         None
@@ -791,17 +900,19 @@ pub(super) fn build_runtime_security_context(
     msg: &Value,
     action: &Action,
     headers: &HeaderMap,
-    oauth_evidence: Option<&OAuthValidationEvidence>,
-    eval_ctx: Option<&EvaluationContext>,
-    sessions: &SessionStore,
-    session_id: Option<&str>,
+    inputs: TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_from_transport(
         msg,
         action,
-        oauth_evidence,
-        eval_ctx,
-        build_client_provenance(headers, oauth_evidence, eval_ctx, sessions, session_id),
+        build_client_provenance(
+            headers,
+            inputs.oauth_evidence,
+            inputs.eval_ctx,
+            inputs.sessions,
+            inputs.session_id,
+        ),
+        inputs,
     )
 }
 
@@ -810,23 +921,19 @@ pub(super) fn build_runtime_security_context_with_request_signature(
     msg: &Value,
     action: &Action,
     request_signature_header: Option<&str>,
-    oauth_evidence: Option<&OAuthValidationEvidence>,
-    eval_ctx: Option<&EvaluationContext>,
-    sessions: &SessionStore,
-    session_id: Option<&str>,
+    inputs: TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_from_transport(
         msg,
         action,
-        oauth_evidence,
-        eval_ctx,
         build_client_provenance_from_transport(
-            oauth_evidence,
-            eval_ctx,
-            transport_session_scope_binding(sessions, session_id).as_deref(),
+            inputs.oauth_evidence,
+            inputs.eval_ctx,
+            transport_session_scope_binding(inputs.sessions, inputs.session_id).as_deref(),
             None,
             decode_detached_request_signature_value(request_signature_header),
         ),
+        inputs,
     )
 }
 

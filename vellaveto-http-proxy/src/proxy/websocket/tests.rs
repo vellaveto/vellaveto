@@ -764,6 +764,7 @@ fn make_test_state() -> ProxyState {
             injection_blocking: false,
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
+        trusted_request_signers: Arc::new(std::collections::HashMap::new()),
         known_tools: std::collections::HashSet::new(),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

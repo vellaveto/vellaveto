@@ -10,6 +10,7 @@
 //! Controls how ACIS decision envelopes are emitted, which fields are
 //! populated, and session/identity binding behavior.
 
+use crate::validation::validate_ed25519_pubkey;
 use serde::{Deserialize, Serialize};
 use vellaveto_types::has_dangerous_chars;
 
@@ -23,9 +24,43 @@ const MAX_TENANT_ID_LEN: usize = 256;
 
 /// Maximum number of custom finding labels allowed.
 const MAX_CUSTOM_FINDING_LABELS: usize = 64;
+/// Maximum number of trusted detached request signers.
+const MAX_TRUSTED_REQUEST_SIGNERS: usize = 64;
 
 /// Maximum length of a single custom finding label.
 const MAX_FINDING_LABEL_LEN: usize = 128;
+/// Maximum length of a detached request signer key id.
+const MAX_SIGNER_KEY_ID_LEN: usize = 256;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustedRequestSignerConfig {
+    /// Logical key identifier carried in detached request signatures.
+    pub key_id: String,
+    /// Hex-encoded Ed25519 verifying key (32 bytes).
+    pub public_key: String,
+}
+
+impl TrustedRequestSignerConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.key_id.is_empty() {
+            return Err("trusted_request_signers.key_id must not be empty".into());
+        }
+        if self.key_id.len() > MAX_SIGNER_KEY_ID_LEN {
+            return Err(format!(
+                "trusted_request_signers.key_id length {} exceeds max {}",
+                self.key_id.len(),
+                MAX_SIGNER_KEY_ID_LEN
+            ));
+        }
+        if has_dangerous_chars(&self.key_id) {
+            return Err("trusted_request_signers.key_id contains dangerous characters".into());
+        }
+        validate_ed25519_pubkey(&self.public_key)
+            .map_err(|err| format!("trusted_request_signers.public_key invalid: {err}"))?;
+        Ok(())
+    }
+}
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +92,12 @@ pub struct AcisConfig {
     /// Default: `false`.
     #[serde(default)]
     pub require_verified_signature: bool,
+
+    /// Trusted detached request-signature signers keyed by `RequestSignature.key_id`.
+    /// These keys are used by transports that accept detached signature metadata
+    /// to promote a request from `missing` to `verified`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub trusted_request_signers: Vec<TrustedRequestSignerConfig>,
 
     /// Require workload binding evidence to succeed when provenance is present.
     /// Default: `false`.
@@ -128,6 +169,7 @@ impl Default for AcisConfig {
             require_session_id: false,
             require_agent_identity: false,
             require_verified_signature: false,
+            trusted_request_signers: vec![],
             require_workload_binding: false,
             deny_replay: false,
             block_tainted_privileged_sinks: false,
@@ -210,6 +252,17 @@ impl AcisConfig {
             }
         }
 
+        if self.trusted_request_signers.len() > MAX_TRUSTED_REQUEST_SIGNERS {
+            return Err(format!(
+                "trusted_request_signers has {} entries, max is {}",
+                self.trusted_request_signers.len(),
+                MAX_TRUSTED_REQUEST_SIGNERS
+            ));
+        }
+        for signer in &self.trusted_request_signers {
+            signer.validate()?;
+        }
+
         Ok(())
     }
 }
@@ -227,6 +280,7 @@ mod tests {
         assert!(!cfg.require_session_id);
         assert!(!cfg.require_agent_identity);
         assert!(!cfg.require_verified_signature);
+        assert!(cfg.trusted_request_signers.is_empty());
         assert!(!cfg.require_workload_binding);
         assert!(!cfg.deny_replay);
         assert!(!cfg.block_tainted_privileged_sinks);
@@ -317,6 +371,11 @@ mod tests {
             require_session_id: true,
             require_agent_identity: false,
             require_verified_signature: true,
+            trusted_request_signers: vec![TrustedRequestSignerConfig {
+                key_id: "client-key-1".into(),
+                public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .into(),
+            }],
             require_workload_binding: true,
             deny_replay: true,
             block_tainted_privileged_sinks: true,
@@ -330,6 +389,19 @@ mod tests {
         let toml_str = toml::to_string(&cfg).expect("serialize");
         let decoded: AcisConfig = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(cfg, decoded);
+    }
+
+    #[test]
+    fn test_invalid_trusted_request_signer_rejected() {
+        let cfg = AcisConfig {
+            trusted_request_signers: vec![TrustedRequestSignerConfig {
+                key_id: "client-key-1".into(),
+                public_key: "not-hex".into(),
+            }],
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("trusted_request_signers.public_key invalid"));
     }
 
     #[test]

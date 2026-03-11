@@ -53,7 +53,7 @@ use super::helpers::{
     response_injection_security_context, rug_pull_security_context,
     sampling_interception_security_context, session_termination_security_context,
     transport_failure_security_context, unknown_tool_approval_gate_security_context,
-    untrusted_tool_approval_gate_security_context,
+    untrusted_tool_approval_gate_security_context, TransportSecurityInputs,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
@@ -1006,10 +1006,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -1053,10 +1056,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2287,10 +2293,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2335,10 +2344,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3501,10 +3513,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3544,10 +3559,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -4201,10 +4219,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -4242,10 +4263,13 @@ pub async fn handle_mcp_post(
                         &msg,
                         &action,
                         &headers,
-                        oauth_claims.as_ref(),
-                        Some(&eval_ctx),
-                        &state.sessions,
-                        Some(&session_id),
+                        TransportSecurityInputs {
+                            oauth_evidence: oauth_claims.as_ref(),
+                            eval_ctx: Some(&eval_ctx),
+                            sessions: &state.sessions,
+                            session_id: Some(&session_id),
+                            trusted_request_signers: &state.trusted_request_signers,
+                        },
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),

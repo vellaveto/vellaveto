@@ -44,6 +44,7 @@ uuid = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4.5", features = ["derive"] }
