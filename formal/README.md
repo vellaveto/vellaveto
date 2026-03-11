@@ -65,7 +65,7 @@ addressing Gap #1 (severity: Critical) from `docs/MCP_SECURITY_GAPS.md`.
 | `verus/verified_cross_call_dlp.rs` | Verus | CC-DLP-1–CC-DLP-5 | Cross-call DLP tracker field-capacity/update gate on actual Rust |
 | `verus/verified_dlp_core.rs` | Verus | D1–D6 | Cross-call DLP buffer arithmetic (ALL inputs, actual Rust) |
 | `verus/verified_path.rs` | Verus | V9-V10 | Engine path normalization kernel idempotence + no-traversal on actual Rust |
-| `kani/src/proofs.rs` | Kani | K1–K82 | Bounded model checking of actual Rust (87 harnesses) |
+| `kani/src/proofs.rs` | Kani | K1–K85 | Bounded model checking of actual Rust (90 harnesses) |
 | `FailClosed.v` | Coq | S1, S5 | Fail-closed: no match → Deny; Allow requires matching Allow policy |
 | `Determinism.v` | Coq | — | Policy evaluation determinism (same input → same verdict) |
 | `PathNormalization.v` | Coq | — | Path normalization idempotence: `normalize(normalize(x)) = normalize(x)` |
@@ -87,7 +87,7 @@ Current formal suite across 6 tools:
 - **Alloy:** 10 assertions (2 models)
 - **Lean 4:** 32 theorems (5 files, no `sorry`)
 - **Coq:** 45 theorems (8 files, no `Admitted`)
-- **Kani:** 87 proof harnesses on actual Rust code (bounded) — K1-K82
+- **Kani:** 90 proof harnesses on actual Rust code (bounded) — K1-K85
 
 ## Coverage Matrix
 
@@ -255,8 +255,8 @@ formal/
     Cargo.toml                       ← Standalone crate (excluded from workspace)
     README.md                        ← Kani setup and usage guide
     src/
-      lib.rs                         ← Crate root (K1-K82 property catalog)
-      proofs.rs                      ← Proof harnesses (87 harnesses)
+      lib.rs                         ← Crate root (K1-K85 property catalog)
+      proofs.rs                      ← Proof harnesses (90 harnesses)
       path.rs                        ← Path normalization (from vellaveto-engine)
       verified_core.rs               ← Verdict computation (Verus bridge)
       dlp_core.rs                    ← DLP buffer arithmetic (Verus bridge)
@@ -278,6 +278,7 @@ formal/
       injection_pipeline.rs          ← Injection scanner decode pipeline
       trust_containment.rs           ← Trust-tier gating for privileged sinks
       output_contracts.rs            ← Semantic output-contract violation matrix
+      counterfactual_containment.rs  ← Lightweight counterfactual approval threshold
 ```
 
 ## Tooling Setup
@@ -617,7 +618,7 @@ Expected output:
 - `verified_dlp_core.rs`: `verification results:: 16 verified, 0 errors`
 - `verified_path.rs`: `verification results:: 33 verified, 0 errors`
 
-### Kani Proof Harnesses (K1–K82)
+### Kani Proof Harnesses (K1–K85)
 
 ```bash
 cd formal/kani
@@ -640,9 +641,10 @@ cargo kani --harness proof_all_lock_poison_handlers_safe       # K68
 cargo kani --harness proof_injection_known_patterns_detected   # K77
 cargo kani --harness proof_trust_containment_insufficient_trust_requires_gate  # K78
 cargo kani --harness proof_output_contract_data_blocks_privilege_escalating_drift  # K80
+cargo kani --harness proof_counterfactual_gate_triggers_for_quarantined_command_like_privileged_flow  # K84
 ```
 
-Expected output: all 87 harnesses report VERIFICATION:- SUCCESSFUL.
+Expected output: all 90 harnesses report VERIFICATION:- SUCCESSFUL.
 
 ## Property Catalog
 
@@ -752,7 +754,7 @@ Source: `formal/verus/verified_core.rs` (14 verified, 0 errors)
 
 Source: `formal/verus/verified_dlp_core.rs` (16 verified, 0 errors)
 
-### Kani Proof Harnesses (K1–K82, bounded model checking on actual Rust)
+### Kani Proof Harnesses (K1–K85, bounded model checking on actual Rust)
 
 | ID | Property | Bridge |
 |----|----------|--------|
@@ -838,6 +840,9 @@ Source: `formal/verus/verified_dlp_core.rs` (16 verified, 0 errors)
 | K80 | **Data contracts block privilege-escalating drift** | Semantic output contracts |
 | K81 | **Free-text/tool-output contracts block URL/command/approval drift** | Semantic output contracts |
 | K82 | **Resource/URL contracts only escalate on command/approval drift** | Semantic output contracts |
+| K83 | **Counterfactual gate requires security-relevant taint** | Counterfactual containment |
+| K84 | **Quarantined command-like privileged flows force counterfactual gate** | Counterfactual containment |
+| K85 | **Verified untrusted tool output stays below counterfactual gate** | Counterfactual containment |
 
 ### Harness Assurance Levels
 
@@ -846,7 +851,7 @@ each by input space coverage:
 
 | Level | Harnesses | Description |
 |-------|-----------|-------------|
-| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58, K66, K67, K68, K70, K71, K72, K73, K74, K75, K78, K79, K80, K81, K82 | All fields symbolic within CBMC bounds. Explores full input space. |
+| **Full symbolic** | K2, K3, K4, K6, K7, K9, K10, K11, K12, K13, K16, K18, K20, K22, K26, K27, K28, K29, K30, K31, K33, K34, K35, K39, K40, K41, K42, K43, K44, K45, K46, K47, K48, K50, K52, K53, K54, K55, K56, K57, K58, K66, K67, K68, K70, K71, K72, K73, K74, K75, K78, K79, K80, K81, K82, K83, K84, K85 | All fields symbolic within CBMC bounds. Explores full input space. |
 | **Partial symbolic** | K15, K21 | Some fields symbolic, others fixed. Explores a subspace. |
 | **Single-case** | K1, K5, K8, K14, K17, K19, K23, K24, K25, K32, K36, K37, K38, K49, K51, K59, K60, K61, K62, K63, K64, K65, K69, K76, K77 | Specific scenario test. Confirms property for specific cases. |
 
@@ -1000,7 +1005,7 @@ forward simulation proof.
 | Fuzz targets | `cargo fuzz` | 24 |
 | Property-based tests | `proptest` | ~50 |
 | **Verus (deductive)** | **SMT proof on actual Rust (ALL inputs)** | **534 verified items (AUD-APP-1–AUD-APP-5, AUD-CHAIN-1–AUD-CHAIN-5, MERKLE-1–MERKLE-6, MERKLE-FOLD-1–MERKLE-FOLD-7, MERKLE-PATH-1–MERKLE-PATH-5, ROT-MAN-1–ROT-MAN-3, CAP-ATT-1–CAP-ATT-4, CAP-COV-1–CAP-COV-5, CAP-DOM-1–CAP-DOM-6, CAP-PATH-1–CAP-PATH-5, CAP-SEL-1–CAP-SEL-4, CAP-CTX-1–CAP-CTX-3, CTX-DEP-1–CTX-DEP-4, CAP-DEP-CTX-1–CAP-DEP-CTX-3, BRIDGE-PRINC-1–BRIDGE-PRINC-4, DEP-PROJ-1–DEP-PROJ-3, DEP-HANDOFF-1–DEP-HANDOFF-3, EVAL-CTX-1–EVAL-CTX-4, APPR-SCOPE-1–APPR-SCOPE-4, approval consumption guards, presented approval-id guards, server approval-id guards, TCTX-1–TCTX-4, CAP-GLOB-1–CAP-GLOB-5, CAP-GSUB-1–CAP-GSUB-3, CAP-GRANT-1–CAP-GRANT-4, CAP-LIT-1–CAP-LIT-4, CAP-PAT-1–CAP-PAT-4, CAP-ID-1–CAP-ID-3, CAP-VER-1–CAP-VER-5, DEPUTY-1–DEPUTY-6, NHI-DEL-1–NHI-DEL-8, NHI-GRAPH-1–NHI-GRAPH-4, V1-V12, V9-V10, ENG-CON-1–ENG-CON-4, ENT-GATE-1–ENT-GATE-5, CC-DLP-1–CC-DLP-5, D1-D6, R-MCP-START-EMPTY, R-MCP-APPLY-DENY, R-MCP-EXHAUSTED-NOMATCH, ACIS-ENV-1–ACIS-ENV-7 + 4 executable guards)** |
-| **Kani (bounded)** | **CBMC on actual Rust** | **87 proof harnesses (K1-K82)** |
+| **Kani (bounded)** | **CBMC on actual Rust** | **90 proof harnesses (K1-K85)** |
 | **TLA+ (model checking)** | **Exhaustive state exploration** | **9 specs, 57 safety + 14 liveness/temporal** |
 | **Alloy (bounded)** | **Bounded relational checking** | **2 models, 10 assertions** |
 | **Lean 4 (deductive)** | **Proof assistant** | **5 files, 32 theorems** |

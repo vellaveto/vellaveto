@@ -1,7 +1,7 @@
 # Kani Proof Harnesses — Vellaveto
 
 Bounded model checking proofs using [Kani](https://github.com/model-checking/kani)
-for critical security invariants. 87 harnesses verify security properties
+for critical security invariants. 90 harnesses verify security properties
 using CBMC on actual Rust implementation code.
 
 ## What's Verified
@@ -183,7 +183,7 @@ using CBMC on actual Rust implementation code.
 | K76 | `proof_injection_pipeline_completeness` | Injection decode pipeline covers all decode layers |
 | K77 | `proof_injection_known_patterns_detected` | Known injection patterns detected after decode chain |
 
-### K78-K82: Trust Containment and Semantic Output Contracts
+### K78-K85: Trust Containment, Semantic Output Contracts, and Counterfactual Gates
 
 | ID | Harness | Property |
 |----|---------|----------|
@@ -192,6 +192,9 @@ using CBMC on actual Rust implementation code.
 | K80 | `proof_output_contract_data_blocks_privilege_escalating_drift` | Data contracts reject free-text, URL, command-like, and approval-prompt drift |
 | K81 | `proof_output_contract_free_text_and_tool_output_matrix` | Free-text/tool-output contracts reject URL, command-like, and approval-prompt drift |
 | K82 | `proof_output_contract_resource_and_url_matrix` | Resource/URL contracts only escalate on command-like and approval-prompt drift |
+| K83 | `proof_counterfactual_gate_requires_security_relevant_taint` | Counterfactual containment never triggers on non-security taint alone |
+| K84 | `proof_counterfactual_gate_triggers_for_quarantined_command_like_privileged_flow` | Quarantined command-like lineage always forces a counterfactual gate for privileged sinks |
+| K85 | `proof_counterfactual_gate_skips_verified_untrusted_tool_output` | Verified incidental tool output stays below the counterfactual approval threshold |
 
 ## Source Correspondence
 
@@ -217,6 +220,7 @@ using CBMC on actual Rust implementation code.
 | `src/injection_pipeline.rs` | `vellaveto-mcp/src/inspection/mod.rs` | — | K76-K77 |
 | `src/trust_containment.rs` | `vellaveto-types/src/provenance.rs` | — | K78-K79 |
 | `src/output_contracts.rs` | `vellaveto-types/src/provenance.rs`, `vellaveto-mcp/src/output_contracts.rs` | — | K80-K82 |
+| `src/counterfactual_containment.rs` | `vellaveto-types/src/provenance.rs` | — | K83-K85 |
 
 ## Running
 
@@ -230,7 +234,7 @@ cd formal/kani
 cargo kani --harness proof_fail_closed_no_match_produces_deny
 cargo kani --harness proof_path_normalize_idempotent
 cargo kani --harness proof_path_normalize_no_traversal
-# ... etc for all 87 harnesses
+# ... etc for all 90 harnesses
 
 # Run a specific harness
 cargo kani --harness proof_compute_verdict_fail_closed_empty

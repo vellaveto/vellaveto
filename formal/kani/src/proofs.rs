@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 87 harnesses verifying security properties using CBMC bounded model
+//! 90 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -36,6 +36,7 @@
 //! K76-K77: Injection scanner decode pipeline completeness
 //! K78-K79: Trust-containment gate checks
 //! K80-K82: Semantic output-contract checks
+//! K83-K85: Counterfactual containment checks
 
 use crate::path;
 use crate::Verdict;
@@ -2829,6 +2830,23 @@ fn any_context_channel() -> crate::output_contracts::ContextChannel {
     }
 }
 
+fn any_semantic_taint() -> crate::counterfactual_containment::SemanticTaint {
+    use crate::counterfactual_containment::SemanticTaint;
+
+    let taint: u8 = kani::any();
+    kani::assume(taint <= 7);
+    match taint {
+        0 => SemanticTaint::Sanitized,
+        1 => SemanticTaint::Sensitive,
+        2 => SemanticTaint::Untrusted,
+        3 => SemanticTaint::CrossAgent,
+        4 => SemanticTaint::MixedProvenance,
+        5 => SemanticTaint::Replayed,
+        6 => SemanticTaint::IntegrityFailed,
+        _ => SemanticTaint::Quarantined,
+    }
+}
+
 // =========================================================================
 // K78: Trust containment — insufficient trust requires explicit gate
 // =========================================================================
@@ -2948,5 +2966,77 @@ fn proof_output_contract_resource_and_url_matrix() {
         violates_output_contract(expected, observed),
         expected_violation,
         "K82 violated: ResourceContent/Url contract matrix drifted"
+    );
+}
+
+// =========================================================================
+// K83: Counterfactual containment — no gate without security-relevant taint
+// =========================================================================
+
+#[kani::proof]
+fn proof_counterfactual_gate_requires_security_relevant_taint() {
+    use crate::counterfactual_containment::{
+        is_security_relevant_taint, requires_counterfactual_gate,
+    };
+
+    let sink = any_sink_class();
+    let observed = any_trust_tier();
+    let channel = any_context_channel();
+    let taint = any_semantic_taint();
+
+    if !is_security_relevant_taint(taint) {
+        assert!(
+            !requires_counterfactual_gate(sink, observed, Some(taint), Some(channel)),
+            "K83 violated: non-security taint triggered counterfactual gate"
+        );
+    }
+}
+
+// =========================================================================
+// K84: Counterfactual containment — quarantined command-like flows gate
+// =========================================================================
+
+#[kani::proof]
+fn proof_counterfactual_gate_triggers_for_quarantined_command_like_privileged_flow() {
+    use crate::counterfactual_containment::{requires_counterfactual_gate, SemanticTaint};
+    use crate::output_contracts::ContextChannel;
+    use crate::trust_containment::SinkClass;
+
+    let sink = any_sink_class();
+    kani::assume(sink != SinkClass::ReadOnly);
+    let observed = any_trust_tier();
+
+    assert!(
+        requires_counterfactual_gate(
+            sink,
+            observed,
+            Some(SemanticTaint::Quarantined),
+            Some(ContextChannel::CommandLike)
+        ),
+        "K84 violated: quarantined command-like privileged flow skipped counterfactual gate"
+    );
+}
+
+// =========================================================================
+// K85: Counterfactual containment — incidental verified tool output stays below gate
+// =========================================================================
+
+#[kani::proof]
+fn proof_counterfactual_gate_skips_verified_untrusted_tool_output() {
+    use crate::counterfactual_containment::{requires_counterfactual_gate, SemanticTaint};
+    use crate::output_contracts::ContextChannel;
+    use crate::trust_containment::{SinkClass, TrustTier};
+
+    let sink = any_sink_class();
+    kani::assume(sink != SinkClass::ReadOnly);
+
+    assert!(
+        !requires_counterfactual_gate(
+            sink,
+            TrustTier::Verified,
+            Some(SemanticTaint::Untrusted),
+            Some(ContextChannel::ToolOutput)
+        ),
+        "K85 violated: incidental verified tool output triggered counterfactual gate"
     );
 }

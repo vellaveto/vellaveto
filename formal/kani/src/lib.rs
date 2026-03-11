@@ -104,6 +104,9 @@
 //! | K80 | Data output contracts block privilege-escalating drift | Semantic output contracts |
 //! | K81 | Free-text/tool-output contracts block URL/command/approval drift | Semantic output contracts |
 //! | K82 | Resource/URL contracts only escalate on command/approval drift | Semantic output contracts |
+//! | K83 | Counterfactual gate requires security-relevant taint | Counterfactual containment |
+//! | K84 | Quarantined command-like privileged flows force counterfactual gate | Counterfactual containment |
+//! | K85 | Verified untrusted tool output stays below counterfactual gate | Counterfactual containment |
 //!
 //! # Source Correspondence
 //!
@@ -127,6 +130,7 @@
 //! - `cascading_fsm.rs`: Extracted from `vellaveto-engine/src/cascading.rs` (circuit breaker FSM)
 //! - `injection_pipeline.rs`: Extracted from `vellaveto-mcp/src/inspection/injection.rs` (decode chain)
 //! - `output_contracts.rs`: Extracted from `vellaveto-types/src/provenance.rs` + `vellaveto-mcp/src/output_contracts.rs`
+//! - `counterfactual_containment.rs`: Extracted from `vellaveto-types/src/provenance.rs`
 
 pub mod path;
 pub mod verified_core;
@@ -148,6 +152,7 @@ pub mod temporal_window;
 pub mod cascading_fsm;
 pub mod injection_pipeline;
 pub mod output_contracts;
+pub mod counterfactual_containment;
 pub mod trust_containment;
 
 #[cfg(kani)]
