@@ -119,6 +119,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workload_binding_status = bound` instead of leaving it as advisory-only
   metadata, so the shared `require_workload_binding` mediation guard can admit
   detached-signer requests on verified signer expectations alone.
+  A verified detached signature with signer/transport workload mismatch now
+  also downgrades the effective trust tier to `untrusted`, so privileged sink
+  trust-floor enforcement can still gate the request even when
+  `require_workload_binding` is not enabled globally.
 - **HTTP proxy detached request-signature freshness (Mar 2026):**
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,
@@ -131,6 +135,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `acis.detached_request_signature_max_future_skew_secs` now let operators tune
   those fail-closed windows per deployment instead of relying on a fixed proxy
   constant.
+- **HTTP proxy replay trust downgrade (Mar 2026):**
+  Verified detached signatures that trip the session-local replay cache now
+  also downgrade the effective trust tier to `quarantined` instead of keeping
+  a `verified` trust floor whenever `deny_replay` is not enabled. That lets
+  privileged sink trust-floor enforcement and approval summaries still treat
+  replayed provenance as contained rather than high-trust.
+- **HTTP proxy invalid-signature trust downgrade (Mar 2026):**
+  Detached request signatures that are `expired`, malformed, or otherwise
+  verification-invalid now also downgrade the effective trust tier during
+  transport provenance construction. `expired` signatures project
+  `quarantined`, while `invalid` and `error` signatures project `untrusted`,
+  so semantic-containment policy never sees stale or broken detached
+  provenance as implicitly high-trust.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

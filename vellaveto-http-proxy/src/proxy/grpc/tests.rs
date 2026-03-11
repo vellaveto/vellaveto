@@ -1480,6 +1480,10 @@ fn test_build_grpc_runtime_security_context_marks_workload_mismatch_for_trusted_
             .map(|identity| identity.workload_id.as_str()),
         Some("spiffe://cluster/ns/prod/sa/other")
     );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Untrusted)
+    );
 }
 
 #[test]
@@ -1550,8 +1554,16 @@ fn test_build_grpc_runtime_security_context_detects_replayed_detached_signature(
         Some(vellaveto_types::ReplayStatus::Fresh)
     );
     assert_eq!(
+        first.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Verified)
+    );
+    assert_eq!(
         second.client_provenance.as_ref().map(|p| p.replay_status),
         Some(vellaveto_types::ReplayStatus::ReplayDetected)
+    );
+    assert_eq!(
+        second.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Quarantined)
     );
 }
 
@@ -1596,6 +1608,10 @@ fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
     assert_eq!(
         provenance.signature_status,
         vellaveto_types::SignatureVerificationStatus::Invalid
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Untrusted)
     );
 }
 

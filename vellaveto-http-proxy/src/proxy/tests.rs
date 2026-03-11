@@ -1035,6 +1035,10 @@ fn test_build_runtime_security_context_marks_invalid_detached_request_signature(
     );
     assert!(provenance.request_signature.is_none());
     assert!(provenance.client_key_id.is_none());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Untrusted)
+    );
 }
 
 #[test]
@@ -1332,8 +1336,16 @@ fn test_build_runtime_security_context_detects_replayed_detached_request_signatu
         Some(vellaveto_types::ReplayStatus::Fresh)
     );
     assert_eq!(
+        first.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Verified)
+    );
+    assert_eq!(
         second.client_provenance.as_ref().map(|p| p.replay_status),
         Some(vellaveto_types::ReplayStatus::ReplayDetected)
+    );
+    assert_eq!(
+        second.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Quarantined)
     );
 }
 
@@ -1393,6 +1405,10 @@ fn test_build_runtime_security_context_expires_stale_detached_request_signature(
             .as_ref()
             .map(|provenance| provenance.signature_status),
         Some(SignatureVerificationStatus::Expired)
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Quarantined)
     );
 }
 
@@ -1677,6 +1693,10 @@ fn test_build_runtime_security_context_marks_workload_mismatch_for_trusted_signe
             .as_ref()
             .map(|identity| identity.workload_id.as_str()),
         Some("spiffe://cluster/ns/prod/sa/other")
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Untrusted)
     );
 }
 
@@ -2065,6 +2085,134 @@ fn test_detached_signer_scope_conflict_hits_mediation_guard() {
         panic!("expected provenance guard deny");
     };
     assert_eq!(reason, "verified request signature required");
+}
+
+#[test]
+fn test_detached_signer_workload_mismatch_hits_trust_floor_gate() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[24u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_binding(
+            &action,
+            "detached-kid",
+            &signing_key,
+            DetachedSignatureBinding {
+                session_scope_binding: Some(session_scope_binding.as_str()),
+                nonce: Some("detached-nonce".to_string()),
+                created_at: Some(
+                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ),
+                routing_identity: Some("spiffe://cluster/ns/prod/sa/other"),
+                workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                    platform: Some("spiffe".into()),
+                    workload_id: "spiffe://cluster/ns/prod/sa/other".into(),
+                    namespace: Some("prod".into()),
+                    service_account: Some("other".into()),
+                    process_identity: None,
+                    attestation_level: Some("jwt".into()),
+                }),
+            },
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::Unknown,
+            execution_is_ephemeral: false,
+            workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                platform: Some("spiffe".into()),
+                workload_id: "spiffe://cluster/ns/prod/sa/shell".into(),
+                namespace: Some("prod".into()),
+                service_account: Some("shell".into()),
+                process_identity: None,
+                attestation_level: Some("jwt".into()),
+            }),
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: Some("https://issuer.example".into()),
+            subject: Some("spiffe://cluster/ns/prod/sa/other".into()),
+            audience: vec![],
+            claims: std::collections::HashMap::from([
+                (
+                    "workload_id".to_string(),
+                    json!("spiffe://cluster/ns/prod/sa/other"),
+                ),
+                ("namespace".to_string(), json!("prod")),
+                ("service_account".to_string(), json!("other")),
+                ("attestation_level".to_string(), json!("jwt")),
+            ]),
+        }),
+        ..Default::default()
+    };
+
+    let mut security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    security_context.containment_mode = Some(vellaveto_types::ContainmentMode::Enforce);
+
+    let engine = vellaveto_engine::PolicyEngine::with_policies(
+        true,
+        &[allow_tool_policy(action.tool.as_str())],
+    )
+    .expect("policy engine");
+    let result = vellaveto_mcp::mediation::mediate_with_security_context(
+        "detached-workload-mismatch-trust-floor",
+        &action,
+        &engine,
+        None,
+        Some(&security_context),
+        "http",
+        &vellaveto_mcp::mediation::MediationConfig {
+            require_verified_signature: true,
+            require_lineage_for_privileged_sinks: true,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
+        Some(&session_id),
+        None,
+    );
+
+    assert_eq!(
+        result.origin,
+        vellaveto_types::DecisionOrigin::SemanticContainment
+    );
+    let vellaveto_types::Verdict::Deny { reason } = result.verdict else {
+        panic!("expected semantic containment deny");
+    };
+    assert!(!reason.is_empty());
 }
 
 #[test]
@@ -3151,7 +3299,15 @@ fn test_protocol_message_forward_security_context_infers_message_channel() {
 #[test]
 fn test_approval_containment_context_from_security_context_preserves_guard_fields() {
     let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
-    let security_context = super::helpers::untrusted_tool_approval_gate_security_context(&action);
+    let mut security_context =
+        super::helpers::untrusted_tool_approval_gate_security_context(&action);
+    security_context.client_provenance = Some(vellaveto_types::ClientProvenance {
+        signature_status: vellaveto_types::SignatureVerificationStatus::Verified,
+        workload_binding_status: vellaveto_types::WorkloadBindingStatus::Bound,
+        session_key_scope: vellaveto_types::SessionKeyScope::EphemeralSession,
+        execution_is_ephemeral: true,
+        ..vellaveto_types::ClientProvenance::default()
+    });
 
     let containment_context = super::helpers::approval_containment_context_from_security_context(
         &security_context,
@@ -3183,6 +3339,19 @@ fn test_approval_containment_context_from_security_context_preserves_guard_field
         containment_context.semantic_risk_score,
         Some(SemanticRiskScore { value: 85 })
     );
+    assert_eq!(
+        containment_context.signature_status,
+        Some(vellaveto_types::SignatureVerificationStatus::Verified)
+    );
+    assert_eq!(
+        containment_context.workload_binding_status,
+        Some(vellaveto_types::WorkloadBindingStatus::Bound)
+    );
+    assert_eq!(
+        containment_context.session_key_scope,
+        Some(vellaveto_types::SessionKeyScope::EphemeralSession)
+    );
+    assert!(containment_context.execution_is_ephemeral);
     assert!(!containment_context.counterfactual_review_required);
 }
 

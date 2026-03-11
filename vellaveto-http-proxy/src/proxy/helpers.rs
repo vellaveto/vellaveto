@@ -725,6 +725,43 @@ fn infer_trust_tier(
         .client_provenance
         .as_ref()
         .is_some_and(|provenance| {
+            provenance.signature_status == SignatureVerificationStatus::Expired
+        })
+    {
+        return Some(TrustTier::Quarantined);
+    }
+    if security_context
+        .client_provenance
+        .as_ref()
+        .is_some_and(|provenance| provenance.replay_status == ReplayStatus::ReplayDetected)
+    {
+        return Some(TrustTier::Quarantined);
+    }
+    if security_context
+        .client_provenance
+        .as_ref()
+        .is_some_and(|provenance| {
+            matches!(
+                provenance.signature_status,
+                SignatureVerificationStatus::Invalid | SignatureVerificationStatus::Error
+            )
+        })
+    {
+        return Some(TrustTier::Untrusted);
+    }
+    if security_context
+        .client_provenance
+        .as_ref()
+        .is_some_and(|provenance| {
+            provenance.workload_binding_status == WorkloadBindingStatus::Mismatch
+        })
+    {
+        return Some(TrustTier::Untrusted);
+    }
+    if security_context
+        .client_provenance
+        .as_ref()
+        .is_some_and(|provenance| {
             provenance.signature_status == SignatureVerificationStatus::Verified
         })
         || eval_ctx
@@ -980,11 +1017,11 @@ fn build_runtime_security_context_from_transport(
     if security_context.lineage_refs.is_empty() {
         security_context.lineage_refs = lineage_refs_from_call_chain(inputs.eval_ctx);
     }
+    verify_detached_request_signature(action, inputs, &mut security_context);
     if security_context.effective_trust_tier.is_none() {
         security_context.effective_trust_tier =
             infer_trust_tier(&security_context, inputs.oauth_evidence, inputs.eval_ctx);
     }
-    verify_detached_request_signature(action, inputs, &mut security_context);
     attach_canonical_request_hash(action, inputs.eval_ctx, &mut security_context);
 
     if security_context == RuntimeSecurityContext::default() {
@@ -1924,6 +1961,22 @@ pub(super) fn approval_containment_context_from_security_context(
         sink_class: security_context.sink_class,
         containment_mode: security_context.containment_mode,
         semantic_risk_score: security_context.semantic_risk_score,
+        signature_status: security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.signature_status),
+        workload_binding_status: security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.workload_binding_status),
+        session_key_scope: security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.session_key_scope),
+        execution_is_ephemeral: security_context
+            .client_provenance
+            .as_ref()
+            .is_some_and(|provenance| provenance.execution_is_ephemeral),
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();
@@ -1946,6 +1999,22 @@ pub(super) fn approval_containment_context_from_envelope(
         sink_class: envelope.sink_class,
         containment_mode: envelope.containment_mode,
         semantic_risk_score: envelope.semantic_risk_score,
+        signature_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.signature_status),
+        workload_binding_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.workload_binding_status),
+        session_key_scope: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.session_key_scope),
+        execution_is_ephemeral: envelope
+            .client_provenance
+            .as_ref()
+            .is_some_and(|provenance| provenance.execution_is_ephemeral),
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();

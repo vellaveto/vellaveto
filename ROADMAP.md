@@ -108,6 +108,18 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `workload_binding_status = bound` when the signer-pinned workload identity is
   satisfied, so `require_workload_binding` can admit detached-signer flows on
   verified signer provenance instead of treating that metadata as audit-only.
+- Verified detached signer workload mismatches now also downgrade the effective
+  trust tier to `untrusted`, so privileged sink trust-floor checks can still
+  gate mismatched signer provenance even when the explicit workload-binding
+  admission switch is left off.
+- Replayed verified detached signatures now also downgrade the effective trust
+  tier to `quarantined`, so replayed provenance cannot retain a verified trust
+  floor on the semantic-containment path when the explicit replay-deny switch
+  is disabled.
+- Expired detached signatures now also downgrade the effective trust tier to
+  `quarantined`, and `invalid` or verification-error detached signatures
+  downgrade to `untrusted`, so broken detached provenance cannot retain a
+  useful trust floor simply because other transport hints are present.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and
