@@ -316,6 +316,12 @@ async fn test_presented_approval_matches_action_enforces_session_binding() {
     let action = vellaveto_types::Action::new("tool", "fn", json!({"path": "/tmp/test"}));
     let session_id = state.sessions.get_or_create(None);
     let other_session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
     let approval_id = state
         .approval_store
         .as_ref()
@@ -324,7 +330,7 @@ async fn test_presented_approval_matches_action_enforces_session_binding() {
             action.clone(),
             "Approval required".to_string(),
             Some("user-1".to_string()),
-            Some(session_id.clone()),
+            Some(session_scope_binding),
             Some(vellaveto_engine::acis::fingerprint_action(&action)),
         )
         .await
@@ -367,6 +373,12 @@ async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
 
     let action = vellaveto_types::Action::new("tool", "fn", json!({"path": "/tmp/test"}));
     let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
     let approval_id = state
         .approval_store
         .as_ref()
@@ -375,7 +387,7 @@ async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
             action.clone(),
             "Approval required".to_string(),
             Some("user-1".to_string()),
-            Some(session_id.clone()),
+            Some(session_scope_binding),
             Some(vellaveto_engine::acis::fingerprint_action(&action)),
         )
         .await

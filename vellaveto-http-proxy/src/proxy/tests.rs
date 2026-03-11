@@ -105,9 +105,13 @@ fn make_oauth_validation_evidence_with_transport_claims(
             }),
         },
         custom_claims,
-        workload_claims,
+        workload_claims: workload_claims.into(),
         dpop_proof_verified,
     }
+}
+
+fn empty_session_store() -> crate::session::SessionStore {
+    crate::session::SessionStore::new(std::time::Duration::from_secs(300), 8)
 }
 
 #[test]
@@ -240,6 +244,8 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
         &headers,
         Some(&oauth_claims),
         Some(&eval_ctx),
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
 
@@ -314,6 +320,8 @@ fn test_build_runtime_security_context_preserves_meta_overrides() {
         &HeaderMap::new(),
         None,
         None,
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
 
@@ -363,6 +371,8 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
         &action,
         &headers,
         Some(&oauth_claims),
+        None,
+        &empty_session_store(),
         None,
     )
     .expect("security context");
@@ -451,6 +461,8 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
         &headers,
         Some(&oauth_claims),
         Some(&eval_ctx),
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
     let provenance = security_context
@@ -512,8 +524,7 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
 }
 
 #[test]
-fn test_build_runtime_security_context_uses_oauth_claims_for_workload_binding_without_agent_identity(
-) {
+fn test_build_runtime_security_context_uses_projected_transport_identity_for_workload_binding() {
     let msg = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -544,8 +555,13 @@ fn test_build_runtime_security_context_uses_oauth_claims_for_workload_binding_wi
             ("execution_is_ephemeral".to_string(), json!(true)),
         ]),
     );
+    let projected_identity = oauth_claims
+        .projected_agent_identity()
+        .expect("projected agent identity result")
+        .expect("projected agent identity");
     let eval_ctx = EvaluationContext {
         agent_id: Some("oauth-agent".to_string()),
+        agent_identity: Some(projected_identity),
         ..EvaluationContext::default()
     };
 
@@ -555,6 +571,8 @@ fn test_build_runtime_security_context_uses_oauth_claims_for_workload_binding_wi
         &headers,
         Some(&oauth_claims),
         Some(&eval_ctx),
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
     let provenance = security_context
@@ -595,7 +613,7 @@ fn test_build_runtime_security_context_uses_oauth_claims_for_workload_binding_wi
 }
 
 #[test]
-fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_oauth_custom_claims() {
+fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_projected_identity() {
     let msg = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -641,12 +659,21 @@ fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_oau
             ("execution_is_ephemeral".to_string(), json!(true)),
         ]),
     );
+    let projected_identity = oauth_claims
+        .projected_agent_identity()
+        .expect("projected agent identity result")
+        .expect("projected agent identity");
 
     let security_context = super::helpers::build_runtime_security_context(
         &msg,
         &action,
         &headers,
         Some(&oauth_claims),
+        Some(&EvaluationContext {
+            agent_identity: Some(projected_identity),
+            ..EvaluationContext::default()
+        }),
+        &empty_session_store(),
         None,
     )
     .expect("security context");
@@ -727,9 +754,16 @@ fn test_build_runtime_security_context_uses_detached_request_signature_without_o
         .expect("detached signature header"),
     );
 
-    let security_context =
-        super::helpers::build_runtime_security_context(&msg, &action, &headers, None, None)
-            .expect("security context");
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        None,
+        None,
+        &empty_session_store(),
+        None,
+    )
+    .expect("security context");
     let provenance = security_context
         .client_provenance
         .as_ref()
@@ -778,9 +812,16 @@ fn test_build_runtime_security_context_marks_invalid_detached_request_signature(
         "not-base64".parse().expect("header value"),
     );
 
-    let security_context =
-        super::helpers::build_runtime_security_context(&msg, &action, &headers, None, None)
-            .expect("security context");
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        None,
+        None,
+        &empty_session_store(),
+        None,
+    )
+    .expect("security context");
     let provenance = security_context
         .client_provenance
         .as_ref()

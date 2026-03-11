@@ -98,6 +98,16 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   tool/resource/task/extension verdict envelopes refresh against a transport-
   derived runtime security context instead of auditing only the session-level
   identity snapshot.
+- Canonical request binding and approval scope no longer derive persisted
+  session scope from transport-facing session IDs. The HTTP proxy session store
+  and stdio relay now mint opaque `session_scope_binding` values, preserve them
+  in `client_provenance`, and use them for approval scope and canonical hash
+  inputs instead of hashing or persisting raw session identifiers.
+- The HTTP provenance helper path now uses typed allowlisted workload-claims
+  decoding rather than reading generic OAuth claim maps in-place. Explicit
+  workload claims win over projected transport identity for workload binding,
+  while bearer-token custom claims are projected into session `agent_identity`
+  before mediation rather than being pulled directly into audit context.
 - Session-miss fallbacks in HTTP request mediation now preserve the current
   transport-authenticated identity instead of collapsing to an empty evaluation
   context.

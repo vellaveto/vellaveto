@@ -110,6 +110,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   envelopes with transport-derived `RuntimeSecurityContext` instead of relying
   on session identity alone. Approval-gate verdicts now merge that transport
   provenance into the stored containment context as well.
+- **Opaque session-scope provenance binding (Mar 2026):**
+  Canonical request hashing, relay approval scope, and HTTP proxy approval
+  scope now use transport-generated opaque `session_scope_binding` values
+  instead of hashing or persisting transport-facing session IDs directly.
+  Relay state and HTTP proxy session state now mint internal `sidbind:v1:*`
+  bindings, preserve them in `client_provenance`, and use them for approval
+  creation/consumption and canonical request binding.
+- **Allowlisted transport claim projection (Mar 2026):**
+  The HTTP proxy no longer derives runtime provenance by reading generic OAuth
+  claim maps inside the helper path. Workload claims are now decoded into a
+  typed allowlisted structure, explicit workload metadata takes precedence over
+  projected bearer-token identity when building `workload_identity`, and
+  bearer-token custom claims are projected into session `agent_identity`
+  earlier in the request lifecycle instead of being read directly in the audit
+  path.
 
 ### Fixed
 

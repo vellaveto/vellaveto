@@ -17,6 +17,10 @@ use super::*;
 use prost_types::value::Kind;
 use serde_json::json;
 
+fn empty_session_store() -> crate::session::SessionStore {
+    crate::session::SessionStore::new(std::time::Duration::from_secs(300), 8)
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // GrpcConfig tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -1003,6 +1007,8 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
         &action,
         Some(header.as_str()),
         Some(&eval_ctx),
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
     let provenance = security_context
@@ -1061,6 +1067,8 @@ fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
         &action,
         Some("not-base64"),
         Some(&vellaveto_types::EvaluationContext::default()),
+        &empty_session_store(),
+        None,
     )
     .expect("security context");
     let provenance = security_context

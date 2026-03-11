@@ -141,9 +141,19 @@ fn build_ws_runtime_security_context(
     action: &Action,
     oauth_evidence: Option<&crate::proxy::auth::OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    sessions: &crate::session::SessionStore,
+    session_id: Option<&str>,
 ) -> Option<RuntimeSecurityContext> {
     let headers = HeaderMap::new();
-    super::helpers::build_runtime_security_context(msg, action, &headers, oauth_evidence, eval_ctx)
+    super::helpers::build_runtime_security_context(
+        msg,
+        action,
+        &headers,
+        oauth_evidence,
+        eval_ctx,
+        sessions,
+        session_id,
+    )
 }
 
 fn refresh_ws_acis_envelope(
@@ -299,6 +309,27 @@ pub async fn handle_ws_upgrade(
     if let Some(ref identity) = agent_identity {
         if let Some(mut session) = state.sessions.get_mut(&session_id) {
             session.agent_identity = Some(identity.clone());
+        }
+    } else if let Some(ref oauth_evidence) = oauth_claims {
+        match oauth_evidence.projected_agent_identity() {
+            Ok(Some(identity)) => {
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    session.agent_identity.get_or_insert(identity);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "WebSocket transport identity claims validation failed: {}",
+                    error
+                );
+                return axum::response::IntoResponse::into_response((
+                    axum::http::StatusCode::UNAUTHORIZED,
+                    axum::Json(json!({
+                        "error": "Invalid authorization token"
+                    })),
+                ));
+            }
         }
     }
 
@@ -1468,6 +1499,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 Some(&ctx),
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -1512,6 +1545,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 None,
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2186,6 +2221,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 Some(&ctx),
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2232,6 +2269,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 None,
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2970,6 +3009,8 @@ async fn relay_client_to_upstream(
                                     &action,
                                     oauth_claims.as_ref(),
                                     Some(&ctx),
+                                    &state.sessions,
+                                    Some(&session_id),
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3012,6 +3053,8 @@ async fn relay_client_to_upstream(
                                     &action,
                                     oauth_claims.as_ref(),
                                     None,
+                                    &state.sessions,
+                                    Some(&session_id),
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3509,6 +3552,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 Some(&ctx),
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3549,6 +3594,8 @@ async fn relay_client_to_upstream(
                                 &action,
                                 oauth_claims.as_ref(),
                                 None,
+                                &state.sessions,
+                                Some(&session_id),
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),

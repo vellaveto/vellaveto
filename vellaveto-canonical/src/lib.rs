@@ -40,13 +40,13 @@ pub struct CanonicalRequestInput {
 impl CanonicalRequestInput {
     pub fn from_action(
         action: &Action,
-        session_id: Option<&str>,
+        session_scope_binding: Option<&str>,
         provenance: Option<&ClientProvenance>,
         routing_identity: Option<&str>,
     ) -> Self {
         let request_signature = provenance.and_then(|p| p.request_signature.as_ref());
         Self {
-            session_id: session_id.map(canonical_session_binding),
+            session_id: session_scope_binding.map(std::string::ToString::to_string),
             action_kind: format!("{}:{}", action.tool, action.function),
             target_identity: json!({
                 "tool": action.tool,
@@ -62,13 +62,6 @@ impl CanonicalRequestInput {
             routing_identity: routing_identity.map(std::string::ToString::to_string),
         }
     }
-}
-
-fn canonical_session_binding(session_id: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"vellaveto:canonical:session_scope:v1:");
-    hasher.update(session_id.as_bytes());
-    format!("sidbind:v1:{}", hex::encode(hasher.finalize()))
 }
 
 /// Stable semantic lineage node used for provenance-aware audit correlation.
@@ -380,11 +373,15 @@ mod tests {
             resolved_ips: vec![],
         };
 
-        let input = CanonicalRequestInput::from_action(&action, Some("session-1"), None, None);
+        let input = CanonicalRequestInput::from_action(
+            &action,
+            Some("sidbind:v1:test-session-scope"),
+            None,
+            None,
+        );
         let session_binding = input.session_id.as_deref().expect("session binding");
 
-        assert_ne!(session_binding, "session-1");
-        assert!(session_binding.starts_with("sidbind:v1:"));
+        assert_eq!(session_binding, "sidbind:v1:test-session-scope");
     }
 
     #[test]

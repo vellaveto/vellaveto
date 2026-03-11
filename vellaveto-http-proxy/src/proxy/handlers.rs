@@ -322,6 +322,26 @@ pub async fn handle_mcp_post(
         if let Some(mut session) = state.sessions.get_mut(&session_id) {
             session.agent_identity = Some(identity.clone());
         }
+    } else if let Some(ref oauth_evidence) = oauth_claims {
+        match oauth_evidence.projected_agent_identity() {
+            Ok(Some(identity)) => {
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    session.agent_identity.get_or_insert(identity);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "OAuth transport identity claims validation failed: {}",
+                    error
+                );
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "Invalid authorization token"})),
+                )
+                    .into_response();
+            }
+        }
     }
 
     // Determine if we should pass through the Authorization header to upstream
@@ -988,6 +1008,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -1033,6 +1055,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2265,6 +2289,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2311,6 +2337,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3475,6 +3503,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3516,6 +3546,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -4171,6 +4203,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -4210,6 +4244,8 @@ pub async fn handle_mcp_post(
                         &headers,
                         oauth_claims.as_ref(),
                         Some(&eval_ctx),
+                        &state.sessions,
+                        Some(&session_id),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -5125,6 +5161,26 @@ pub async fn handle_mcp_get(
     if let Some(ref identity) = agent_identity {
         if let Some(mut session) = state.sessions.get_mut(&session_id) {
             session.agent_identity = Some(identity.clone());
+        }
+    } else if let Some(ref oauth_evidence) = oauth_claims {
+        match oauth_evidence.projected_agent_identity() {
+            Ok(Some(identity)) => {
+                if let Some(mut session) = state.sessions.get_mut(&session_id) {
+                    session.agent_identity.get_or_insert(identity);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "OAuth transport identity claims validation failed: {}",
+                    error
+                );
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({"error": "Invalid authorization token"})),
+                )
+                    .into_response();
+            }
         }
     }
 

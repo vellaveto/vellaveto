@@ -107,6 +107,8 @@ pub(super) fn build_grpc_runtime_security_context(
     action: &Action,
     request_signature_header: Option<&str>,
     eval_ctx: Option<&EvaluationContext>,
+    sessions: &crate::session::SessionStore,
+    session_id: Option<&str>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_with_request_signature(
         msg,
@@ -114,6 +116,8 @@ pub(super) fn build_grpc_runtime_security_context(
         request_signature_header,
         None,
         eval_ctx,
+        sessions,
+        session_id,
     )
 }
 
@@ -1854,6 +1858,8 @@ impl McpGrpcService {
             &action,
             request_signature_header,
             Some(&ctx),
+            &self.state.sessions,
+            Some(session_id),
         );
 
         match &verdict {
@@ -2496,6 +2502,8 @@ impl McpGrpcService {
             &action,
             request_signature_header,
             Some(&ctx),
+            &self.state.sessions,
+            Some(session_id),
         );
 
         match &verdict {
@@ -3483,6 +3491,8 @@ impl McpGrpcService {
             &action,
             request_signature_header,
             Some(&ctx),
+            &self.state.sessions,
+            Some(session_id),
         );
 
         match &verdict {
@@ -4037,6 +4047,8 @@ impl McpGrpcService {
             &action,
             request_signature_header,
             Some(&ctx),
+            &self.state.sessions,
+            Some(session_id),
         );
 
         match &verdict {

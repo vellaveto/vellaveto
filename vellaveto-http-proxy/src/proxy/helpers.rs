@@ -342,26 +342,36 @@ fn agent_identity_from_eval_ctx(eval_ctx: Option<&EvaluationContext>) -> Option<
     eval_ctx.and_then(|ctx| ctx.agent_identity.as_ref())
 }
 
-fn transport_claim_str<'a>(
+fn transport_workload_claim_str<'a>(
     eval_ctx: Option<&'a EvaluationContext>,
     oauth_evidence: Option<&'a OAuthValidationEvidence>,
     key: &str,
 ) -> Option<&'a str> {
     agent_identity_from_eval_ctx(eval_ctx)
         .and_then(|identity| identity.claim_str(key))
-        .or_else(|| {
-            oauth_evidence
-                .and_then(|evidence| evidence.workload_claims.get(key))
-                .and_then(Value::as_str)
-        })
-        .or_else(|| {
-            oauth_evidence
-                .and_then(|evidence| evidence.custom_claims.get(key))
-                .and_then(Value::as_str)
+        .or_else(|| match key {
+            "workload_id" => {
+                oauth_evidence.and_then(|evidence| evidence.workload_claims.workload_id())
+            }
+            "spiffe_id" => oauth_evidence.and_then(|evidence| evidence.workload_claims.spiffe_id()),
+            "namespace" => oauth_evidence.and_then(|evidence| evidence.workload_claims.namespace()),
+            "service_account" => {
+                oauth_evidence.and_then(|evidence| evidence.workload_claims.service_account())
+            }
+            "process_identity" => {
+                oauth_evidence.and_then(|evidence| evidence.workload_claims.process_identity())
+            }
+            "attestation_level" => {
+                oauth_evidence.and_then(|evidence| evidence.workload_claims.attestation_level())
+            }
+            "session_key_scope" => {
+                oauth_evidence.and_then(|evidence| evidence.workload_claims.session_key_scope())
+            }
+            _ => None,
         })
 }
 
-fn transport_claim_bool(
+fn transport_workload_claim_bool(
     eval_ctx: Option<&EvaluationContext>,
     oauth_evidence: Option<&OAuthValidationEvidence>,
     key: &str,
@@ -369,15 +379,10 @@ fn transport_claim_bool(
     agent_identity_from_eval_ctx(eval_ctx)
         .and_then(|identity| identity.claims.get(key))
         .and_then(Value::as_bool)
-        .or_else(|| {
-            oauth_evidence
-                .and_then(|evidence| evidence.workload_claims.get(key))
-                .and_then(Value::as_bool)
-        })
-        .or_else(|| {
-            oauth_evidence
-                .and_then(|evidence| evidence.custom_claims.get(key))
-                .and_then(Value::as_bool)
+        .or_else(|| match key {
+            "execution_is_ephemeral" => oauth_evidence
+                .and_then(|evidence| evidence.workload_claims.execution_is_ephemeral()),
+            _ => None,
         })
 }
 
@@ -385,15 +390,18 @@ fn workload_id_from_transport(
     eval_ctx: Option<&EvaluationContext>,
     oauth_evidence: Option<&OAuthValidationEvidence>,
 ) -> Option<String> {
-    agent_identity_from_eval_ctx(eval_ctx)
-        .and_then(|identity| identity.subject.as_deref())
-        .map(str::trim)
-        .filter(|subject| !subject.is_empty())
+    transport_workload_claim_str(eval_ctx, oauth_evidence, "workload_id")
         .map(str::to_string)
         .or_else(|| {
-            transport_claim_str(eval_ctx, oauth_evidence, "workload_id").map(str::to_string)
+            transport_workload_claim_str(eval_ctx, oauth_evidence, "spiffe_id").map(str::to_string)
         })
-        .or_else(|| transport_claim_str(eval_ctx, oauth_evidence, "spiffe_id").map(str::to_string))
+        .or_else(|| {
+            agent_identity_from_eval_ctx(eval_ctx)
+                .and_then(|identity| identity.subject.as_deref())
+                .map(str::trim)
+                .filter(|subject| !subject.is_empty())
+                .map(str::to_string)
+        })
         .or_else(|| {
             oauth_evidence.and_then(|evidence| {
                 let subject = evidence.claims.sub.trim();
@@ -413,14 +421,23 @@ fn build_workload_identity(
     Some(WorkloadIdentity {
         platform: Some(infer_workload_platform(&workload_id)),
         workload_id,
-        namespace: transport_claim_str(eval_ctx, oauth_evidence, "namespace").map(str::to_string),
-        service_account: transport_claim_str(eval_ctx, oauth_evidence, "service_account")
+        namespace: transport_workload_claim_str(eval_ctx, oauth_evidence, "namespace")
             .map(str::to_string),
-        process_identity: transport_claim_str(eval_ctx, oauth_evidence, "process_identity")
+        service_account: transport_workload_claim_str(eval_ctx, oauth_evidence, "service_account")
             .map(str::to_string),
-        attestation_level: transport_claim_str(eval_ctx, oauth_evidence, "attestation_level")
-            .map(str::to_string)
-            .or_else(|| Some("jwt".to_string())),
+        process_identity: transport_workload_claim_str(
+            eval_ctx,
+            oauth_evidence,
+            "process_identity",
+        )
+        .map(str::to_string),
+        attestation_level: transport_workload_claim_str(
+            eval_ctx,
+            oauth_evidence,
+            "attestation_level",
+        )
+        .map(str::to_string)
+        .or_else(|| Some("jwt".to_string())),
     })
 }
 
@@ -428,7 +445,7 @@ fn build_session_key_scope(
     eval_ctx: Option<&EvaluationContext>,
     oauth_evidence: Option<&OAuthValidationEvidence>,
 ) -> SessionKeyScope {
-    match transport_claim_str(eval_ctx, oauth_evidence, "session_key_scope") {
+    match transport_workload_claim_str(eval_ctx, oauth_evidence, "session_key_scope") {
         Some("ephemeral_execution") => SessionKeyScope::EphemeralExecution,
         Some("ephemeral_session") => SessionKeyScope::EphemeralSession,
         Some("persisted_client") => SessionKeyScope::PersistedClient,
@@ -449,7 +466,8 @@ fn execution_is_ephemeral(
         return true;
     }
 
-    transport_claim_bool(eval_ctx, oauth_evidence, "execution_is_ephemeral").unwrap_or(false)
+    transport_workload_claim_bool(eval_ctx, oauth_evidence, "execution_is_ephemeral")
+        .unwrap_or(false)
 }
 
 fn build_workload_binding_status(
@@ -471,6 +489,7 @@ fn build_workload_binding_status(
 fn build_client_provenance_from_transport(
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    session_scope_binding: Option<&str>,
     dpop_request_signature: Option<RequestSignature>,
     detached_signature: DetachedRequestSignatureEvidence,
 ) -> Option<ClientProvenance> {
@@ -531,21 +550,35 @@ fn build_client_provenance_from_transport(
             || ReplayStatus::NotChecked,
             OAuthValidationEvidence::replay_status,
         ),
+        session_scope_binding: session_scope_binding.map(std::string::ToString::to_string),
         canonical_request_hash: None,
         execution_is_ephemeral: execution_is_ephemeral(eval_ctx, oauth_evidence, session_key_scope),
     })
+}
+
+fn transport_session_scope_binding(
+    sessions: &SessionStore,
+    session_id: Option<&str>,
+) -> Option<String> {
+    let session_id = session_id?;
+    sessions
+        .get(session_id)
+        .map(|session| session.session_scope_binding.clone())
 }
 
 fn build_client_provenance(
     headers: &HeaderMap,
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    sessions: &SessionStore,
+    session_id: Option<&str>,
 ) -> Option<ClientProvenance> {
     let detached_signature = decode_detached_request_signature(headers);
     let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
     build_client_provenance_from_transport(
         oauth_evidence,
         eval_ctx,
+        transport_session_scope_binding(sessions, session_id).as_deref(),
         decode_dpop_request_signature(headers, oauth_claims),
         detached_signature,
     )
@@ -615,6 +648,9 @@ fn merge_client_provenance(
                 && transport.replay_status != ReplayStatus::NotChecked
             {
                 existing.replay_status = transport.replay_status;
+            }
+            if existing.session_scope_binding.is_none() {
+                existing.session_scope_binding = transport.session_scope_binding;
             }
             if existing.canonical_request_hash.is_none() {
                 existing.canonical_request_hash = transport.canonical_request_hash;
@@ -723,13 +759,15 @@ pub(super) fn build_runtime_security_context(
     headers: &HeaderMap,
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    sessions: &SessionStore,
+    session_id: Option<&str>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_from_transport(
         msg,
         action,
         oauth_evidence,
         eval_ctx,
-        build_client_provenance(headers, oauth_evidence, eval_ctx),
+        build_client_provenance(headers, oauth_evidence, eval_ctx, sessions, session_id),
     )
 }
 
@@ -740,6 +778,8 @@ pub(super) fn build_runtime_security_context_with_request_signature(
     request_signature_header: Option<&str>,
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
+    sessions: &SessionStore,
+    session_id: Option<&str>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_from_transport(
         msg,
@@ -749,6 +789,7 @@ pub(super) fn build_runtime_security_context_with_request_signature(
         build_client_provenance_from_transport(
             oauth_evidence,
             eval_ctx,
+            transport_session_scope_binding(sessions, session_id).as_deref(),
             None,
             decode_detached_request_signature_value(request_signature_header),
         ),
@@ -1732,7 +1773,15 @@ pub(super) async fn presented_approval_matches_action(
     }
 
     let action_fingerprint = fingerprint_action(action);
-    if !approval.scope_matches(Some(session_id), Some(action_fingerprint.as_str())) {
+    let session_scope_binding = state
+        .sessions
+        .get(session_id)
+        .map(|session| session.session_scope_binding.clone())
+        .ok_or(())?;
+    if !approval.scope_matches(
+        Some(session_scope_binding.as_str()),
+        Some(action_fingerprint.as_str()),
+    ) {
         tracing::warn!(
             approval_id = %approval_id,
             session_id = %session_id,
@@ -1764,10 +1813,15 @@ pub(super) async fn consume_presented_approval(
     };
 
     let action_fingerprint = fingerprint_action(action);
+    let session_scope_binding = state
+        .sessions
+        .get(session_id)
+        .map(|session| session.session_scope_binding.clone())
+        .ok_or(())?;
     match store
         .consume_approved(
             approval_id,
-            Some(session_id),
+            Some(session_scope_binding.as_str()),
             Some(action_fingerprint.as_str()),
         )
         .await
@@ -1800,19 +1854,28 @@ pub(super) async fn create_pending_approval_with_context(
     containment_context: Option<ApprovalContainmentContext>,
 ) -> Option<String> {
     let store = state.approval_store.as_ref()?;
-    let requested_by = state.sessions.get_mut(session_id).and_then(|session| {
-        session
-            .agent_identity
-            .as_ref()
-            .and_then(|identity| identity.subject.clone())
-            .or_else(|| session.oauth_subject.clone())
-    });
+    let (requested_by, session_scope_binding) = state
+        .sessions
+        .get(session_id)
+        .map(|session| {
+            (
+                session
+                    .agent_identity
+                    .as_ref()
+                    .and_then(|identity| identity.subject.clone())
+                    .or_else(|| session.oauth_subject.clone()),
+                session.session_scope_binding.clone(),
+            )
+        })
+        .map_or((None, None), |(requested_by, binding)| {
+            (requested_by, Some(binding))
+        });
     match store
         .create_with_context(
             action.clone(),
             reason.to_string(),
             requested_by,
-            Some(session_id.to_string()),
+            session_scope_binding,
             Some(fingerprint_action(action)),
             containment_context,
         )

@@ -329,7 +329,7 @@ pub fn extract_workload_claims(
     }
 
     crate::proxy::auth::decode_workload_claims_value(raw)
-        .map(Some)
+        .map(|claims| Some(claims.to_claims_map()))
         .map_err(|_| Status::invalid_argument("Invalid workload claims metadata"))
 }
 

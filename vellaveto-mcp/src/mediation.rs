@@ -793,7 +793,7 @@ fn semantic_containment_verdict(
 
 fn enrich_client_provenance(
     action: &Action,
-    session_id: Option<&str>,
+    _session_id: Option<&str>,
     context: Option<&EvaluationContext>,
     security_context: Option<&RuntimeSecurityContext>,
 ) -> Option<vellaveto_types::ClientProvenance> {
@@ -809,8 +809,12 @@ fn enrich_client_provenance(
             .and_then(|identity| identity.subject.as_deref())
             .or(ctx.agent_id.as_deref())
     });
-    let input =
-        CanonicalRequestInput::from_action(action, session_id, Some(&provenance), routing_identity);
+    let input = CanonicalRequestInput::from_action(
+        action,
+        provenance.session_scope_binding.as_deref(),
+        Some(&provenance),
+        routing_identity,
+    );
     if let Ok(hash) = canonical_request_hash(&input) {
         provenance.canonical_request_hash = Some(hash);
     }

@@ -149,7 +149,7 @@ impl IntoResponse for WorkloadClaimsError {
 pub(super) struct OAuthValidationEvidence {
     pub claims: OAuthClaims,
     pub custom_claims: HashMap<String, Value>,
-    pub workload_claims: HashMap<String, Value>,
+    pub workload_claims: ValidatedWorkloadClaims,
     pub dpop_proof_verified: bool,
 }
 
@@ -168,6 +168,20 @@ impl OAuthValidationEvidence {
         } else {
             ReplayStatus::NotChecked
         }
+    }
+
+    pub fn has_transport_identity_claims(&self) -> bool {
+        !self.custom_claims.is_empty() || !self.workload_claims.is_empty()
+    }
+
+    pub fn projected_agent_identity(&self) -> Result<Option<AgentIdentity>, String> {
+        if !self.has_transport_identity_claims() {
+            return Ok(None);
+        }
+
+        let mut merged_claims = self.custom_claims.clone();
+        merged_claims.extend(self.workload_claims.to_claims_map());
+        build_agent_identity_from_claims(self.claims.clone(), merged_claims).map(Some)
     }
 }
 
@@ -196,9 +210,131 @@ pub(super) fn extract_custom_jwt_claims(token: &str) -> Option<HashMap<String, V
     Some(payload.into_iter().collect())
 }
 
+#[derive(Debug, Clone, Default)]
+pub(super) struct ValidatedWorkloadClaims {
+    workload_id: Option<String>,
+    spiffe_id: Option<String>,
+    namespace: Option<String>,
+    service_account: Option<String>,
+    process_identity: Option<String>,
+    attestation_level: Option<String>,
+    session_key_scope: Option<String>,
+    execution_is_ephemeral: Option<bool>,
+}
+
+impl ValidatedWorkloadClaims {
+    pub fn is_empty(&self) -> bool {
+        self.workload_id.is_none()
+            && self.spiffe_id.is_none()
+            && self.namespace.is_none()
+            && self.service_account.is_none()
+            && self.process_identity.is_none()
+            && self.attestation_level.is_none()
+            && self.session_key_scope.is_none()
+            && self.execution_is_ephemeral.is_none()
+    }
+
+    pub fn workload_id(&self) -> Option<&str> {
+        self.workload_id.as_deref()
+    }
+
+    pub fn spiffe_id(&self) -> Option<&str> {
+        self.spiffe_id.as_deref()
+    }
+
+    pub fn namespace(&self) -> Option<&str> {
+        self.namespace.as_deref()
+    }
+
+    pub fn service_account(&self) -> Option<&str> {
+        self.service_account.as_deref()
+    }
+
+    pub fn process_identity(&self) -> Option<&str> {
+        self.process_identity.as_deref()
+    }
+
+    pub fn attestation_level(&self) -> Option<&str> {
+        self.attestation_level.as_deref()
+    }
+
+    pub fn session_key_scope(&self) -> Option<&str> {
+        self.session_key_scope.as_deref()
+    }
+
+    pub fn execution_is_ephemeral(&self) -> Option<bool> {
+        self.execution_is_ephemeral
+    }
+
+    pub(super) fn to_claims_map(&self) -> HashMap<String, Value> {
+        let mut claims = HashMap::new();
+
+        for (key, value) in [
+            ("workload_id", self.workload_id.as_ref()),
+            ("spiffe_id", self.spiffe_id.as_ref()),
+            ("namespace", self.namespace.as_ref()),
+            ("service_account", self.service_account.as_ref()),
+            ("process_identity", self.process_identity.as_ref()),
+            ("attestation_level", self.attestation_level.as_ref()),
+            ("session_key_scope", self.session_key_scope.as_ref()),
+        ] {
+            if let Some(value) = value {
+                claims.insert(key.to_string(), Value::String(value.clone()));
+            }
+        }
+
+        if let Some(execution_is_ephemeral) = self.execution_is_ephemeral {
+            claims.insert(
+                "execution_is_ephemeral".to_string(),
+                Value::Bool(execution_is_ephemeral),
+            );
+        }
+
+        claims
+    }
+}
+
+impl From<HashMap<String, Value>> for ValidatedWorkloadClaims {
+    fn from(value: HashMap<String, Value>) -> Self {
+        let mut claims = Self::default();
+
+        for (key, claim_value) in value {
+            match (key.as_str(), claim_value) {
+                ("workload_id", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.workload_id = Some(text);
+                }
+                ("spiffe_id", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.spiffe_id = Some(text);
+                }
+                ("namespace", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.namespace = Some(text);
+                }
+                ("service_account", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.service_account = Some(text);
+                }
+                ("process_identity", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.process_identity = Some(text);
+                }
+                ("attestation_level", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.attestation_level = Some(text);
+                }
+                ("session_key_scope", Value::String(text)) if !text.trim().is_empty() => {
+                    claims.session_key_scope = Some(text);
+                }
+                ("execution_is_ephemeral", Value::Bool(flag)) => {
+                    claims.execution_is_ephemeral = Some(flag);
+                }
+                _ => {}
+            }
+        }
+
+        claims
+    }
+}
+
 pub(super) fn decode_workload_claims_value(
     encoded: &str,
-) -> Result<HashMap<String, Value>, WorkloadClaimsError> {
+) -> Result<ValidatedWorkloadClaims, WorkloadClaimsError> {
     if encoded.len() > MAX_WORKLOAD_CLAIMS_HEADER_BYTES {
         return Err(WorkloadClaimsError::Invalid);
     }
@@ -209,7 +345,7 @@ pub(super) fn decode_workload_claims_value(
     let decoded =
         serde_json::from_slice::<Value>(&payload).map_err(|_| WorkloadClaimsError::Invalid)?;
     let object = decoded.as_object().ok_or(WorkloadClaimsError::Invalid)?;
-    let mut claims = HashMap::new();
+    let mut claims = ValidatedWorkloadClaims::default();
 
     for key in SUPPORTED_WORKLOAD_CLAIMS {
         let Some(value) = object.get(*key) else {
@@ -217,14 +353,28 @@ pub(super) fn decode_workload_claims_value(
         };
         match (*key, value) {
             ("execution_is_ephemeral", Value::Bool(_)) => {
-                claims.insert((*key).to_string(), value.clone());
+                claims.execution_is_ephemeral = value.as_bool();
             }
-            (
-                "workload_id" | "spiffe_id" | "namespace" | "service_account" | "process_identity"
-                | "attestation_level" | "session_key_scope",
-                Value::String(text),
-            ) if !text.trim().is_empty() => {
-                claims.insert((*key).to_string(), value.clone());
+            ("workload_id", Value::String(text)) if !text.trim().is_empty() => {
+                claims.workload_id = Some(text.clone());
+            }
+            ("spiffe_id", Value::String(text)) if !text.trim().is_empty() => {
+                claims.spiffe_id = Some(text.clone());
+            }
+            ("namespace", Value::String(text)) if !text.trim().is_empty() => {
+                claims.namespace = Some(text.clone());
+            }
+            ("service_account", Value::String(text)) if !text.trim().is_empty() => {
+                claims.service_account = Some(text.clone());
+            }
+            ("process_identity", Value::String(text)) if !text.trim().is_empty() => {
+                claims.process_identity = Some(text.clone());
+            }
+            ("attestation_level", Value::String(text)) if !text.trim().is_empty() => {
+                claims.attestation_level = Some(text.clone());
+            }
+            ("session_key_scope", Value::String(text)) if !text.trim().is_empty() => {
+                claims.session_key_scope = Some(text.clone());
             }
             _ => return Err(WorkloadClaimsError::Invalid),
         }
@@ -239,7 +389,7 @@ pub(super) fn decode_workload_claims_value(
 
 fn extract_workload_claims(
     headers: &HeaderMap,
-) -> Result<HashMap<String, Value>, WorkloadClaimsError> {
+) -> Result<ValidatedWorkloadClaims, WorkloadClaimsError> {
     let header_value = match headers
         .get(X_WORKLOAD_CLAIMS)
         .and_then(|value| value.to_str().ok())
@@ -247,20 +397,16 @@ fn extract_workload_claims(
     {
         Some(value) if !value.is_empty() => value,
         Some(_) => return Err(WorkloadClaimsError::Invalid),
-        None => return Ok(HashMap::new()),
+        None => return Ok(ValidatedWorkloadClaims::default()),
     };
 
     decode_workload_claims_value(header_value)
 }
 
-pub(super) fn build_validated_agent_identity(
+fn build_agent_identity_from_claims(
     claims: OAuthClaims,
-    token: &str,
-    workload_claims: HashMap<String, Value>,
+    merged_claims: HashMap<String, Value>,
 ) -> Result<AgentIdentity, String> {
-    let mut merged_claims = extract_custom_jwt_claims(token).unwrap_or_default();
-    merged_claims.extend(workload_claims);
-
     let identity = AgentIdentity {
         issuer: if claims.iss.is_empty() {
             None
@@ -277,6 +423,16 @@ pub(super) fn build_validated_agent_identity(
     };
     identity.validate()?;
     Ok(identity)
+}
+
+pub(super) fn build_validated_agent_identity(
+    claims: OAuthClaims,
+    token: &str,
+    workload_claims: HashMap<String, Value>,
+) -> Result<AgentIdentity, String> {
+    let mut merged_claims = extract_custom_jwt_claims(token).unwrap_or_default();
+    merged_claims.extend(workload_claims);
+    build_agent_identity_from_claims(claims, merged_claims)
 }
 
 async fn audit_dpop_validation_failure(
@@ -871,14 +1027,10 @@ mod tests {
 
         let claims = extract_workload_claims(&headers).expect("workload claims");
 
-        assert_eq!(
-            claims.get("workload_id"),
-            Some(&json!("spiffe://cluster/ns/app"))
-        );
-        assert_eq!(claims.get("namespace"), Some(&json!("prod")));
-        assert_eq!(claims.get("service_account"), Some(&json!("frontend")));
-        assert_eq!(claims.get("execution_is_ephemeral"), Some(&json!(true)));
-        assert!(!claims.contains_key("ignored_future_key"));
+        assert_eq!(claims.workload_id(), Some("spiffe://cluster/ns/app"));
+        assert_eq!(claims.namespace(), Some("prod"));
+        assert_eq!(claims.service_account(), Some("frontend"));
+        assert_eq!(claims.execution_is_ephemeral(), Some(true));
     }
 
     #[test]
