@@ -266,6 +266,8 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2005,6 +2007,8 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2420,6 +2424,8 @@ async fn trace_resource_read_denied_includes_trace() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2530,6 +2536,8 @@ async fn trace_constraint_details_visible() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -2988,6 +2996,8 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4146,6 +4156,8 @@ fn build_api_key_test_state(
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4664,6 +4676,8 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4812,6 +4826,8 @@ async fn task_get_allowed_when_no_deny_policy() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -4911,6 +4927,8 @@ async fn task_request_fail_closed_no_matching_policy() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5009,6 +5027,8 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5113,6 +5133,8 @@ async fn task_request_clean_params_not_dlp_blocked() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5215,6 +5237,8 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5321,6 +5345,8 @@ async fn extension_method_fail_closed_no_matching_policy() {
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -5647,6 +5673,8 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),
@@ -6211,6 +6239,8 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         audit_strict_mode: false,
         mediation_config: default_test_mediation_config(),
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness:
+            vellaveto_http_proxy::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

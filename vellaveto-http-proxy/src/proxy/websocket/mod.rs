@@ -139,25 +139,10 @@ pub(crate) fn ws_messages_count() -> u64 {
 fn build_ws_runtime_security_context(
     msg: &Value,
     action: &Action,
-    oauth_evidence: Option<&crate::proxy::auth::OAuthValidationEvidence>,
-    eval_ctx: Option<&EvaluationContext>,
-    sessions: &crate::session::SessionStore,
-    session_id: Option<&str>,
-    trusted_request_signers: &std::collections::HashMap<String, [u8; 32]>,
+    inputs: super::helpers::TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
     let headers = HeaderMap::new();
-    super::helpers::build_runtime_security_context(
-        msg,
-        action,
-        &headers,
-        super::helpers::TransportSecurityInputs {
-            oauth_evidence,
-            eval_ctx,
-            sessions,
-            session_id,
-            trusted_request_signers,
-        },
-    )
+    super::helpers::build_runtime_security_context(msg, action, &headers, inputs)
 }
 
 fn refresh_ws_acis_envelope(
@@ -1501,11 +1486,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                Some(&ctx),
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: Some(&ctx),
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -1548,11 +1537,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                None,
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: None,
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2225,11 +2218,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                Some(&ctx),
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: Some(&ctx),
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -2274,11 +2271,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                None,
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: None,
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3015,11 +3016,15 @@ async fn relay_client_to_upstream(
                                 let security_context = build_ws_runtime_security_context(
                                     &parsed,
                                     &action,
-                                    oauth_claims.as_ref(),
-                                    Some(&ctx),
-                                    &state.sessions,
-                                    Some(&session_id),
-                                    &state.trusted_request_signers,
+                                    super::helpers::TransportSecurityInputs {
+                                        oauth_evidence: oauth_claims.as_ref(),
+                                        eval_ctx: Some(&ctx),
+                                        sessions: &state.sessions,
+                                        session_id: Some(&session_id),
+                                        trusted_request_signers: &state.trusted_request_signers,
+                                        detached_signature_freshness: state
+                                            .detached_signature_freshness,
+                                    },
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3060,11 +3065,15 @@ async fn relay_client_to_upstream(
                                 let security_context = build_ws_runtime_security_context(
                                     &parsed,
                                     &action,
-                                    oauth_claims.as_ref(),
-                                    None,
-                                    &state.sessions,
-                                    Some(&session_id),
-                                    &state.trusted_request_signers,
+                                    super::helpers::TransportSecurityInputs {
+                                        oauth_evidence: oauth_claims.as_ref(),
+                                        eval_ctx: None,
+                                        sessions: &state.sessions,
+                                        session_id: Some(&session_id),
+                                        trusted_request_signers: &state.trusted_request_signers,
+                                        detached_signature_freshness: state
+                                            .detached_signature_freshness,
+                                    },
                                 );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3560,11 +3569,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                Some(&ctx),
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: Some(&ctx),
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
@@ -3603,11 +3616,15 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
-                                oauth_claims.as_ref(),
-                                None,
-                                &state.sessions,
-                                Some(&session_id),
-                                &state.trusted_request_signers,
+                                super::helpers::TransportSecurityInputs {
+                                    oauth_evidence: oauth_claims.as_ref(),
+                                    eval_ctx: None,
+                                    sessions: &state.sessions,
+                                    session_id: Some(&session_id),
+                                    trusted_request_signers: &state.trusted_request_signers,
+                                    detached_signature_freshness: state
+                                        .detached_signature_freshness,
+                                },
                             );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),

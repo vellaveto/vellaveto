@@ -765,6 +765,7 @@ fn make_test_state() -> ProxyState {
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness: crate::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: std::collections::HashSet::new(),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

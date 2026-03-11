@@ -42,8 +42,6 @@ use crate::proxy::X_REQUEST_SIGNATURE;
 use crate::session::SessionStore;
 
 const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
-const DETACHED_SIGNATURE_MAX_AGE_SECS: u64 = 600;
-const DETACHED_SIGNATURE_MAX_FUTURE_SKEW_SECS: u64 = 300;
 
 pub(super) type TrustedRequestSignerMap = std::collections::HashMap<String, [u8; 32]>;
 
@@ -54,6 +52,7 @@ pub(super) struct TransportSecurityInputs<'a> {
     pub sessions: &'a SessionStore,
     pub session_id: Option<&'a str>,
     pub trusted_request_signers: &'a TrustedRequestSignerMap,
+    pub detached_signature_freshness: super::DetachedSignatureFreshnessConfig,
 }
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
@@ -792,7 +791,14 @@ fn verify_detached_request_signature(
     let Some(request_signature) = provenance.request_signature.as_ref() else {
         return;
     };
-    let request_nonce = request_signature.nonce.clone();
+    let Some(request_nonce) = request_signature.nonce.clone() else {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    };
+    let Some(created_at) = request_signature.created_at.as_deref() else {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    };
     let Some(key_id) = request_signature.key_id.as_deref() else {
         provenance.signature_status = SignatureVerificationStatus::Invalid;
         return;
@@ -855,27 +861,27 @@ fn verify_detached_request_signature(
     if provenance.signature_status != SignatureVerificationStatus::Verified {
         return;
     }
-    if let Some(created_at) = request_signature.created_at.as_deref() {
-        let created_at_secs = match vellaveto_types::time_util::parse_iso8601_secs(created_at) {
-            Ok(timestamp) => timestamp,
-            Err(_) => {
-                provenance.signature_status = SignatureVerificationStatus::Invalid;
-                return;
-            }
-        };
-        let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Ok(duration) => duration.as_secs(),
-            Err(_) => {
-                provenance.signature_status = SignatureVerificationStatus::Error;
-                return;
-            }
-        };
-        if created_at_secs > now_secs.saturating_add(DETACHED_SIGNATURE_MAX_FUTURE_SKEW_SECS)
-            || now_secs.saturating_sub(created_at_secs) > DETACHED_SIGNATURE_MAX_AGE_SECS
-        {
-            provenance.signature_status = SignatureVerificationStatus::Expired;
+    let created_at_secs = match vellaveto_types::time_util::parse_iso8601_secs(created_at) {
+        Ok(timestamp) => timestamp,
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Invalid;
             return;
         }
+    };
+    let now_secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(_) => {
+            provenance.signature_status = SignatureVerificationStatus::Error;
+            return;
+        }
+    };
+    if created_at_secs
+        > now_secs.saturating_add(inputs.detached_signature_freshness.max_future_skew_secs)
+        || now_secs.saturating_sub(created_at_secs)
+            > inputs.detached_signature_freshness.max_age_secs
+    {
+        provenance.signature_status = SignatureVerificationStatus::Expired;
+        return;
     }
     if provenance.signature_status != SignatureVerificationStatus::Verified
         || provenance.replay_status != ReplayStatus::NotChecked
@@ -885,13 +891,10 @@ fn verify_detached_request_signature(
     let Some(session_id) = inputs.session_id else {
         return;
     };
-    let Some(nonce) = request_nonce.as_deref() else {
-        return;
-    };
     let Some(mut session) = inputs.sessions.get_mut(session_id) else {
         return;
     };
-    provenance.replay_status = session.record_verified_request_nonce(nonce);
+    provenance.replay_status = session.record_verified_request_nonce(&request_nonce);
 }
 
 fn build_runtime_security_context_from_transport(

@@ -725,6 +725,7 @@ async fn main() -> Result<()> {
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
         trusted_request_signers: Arc::new(build_trusted_request_signers(&policy_config)?),
+        detached_signature_freshness: (&policy_config.acis).into(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: policy_config.elicitation.clone(),
         sampling_config: policy_config.sampling.clone(),

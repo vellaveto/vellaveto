@@ -101,7 +101,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - Verified detached request signatures now also enforce bounded `created_at`
   freshness, so stale or excessively future-skewed signed requests surface as
   `expired` transport provenance instead of remaining valid indefinitely after
-  the signature check succeeds.
+  the signature check succeeds. Verified detached signatures now also require
+  `created_at` and `nonce` to reach the replay/freshness path at all, and
+  those freshness windows are policy-driven via ACIS config rather than
+  hardcoded in the HTTP proxy runtime.
 - gRPC session identity now uses the same validated claim-merging path as
   HTTP/WS, so explicit workload claims and verified bearer-token custom claims
   no longer disappear on the gRPC transport before policy evaluation.

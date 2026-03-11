@@ -31,6 +31,10 @@ const MAX_TRUSTED_REQUEST_SIGNERS: usize = 64;
 const MAX_FINDING_LABEL_LEN: usize = 128;
 /// Maximum length of a detached request signer key id.
 const MAX_SIGNER_KEY_ID_LEN: usize = 256;
+/// Maximum allowed detached request-signature freshness window (24 hours).
+const MAX_DETACHED_REQUEST_SIGNATURE_MAX_AGE_SECS: u64 = 86_400;
+/// Maximum allowed detached request-signature future-skew allowance (1 hour).
+const MAX_DETACHED_REQUEST_SIGNATURE_MAX_FUTURE_SKEW_SECS: u64 = 3_600;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -99,6 +103,16 @@ pub struct AcisConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trusted_request_signers: Vec<TrustedRequestSignerConfig>,
 
+    /// Maximum age in seconds for verified detached request signatures.
+    /// Signatures older than this are marked `expired`.
+    #[serde(default = "default_detached_request_signature_max_age_secs")]
+    pub detached_request_signature_max_age_secs: u64,
+
+    /// Maximum future clock skew tolerated for verified detached signatures.
+    /// Signatures created beyond this skew are marked `expired`.
+    #[serde(default = "default_detached_request_signature_max_future_skew_secs")]
+    pub detached_request_signature_max_future_skew_secs: u64,
+
     /// Require workload binding evidence to succeed when provenance is present.
     /// Default: `false`.
     #[serde(default)]
@@ -162,6 +176,14 @@ fn default_transport() -> String {
     "stdio".into()
 }
 
+fn default_detached_request_signature_max_age_secs() -> u64 {
+    600
+}
+
+fn default_detached_request_signature_max_future_skew_secs() -> u64 {
+    300
+}
+
 impl Default for AcisConfig {
     fn default() -> Self {
         Self {
@@ -170,6 +192,10 @@ impl Default for AcisConfig {
             require_agent_identity: false,
             require_verified_signature: false,
             trusted_request_signers: vec![],
+            detached_request_signature_max_age_secs:
+                default_detached_request_signature_max_age_secs(),
+            detached_request_signature_max_future_skew_secs:
+                default_detached_request_signature_max_future_skew_secs(),
             require_workload_binding: false,
             deny_replay: false,
             block_tainted_privileged_sinks: false,
@@ -263,6 +289,24 @@ impl AcisConfig {
             signer.validate()?;
         }
 
+        if self.detached_request_signature_max_age_secs == 0
+            || self.detached_request_signature_max_age_secs
+                > MAX_DETACHED_REQUEST_SIGNATURE_MAX_AGE_SECS
+        {
+            return Err(format!(
+                "detached_request_signature_max_age_secs must be between 1 and {}",
+                MAX_DETACHED_REQUEST_SIGNATURE_MAX_AGE_SECS
+            ));
+        }
+        if self.detached_request_signature_max_future_skew_secs
+            > MAX_DETACHED_REQUEST_SIGNATURE_MAX_FUTURE_SKEW_SECS
+        {
+            return Err(format!(
+                "detached_request_signature_max_future_skew_secs must be <= {}",
+                MAX_DETACHED_REQUEST_SIGNATURE_MAX_FUTURE_SKEW_SECS
+            ));
+        }
+
         Ok(())
     }
 }
@@ -281,6 +325,8 @@ mod tests {
         assert!(!cfg.require_agent_identity);
         assert!(!cfg.require_verified_signature);
         assert!(cfg.trusted_request_signers.is_empty());
+        assert_eq!(cfg.detached_request_signature_max_age_secs, 600);
+        assert_eq!(cfg.detached_request_signature_max_future_skew_secs, 300);
         assert!(!cfg.require_workload_binding);
         assert!(!cfg.deny_replay);
         assert!(!cfg.block_tainted_privileged_sinks);
@@ -376,6 +422,8 @@ mod tests {
                 public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     .into(),
             }],
+            detached_request_signature_max_age_secs: 900,
+            detached_request_signature_max_future_skew_secs: 120,
             require_workload_binding: true,
             deny_replay: true,
             block_tainted_privileged_sinks: true,
@@ -402,6 +450,38 @@ mod tests {
         };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("trusted_request_signers.public_key invalid"));
+    }
+
+    #[test]
+    fn test_detached_request_signature_max_age_zero_rejected() {
+        let cfg = AcisConfig {
+            detached_request_signature_max_age_secs: 0,
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("detached_request_signature_max_age_secs"));
+    }
+
+    #[test]
+    fn test_detached_request_signature_max_age_over_cap_rejected() {
+        let cfg = AcisConfig {
+            detached_request_signature_max_age_secs: MAX_DETACHED_REQUEST_SIGNATURE_MAX_AGE_SECS
+                + 1,
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("detached_request_signature_max_age_secs"));
+    }
+
+    #[test]
+    fn test_detached_request_signature_future_skew_over_cap_rejected() {
+        let cfg = AcisConfig {
+            detached_request_signature_max_future_skew_secs:
+                MAX_DETACHED_REQUEST_SIGNATURE_MAX_FUTURE_SKEW_SECS + 1,
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("detached_request_signature_max_future_skew_secs"));
     }
 
     #[test]

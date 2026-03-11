@@ -4824,6 +4824,8 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         require_session_id = true
         require_agent_identity = true
         require_verified_signature = true
+        detached_request_signature_max_age_secs = 900
+        detached_request_signature_max_future_skew_secs = 120
         require_workload_binding = true
         deny_replay = true
         block_tainted_privileged_sinks = true
@@ -4837,6 +4839,11 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
     assert!(config.acis.require_session_id);
     assert!(config.acis.require_agent_identity);
     assert!(config.acis.require_verified_signature);
+    assert_eq!(config.acis.detached_request_signature_max_age_secs, 900);
+    assert_eq!(
+        config.acis.detached_request_signature_max_future_skew_secs,
+        120
+    );
     assert!(config.acis.require_workload_binding);
     assert!(config.acis.deny_replay);
     assert!(config.acis.block_tainted_privileged_sinks);

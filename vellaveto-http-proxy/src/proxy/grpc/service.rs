@@ -106,22 +106,13 @@ pub(super) fn build_grpc_runtime_security_context(
     msg: &Value,
     action: &Action,
     request_signature_header: Option<&str>,
-    eval_ctx: Option<&EvaluationContext>,
-    sessions: &crate::session::SessionStore,
-    session_id: Option<&str>,
-    trusted_request_signers: &std::collections::HashMap<String, [u8; 32]>,
+    inputs: crate::proxy::helpers::TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
     build_runtime_security_context_with_request_signature(
         msg,
         action,
         request_signature_header,
-        crate::proxy::helpers::TransportSecurityInputs {
-            oauth_evidence: None,
-            eval_ctx,
-            sessions,
-            session_id,
-            trusted_request_signers,
-        },
+        inputs,
     )
 }
 
@@ -1861,10 +1852,14 @@ impl McpGrpcService {
             json_req,
             &action,
             request_signature_header,
-            Some(&ctx),
-            &self.state.sessions,
-            Some(session_id),
-            &self.state.trusted_request_signers,
+            crate::proxy::helpers::TransportSecurityInputs {
+                oauth_evidence: None,
+                eval_ctx: Some(&ctx),
+                sessions: &self.state.sessions,
+                session_id: Some(session_id),
+                trusted_request_signers: &self.state.trusted_request_signers,
+                detached_signature_freshness: self.state.detached_signature_freshness,
+            },
         );
 
         match &verdict {
@@ -2506,10 +2501,14 @@ impl McpGrpcService {
             json_req,
             &action,
             request_signature_header,
-            Some(&ctx),
-            &self.state.sessions,
-            Some(session_id),
-            &self.state.trusted_request_signers,
+            crate::proxy::helpers::TransportSecurityInputs {
+                oauth_evidence: None,
+                eval_ctx: Some(&ctx),
+                sessions: &self.state.sessions,
+                session_id: Some(session_id),
+                trusted_request_signers: &self.state.trusted_request_signers,
+                detached_signature_freshness: self.state.detached_signature_freshness,
+            },
         );
 
         match &verdict {
@@ -3496,10 +3495,14 @@ impl McpGrpcService {
             json_req,
             &action,
             request_signature_header,
-            Some(&ctx),
-            &self.state.sessions,
-            Some(session_id),
-            &self.state.trusted_request_signers,
+            crate::proxy::helpers::TransportSecurityInputs {
+                oauth_evidence: None,
+                eval_ctx: Some(&ctx),
+                sessions: &self.state.sessions,
+                session_id: Some(session_id),
+                trusted_request_signers: &self.state.trusted_request_signers,
+                detached_signature_freshness: self.state.detached_signature_freshness,
+            },
         );
 
         match &verdict {
@@ -4053,10 +4056,14 @@ impl McpGrpcService {
             json_req,
             &action,
             request_signature_header,
-            Some(&ctx),
-            &self.state.sessions,
-            Some(session_id),
-            &self.state.trusted_request_signers,
+            crate::proxy::helpers::TransportSecurityInputs {
+                oauth_evidence: None,
+                eval_ctx: Some(&ctx),
+                sessions: &self.state.sessions,
+                session_id: Some(session_id),
+                trusted_request_signers: &self.state.trusted_request_signers,
+                detached_signature_freshness: self.state.detached_signature_freshness,
+            },
         );
 
         match &verdict {

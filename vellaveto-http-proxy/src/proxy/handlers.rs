@@ -1012,6 +1012,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -1062,6 +1063,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -2299,6 +2301,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -2350,6 +2353,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -3519,6 +3523,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -3565,6 +3570,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -4225,6 +4231,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(
@@ -4269,6 +4276,7 @@ pub async fn handle_mcp_post(
                             sessions: &state.sessions,
                             session_id: Some(&session_id),
                             trusted_request_signers: &state.trusted_request_signers,
+                            detached_signature_freshness: state.detached_signature_freshness,
                         },
                     );
                     let result = mediate_with_security_context(

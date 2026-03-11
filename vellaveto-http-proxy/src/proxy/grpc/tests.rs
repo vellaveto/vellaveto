@@ -29,6 +29,10 @@ fn empty_trusted_request_signers() -> std::collections::HashMap<String, [u8; 32]
     std::collections::HashMap::new()
 }
 
+fn default_detached_signature_freshness() -> crate::proxy::DetachedSignatureFreshnessConfig {
+    crate::proxy::DetachedSignatureFreshnessConfig::default()
+}
+
 fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
     URL_SAFE_NO_PAD
         .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
@@ -1053,10 +1057,14 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
         &msg,
         &action,
         Some(header.as_str()),
-        Some(&eval_ctx),
-        &empty_session_store(),
-        None,
-        &empty_trusted_request_signers(),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -1133,10 +1141,14 @@ fn test_build_grpc_runtime_security_context_verifies_detached_signature_with_tru
         &msg,
         &action,
         Some(header.as_str()),
-        Some(&vellaveto_types::EvaluationContext::default()),
-        &sessions,
-        Some(&session_id),
-        &trusted_request_signers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext::default()),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
     )
     .expect("security context");
     let provenance = security_context
@@ -1192,20 +1204,28 @@ fn test_build_grpc_runtime_security_context_detects_replayed_detached_signature(
         &msg,
         &action,
         Some(header.as_str()),
-        Some(&eval_ctx),
-        &sessions,
-        Some(&session_id),
-        &trusted_request_signers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
     )
     .expect("first security context");
     let second = service::build_grpc_runtime_security_context(
         &msg,
         &action,
         Some(header.as_str()),
-        Some(&eval_ctx),
-        &sessions,
-        Some(&session_id),
-        &trusted_request_signers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
     )
     .expect("second security context");
 
@@ -1241,10 +1261,14 @@ fn test_build_grpc_runtime_security_context_marks_invalid_detached_signature() {
         &msg,
         &action,
         Some("not-base64"),
-        Some(&vellaveto_types::EvaluationContext::default()),
-        &empty_session_store(),
-        None,
-        &empty_trusted_request_signers(),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext::default()),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
     )
     .expect("security context");
     let provenance = security_context

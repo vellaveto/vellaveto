@@ -61,18 +61,23 @@ fn empty_trusted_request_signers() -> std::collections::HashMap<String, [u8; 32]
     std::collections::HashMap::new()
 }
 
+fn default_detached_signature_freshness() -> super::DetachedSignatureFreshnessConfig {
+    super::DetachedSignatureFreshnessConfig::default()
+}
+
 fn make_signed_detached_request_signature_header_with_scope(
     action: &Action,
     key_id: &str,
     signing_key: &SigningKey,
     session_scope_binding: Option<&str>,
 ) -> String {
-    make_signed_detached_request_signature_header_with_scope_at(
+    make_signed_detached_request_signature_header_with_scope_fields(
         action,
         key_id,
         signing_key,
         session_scope_binding,
-        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        Some("detached-nonce".to_string()),
+        Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
     )
 }
 
@@ -83,11 +88,29 @@ fn make_signed_detached_request_signature_header_with_scope_at(
     session_scope_binding: Option<&str>,
     created_at: String,
 ) -> String {
+    make_signed_detached_request_signature_header_with_scope_fields(
+        action,
+        key_id,
+        signing_key,
+        session_scope_binding,
+        Some("detached-nonce".to_string()),
+        Some(created_at),
+    )
+}
+
+fn make_signed_detached_request_signature_header_with_scope_fields(
+    action: &Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+    nonce: Option<String>,
+    created_at: Option<String>,
+) -> String {
     let mut request_signature = RequestSignature {
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
-        nonce: Some("detached-nonce".to_string()),
-        created_at: Some(created_at),
+        nonce,
+        created_at,
         signature: None,
     };
     let input = CanonicalRequestInput::from_action(
@@ -312,6 +335,7 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -395,6 +419,7 @@ fn test_build_runtime_security_context_preserves_meta_overrides() {
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -450,6 +475,7 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -542,6 +568,7 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -655,6 +682,7 @@ fn test_build_runtime_security_context_uses_projected_transport_identity_for_wor
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -764,6 +792,7 @@ fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_pro
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -854,6 +883,7 @@ fn test_build_runtime_security_context_uses_detached_request_signature_without_o
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -919,6 +949,7 @@ fn test_build_runtime_security_context_marks_invalid_detached_request_signature(
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -979,6 +1010,7 @@ fn test_build_runtime_security_context_verifies_detached_request_signature_with_
             sessions: &sessions,
             session_id: Some(&session_id),
             trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -1038,6 +1070,7 @@ fn test_build_runtime_security_context_detects_replayed_detached_request_signatu
         sessions: &sessions,
         session_id: Some(&session_id),
         trusted_request_signers: &trusted_request_signers,
+        detached_signature_freshness: default_detached_signature_freshness(),
     };
 
     let first = super::helpers::build_runtime_security_context(&msg, &action, &headers, inputs)
@@ -1100,6 +1133,7 @@ fn test_build_runtime_security_context_expires_stale_detached_request_signature(
             sessions: &sessions,
             session_id: Some(&session_id),
             trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -1110,6 +1144,126 @@ fn test_build_runtime_security_context_expires_stale_detached_request_signature(
             .as_ref()
             .map(|provenance| provenance.signature_status),
         Some(SignatureVerificationStatus::Expired)
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_rejects_detached_request_signature_without_created_at() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[14u8; 32]);
+    let trusted_request_signers = trusted_request_signers_for("detached-kid", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope_fields(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+            Some("detached-nonce".to_string()),
+            None,
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+
+    assert_eq!(
+        security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.signature_status),
+        Some(SignatureVerificationStatus::Invalid)
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_rejects_detached_request_signature_without_nonce() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[15u8; 32]);
+    let trusted_request_signers = trusted_request_signers_for("detached-kid", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope_fields(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+            None,
+            Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+
+    assert_eq!(
+        security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.signature_status),
+        Some(SignatureVerificationStatus::Invalid)
     );
 }
 
@@ -1145,6 +1299,7 @@ fn test_build_runtime_security_context_rejects_detached_signature_with_unknown_t
             sessions: &empty_session_store(),
             session_id: None,
             trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
         },
     )
     .expect("security context");
@@ -2974,6 +3129,7 @@ fn make_test_proxy_state(canonicalize: bool) -> ProxyState {
             ..vellaveto_mcp::mediation::MediationConfig::default()
         },
         trusted_request_signers: Arc::new(std::collections::HashMap::new()),
+        detached_signature_freshness: crate::proxy::DetachedSignatureFreshnessConfig::default(),
         known_tools: vellaveto_mcp::rug_pull::build_known_tools(&[]),
         elicitation_config: vellaveto_config::ElicitationConfig::default(),
         sampling_config: vellaveto_config::SamplingConfig::default(),

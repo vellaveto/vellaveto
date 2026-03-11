@@ -112,8 +112,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,
   stale timestamps, or excessive future skew are downgraded to
-  `signature_status = expired` before replay handling, so detached signatures
-  are no longer treated as timeless once the cryptographic check passes.
+  `signature_status = expired`, while signatures missing `created_at` or
+  `nonce` now fail closed as `invalid` before replay handling. Detached
+  signatures are no longer treated as timeless once the cryptographic check
+  passes.
+  `acis.detached_request_signature_max_age_secs` and
+  `acis.detached_request_signature_max_future_skew_secs` now let operators tune
+  those fail-closed windows per deployment instead of relying on a fixed proxy
+  constant.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

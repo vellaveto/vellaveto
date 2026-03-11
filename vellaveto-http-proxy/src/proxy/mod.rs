@@ -73,6 +73,31 @@ pub struct McpQueryParams {
     pub trace: bool,
 }
 
+/// Detached request-signature freshness policy applied before replay checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetachedSignatureFreshnessConfig {
+    pub max_age_secs: u64,
+    pub max_future_skew_secs: u64,
+}
+
+impl Default for DetachedSignatureFreshnessConfig {
+    fn default() -> Self {
+        Self {
+            max_age_secs: 600,
+            max_future_skew_secs: 300,
+        }
+    }
+}
+
+impl From<&vellaveto_config::AcisConfig> for DetachedSignatureFreshnessConfig {
+    fn from(acis: &vellaveto_config::AcisConfig) -> Self {
+        Self {
+            max_age_secs: acis.detached_request_signature_max_age_secs,
+            max_future_skew_secs: acis.detached_request_signature_max_future_skew_secs,
+        }
+    }
+}
+
 /// Shared state for the HTTP proxy handlers.
 #[derive(Clone)]
 pub struct ProxyState {
@@ -133,6 +158,8 @@ pub struct ProxyState {
     /// Trusted detached request-signature signers keyed by `RequestSignature.key_id`.
     /// Used to promote detached per-request signatures from metadata to verified provenance.
     pub trusted_request_signers: Arc<std::collections::HashMap<String, [u8; 32]>>,
+    /// Freshness limits for verified detached request signatures.
+    pub detached_signature_freshness: DetachedSignatureFreshnessConfig,
     /// Known legitimate tool names for squatting detection.
     /// Built from DEFAULT_KNOWN_TOOLS + any config overrides.
     pub known_tools: std::collections::HashSet<String>,
