@@ -71,6 +71,58 @@ pub enum TrustTier {
     Quarantined,
 }
 
+impl TrustTier {
+    /// Returns the total-order rank used for fail-closed flow checks.
+    ///
+    /// `Quarantined` and `Unknown` are intentionally ranked below
+    /// `Untrusted` so that incomplete or explicitly contained provenance never
+    /// qualifies for higher-trust flows without an explicit policy override.
+    pub const fn rank(self) -> u8 {
+        match self {
+            Self::Quarantined => 0,
+            Self::Unknown => 1,
+            Self::Untrusted => 2,
+            Self::Low => 3,
+            Self::Medium => 4,
+            Self::High => 5,
+            Self::Verified => 6,
+        }
+    }
+
+    /// Returns true when `self` is at least as trusted as `other`.
+    pub const fn at_least_as_trusted_as(self, other: Self) -> bool {
+        self.rank() >= other.rank()
+    }
+
+    /// Least upper bound in the trust lattice.
+    pub const fn join(self, other: Self) -> Self {
+        if self.rank() >= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// Greatest lower bound in the trust lattice.
+    pub const fn meet(self, other: Self) -> Self {
+        if self.rank() <= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// Returns true when data at `self` may flow to a target requiring
+    /// `required_trust_tier`, or when explicit declassification is present.
+    pub const fn can_flow_to(
+        self,
+        required_trust_tier: Self,
+        explicitly_declassified: bool,
+    ) -> bool {
+        explicitly_declassified || self.at_least_as_trusted_as(required_trust_tier)
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SinkClass {
@@ -87,6 +139,44 @@ pub enum SinkClass {
 }
 
 impl SinkClass {
+    /// Returns the total-order rank from lowest to highest privilege.
+    pub const fn rank(self) -> u8 {
+        match self {
+            Self::ReadOnly => 0,
+            Self::LowRiskWrite => 1,
+            Self::FilesystemWrite => 2,
+            Self::NetworkEgress => 3,
+            Self::CodeExecution => 4,
+            Self::MemoryWrite => 5,
+            Self::ApprovalUi => 6,
+            Self::CredentialAccess => 7,
+            Self::PolicyMutation => 8,
+        }
+    }
+
+    /// Returns true when `self` is at least as privileged as `other`.
+    pub const fn at_least_as_privileged_as(self, other: Self) -> bool {
+        self.rank() >= other.rank()
+    }
+
+    /// Least upper bound in the sink-privilege lattice.
+    pub const fn join(self, other: Self) -> Self {
+        if self.rank() >= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+
+    /// Greatest lower bound in the sink-privilege lattice.
+    pub const fn meet(self, other: Self) -> Self {
+        if self.rank() <= other.rank() {
+            self
+        } else {
+            other
+        }
+    }
+
     pub fn is_privileged(self) -> bool {
         matches!(
             self,
@@ -159,6 +249,22 @@ impl RuntimeSecurityContext {
             risk_score.validate()?;
         }
         Ok(())
+    }
+
+    /// Returns the lowest trust tier present in the effective context.
+    pub fn most_restrictive_trust_tier(&self) -> Option<TrustTier> {
+        let lineage_floor = self
+            .lineage_refs
+            .iter()
+            .filter_map(|lineage| lineage.trust_tier)
+            .reduce(TrustTier::meet);
+
+        match (self.effective_trust_tier, lineage_floor) {
+            (Some(explicit), Some(lineage)) => Some(explicit.meet(lineage)),
+            (Some(explicit), None) => Some(explicit),
+            (None, Some(lineage)) => Some(lineage),
+            (None, None) => None,
+        }
     }
 }
 
@@ -398,5 +504,77 @@ mod tests {
     fn test_security_relevant_taint_subset() {
         assert!(is_security_relevant_taint(TaintLabel::Untrusted));
         assert!(!is_security_relevant_taint(TaintLabel::Sanitized));
+    }
+
+    #[test]
+    fn test_trust_tier_ordering_is_fail_closed() {
+        assert!(TrustTier::Verified.at_least_as_trusted_as(TrustTier::High));
+        assert!(TrustTier::High.at_least_as_trusted_as(TrustTier::Low));
+        assert!(TrustTier::Untrusted.at_least_as_trusted_as(TrustTier::Unknown));
+        assert!(!TrustTier::Unknown.at_least_as_trusted_as(TrustTier::Untrusted));
+        assert!(!TrustTier::Unknown.at_least_as_trusted_as(TrustTier::Low));
+        assert!(!TrustTier::Quarantined.at_least_as_trusted_as(TrustTier::Unknown));
+    }
+
+    #[test]
+    fn test_trust_tier_join_and_meet() {
+        assert_eq!(TrustTier::Low.join(TrustTier::High), TrustTier::High);
+        assert_eq!(
+            TrustTier::Verified.join(TrustTier::Medium),
+            TrustTier::Verified
+        );
+        assert_eq!(TrustTier::Low.meet(TrustTier::High), TrustTier::Low);
+        assert_eq!(
+            TrustTier::Quarantined.meet(TrustTier::Verified),
+            TrustTier::Quarantined
+        );
+    }
+
+    #[test]
+    fn test_sink_class_join_and_meet() {
+        assert!(SinkClass::PolicyMutation.at_least_as_privileged_as(SinkClass::ApprovalUi));
+        assert!(SinkClass::NetworkEgress.at_least_as_privileged_as(SinkClass::ReadOnly));
+        assert_eq!(
+            SinkClass::ReadOnly.join(SinkClass::CredentialAccess),
+            SinkClass::CredentialAccess
+        );
+        assert_eq!(
+            SinkClass::CodeExecution.meet(SinkClass::PolicyMutation),
+            SinkClass::CodeExecution
+        );
+    }
+
+    #[test]
+    fn test_trust_tier_flow_requires_declassification_for_lower_trust_sources() {
+        assert!(TrustTier::High.can_flow_to(TrustTier::Medium, false));
+        assert!(!TrustTier::Low.can_flow_to(TrustTier::High, false));
+        assert!(TrustTier::Low.can_flow_to(TrustTier::High, true));
+        assert!(!TrustTier::Unknown.can_flow_to(TrustTier::Low, false));
+    }
+
+    #[test]
+    fn test_runtime_security_context_uses_most_restrictive_trust_tier() {
+        let ctx = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::High),
+            lineage_refs: vec![
+                LineageRef {
+                    id: "trusted".into(),
+                    channel: ContextChannel::Data,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: Some(TrustTier::Verified),
+                },
+                LineageRef {
+                    id: "mixed".into(),
+                    channel: ContextChannel::ToolOutput,
+                    content_hash: None,
+                    source: None,
+                    trust_tier: Some(TrustTier::Low),
+                },
+            ],
+            ..RuntimeSecurityContext::default()
+        };
+
+        assert_eq!(ctx.most_restrictive_trust_tier(), Some(TrustTier::Low));
     }
 }

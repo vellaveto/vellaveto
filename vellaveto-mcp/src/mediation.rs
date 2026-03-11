@@ -37,7 +37,7 @@ use vellaveto_types::acis::{
 };
 use vellaveto_types::{
     is_security_relevant_taint, Action, ContainmentMode, EvaluationContext, EvaluationTrace,
-    ReplayStatus, RuntimeSecurityContext, SignatureVerificationStatus, Verdict,
+    ReplayStatus, RuntimeSecurityContext, SignatureVerificationStatus, TrustTier, Verdict,
     WorkloadBindingStatus,
 };
 
@@ -626,6 +626,9 @@ fn semantic_containment_verdict(
 ) -> Option<(Verdict, DecisionOrigin)> {
     let security_context = security_context?;
     let sink_class = security_context.sink_class?;
+    let most_restrictive_trust_tier = security_context
+        .most_restrictive_trust_tier()
+        .unwrap_or(TrustTier::Unknown);
 
     if config.require_lineage_for_privileged_sinks
         && sink_class.is_privileged()
@@ -634,6 +637,21 @@ fn semantic_containment_verdict(
         return Some((
             Verdict::Deny {
                 reason: "privileged sink requires lineage evidence".to_string(),
+            },
+            DecisionOrigin::SemanticContainment,
+        ));
+    }
+
+    if config.require_lineage_for_privileged_sinks
+        && sink_class.is_privileged()
+        && !most_restrictive_trust_tier.can_flow_to(minimum_trust_tier_for_sink(sink_class), false)
+    {
+        return Some((
+            Verdict::Deny {
+                reason: format!(
+                    "privileged sink requires lineage trust at least {:?}",
+                    minimum_trust_tier_for_sink(sink_class)
+                ),
             },
             DecisionOrigin::SemanticContainment,
         ));
@@ -670,6 +688,22 @@ fn semantic_containment_verdict(
     None
 }
 
+const fn minimum_trust_tier_for_sink(sink_class: vellaveto_types::SinkClass) -> TrustTier {
+    match sink_class {
+        vellaveto_types::SinkClass::ReadOnly => TrustTier::Unknown,
+        vellaveto_types::SinkClass::LowRiskWrite => TrustTier::Low,
+        vellaveto_types::SinkClass::FilesystemWrite | vellaveto_types::SinkClass::NetworkEgress => {
+            TrustTier::Medium
+        }
+        vellaveto_types::SinkClass::MemoryWrite | vellaveto_types::SinkClass::ApprovalUi => {
+            TrustTier::High
+        }
+        vellaveto_types::SinkClass::CodeExecution
+        | vellaveto_types::SinkClass::CredentialAccess
+        | vellaveto_types::SinkClass::PolicyMutation => TrustTier::Verified,
+    }
+}
+
 fn enrich_client_provenance(
     action: &Action,
     session_id: Option<&str>,
@@ -704,7 +738,7 @@ mod tests {
     use vellaveto_types::{
         ClientProvenance, ContainmentMode, LineageRef, Policy, PolicyType, ReplayStatus,
         RequestSignature, RuntimeSecurityContext, SignatureVerificationStatus, SinkClass,
-        TaintLabel, WorkloadBindingStatus,
+        TaintLabel, TrustTier, WorkloadBindingStatus,
     };
 
     fn test_engine() -> PolicyEngine {
@@ -1531,6 +1565,80 @@ mod tests {
         assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
         assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
         assert_eq!(result.envelope.sink_class, Some(SinkClass::CodeExecution));
+    }
+
+    #[test]
+    fn test_require_lineage_for_privileged_sink_denies_low_trust_flow() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_lineage_for_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CredentialAccess),
+            effective_trust_tier: Some(TrustTier::Low),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-low".into(),
+                channel: vellaveto_types::ContextChannel::ToolOutput,
+                content_hash: Some("abc123".into()),
+                source: Some("low-tier-server".into()),
+                trust_tier: Some(TrustTier::Low),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-2",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Deny { .. }));
+        assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+    }
+
+    #[test]
+    fn test_require_lineage_for_privileged_sink_allows_verified_flow() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            require_lineage_for_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CodeExecution),
+            effective_trust_tier: Some(TrustTier::Verified),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-verified".into(),
+                channel: vellaveto_types::ContextChannel::ToolOutput,
+                content_hash: Some("abc123".into()),
+                source: Some("verified-server".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-3",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Allow));
+        assert_eq!(result.origin, DecisionOrigin::PolicyEngine);
     }
 
     // ── R254: Coverage gap tests ─────────────────────────────────────────
