@@ -18,11 +18,14 @@ use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
-use vellaveto_approval::{ApprovalStatus, ApprovalStore};
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus, ApprovalStore};
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::{acis::fingerprint_action, PolicyEngine};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
-use vellaveto_types::{Action, Policy, PolicyType};
+use vellaveto_types::{
+    Action, ContainmentMode, ContextChannel, Policy, PolicyType, SemanticRiskScore, SemanticTaint,
+    SinkClass, TrustTier,
+};
 
 /// Attach a simulated peer connection address to a request so that
 /// `ConnectInfo` is available in handlers.
@@ -2031,6 +2034,79 @@ async fn approval_list_pending_after_evaluate() {
     let approvals = json["approvals"].as_array().unwrap();
     assert_eq!(approvals[0]["id"], approval_id);
     assert_eq!(approvals[0]["status"], "Pending");
+}
+
+#[tokio::test]
+async fn approval_list_pending_includes_containment_context() {
+    let (state, _tmp) = make_approval_state();
+    let action = sensitive_delete_action("/important");
+    let approval_id = state
+        .approvals
+        .create_with_context(
+            action,
+            "Counterfactual review required".to_string(),
+            Some("agent-alpha".to_string()),
+            Some("session-123".to_string()),
+            Some(fingerprint_action(&sensitive_delete_action("/important"))),
+            Some(ApprovalContainmentContext {
+                semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+                lineage_channels: vec![ContextChannel::CommandLike, ContextChannel::ToolOutput],
+                effective_trust_tier: Some(TrustTier::Low),
+                sink_class: Some(SinkClass::CodeExecution),
+                containment_mode: Some(ContainmentMode::RequireApproval),
+                semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
+                counterfactual_review_required: true,
+            }),
+        )
+        .await
+        .unwrap();
+
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/pending")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let approvals = json["approvals"].as_array().unwrap();
+    assert_eq!(approvals.len(), 1);
+    assert_eq!(approvals[0]["id"], approval_id);
+    assert_eq!(
+        approvals[0]["containment_context"]["effective_trust_tier"],
+        "low"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["sink_class"],
+        "code_execution"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["containment_mode"],
+        "require_approval"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["semantic_risk_score"]["value"],
+        91
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["counterfactual_review_required"],
+        true
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["semantic_taint"],
+        json!(["integrity_failed", "quarantined"])
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["lineage_channels"],
+        json!(["tool_output", "command_like"])
+    );
 }
 
 #[tokio::test]

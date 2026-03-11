@@ -17,6 +17,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use std::fmt::Write;
+use vellaveto_approval::ApprovalContainmentContext;
+use vellaveto_types::{ContainmentMode, ContextChannel, SemanticTaint, SinkClass, TrustTier};
 
 use crate::AppState;
 
@@ -63,6 +65,137 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+fn trust_tier_label(tier: TrustTier) -> &'static str {
+    match tier {
+        TrustTier::Unknown => "unknown",
+        TrustTier::Untrusted => "untrusted",
+        TrustTier::Low => "low",
+        TrustTier::Medium => "medium",
+        TrustTier::High => "high",
+        TrustTier::Verified => "verified",
+        TrustTier::Quarantined => "quarantined",
+    }
+}
+
+fn sink_class_label(sink: SinkClass) -> &'static str {
+    match sink {
+        SinkClass::ReadOnly => "read_only",
+        SinkClass::LowRiskWrite => "low_risk_write",
+        SinkClass::FilesystemWrite => "filesystem_write",
+        SinkClass::NetworkEgress => "network_egress",
+        SinkClass::CodeExecution => "code_execution",
+        SinkClass::MemoryWrite => "memory_write",
+        SinkClass::ApprovalUi => "approval_ui",
+        SinkClass::CredentialAccess => "credential_access",
+        SinkClass::PolicyMutation => "policy_mutation",
+    }
+}
+
+fn containment_mode_label(mode: ContainmentMode) -> &'static str {
+    match mode {
+        ContainmentMode::Disabled => "disabled",
+        ContainmentMode::Observe => "observe",
+        ContainmentMode::Enforce => "enforce",
+        ContainmentMode::Sanitize => "sanitize",
+        ContainmentMode::Quarantine => "quarantine",
+        ContainmentMode::RequireApproval => "require_approval",
+    }
+}
+
+fn semantic_taint_label(taint: SemanticTaint) -> &'static str {
+    match taint {
+        SemanticTaint::Untrusted => "untrusted",
+        SemanticTaint::Sanitized => "sanitized",
+        SemanticTaint::Quarantined => "quarantined",
+        SemanticTaint::Sensitive => "sensitive",
+        SemanticTaint::CrossAgent => "cross_agent",
+        SemanticTaint::Replayed => "replayed",
+        SemanticTaint::MixedProvenance => "mixed_provenance",
+        SemanticTaint::IntegrityFailed => "integrity_failed",
+    }
+}
+
+fn context_channel_label(channel: ContextChannel) -> &'static str {
+    match channel {
+        ContextChannel::Data => "data",
+        ContextChannel::FreeText => "free_text",
+        ContextChannel::Url => "url",
+        ContextChannel::CommandLike => "command_like",
+        ContextChannel::ToolOutput => "tool_output",
+        ContextChannel::ResourceContent => "resource_content",
+        ContextChannel::ApprovalPrompt => "approval_prompt",
+        ContextChannel::Memory => "memory",
+    }
+}
+
+fn render_containment_pill(label: &str, class_name: &str) -> String {
+    format!(
+        r#"<span class="pill {class_name}">{}</span>"#,
+        html_escape(label)
+    )
+}
+
+fn render_approval_containment_summary(
+    containment_context: Option<&ApprovalContainmentContext>,
+) -> String {
+    let Some(context) = containment_context else {
+        return r#"<span class="muted">None</span>"#.to_string();
+    };
+
+    if !context.is_meaningful() {
+        return r#"<span class="muted">None</span>"#.to_string();
+    }
+
+    let mut pills = Vec::new();
+    if let Some(tier) = context.effective_trust_tier {
+        pills.push(render_containment_pill(
+            &format!("Trust: {}", trust_tier_label(tier)),
+            "pill-trust",
+        ));
+    }
+    if let Some(sink) = context.sink_class {
+        pills.push(render_containment_pill(
+            &format!("Sink: {}", sink_class_label(sink)),
+            "pill-sink",
+        ));
+    }
+    if let Some(mode) = context.containment_mode {
+        pills.push(render_containment_pill(
+            &format!("Mode: {}", containment_mode_label(mode)),
+            "pill-mode",
+        ));
+    }
+    if let Some(risk) = context.semantic_risk_score {
+        pills.push(render_containment_pill(
+            &format!("Risk: {}", risk.value),
+            "pill-risk",
+        ));
+    }
+    for taint in &context.semantic_taint {
+        pills.push(render_containment_pill(
+            &format!("Taint: {}", semantic_taint_label(*taint)),
+            "pill-taint",
+        ));
+    }
+    for channel in &context.lineage_channels {
+        pills.push(render_containment_pill(
+            &format!("Channel: {}", context_channel_label(*channel)),
+            "pill-channel",
+        ));
+    }
+    if context.counterfactual_review_required {
+        pills.push(render_containment_pill(
+            "Counterfactual review",
+            "pill-counterfactual",
+        ));
+    }
+
+    format!(
+        r#"<div class="containment-summary">{}</div>"#,
+        pills.join("")
+    )
+}
+
 // ═══════════════════════════════════════════════════
 // CSS (inline, no external dependencies)
 // ═══════════════════════════════════════════════════
@@ -106,6 +239,15 @@ form { display: inline; }
 .policy-allow { background: #0d2818; color: #3fb950; }
 .policy-deny { background: #2d1117; color: #f85149; }
 .policy-approval { background: #2d2000; color: #d29922; }
+.containment-summary { display: flex; flex-wrap: wrap; gap: 6px; max-width: 440px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; border: 1px solid #30363d; }
+.pill-risk { background: #2d2000; color: #d29922; }
+.pill-trust { background: #10233a; color: #79c0ff; }
+.pill-sink { background: #27131d; color: #ff7b72; }
+.pill-mode { background: #1a2332; color: #a5d6ff; }
+.pill-taint { background: #2d1117; color: #ff7b72; }
+.pill-channel { background: #1f2937; color: #c9d1d9; }
+.pill-counterfactual { background: #2a1a40; color: #d2a8ff; }
 "#;
 
 // ═══════════════════════════════════════════════════
@@ -183,7 +325,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
         let _ = write!(
             html,
             r#"<table>
-<tr><th>ID</th><th>Tool</th><th>Function</th><th>Reason</th><th>Created</th><th>Expires</th><th>Actions</th></tr>
+<tr><th>ID</th><th>Tool</th><th>Function</th><th>Reason</th><th>Containment</th><th>Created</th><th>Expires</th><th>Actions</th></tr>
 "#
         );
         // Show at most 50 pending approvals
@@ -193,6 +335,8 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
             let tool = html_escape(&approval.action.tool);
             let func = html_escape(&approval.action.function);
             let reason = html_escape(&truncate(&approval.reason, 60));
+            let containment =
+                render_approval_containment_summary(approval.containment_context.as_ref());
             let created = html_escape(&approval.created_at.format("%H:%M:%S").to_string());
             let expires = html_escape(&approval.expires_at.format("%H:%M:%S").to_string());
 
@@ -203,6 +347,7 @@ pub async fn dashboard_page(State(state): State<AppState>) -> Html<String> {
   <td>{tool}</td>
   <td>{func}</td>
   <td>{reason}</td>
+  <td>{containment}</td>
   <td class="nowrap">{created}</td>
   <td class="nowrap">{expires}</td>
   <td class="nowrap">
@@ -992,6 +1137,38 @@ mod tests {
         let result = truncate("caf\u{00e9}", 4);
         assert!(result.ends_with("..."));
         assert_eq!(result, "caf...");
+    }
+
+    #[test]
+    fn test_render_approval_containment_summary_empty() {
+        assert_eq!(
+            render_approval_containment_summary(None),
+            r#"<span class="muted">None</span>"#
+        );
+    }
+
+    #[test]
+    fn test_render_approval_containment_summary_includes_key_fields() {
+        let context = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+            lineage_channels: vec![ContextChannel::CommandLike, ContextChannel::ToolOutput],
+            effective_trust_tier: Some(TrustTier::Low),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 91 }),
+            counterfactual_review_required: true,
+        };
+
+        let html = render_approval_containment_summary(Some(&context));
+        assert!(html.contains("Trust: low"));
+        assert!(html.contains("Sink: code_execution"));
+        assert!(html.contains("Mode: require_approval"));
+        assert!(html.contains("Risk: 91"));
+        assert!(html.contains("Taint: integrity_failed"));
+        assert!(html.contains("Taint: quarantined"));
+        assert!(html.contains("Channel: command_like"));
+        assert!(html.contains("Channel: tool_output"));
+        assert!(html.contains("Counterfactual review"));
     }
 
     #[test]
