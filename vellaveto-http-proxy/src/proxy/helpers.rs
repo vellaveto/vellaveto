@@ -43,7 +43,8 @@ use crate::session::SessionStore;
 
 const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
 
-pub(super) type TrustedRequestSignerMap = std::collections::HashMap<String, [u8; 32]>;
+pub(super) type TrustedRequestSignerMap =
+    std::collections::HashMap<String, super::TrustedRequestSigner>;
 
 #[derive(Clone, Copy)]
 pub(super) struct TransportSecurityInputs<'a> {
@@ -803,7 +804,7 @@ fn verify_detached_request_signature(
         provenance.signature_status = SignatureVerificationStatus::Invalid;
         return;
     };
-    let Some(public_key) = inputs.trusted_request_signers.get(key_id) else {
+    let Some(trusted_signer) = inputs.trusted_request_signers.get(key_id) else {
         provenance.signature_status = SignatureVerificationStatus::Invalid;
         return;
     };
@@ -833,7 +834,7 @@ fn verify_detached_request_signature(
             return;
         }
     };
-    let verifying_key = match VerifyingKey::from_bytes(public_key) {
+    let verifying_key = match VerifyingKey::from_bytes(&trusted_signer.public_key) {
         Ok(verifying_key) => verifying_key,
         Err(_) => {
             provenance.signature_status = SignatureVerificationStatus::Error;
@@ -888,6 +889,10 @@ fn verify_detached_request_signature(
     {
         return;
     }
+    if !apply_trusted_request_signer_metadata(provenance, trusted_signer) {
+        provenance.signature_status = SignatureVerificationStatus::Invalid;
+        return;
+    }
     let Some(session_id) = inputs.session_id else {
         return;
     };
@@ -895,6 +900,72 @@ fn verify_detached_request_signature(
         return;
     };
     provenance.replay_status = session.record_verified_request_nonce(&request_nonce);
+}
+
+fn apply_trusted_request_signer_metadata(
+    provenance: &mut ClientProvenance,
+    trusted_signer: &super::TrustedRequestSigner,
+) -> bool {
+    if trusted_signer_conflicts_with_transport(provenance, trusted_signer) {
+        return false;
+    }
+    if provenance.session_key_scope == SessionKeyScope::Unknown
+        && trusted_signer.session_key_scope != SessionKeyScope::Unknown
+    {
+        provenance.session_key_scope = trusted_signer.session_key_scope;
+    }
+    provenance.execution_is_ephemeral |= trusted_signer.execution_is_ephemeral
+        || matches!(
+            trusted_signer.session_key_scope,
+            SessionKeyScope::EphemeralExecution | SessionKeyScope::EphemeralSession
+        );
+    let Some(workload_identity) = trusted_signer.workload_identity.as_ref() else {
+        return true;
+    };
+
+    match provenance.workload_identity.as_ref() {
+        Some(existing_identity) if existing_identity == workload_identity => {
+            if provenance.workload_binding_status == WorkloadBindingStatus::Unknown {
+                provenance.workload_binding_status = WorkloadBindingStatus::Unverified;
+            }
+        }
+        Some(_) => {
+            provenance.workload_binding_status = WorkloadBindingStatus::Mismatch;
+        }
+        None => {
+            provenance.workload_identity = Some(workload_identity.clone());
+            if provenance.workload_binding_status == WorkloadBindingStatus::Unknown {
+                provenance.workload_binding_status = WorkloadBindingStatus::Unverified;
+            }
+        }
+    }
+    true
+}
+
+fn trusted_signer_conflicts_with_transport(
+    provenance: &ClientProvenance,
+    trusted_signer: &super::TrustedRequestSigner,
+) -> bool {
+    if trusted_signer.session_key_scope != SessionKeyScope::Unknown
+        && provenance.session_key_scope != SessionKeyScope::Unknown
+        && provenance.session_key_scope != trusted_signer.session_key_scope
+    {
+        return true;
+    }
+
+    if trusted_signer.execution_is_ephemeral
+        && matches!(
+            provenance.session_key_scope,
+            SessionKeyScope::PersistedClient | SessionKeyScope::PersistedService
+        )
+    {
+        return true;
+    }
+
+    matches!(
+        trusted_signer.session_key_scope,
+        SessionKeyScope::PersistedClient | SessionKeyScope::PersistedService
+    ) && provenance.execution_is_ephemeral
 }
 
 fn build_runtime_security_context_from_transport(

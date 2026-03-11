@@ -98,6 +98,27 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   of silently treating them as transport metadata. Verified detached
   signatures now also feed session-local replay status, so mediation can deny
   repeated signed nonces the same way it already denies DPoP replay.
+- Trusted detached signers can now also project signer-scoped provenance into
+  verified requests, including session key scope, ephemeral execution, and
+  workload-identity expectations. Conflicts between verified transport
+  workload evidence and signer workload expectations now surface as
+  `workload_binding_status = mismatch` instead of disappearing in transport
+  normalization.
+- Trusted detached signers now also fail closed on explicit transport
+  key-scope conflicts, so persisted versus ephemeral session-key evidence
+  cannot be silently merged into a single verified provenance record.
+- ACIS now also rejects duplicate `trusted_request_signers.key_id` entries, so
+  trusted detached signer config cannot silently collapse into last-wins map
+  behavior during HTTP proxy startup. It also rejects duplicate trusted signer
+  public keys, closing the aliasing path where one detached signer could be
+  configured under multiple local key IDs.
+- Shared HTTP-proxy unit and mediation coverage now locks in the detached
+  signer provenance-guard outcomes for workload mismatch and key-scope
+  conflict, so those enforcement paths are verified above the raw helper layer
+  without relying on flaky router integration timing. gRPC runtime-security-
+  context coverage now also locks in signer metadata projection, workload-
+  mismatch propagation, and scope-conflict invalidation on the transport-parity
+  path.
 - Verified detached request signatures now also enforce bounded `created_at`
   freshness, so stale or excessively future-skewed signed requests surface as
   `expired` transport provenance instead of remaining valid indefinitely after

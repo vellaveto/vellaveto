@@ -4834,6 +4834,15 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
         [[acis.trusted_request_signers]]
         key_id = "client-key-1"
         public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        session_key_scope = "ephemeral_session"
+        execution_is_ephemeral = true
+
+        [acis.trusted_request_signers.workload_identity]
+        platform = "spiffe"
+        workload_id = "spiffe://cluster/ns/prod/sa/api"
+        namespace = "prod"
+        service_account = "api"
+        attestation_level = "jwt"
     "#;
     let config: crate::PolicyConfig = toml::from_str(toml_str).expect("parse");
     assert!(config.acis.require_session_id);
@@ -4852,6 +4861,18 @@ fn test_acis_provenance_and_containment_config_in_policy_config() {
     assert_eq!(
         config.acis.trusted_request_signers[0].key_id,
         "client-key-1"
+    );
+    assert_eq!(
+        config.acis.trusted_request_signers[0].session_key_scope,
+        vellaveto_types::SessionKeyScope::EphemeralSession
+    );
+    assert!(config.acis.trusted_request_signers[0].execution_is_ephemeral);
+    assert_eq!(
+        config.acis.trusted_request_signers[0]
+            .workload_identity
+            .as_ref()
+            .map(|identity| identity.workload_id.as_str()),
+        Some("spiffe://cluster/ns/prod/sa/api")
     );
 }
 

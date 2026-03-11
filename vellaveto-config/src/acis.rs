@@ -12,7 +12,8 @@
 
 use crate::validation::validate_ed25519_pubkey;
 use serde::{Deserialize, Serialize};
-use vellaveto_types::has_dangerous_chars;
+use std::collections::HashSet;
+use vellaveto_types::{has_dangerous_chars, SessionKeyScope, WorkloadIdentity};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,15 @@ pub struct TrustedRequestSignerConfig {
     pub key_id: String,
     /// Hex-encoded Ed25519 verifying key (32 bytes).
     pub public_key: String,
+    /// Optional session key scope projected when this signer verifies a request.
+    #[serde(default)]
+    pub session_key_scope: SessionKeyScope,
+    /// Whether verified requests from this signer should be treated as ephemeral.
+    #[serde(default)]
+    pub execution_is_ephemeral: bool,
+    /// Optional workload identity expectation or fallback projection for this signer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workload_identity: Option<WorkloadIdentity>,
 }
 
 impl TrustedRequestSignerConfig {
@@ -62,6 +72,22 @@ impl TrustedRequestSignerConfig {
         }
         validate_ed25519_pubkey(&self.public_key)
             .map_err(|err| format!("trusted_request_signers.public_key invalid: {err}"))?;
+        if let Some(workload_identity) = &self.workload_identity {
+            workload_identity.validate().map_err(|err| {
+                format!("trusted_request_signers.workload_identity invalid: {err}")
+            })?;
+        }
+        if self.execution_is_ephemeral
+            && matches!(
+                self.session_key_scope,
+                SessionKeyScope::PersistedClient | SessionKeyScope::PersistedService
+            )
+        {
+            return Err(
+                "trusted_request_signers execution_is_ephemeral cannot be combined with persisted session_key_scope"
+                    .into(),
+            );
+        }
         Ok(())
     }
 }
@@ -285,8 +311,24 @@ impl AcisConfig {
                 MAX_TRUSTED_REQUEST_SIGNERS
             ));
         }
+        let mut seen_trusted_signer_ids =
+            HashSet::with_capacity(self.trusted_request_signers.len());
+        let mut seen_trusted_signer_keys =
+            HashSet::with_capacity(self.trusted_request_signers.len());
         for signer in &self.trusted_request_signers {
             signer.validate()?;
+            if !seen_trusted_signer_ids.insert(signer.key_id.as_str()) {
+                return Err(format!(
+                    "trusted_request_signers contains duplicate key_id '{}'",
+                    signer.key_id
+                ));
+            }
+            if !seen_trusted_signer_keys.insert(signer.public_key.as_str()) {
+                return Err(format!(
+                    "trusted_request_signers contains duplicate public_key for key_id '{}'",
+                    signer.key_id
+                ));
+            }
         }
 
         if self.detached_request_signature_max_age_secs == 0
@@ -421,6 +463,16 @@ mod tests {
                 key_id: "client-key-1".into(),
                 public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     .into(),
+                session_key_scope: SessionKeyScope::EphemeralSession,
+                execution_is_ephemeral: true,
+                workload_identity: Some(WorkloadIdentity {
+                    platform: Some("spiffe".into()),
+                    workload_id: "spiffe://cluster/ns/prod/sa/api".into(),
+                    namespace: Some("prod".into()),
+                    service_account: Some("api".into()),
+                    process_identity: None,
+                    attestation_level: Some("jwt".into()),
+                }),
             }],
             detached_request_signature_max_age_secs: 900,
             detached_request_signature_max_future_skew_secs: 120,
@@ -445,11 +497,109 @@ mod tests {
             trusted_request_signers: vec![TrustedRequestSignerConfig {
                 key_id: "client-key-1".into(),
                 public_key: "not-hex".into(),
+                session_key_scope: SessionKeyScope::Unknown,
+                execution_is_ephemeral: false,
+                workload_identity: None,
             }],
             ..AcisConfig::default()
         };
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("trusted_request_signers.public_key invalid"));
+    }
+
+    #[test]
+    fn test_trusted_request_signer_invalid_workload_identity_rejected() {
+        let cfg = AcisConfig {
+            trusted_request_signers: vec![TrustedRequestSignerConfig {
+                key_id: "client-key-1".into(),
+                public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .into(),
+                session_key_scope: SessionKeyScope::Unknown,
+                execution_is_ephemeral: false,
+                workload_identity: Some(WorkloadIdentity {
+                    platform: Some("spiffe".into()),
+                    workload_id: String::new(),
+                    namespace: None,
+                    service_account: None,
+                    process_identity: None,
+                    attestation_level: None,
+                }),
+            }],
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("trusted_request_signers.workload_identity invalid"));
+    }
+
+    #[test]
+    fn test_trusted_request_signer_rejects_persisted_ephemeral_mismatch() {
+        let cfg = AcisConfig {
+            trusted_request_signers: vec![TrustedRequestSignerConfig {
+                key_id: "client-key-1".into(),
+                public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .into(),
+                session_key_scope: SessionKeyScope::PersistedClient,
+                execution_is_ephemeral: true,
+                workload_identity: None,
+            }],
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("execution_is_ephemeral"));
+    }
+
+    #[test]
+    fn test_trusted_request_signer_rejects_duplicate_key_ids() {
+        let cfg = AcisConfig {
+            trusted_request_signers: vec![
+                TrustedRequestSignerConfig {
+                    key_id: "client-key-1".into(),
+                    public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .into(),
+                    session_key_scope: SessionKeyScope::Unknown,
+                    execution_is_ephemeral: false,
+                    workload_identity: None,
+                },
+                TrustedRequestSignerConfig {
+                    key_id: "client-key-1".into(),
+                    public_key: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        .into(),
+                    session_key_scope: SessionKeyScope::Unknown,
+                    execution_is_ephemeral: false,
+                    workload_identity: None,
+                },
+            ],
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("duplicate key_id"));
+    }
+
+    #[test]
+    fn test_trusted_request_signer_rejects_duplicate_public_keys() {
+        let cfg = AcisConfig {
+            trusted_request_signers: vec![
+                TrustedRequestSignerConfig {
+                    key_id: "client-key-1".into(),
+                    public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .into(),
+                    session_key_scope: SessionKeyScope::Unknown,
+                    execution_is_ephemeral: false,
+                    workload_identity: None,
+                },
+                TrustedRequestSignerConfig {
+                    key_id: "client-key-2".into(),
+                    public_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .into(),
+                    session_key_scope: SessionKeyScope::Unknown,
+                    execution_is_ephemeral: false,
+                    workload_identity: None,
+                },
+            ],
+            ..AcisConfig::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("duplicate public_key"));
     }
 
     #[test]

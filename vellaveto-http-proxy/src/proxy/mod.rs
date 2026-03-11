@@ -56,7 +56,7 @@ use vellaveto_mcp::{
     auth_level::AuthLevelTracker, sampling_detector::SamplingDetector,
     schema_poisoning::SchemaLineageTracker, shadow_agent::ShadowAgentDetector,
 };
-use vellaveto_types::Policy;
+use vellaveto_types::{Policy, SessionKeyScope, WorkloadIdentity};
 
 use crate::oauth::OAuthValidator;
 use crate::session::SessionStore;
@@ -96,6 +96,15 @@ impl From<&vellaveto_config::AcisConfig> for DetachedSignatureFreshnessConfig {
             max_future_skew_secs: acis.detached_request_signature_max_future_skew_secs,
         }
     }
+}
+
+/// Trusted detached signer metadata used at verification time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustedRequestSigner {
+    pub public_key: [u8; 32],
+    pub session_key_scope: SessionKeyScope,
+    pub execution_is_ephemeral: bool,
+    pub workload_identity: Option<WorkloadIdentity>,
 }
 
 /// Shared state for the HTTP proxy handlers.
@@ -157,7 +166,7 @@ pub struct ProxyState {
     pub mediation_config: MediationConfig,
     /// Trusted detached request-signature signers keyed by `RequestSignature.key_id`.
     /// Used to promote detached per-request signatures from metadata to verified provenance.
-    pub trusted_request_signers: Arc<std::collections::HashMap<String, [u8; 32]>>,
+    pub trusted_request_signers: Arc<std::collections::HashMap<String, TrustedRequestSigner>>,
     /// Freshness limits for verified detached request signatures.
     pub detached_signature_freshness: DetachedSignatureFreshnessConfig,
     /// Known legitimate tool names for squatting detection.

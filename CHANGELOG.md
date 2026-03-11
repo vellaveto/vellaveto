@@ -108,6 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repeated nonces surface as `replay_detected` to the shared mediation path.
   Unknown signers, malformed signatures, and canonical-binding failures fail
   closed as `invalid` or `error` instead of being treated as unaudited metadata.
+  Trusted signer config can now also project signer-scoped provenance
+  metadata, including `session_key_scope`, `execution_is_ephemeral`, and an
+  expected `workload_identity`. When a verified detached signature conflicts
+  with a configured signer workload expectation, the HTTP proxy now marks the
+  request as `workload_binding_status = mismatch` instead of silently dropping
+  the conflict.
 - **HTTP proxy detached request-signature freshness (Mar 2026):**
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,
@@ -120,6 +126,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `acis.detached_request_signature_max_future_skew_secs` now let operators tune
   those fail-closed windows per deployment instead of relying on a fixed proxy
   constant.
+- **HTTP proxy trusted signer scope binding (Mar 2026):**
+  Trusted detached signer metadata now fails closed when it conflicts with
+  explicit transport key-scope evidence. A signer that projects an ephemeral
+  scope can no longer validate a request already bound to a persisted transport
+  scope, and a signer that projects persisted scope can no longer validate a
+  transport request explicitly marked ephemeral. Those provenance conflicts now
+  surface as `signature_status = invalid` instead of being silently merged.
+  ACIS now also rejects duplicate `trusted_request_signers.key_id` entries so
+  operator config cannot silently shadow one trusted signer definition with
+  another at startup, and it rejects duplicate trusted signer public keys so
+  the same detached signer cannot be aliased under multiple local identities.
+- **HTTP proxy detached signer provenance-guard coverage (Mar 2026):**
+  Unit-level mediation coverage now proves the two fail-closed deny paths for
+  detached signer provenance: verified detached signatures with signer/transport
+  workload mismatch are rejected when `require_workload_binding` is enabled,
+  and signer/transport key-scope conflicts are rejected when
+  `require_verified_signature` is enabled. gRPC runtime-security-context tests
+  now also lock in trusted-signer metadata projection, signer workload-mismatch
+  propagation, and signer/transport scope-conflict invalidation on the non-HTTP
+  transport path.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

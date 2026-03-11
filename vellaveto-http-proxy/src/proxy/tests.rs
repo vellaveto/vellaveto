@@ -57,12 +57,33 @@ fn make_detached_request_signature_header(signature: &RequestSignature) -> Strin
         .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
 }
 
-fn empty_trusted_request_signers() -> std::collections::HashMap<String, [u8; 32]> {
+fn empty_trusted_request_signers(
+) -> std::collections::HashMap<String, crate::proxy::TrustedRequestSigner> {
     std::collections::HashMap::new()
 }
 
 fn default_detached_signature_freshness() -> super::DetachedSignatureFreshnessConfig {
     super::DetachedSignatureFreshnessConfig::default()
+}
+
+fn allow_tool_policy(tool: &str) -> vellaveto_types::Policy {
+    vellaveto_types::Policy {
+        id: format!("{tool}:*"),
+        name: format!("Allow {tool}"),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }
+}
+
+#[derive(Default)]
+struct DetachedSignatureBinding<'a> {
+    session_scope_binding: Option<&'a str>,
+    nonce: Option<String>,
+    created_at: Option<String>,
+    routing_identity: Option<&'a str>,
+    workload_identity: Option<vellaveto_types::WorkloadIdentity>,
 }
 
 fn make_signed_detached_request_signature_header_with_scope(
@@ -106,21 +127,63 @@ fn make_signed_detached_request_signature_header_with_scope_fields(
     nonce: Option<String>,
     created_at: Option<String>,
 ) -> String {
+    make_signed_detached_request_signature_header_with_scope_fields_and_routing_identity(
+        action,
+        key_id,
+        signing_key,
+        session_scope_binding,
+        nonce,
+        created_at,
+        None,
+    )
+}
+
+fn make_signed_detached_request_signature_header_with_scope_fields_and_routing_identity(
+    action: &Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+    nonce: Option<String>,
+    created_at: Option<String>,
+    routing_identity: Option<&str>,
+) -> String {
+    make_signed_detached_request_signature_header_with_binding(
+        action,
+        key_id,
+        signing_key,
+        DetachedSignatureBinding {
+            session_scope_binding,
+            nonce,
+            created_at,
+            routing_identity,
+            workload_identity: None,
+        },
+    )
+}
+
+fn make_signed_detached_request_signature_header_with_binding(
+    action: &Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    binding: DetachedSignatureBinding<'_>,
+) -> String {
     let mut request_signature = RequestSignature {
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
-        nonce,
-        created_at,
+        nonce: binding.nonce,
+        created_at: binding.created_at,
         signature: None,
+    };
+    let provenance = ClientProvenance {
+        request_signature: Some(request_signature.clone()),
+        workload_identity: binding.workload_identity,
+        ..ClientProvenance::default()
     };
     let input = CanonicalRequestInput::from_action(
         action,
-        session_scope_binding,
-        Some(&ClientProvenance {
-            request_signature: Some(request_signature.clone()),
-            ..ClientProvenance::default()
-        }),
-        None,
+        binding.session_scope_binding,
+        Some(&provenance),
+        binding.routing_identity,
     );
     let preimage = canonical_request_preimage(&input).expect("canonical request preimage");
     request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
@@ -138,8 +201,16 @@ fn make_signed_detached_request_signature_header(
 fn trusted_request_signers_for(
     key_id: &str,
     signing_key: &SigningKey,
-) -> std::collections::HashMap<String, [u8; 32]> {
-    std::collections::HashMap::from([(key_id.to_string(), signing_key.verifying_key().to_bytes())])
+) -> std::collections::HashMap<String, crate::proxy::TrustedRequestSigner> {
+    std::collections::HashMap::from([(
+        key_id.to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::Unknown,
+            execution_is_ephemeral: false,
+            workload_identity: None,
+        },
+    )])
 }
 
 fn make_oauth_validation_evidence(
@@ -1031,6 +1102,96 @@ fn test_build_runtime_security_context_verifies_detached_request_signature_with_
 }
 
 #[test]
+fn test_build_runtime_security_context_projects_trusted_signer_metadata() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[16u8; 32]);
+    let mut headers = HeaderMap::new();
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::EphemeralSession,
+            execution_is_ephemeral: true,
+            workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                platform: Some("spiffe".into()),
+                workload_id: "spiffe://cluster/ns/prod/sa/shell".into(),
+                namespace: Some("prod".into()),
+                service_account: Some("shell".into()),
+                process_identity: None,
+                attestation_level: Some("jwt".into()),
+            }),
+        },
+    )]);
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::EphemeralSession
+    );
+    assert!(provenance.execution_is_ephemeral);
+    assert_eq!(
+        provenance.workload_binding_status,
+        vellaveto_types::WorkloadBindingStatus::Unverified
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|identity| identity.workload_id.as_str()),
+        Some("spiffe://cluster/ns/prod/sa/shell")
+    );
+}
+
+#[test]
 fn test_build_runtime_security_context_detects_replayed_detached_request_signature() {
     let msg = json!({
         "jsonrpc": "2.0",
@@ -1312,6 +1473,510 @@ fn test_build_runtime_security_context_rejects_detached_signature_with_unknown_t
         provenance.signature_status,
         SignatureVerificationStatus::Invalid
     );
+}
+
+#[test]
+fn test_build_runtime_security_context_marks_workload_mismatch_for_trusted_signer_expectation() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[17u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_binding(
+            &action,
+            "detached-kid",
+            &signing_key,
+            DetachedSignatureBinding {
+                session_scope_binding: Some(session_scope_binding.as_str()),
+                nonce: Some("detached-nonce".to_string()),
+                created_at: Some(
+                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ),
+                routing_identity: Some("spiffe://cluster/ns/prod/sa/other"),
+                workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                    platform: Some("spiffe".into()),
+                    workload_id: "spiffe://cluster/ns/prod/sa/other".into(),
+                    namespace: Some("prod".into()),
+                    service_account: Some("other".into()),
+                    process_identity: None,
+                    attestation_level: Some("jwt".into()),
+                }),
+            },
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::Unknown,
+            execution_is_ephemeral: false,
+            workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                platform: Some("spiffe".into()),
+                workload_id: "spiffe://cluster/ns/prod/sa/shell".into(),
+                namespace: Some("prod".into()),
+                service_account: Some("shell".into()),
+                process_identity: None,
+                attestation_level: Some("jwt".into()),
+            }),
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: Some("https://issuer.example".into()),
+            subject: Some("spiffe://cluster/ns/prod/sa/other".into()),
+            audience: vec![],
+            claims: std::collections::HashMap::from([
+                (
+                    "workload_id".to_string(),
+                    json!("spiffe://cluster/ns/prod/sa/other"),
+                ),
+                ("namespace".to_string(), json!("prod")),
+                ("service_account".to_string(), json!("other")),
+                ("attestation_level".to_string(), json!("jwt")),
+            ]),
+        }),
+        ..Default::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Verified
+    );
+    assert_eq!(
+        provenance.workload_binding_status,
+        vellaveto_types::WorkloadBindingStatus::Mismatch
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|identity| identity.workload_id.as_str()),
+        Some("spiffe://cluster/ns/prod/sa/other")
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_rejects_conflicting_trusted_signer_session_scope() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[18u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::EphemeralSession,
+            execution_is_ephemeral: false,
+            workload_identity: None,
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: std::collections::HashMap::from([(
+                "session_key_scope".to_string(),
+                json!("persisted_client"),
+            )]),
+        }),
+        ..Default::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Invalid
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::PersistedClient
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_rejects_persisted_trusted_signer_on_ephemeral_transport() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[19u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::PersistedClient,
+            execution_is_ephemeral: false,
+            workload_identity: None,
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: std::collections::HashMap::from([(
+                "execution_is_ephemeral".to_string(),
+                json!(true),
+            )]),
+        }),
+        ..Default::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Invalid
+    );
+    assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_detached_signer_workload_mismatch_hits_mediation_guard() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[20u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_binding(
+            &action,
+            "detached-kid",
+            &signing_key,
+            DetachedSignatureBinding {
+                session_scope_binding: Some(session_scope_binding.as_str()),
+                nonce: Some("detached-nonce".to_string()),
+                created_at: Some(
+                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                ),
+                routing_identity: Some("spiffe://cluster/ns/prod/sa/other"),
+                workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                    platform: Some("spiffe".into()),
+                    workload_id: "spiffe://cluster/ns/prod/sa/other".into(),
+                    namespace: Some("prod".into()),
+                    service_account: Some("other".into()),
+                    process_identity: None,
+                    attestation_level: Some("jwt".into()),
+                }),
+            },
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::Unknown,
+            execution_is_ephemeral: false,
+            workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                platform: Some("spiffe".into()),
+                workload_id: "spiffe://cluster/ns/prod/sa/shell".into(),
+                namespace: Some("prod".into()),
+                service_account: Some("shell".into()),
+                process_identity: None,
+                attestation_level: Some("jwt".into()),
+            }),
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: Some("https://issuer.example".into()),
+            subject: Some("spiffe://cluster/ns/prod/sa/other".into()),
+            audience: vec![],
+            claims: std::collections::HashMap::from([
+                (
+                    "workload_id".to_string(),
+                    json!("spiffe://cluster/ns/prod/sa/other"),
+                ),
+                ("namespace".to_string(), json!("prod")),
+                ("service_account".to_string(), json!("other")),
+                ("attestation_level".to_string(), json!("jwt")),
+            ]),
+        }),
+        ..Default::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let engine = vellaveto_engine::PolicyEngine::with_policies(
+        true,
+        &[allow_tool_policy(action.tool.as_str())],
+    )
+    .expect("policy engine");
+    let result = vellaveto_mcp::mediation::mediate_with_security_context(
+        "detached-workload-mismatch",
+        &action,
+        &engine,
+        None,
+        Some(&security_context),
+        "http",
+        &vellaveto_mcp::mediation::MediationConfig {
+            require_verified_signature: true,
+            require_workload_binding: true,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
+        Some(&session_id),
+        None,
+    );
+
+    assert_eq!(
+        result.origin,
+        vellaveto_types::DecisionOrigin::ProvenanceGuard
+    );
+    let vellaveto_types::Verdict::Deny { reason } = result.verdict else {
+        panic!("expected provenance guard deny");
+    };
+    assert_eq!(reason, "workload binding required");
+}
+
+#[test]
+fn test_detached_signer_scope_conflict_hits_mediation_guard() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[21u8; 32]);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+    let trusted_request_signers = std::collections::HashMap::from([(
+        "detached-kid".to_string(),
+        crate::proxy::TrustedRequestSigner {
+            public_key: signing_key.verifying_key().to_bytes(),
+            session_key_scope: vellaveto_types::SessionKeyScope::EphemeralSession,
+            execution_is_ephemeral: false,
+            workload_identity: None,
+        },
+    )]);
+    let eval_ctx = vellaveto_types::EvaluationContext {
+        agent_identity: Some(vellaveto_types::AgentIdentity {
+            issuer: None,
+            subject: None,
+            audience: vec![],
+            claims: std::collections::HashMap::from([(
+                "session_key_scope".to_string(),
+                json!("persisted_client"),
+            )]),
+        }),
+        ..Default::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let engine = vellaveto_engine::PolicyEngine::with_policies(
+        true,
+        &[allow_tool_policy(action.tool.as_str())],
+    )
+    .expect("policy engine");
+    let result = vellaveto_mcp::mediation::mediate_with_security_context(
+        "detached-scope-conflict",
+        &action,
+        &engine,
+        None,
+        Some(&security_context),
+        "http",
+        &vellaveto_mcp::mediation::MediationConfig {
+            require_verified_signature: true,
+            ..vellaveto_mcp::mediation::MediationConfig::default()
+        },
+        Some(&session_id),
+        None,
+    );
+
+    assert_eq!(
+        result.origin,
+        vellaveto_types::DecisionOrigin::ProvenanceGuard
+    );
+    let vellaveto_types::Verdict::Deny { reason } = result.verdict else {
+        panic!("expected provenance guard deny");
+    };
+    assert_eq!(reason, "verified request signature required");
 }
 
 #[test]

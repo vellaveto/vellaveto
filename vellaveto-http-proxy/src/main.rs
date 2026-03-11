@@ -311,8 +311,9 @@ fn resolve_oauth_security(args: &Args) -> Result<DpopMode> {
 
 fn build_trusted_request_signers(
     policy_config: &PolicyConfig,
-) -> Result<HashMap<String, [u8; 32]>> {
+) -> Result<HashMap<String, crate::proxy::TrustedRequestSigner>> {
     let mut trusted_request_signers = HashMap::new();
+    let mut trusted_request_signer_keys = std::collections::HashSet::new();
     for signer in &policy_config.acis.trusted_request_signers {
         let key_bytes = hex::decode(&signer.public_key).with_context(|| {
             format!(
@@ -326,7 +327,30 @@ fn build_trusted_request_signers(
                 signer.key_id
             )
         })?;
-        trusted_request_signers.insert(signer.key_id.clone(), key_array);
+        trusted_request_signer_keys
+            .insert(key_array)
+            .then_some(())
+            .ok_or_else(|| {
+                anyhow::anyhow!("duplicate acis.trusted_request_signers public key is not allowed")
+            })?;
+        trusted_request_signers
+            .insert(
+                signer.key_id.clone(),
+                crate::proxy::TrustedRequestSigner {
+                    public_key: key_array,
+                    session_key_scope: signer.session_key_scope,
+                    execution_is_ephemeral: signer.execution_is_ephemeral,
+                    workload_identity: signer.workload_identity.clone(),
+                },
+            )
+            .is_none()
+            .then_some(())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "duplicate acis.trusted_request_signers key_id '{}' is not allowed",
+                    signer.key_id
+                )
+            })?;
     }
     Ok(trusted_request_signers)
 }
