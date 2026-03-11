@@ -205,10 +205,15 @@ impl SessionSemanticState {
             channel,
             content_hash: None,
             source: Some(sanitize_for_log(source, 256)),
-            trust_tier: Some(match taints.first() {
-                Some(vellaveto_types::minja::TaintLabel::IntegrityFailed) => TrustTier::Low,
-                _ => TrustTier::Untrusted,
-            }),
+            trust_tier: Some(
+                if taints.contains(&vellaveto_types::minja::TaintLabel::Quarantined) {
+                    TrustTier::Quarantined
+                } else if taints.contains(&vellaveto_types::minja::TaintLabel::IntegrityFailed) {
+                    TrustTier::Low
+                } else {
+                    TrustTier::Untrusted
+                },
+            ),
         });
         for taint in taints {
             if !self.taint.contains(taint) {
@@ -234,9 +239,29 @@ impl SessionSemanticState {
         security_context
             .lineage_refs
             .extend(self.lineage_refs.iter().skip(start).cloned());
-        if security_context.effective_trust_tier.is_none() && !self.lineage_refs.is_empty() {
-            security_context.effective_trust_tier = Some(TrustTier::Untrusted);
-        }
+        let session_trust_floor = if self
+            .taint
+            .contains(&vellaveto_types::minja::TaintLabel::Quarantined)
+        {
+            Some(TrustTier::Quarantined)
+        } else if !self.lineage_refs.is_empty() {
+            Some(TrustTier::Untrusted)
+        } else {
+            None
+        };
+        security_context.effective_trust_tier =
+            match (security_context.effective_trust_tier, session_trust_floor) {
+                (Some(explicit), Some(session_floor)) => Some(explicit.meet(session_floor)),
+                (Some(explicit), None) => Some(explicit),
+                (None, Some(session_floor)) => Some(session_floor),
+                (None, None) => None,
+            };
+    }
+}
+
+fn push_unique_taint(taints: &mut Vec<SemanticTaint>, taint: SemanticTaint) {
+    if !taints.contains(&taint) {
+        taints.push(taint);
     }
 }
 
@@ -6716,6 +6741,7 @@ impl ProxyBridge {
         let mut schema_violation_found = false;
         let mut dlp_found = false;
         let mut semantic_contract_violation_found = false;
+        let mut semantic_contract_quarantine_found = false;
         let mut observed_output_channel: Option<ContextChannel> = None;
 
         // C-8.3: Inspect response for prompt injection (OWASP MCP06)
@@ -7076,6 +7102,7 @@ impl ProxyBridge {
                 observed_output_channel = Some(contract_eval.observed);
                 if contract_eval.is_violation() {
                     semantic_contract_violation_found = true;
+                    semantic_contract_quarantine_found = contract_eval.requires_quarantine();
                     tracing::warn!(
                         "SECURITY: semantic output contract violation for tool '{}': expected {:?}, observed {:?}",
                         tool_name,
@@ -7111,6 +7138,7 @@ impl ProxyBridge {
                                 "tool": tool_name,
                                 "expected_channel": contract_eval.expected,
                                 "observed_channel": contract_eval.observed,
+                                "quarantined": semantic_contract_quarantine_found,
                             }),
                             envelope,
                         )
@@ -7137,22 +7165,42 @@ impl ProxyBridge {
         if let Some(tool_name) = response_tool_name.as_deref() {
             let mut response_taint = Vec::new();
             if injection_found {
-                response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::Untrusted,
+                );
             }
             if schema_violation_found {
-                if !response_taint.contains(&vellaveto_types::minja::TaintLabel::Untrusted) {
-                    response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
-                }
-                response_taint.push(vellaveto_types::minja::TaintLabel::IntegrityFailed);
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::Untrusted,
+                );
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::IntegrityFailed,
+                );
             }
             if dlp_found {
-                response_taint.push(vellaveto_types::minja::TaintLabel::Sensitive);
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::Sensitive,
+                );
             }
             if semantic_contract_violation_found {
-                if !response_taint.contains(&vellaveto_types::minja::TaintLabel::Untrusted) {
-                    response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::Untrusted,
+                );
+                push_unique_taint(
+                    &mut response_taint,
+                    vellaveto_types::minja::TaintLabel::IntegrityFailed,
+                );
+                if semantic_contract_quarantine_found {
+                    push_unique_taint(
+                        &mut response_taint,
+                        vellaveto_types::minja::TaintLabel::Quarantined,
+                    );
                 }
-                response_taint.push(vellaveto_types::minja::TaintLabel::IntegrityFailed);
             }
             let channel = observed_output_channel.unwrap_or_else(|| {
                 if tool_name == "resources/read" {
@@ -8253,6 +8301,38 @@ mod tests {
         assert_eq!(merged.lineage_refs[0].channel, ContextChannel::ToolOutput);
         assert_eq!(merged.lineage_refs[0].source.as_deref(), Some("search_web"));
         assert_eq!(merged.effective_trust_tier, Some(TrustTier::Untrusted));
+    }
+
+    #[test]
+    fn test_relay_state_runtime_security_context_preserves_quarantined_session_semantics() {
+        let mut state = RelayState::new(HashSet::new());
+        state.record_semantic_output(
+            "search_web",
+            ContextChannel::CommandLike,
+            &[
+                vellaveto_types::minja::TaintLabel::Untrusted,
+                vellaveto_types::minja::TaintLabel::IntegrityFailed,
+                vellaveto_types::minja::TaintLabel::Quarantined,
+            ],
+        );
+
+        let merged = state
+            .runtime_security_context(Some(RuntimeSecurityContext {
+                sink_class: Some(vellaveto_types::SinkClass::CodeExecution),
+                ..RuntimeSecurityContext::default()
+            }))
+            .expect("session semantics should produce a context");
+
+        assert!(merged
+            .semantic_taint
+            .contains(&vellaveto_types::minja::TaintLabel::Quarantined));
+        assert_eq!(merged.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(merged.lineage_refs.len(), 1);
+        assert_eq!(merged.lineage_refs[0].channel, ContextChannel::CommandLike);
+        assert_eq!(
+            merged.lineage_refs[0].trust_tier,
+            Some(TrustTier::Quarantined)
+        );
     }
 
     #[test]

@@ -629,6 +629,9 @@ fn semantic_containment_verdict(
     let security_context = security_context?;
     let sink_class = security_context.sink_class?;
     let derived_risk_score = security_context.recommended_semantic_risk_score_for_sink(sink_class);
+    let counterfactual_score =
+        security_context.recommended_counterfactual_attribution_score_for_sink(sink_class);
+    let counterfactual_gate = security_context.requires_counterfactual_gate_for_sink(sink_class);
 
     if config.require_lineage_for_privileged_sinks
         && sink_class.is_privileged()
@@ -685,26 +688,84 @@ fn semantic_containment_verdict(
         && sink_class.is_privileged()
         && security_context
             .semantic_taint
+            .contains(&vellaveto_types::minja::TaintLabel::Quarantined)
+    {
+        security_context.merge_semantic_risk_score(derived_risk_score);
+        security_context.merge_semantic_risk_score(counterfactual_score);
+        let verdict = match security_context
+            .containment_mode
+            .unwrap_or(ContainmentMode::Quarantine)
+        {
+            ContainmentMode::RequireApproval => Verdict::RequireApproval {
+                reason: if counterfactual_gate {
+                    "counterfactual review required: quarantined context appears causally necessary for privileged sink".to_string()
+                } else {
+                    "quarantined context requires approval before privileged sink".to_string()
+                },
+            },
+            ContainmentMode::Sanitize => Verdict::Deny {
+                reason: if counterfactual_gate {
+                    "quarantined context appears causally necessary and requires sanitization before privileged sink".to_string()
+                } else {
+                    "quarantined context requires sanitization before privileged sink".to_string()
+                },
+            },
+            ContainmentMode::Disabled
+            | ContainmentMode::Observe
+            | ContainmentMode::Quarantine
+            | ContainmentMode::Enforce => Verdict::Deny {
+                reason: if counterfactual_gate {
+                    "quarantined context appears causally necessary and cannot drive privileged sink".to_string()
+                } else {
+                    "quarantined context cannot drive privileged sink".to_string()
+                },
+            },
+        };
+        return Some((verdict, DecisionOrigin::SemanticContainment));
+    }
+
+    if config.block_tainted_privileged_sinks
+        && sink_class.is_privileged()
+        && security_context
+            .semantic_taint
             .iter()
             .copied()
             .any(is_security_relevant_taint)
     {
         security_context.merge_semantic_risk_score(derived_risk_score);
+        security_context.merge_semantic_risk_score(counterfactual_score);
         let verdict = match security_context
             .containment_mode
             .unwrap_or(ContainmentMode::Enforce)
         {
             ContainmentMode::RequireApproval => Verdict::RequireApproval {
-                reason: "tainted context requires approval before privileged sink".to_string(),
+                reason: if counterfactual_gate {
+                    "counterfactual review required: tainted context appears causally necessary for privileged sink".to_string()
+                } else {
+                    "tainted context requires approval before privileged sink".to_string()
+                },
             },
             ContainmentMode::Sanitize => Verdict::Deny {
-                reason: "tainted context requires sanitization before privileged sink".to_string(),
+                reason: if counterfactual_gate {
+                    "tainted context appears causally necessary and requires sanitization before privileged sink".to_string()
+                } else {
+                    "tainted context requires sanitization before privileged sink".to_string()
+                },
             },
             ContainmentMode::Quarantine => Verdict::Deny {
-                reason: "tainted context requires quarantine before privileged sink".to_string(),
+                reason: if counterfactual_gate {
+                    "tainted context appears causally necessary and requires quarantine before privileged sink".to_string()
+                } else {
+                    "tainted context requires quarantine before privileged sink".to_string()
+                },
             },
             _ => Verdict::Deny {
-                reason: "tainted context cannot drive privileged sink".to_string(),
+                reason: if counterfactual_gate {
+                    "tainted context appears causally necessary and cannot drive privileged sink"
+                        .to_string()
+                } else {
+                    "tainted context cannot drive privileged sink".to_string()
+                },
             },
         };
         return Some((verdict, DecisionOrigin::SemanticContainment));
@@ -1573,11 +1634,152 @@ mod tests {
 
         assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
         assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        let Verdict::RequireApproval { reason } = result.verdict else {
+            panic!("expected require approval verdict");
+        };
+        assert!(reason.contains("tainted context requires approval"));
         assert_eq!(result.envelope.sink_class, Some(SinkClass::CodeExecution));
         assert!(result
             .envelope
             .semantic_risk_score
             .is_some_and(|score| score.value >= 70));
+    }
+
+    #[test]
+    fn test_block_quarantined_privileged_sink_denies_by_default() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            block_tainted_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CodeExecution),
+            semantic_taint: vec![TaintLabel::Quarantined],
+            lineage_refs: vec![LineageRef {
+                id: "upstream-quarantine".into(),
+                channel: vellaveto_types::ContextChannel::CommandLike,
+                content_hash: Some("abc123".into()),
+                source: Some("tool-output".into()),
+                trust_tier: Some(TrustTier::Quarantined),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-1q",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::Deny { .. }));
+        assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        let Verdict::Deny { reason } = result.verdict else {
+            panic!("expected deny verdict");
+        };
+        assert!(reason.contains("causally necessary"));
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 80));
+    }
+
+    #[test]
+    fn test_block_quarantined_privileged_sink_requires_approval_when_configured() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            block_tainted_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CredentialAccess),
+            semantic_taint: vec![TaintLabel::Quarantined],
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-quarantine".into(),
+                channel: vellaveto_types::ContextChannel::ApprovalPrompt,
+                content_hash: Some("abc123".into()),
+                source: Some("approval-like-output".into()),
+                trust_tier: Some(TrustTier::Quarantined),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-1qa",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
+        assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        let Verdict::RequireApproval { reason } = result.verdict else {
+            panic!("expected require approval verdict");
+        };
+        assert!(reason.contains("causally necessary"));
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 80));
+    }
+
+    #[test]
+    fn test_block_tainted_privileged_sink_counterfactual_signal_requires_review_reason() {
+        let engine = PolicyEngine::with_policies(true, &[allow_policy()]).expect("engine");
+        let action = test_action();
+        let config = MediationConfig {
+            block_tainted_privileged_sinks: true,
+            ..MediationConfig::default()
+        };
+        let security_context = RuntimeSecurityContext {
+            sink_class: Some(SinkClass::CodeExecution),
+            semantic_taint: vec![TaintLabel::IntegrityFailed],
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            lineage_refs: vec![LineageRef {
+                id: "upstream-command".into(),
+                channel: vellaveto_types::ContextChannel::CommandLike,
+                content_hash: Some("abc123".into()),
+                source: Some("remote-free-text".into()),
+                trust_tier: Some(TrustTier::Low),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let result = mediate_with_security_context(
+            "sem-1cf",
+            &action,
+            &engine,
+            None,
+            Some(&security_context),
+            "stdio",
+            &config,
+            Some("session-1"),
+            None,
+        );
+
+        let Verdict::RequireApproval { reason } = result.verdict else {
+            panic!("expected require approval verdict");
+        };
+        assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        assert!(reason.contains("counterfactual review required"));
+        assert!(reason.contains("causally necessary"));
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 80));
     }
 
     #[test]

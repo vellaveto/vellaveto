@@ -340,6 +340,81 @@ impl RuntimeSecurityContext {
         SemanticRiskScore { value: score }
     }
 
+    /// Derives a bounded counterfactual-attribution score for privileged sinks.
+    ///
+    /// This is a lightweight proxy for "would this action still happen without
+    /// the tainted upstream content?" and only rises when privileged actions
+    /// are coupled to security-relevant taint and suspicious lineage channels.
+    pub fn recommended_counterfactual_attribution_score_for_sink(
+        &self,
+        sink_class: SinkClass,
+    ) -> SemanticRiskScore {
+        if !sink_class.is_privileged() {
+            return SemanticRiskScore { value: 0 };
+        }
+
+        let taint_risk = self
+            .semantic_taint
+            .iter()
+            .copied()
+            .filter(|taint| is_security_relevant_taint(*taint))
+            .map(taint_semantic_risk_weight)
+            .max()
+            .unwrap_or(0);
+        if taint_risk == 0 {
+            return SemanticRiskScore { value: 0 };
+        }
+
+        let observed_trust_tier = self
+            .most_restrictive_trust_tier()
+            .unwrap_or(TrustTier::Unknown);
+        let required_trust_tier = minimum_trust_tier_for_sink(sink_class);
+        let trust_gap = required_trust_tier
+            .rank()
+            .saturating_sub(observed_trust_tier.rank())
+            .saturating_mul(6);
+        let lineage_signal = self
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel.counterfactual_attribution_weight())
+            .max()
+            .unwrap_or(0);
+        let decision_driving_bonus = if self.lineage_refs.iter().any(|lineage| {
+            matches!(
+                lineage.channel,
+                ContextChannel::CommandLike | ContextChannel::ApprovalPrompt
+            )
+        }) && self
+            .semantic_taint
+            .iter()
+            .copied()
+            .any(|taint| matches!(taint, TaintLabel::IntegrityFailed | TaintLabel::Quarantined))
+        {
+            20
+        } else {
+            0
+        };
+
+        SemanticRiskScore {
+            value: trust_gap
+                .saturating_add(taint_risk)
+                .saturating_add(lineage_signal)
+                .saturating_add(decision_driving_bonus)
+                .min(100),
+        }
+    }
+
+    /// Returns true when tainted upstream content appears likely to be
+    /// decision-driving for the target privileged sink and therefore merits an
+    /// explicit approval gate.
+    pub fn requires_counterfactual_gate_for_sink(&self, sink_class: SinkClass) -> bool {
+        sink_class.is_privileged()
+            && self
+                .recommended_counterfactual_attribution_score_for_sink(sink_class)
+                .value
+                >= 70
+    }
+
     /// Keeps the higher of the existing semantic-risk score and `score`.
     pub fn merge_semantic_risk_score(&mut self, score: SemanticRiskScore) {
         match self.semantic_risk_score {
@@ -522,6 +597,20 @@ impl ContextChannel {
             Self::FreeText => 20,
             Self::Memory => 20,
             Self::Url => 25,
+            Self::CommandLike => 35,
+            Self::ApprovalPrompt => 35,
+        }
+    }
+
+    /// Channel-level contribution for lightweight counterfactual attribution.
+    pub const fn counterfactual_attribution_weight(self) -> u8 {
+        match self {
+            Self::Data => 0,
+            Self::ToolOutput => 10,
+            Self::ResourceContent => 10,
+            Self::FreeText => 15,
+            Self::Memory => 15,
+            Self::Url => 20,
             Self::CommandLike => 35,
             Self::ApprovalPrompt => 35,
         }
@@ -870,6 +959,50 @@ mod tests {
             suspicious.recommended_semantic_risk_score_for_sink(SinkClass::CodeExecution);
 
         assert!(suspicious_score.value > baseline_score.value);
+    }
+
+    #[test]
+    fn test_counterfactual_attribution_score_stays_low_for_incidental_tainted_tool_output() {
+        let incidental = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Verified),
+            semantic_taint: vec![TaintLabel::Untrusted],
+            lineage_refs: vec![LineageRef {
+                id: "tool-output".into(),
+                channel: ContextChannel::ToolOutput,
+                content_hash: None,
+                source: Some("search-web".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let score = incidental
+            .recommended_counterfactual_attribution_score_for_sink(SinkClass::CodeExecution);
+
+        assert!(score.value < 70);
+        assert!(!incidental.requires_counterfactual_gate_for_sink(SinkClass::CodeExecution));
+    }
+
+    #[test]
+    fn test_counterfactual_attribution_score_rises_for_quarantined_command_like_flow() {
+        let suspicious = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Low),
+            semantic_taint: vec![TaintLabel::IntegrityFailed, TaintLabel::Quarantined],
+            lineage_refs: vec![LineageRef {
+                id: "command-like".into(),
+                channel: ContextChannel::CommandLike,
+                content_hash: None,
+                source: Some("remote-output".into()),
+                trust_tier: Some(TrustTier::Quarantined),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let score = suspicious
+            .recommended_counterfactual_attribution_score_for_sink(SinkClass::CredentialAccess);
+
+        assert!(score.value >= 70);
+        assert!(suspicious.requires_counterfactual_gate_for_sink(SinkClass::CredentialAccess));
     }
 
     #[test]
