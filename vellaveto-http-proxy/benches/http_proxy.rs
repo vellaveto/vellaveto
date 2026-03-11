@@ -460,7 +460,7 @@ fn bench_audit_context(c: &mut Criterion) {
             build_audit_context(
                 black_box("sess-1234"),
                 black_box(serde_json::json!({})),
-                black_box(&None),
+                black_box(&Option::<vellaveto_http_proxy::oauth::OAuthClaims>::None),
             )
         })
     });

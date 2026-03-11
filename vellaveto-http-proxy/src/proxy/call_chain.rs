@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use vellaveto_engine::PolicyEngine;
 use vellaveto_types::{Action, EvaluationContext, Policy, Verdict};
 
+use super::auth::OAuthValidationEvidence;
 use super::{HmacSha256, X_UPSTREAM_AGENTS};
 use crate::oauth::OAuthClaims;
 use crate::session::SessionStore;
@@ -35,6 +36,31 @@ pub const MAX_PENDING_TOOL_CALLS: usize = 256;
 /// Maximum canonicalized JSON-RPC id key length.
 /// Oversized ids are ignored for request/response correlation.
 const MAX_JSONRPC_ID_KEY_LEN: usize = 256;
+
+pub trait OAuthAuditClaims {
+    fn oauth_subject(&self) -> &str;
+    fn oauth_scope(&self) -> &str;
+}
+
+impl OAuthAuditClaims for OAuthClaims {
+    fn oauth_subject(&self) -> &str {
+        &self.sub
+    }
+
+    fn oauth_scope(&self) -> &str {
+        &self.scope
+    }
+}
+
+impl OAuthAuditClaims for OAuthValidationEvidence {
+    fn oauth_subject(&self) -> &str {
+        &self.claims.sub
+    }
+
+    fn oauth_scope(&self) -> &str {
+        &self.claims.scope
+    }
+}
 
 /// Build a stable key for JSON-RPC id values used in request/response correlation.
 pub fn jsonrpc_id_key(id: &Value) -> Option<String> {
@@ -109,10 +135,10 @@ pub fn build_evaluation_context(
 }
 
 /// Build audit context JSON, optionally including OAuth subject and call chain.
-pub fn build_audit_context(
+pub fn build_audit_context<T: OAuthAuditClaims>(
     session_id: &str,
     extra: Value,
-    oauth_claims: &Option<OAuthClaims>,
+    oauth_claims: &Option<T>,
 ) -> Value {
     let mut ctx = json!({"source": "http_proxy", "session": session_id});
     if let Value::Object(map) = extra {
@@ -124,9 +150,9 @@ pub fn build_audit_context(
     }
     if let Some(claims) = oauth_claims {
         if let Value::Object(ref mut ctx_map) = ctx {
-            ctx_map.insert("oauth_subject".to_string(), json!(claims.sub));
-            if !claims.scope.is_empty() {
-                ctx_map.insert("oauth_scopes".to_string(), json!(claims.scope));
+            ctx_map.insert("oauth_subject".to_string(), json!(claims.oauth_subject()));
+            if !claims.oauth_scope().is_empty() {
+                ctx_map.insert("oauth_scopes".to_string(), json!(claims.oauth_scope()));
             }
         }
     }
@@ -134,10 +160,10 @@ pub fn build_audit_context(
 }
 
 /// Build audit context JSON with call chain for multi-agent scenarios.
-pub fn build_audit_context_with_chain(
+pub fn build_audit_context_with_chain<T: OAuthAuditClaims>(
     session_id: &str,
     extra: Value,
-    oauth_claims: &Option<OAuthClaims>,
+    oauth_claims: &Option<T>,
     call_chain: &[vellaveto_types::CallChainEntry],
 ) -> Value {
     let mut ctx = build_audit_context(session_id, extra, oauth_claims);
@@ -766,7 +792,7 @@ mod tests {
 
     #[test]
     fn test_build_audit_context_basic() {
-        let ctx = build_audit_context("session-123", json!({}), &None);
+        let ctx = build_audit_context("session-123", json!({}), &Option::<OAuthClaims>::None);
         assert_eq!(ctx["source"], "http_proxy");
         assert_eq!(ctx["session"], "session-123");
     }
@@ -774,7 +800,7 @@ mod tests {
     #[test]
     fn test_build_audit_context_with_extra_fields() {
         let extra = json!({"foo": "bar", "count": 42});
-        let ctx = build_audit_context("sess-1", extra, &None);
+        let ctx = build_audit_context("sess-1", extra, &Option::<OAuthClaims>::None);
         assert_eq!(ctx["foo"], "bar");
         assert_eq!(ctx["count"], 42);
     }
@@ -819,7 +845,8 @@ mod tests {
 
     #[test]
     fn test_build_audit_context_with_chain_empty_chain_no_field() {
-        let ctx = build_audit_context_with_chain("sess-1", json!({}), &None, &[]);
+        let ctx =
+            build_audit_context_with_chain("sess-1", json!({}), &Option::<OAuthClaims>::None, &[]);
         assert!(ctx.get("call_chain").is_none());
     }
 
@@ -833,7 +860,12 @@ mod tests {
             hmac: None,
             verified: None,
         }];
-        let ctx = build_audit_context_with_chain("sess-1", json!({}), &None, &chain);
+        let ctx = build_audit_context_with_chain(
+            "sess-1",
+            json!({}),
+            &Option::<OAuthClaims>::None,
+            &chain,
+        );
         let chain_val = ctx.get("call_chain").unwrap();
         assert!(chain_val.is_array());
         assert_eq!(chain_val.as_array().unwrap().len(), 1);

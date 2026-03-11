@@ -75,6 +75,13 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - OAuth DPoP failures and SSE inspection helper events are now on the same path
   as well, so `vellaveto-http-proxy` no longer has any plain
   `build_secondary_acis_envelope(...)` sites remaining.
+- The runtime-security-context helper now uses explicit OAuth/DPoP validation
+  evidence rather than inferring signature and replay state from raw headers,
+  and verified agent identity is promoted into transport workload identity and
+  workload-binding status.
+- Session-miss fallbacks in HTTP request mediation now preserve the current
+  transport-authenticated identity instead of collapsing to an empty evaluation
+  context.
 
 **Exit criteria**
 - `cargo fmt --check`

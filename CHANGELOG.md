@@ -69,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now preserve structured containment-aware secondary ACIS context as well. As
   a result, `vellaveto-http-proxy` no longer has any plain
   `build_secondary_acis_envelope(...)` audit paths left in the crate.
+- **HTTP proxy transport provenance evidence (Mar 2026):**
+  The HTTP proxy runtime-security-context path now consumes explicit
+  OAuth/DPoP validation evidence instead of reconstructing signature and replay
+  state from raw headers. Verified `X-Agent-Identity` session context is now
+  promoted into `client_provenance.workload_identity` and
+  `workload_binding_status`, and no-session mediation fallbacks still preserve
+  the current request's authenticated identity instead of collapsing to an
+  empty evaluation context.
 
 ### Fixed
 

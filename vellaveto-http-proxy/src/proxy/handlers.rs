@@ -1020,20 +1020,25 @@ pub async fn handle_mcp_post(
 
                     (result, eval_ctx, security_context)
                 } else {
-                    // No session found: evaluate without context
-                    let eval_ctx = EvaluationContext::default();
+                    // Fall back to the current transport-authenticated identity when
+                    // the session cannot be loaded.
+                    let eval_ctx = EvaluationContext {
+                        agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                        agent_identity: agent_identity.clone(),
+                        ..EvaluationContext::default()
+                    };
                     let security_context = build_runtime_security_context(
                         &msg,
                         &action,
                         &headers,
                         oauth_claims.as_ref(),
-                        None,
+                        Some(&eval_ctx),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
                         &state.engine,
-                        None,
+                        Some(&eval_ctx),
                         security_context.as_ref(),
                         "http",
                         &state.mediation_config,
@@ -2295,20 +2300,23 @@ pub async fn handle_mcp_post(
 
                     (result, eval_ctx, security_context)
                 } else {
-                    // No session found: evaluate without context
-                    let eval_ctx = EvaluationContext::default();
+                    let eval_ctx = EvaluationContext {
+                        agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                        agent_identity: agent_identity.clone(),
+                        ..EvaluationContext::default()
+                    };
                     let security_context = build_runtime_security_context(
                         &msg,
                         &action,
                         &headers,
                         oauth_claims.as_ref(),
-                        None,
+                        Some(&eval_ctx),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
                         &state.engine,
-                        None,
+                        Some(&eval_ctx),
                         security_context.as_ref(),
                         "http",
                         &state.mediation_config,
@@ -3497,20 +3505,23 @@ pub async fn handle_mcp_post(
 
                     (result, eval_ctx, security_context)
                 } else {
-                    // No session: evaluate without context
-                    let eval_ctx = EvaluationContext::default();
+                    let eval_ctx = EvaluationContext {
+                        agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                        agent_identity: agent_identity.clone(),
+                        ..EvaluationContext::default()
+                    };
                     let security_context = build_runtime_security_context(
                         &msg,
                         &action,
                         &headers,
                         oauth_claims.as_ref(),
-                        None,
+                        Some(&eval_ctx),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
                         &state.engine,
-                        None,
+                        Some(&eval_ctx),
                         security_context.as_ref(),
                         "http",
                         &state.mediation_config,
@@ -4188,19 +4199,23 @@ pub async fn handle_mcp_post(
 
                     (result, eval_ctx, security_context)
                 } else {
-                    let eval_ctx = EvaluationContext::default();
+                    let eval_ctx = EvaluationContext {
+                        agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                        agent_identity: agent_identity.clone(),
+                        ..EvaluationContext::default()
+                    };
                     let security_context = build_runtime_security_context(
                         &msg,
                         &action,
                         &headers,
                         oauth_claims.as_ref(),
-                        None,
+                        Some(&eval_ctx),
                     );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
                         &state.engine,
-                        None,
+                        Some(&eval_ctx),
                         security_context.as_ref(),
                         "http",
                         &state.mediation_config,

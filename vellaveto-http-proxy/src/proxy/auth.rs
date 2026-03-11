@@ -16,10 +16,11 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::net::SocketAddr;
+use std::ops::Deref;
 use subtle::ConstantTimeEq;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{Action, Verdict};
+use vellaveto_types::{Action, ReplayStatus, SignatureVerificationStatus, Verdict};
 
 use super::helpers::oauth_dpop_failure_security_context;
 use super::{ProxyState, X_AGENT_IDENTITY};
@@ -113,6 +114,38 @@ struct DpopAuditParams<'a> {
     dpop_reason: &'a str,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct OAuthValidationEvidence {
+    pub claims: OAuthClaims,
+    pub dpop_proof_verified: bool,
+}
+
+impl OAuthValidationEvidence {
+    pub fn signature_status(&self) -> SignatureVerificationStatus {
+        if self.dpop_proof_verified {
+            SignatureVerificationStatus::Verified
+        } else {
+            SignatureVerificationStatus::Missing
+        }
+    }
+
+    pub fn replay_status(&self) -> ReplayStatus {
+        if self.dpop_proof_verified {
+            ReplayStatus::Fresh
+        } else {
+            ReplayStatus::NotChecked
+        }
+    }
+}
+
+impl Deref for OAuthValidationEvidence {
+    type Target = OAuthClaims;
+
+    fn deref(&self) -> &Self::Target {
+        &self.claims
+    }
+}
+
 async fn audit_dpop_validation_failure(
     state: &ProxyState,
     params: DpopAuditParams<'_>,
@@ -169,7 +202,7 @@ pub(super) async fn validate_oauth(
     method: &str,
     effective_uri: &str,
     session_hint: Option<&str>,
-) -> Result<Option<OAuthClaims>, Response> {
+) -> Result<Option<OAuthValidationEvidence>, Response> {
     let validator = match &state.oauth {
         Some(v) => v,
         None => return Ok(None),
@@ -204,6 +237,8 @@ pub(super) async fn validate_oauth(
     match validator.validate_token(auth_value).await {
         Ok(claims) => {
             let dpop_header = headers.get("dpop").and_then(|v| v.to_str().ok());
+            let dpop_proof_verified = validator.config().dpop_mode != crate::oauth::DpopMode::Off
+                && dpop_header.is_some();
             if let Err(e) = validator
                 .validate_dpop_proof(
                     dpop_header,
@@ -248,7 +283,10 @@ pub(super) async fn validate_oauth(
                 );
             }
             tracing::debug!("OAuth token validated for subject: {}", claims.sub);
-            Ok(Some(claims))
+            Ok(Some(OAuthValidationEvidence {
+                claims,
+                dpop_proof_verified,
+            }))
         }
         Err(OAuthError::InsufficientScope { required, found }) => {
             tracing::warn!(

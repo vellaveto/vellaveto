@@ -139,11 +139,11 @@ pub(crate) fn ws_messages_count() -> u64 {
 fn build_ws_runtime_security_context(
     msg: &Value,
     action: &Action,
-    oauth_claims: Option<&crate::oauth::OAuthClaims>,
+    oauth_evidence: Option<&crate::proxy::auth::OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Option<RuntimeSecurityContext> {
     let headers = HeaderMap::new();
-    super::helpers::build_runtime_security_context(msg, action, &headers, oauth_claims, eval_ctx)
+    super::helpers::build_runtime_security_context(msg, action, &headers, oauth_evidence, eval_ctx)
 }
 
 fn refresh_ws_acis_envelope(
@@ -370,7 +370,7 @@ async fn handle_ws_connection(
     ws_config: WebSocketConfig,
     peer_addr: SocketAddr,
     trace_id: String,
-    oauth_claims: Option<crate::oauth::OAuthClaims>,
+    oauth_claims: Option<crate::proxy::auth::OAuthValidationEvidence>,
 ) {
     record_ws_connection();
     let start = std::time::Instant::now();
@@ -578,7 +578,7 @@ async fn relay_client_to_upstream(
     rate_window_start: Arc<std::sync::Mutex<std::time::Instant>>,
     last_activity: Arc<AtomicU64>,
     connection_epoch: std::time::Instant,
-    oauth_claims: Option<crate::oauth::OAuthClaims>,
+    oauth_claims: Option<crate::proxy::auth::OAuthValidationEvidence>,
 ) {
     while let Some(msg_result) = client_stream.next().await {
         let msg = match msg_result {

@@ -30,8 +30,8 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
 use vellaveto_types::{
-    Action, ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore, SemanticTaint,
-    SignatureVerificationStatus, SinkClass, TrustTier,
+    Action, AgentIdentity, ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore,
+    SemanticTaint, SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
 };
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
@@ -47,6 +47,28 @@ fn make_dpop_proof(iat: u64, jti: &str) -> String {
         .expect("serialize dpop payload"),
     );
     format!("{header}.{payload}.sig")
+}
+
+fn make_oauth_validation_evidence(
+    sub: &str,
+    jkt: &str,
+    dpop_proof_verified: bool,
+) -> super::auth::OAuthValidationEvidence {
+    super::auth::OAuthValidationEvidence {
+        claims: crate::oauth::OAuthClaims {
+            sub: sub.to_string(),
+            iss: "https://issuer.example".to_string(),
+            aud: vec!["mcp-server".to_string()],
+            exp: 0,
+            iat: 0,
+            scope: String::new(),
+            resource: None,
+            cnf: Some(crate::oauth::OAuthConfirmationClaim {
+                jkt: Some(jkt.to_string()),
+            }),
+        },
+        dpop_proof_verified,
+    }
 }
 
 #[test]
@@ -160,18 +182,7 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
             .parse()
             .expect("valid dpop header"),
     );
-    let oauth_claims = crate::oauth::OAuthClaims {
-        sub: "agent-42".to_string(),
-        iss: "https://issuer.example".to_string(),
-        aud: vec!["mcp-server".to_string()],
-        exp: 0,
-        iat: 0,
-        scope: String::new(),
-        resource: None,
-        cnf: Some(crate::oauth::OAuthConfirmationClaim {
-            jkt: Some("thumbprint-123".to_string()),
-        }),
-    };
+    let oauth_claims = make_oauth_validation_evidence("agent-42", "thumbprint-123", true);
     let eval_ctx = EvaluationContext {
         call_chain: vec![vellaveto_types::CallChainEntry {
             agent_id: "upstream-agent".to_string(),
@@ -232,6 +243,10 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
     assert_eq!(
         provenance.replay_status,
         vellaveto_types::ReplayStatus::Fresh
+    );
+    assert_eq!(
+        provenance.workload_binding_status,
+        WorkloadBindingStatus::Missing
     );
 }
 
@@ -302,18 +317,7 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
             .parse()
             .expect("valid dpop header"),
     );
-    let oauth_claims = crate::oauth::OAuthClaims {
-        sub: "agent-42".to_string(),
-        iss: "https://issuer.example".to_string(),
-        aud: vec!["mcp-server".to_string()],
-        exp: 0,
-        iat: 0,
-        scope: String::new(),
-        resource: None,
-        cnf: Some(crate::oauth::OAuthConfirmationClaim {
-            jkt: Some("thumbprint-merged".to_string()),
-        }),
-    };
+    let oauth_claims = make_oauth_validation_evidence("agent-42", "thumbprint-merged", true);
 
     let security_context = super::helpers::build_runtime_security_context(
         &msg,
@@ -359,6 +363,77 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
         vellaveto_types::SessionKeyScope::EphemeralSession
     );
     assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_runtime_security_context_derives_workload_binding_from_agent_identity() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "dpop",
+        make_dpop_proof(1_741_610_000, "nonce-workload")
+            .parse()
+            .expect("valid dpop header"),
+    );
+    let oauth_claims = make_oauth_validation_evidence("agent-42", "thumbprint-workload", true);
+    let eval_ctx = EvaluationContext {
+        agent_id: Some("agent-42".to_string()),
+        agent_identity: Some(AgentIdentity {
+            issuer: Some("https://issuer.example".to_string()),
+            subject: Some("spiffe://cluster/ns/app".to_string()),
+            audience: vec!["mcp-server".to_string()],
+            claims: std::collections::HashMap::new(),
+        }),
+        ..EvaluationContext::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        Some(&oauth_claims),
+        Some(&eval_ctx),
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.workload_binding_status,
+        WorkloadBindingStatus::Bound
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|workload| workload.workload_id.as_str()),
+        Some("spiffe://cluster/ns/app")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.platform.as_deref()),
+        Some("spiffe")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.attestation_level.as_deref()),
+        Some("jwt")
+    );
 }
 
 #[test]

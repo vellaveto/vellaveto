@@ -24,11 +24,13 @@ use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_contex
 use vellaveto_mcp::output_contracts::infer_observed_output_channel;
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
-    Action, ClientProvenance, ContextChannel, EvaluationContext, LineageRef, ReplayStatus,
-    RequestSignature, RuntimeSecurityContext, SemanticRiskScore, SemanticTaint, SessionKeyScope,
-    SignatureVerificationStatus, SinkClass, TrustTier, Verdict, WorkloadBindingStatus,
+    Action, AgentIdentity, ClientProvenance, ContextChannel, EvaluationContext, LineageRef,
+    ReplayStatus, RequestSignature, RuntimeSecurityContext, SemanticRiskScore, SemanticTaint,
+    SessionKeyScope, SignatureVerificationStatus, SinkClass, TrustTier, Verdict,
+    WorkloadBindingStatus, WorkloadIdentity,
 };
 
+use super::auth::OAuthValidationEvidence;
 use super::ProxyState;
 use crate::oauth::OAuthClaims;
 use crate::session::SessionStore;
@@ -206,21 +208,6 @@ fn looks_like_read_only_action(tool: &str, function: &str) -> bool {
     )
 }
 
-fn infer_signature_status(
-    headers: &HeaderMap,
-    oauth_claims: Option<&OAuthClaims>,
-) -> SignatureVerificationStatus {
-    if headers
-        .get("dpop")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| !value.trim().is_empty() && oauth_claims.is_some())
-    {
-        SignatureVerificationStatus::Verified
-    } else {
-        SignatureVerificationStatus::Missing
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct DpopPayload {
     #[serde(default)]
@@ -260,27 +247,72 @@ fn decode_dpop_request_signature(
     })
 }
 
-fn infer_replay_status(signature_status: SignatureVerificationStatus) -> ReplayStatus {
-    if signature_status == SignatureVerificationStatus::Verified {
-        ReplayStatus::Fresh
+fn infer_workload_platform(subject: &str) -> String {
+    if subject.starts_with("spiffe://") {
+        "spiffe".to_string()
+    } else if subject.starts_with("did:") {
+        "did".to_string()
     } else {
-        ReplayStatus::NotChecked
+        "jwt".to_string()
+    }
+}
+
+fn agent_identity_from_eval_ctx(eval_ctx: Option<&EvaluationContext>) -> Option<&AgentIdentity> {
+    eval_ctx.and_then(|ctx| ctx.agent_identity.as_ref())
+}
+
+fn build_workload_identity(eval_ctx: Option<&EvaluationContext>) -> Option<WorkloadIdentity> {
+    let identity = agent_identity_from_eval_ctx(eval_ctx)?;
+    let workload_id = identity
+        .subject
+        .as_deref()
+        .map(str::trim)
+        .filter(|subject| !subject.is_empty())?;
+
+    Some(WorkloadIdentity {
+        platform: Some(infer_workload_platform(workload_id)),
+        workload_id: workload_id.to_string(),
+        namespace: identity.claim_str("namespace").map(str::to_string),
+        service_account: identity.claim_str("service_account").map(str::to_string),
+        process_identity: identity.claim_str("process_identity").map(str::to_string),
+        attestation_level: Some("jwt".to_string()),
+    })
+}
+
+fn build_workload_binding_status(
+    eval_ctx: Option<&EvaluationContext>,
+    workload_identity: Option<&WorkloadIdentity>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+) -> WorkloadBindingStatus {
+    if workload_identity.is_some() {
+        WorkloadBindingStatus::Bound
+    } else if agent_identity_from_eval_ctx(eval_ctx).is_some() {
+        WorkloadBindingStatus::Unverified
+    } else if oauth_evidence.is_some() {
+        WorkloadBindingStatus::Missing
+    } else {
+        WorkloadBindingStatus::Unknown
     }
 }
 
 fn build_client_provenance(
     headers: &HeaderMap,
-    oauth_claims: Option<&OAuthClaims>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+    eval_ctx: Option<&EvaluationContext>,
 ) -> Option<ClientProvenance> {
-    let signature_status = infer_signature_status(headers, oauth_claims);
-    if oauth_claims.is_none() && signature_status == SignatureVerificationStatus::Missing {
+    let signature_status = oauth_evidence.map_or_else(
+        || SignatureVerificationStatus::Missing,
+        OAuthValidationEvidence::signature_status,
+    );
+    if oauth_evidence.is_none() && signature_status == SignatureVerificationStatus::Missing {
         return None;
     }
 
+    let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
     let client_key_id = oauth_claims
         .and_then(|claims| claims.cnf.as_ref())
         .and_then(|cnf| cnf.jkt.clone());
-    let request_signature = if signature_status == SignatureVerificationStatus::Verified {
+    let request_signature = if oauth_evidence.is_some_and(|evidence| evidence.dpop_proof_verified) {
         decode_dpop_request_signature(headers, oauth_claims).or_else(|| {
             Some(RequestSignature {
                 key_id: client_key_id.clone(),
@@ -293,15 +325,21 @@ fn build_client_provenance(
     } else {
         None
     };
+    let workload_identity = build_workload_identity(eval_ctx);
+    let workload_binding_status =
+        build_workload_binding_status(eval_ctx, workload_identity.as_ref(), oauth_evidence);
 
     Some(ClientProvenance {
         request_signature,
         signature_status,
         client_key_id,
         session_key_scope: SessionKeyScope::Unknown,
-        workload_identity: None,
-        workload_binding_status: WorkloadBindingStatus::Unknown,
-        replay_status: infer_replay_status(signature_status),
+        workload_identity,
+        workload_binding_status,
+        replay_status: oauth_evidence.map_or_else(
+            || ReplayStatus::NotChecked,
+            OAuthValidationEvidence::replay_status,
+        ),
         canonical_request_hash: None,
         execution_is_ephemeral: false,
     })
@@ -420,7 +458,7 @@ fn lineage_refs_from_call_chain(eval_ctx: Option<&EvaluationContext>) -> Vec<Lin
 
 fn infer_trust_tier(
     security_context: &RuntimeSecurityContext,
-    oauth_claims: Option<&OAuthClaims>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Option<TrustTier> {
     if security_context
@@ -435,7 +473,7 @@ fn infer_trust_tier(
     {
         return Some(TrustTier::Verified);
     }
-    if oauth_claims.is_some() {
+    if oauth_evidence.is_some() {
         return Some(TrustTier::Medium);
     }
     if !security_context.lineage_refs.is_empty() {
@@ -448,14 +486,14 @@ pub(super) fn build_runtime_security_context(
     msg: &Value,
     action: &Action,
     headers: &HeaderMap,
-    oauth_claims: Option<&OAuthClaims>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Option<RuntimeSecurityContext> {
     let mut security_context = extract_runtime_security_context(msg).unwrap_or_default();
 
     security_context.client_provenance = merge_client_provenance(
         security_context.client_provenance,
-        build_client_provenance(headers, oauth_claims),
+        build_client_provenance(headers, oauth_evidence, eval_ctx),
     );
     if security_context.sink_class.is_none() {
         security_context.sink_class = Some(infer_sink_class(action));
@@ -465,7 +503,7 @@ pub(super) fn build_runtime_security_context(
     }
     if security_context.effective_trust_tier.is_none() {
         security_context.effective_trust_tier =
-            infer_trust_tier(&security_context, oauth_claims, eval_ctx);
+            infer_trust_tier(&security_context, oauth_evidence, eval_ctx);
     }
 
     if security_context == RuntimeSecurityContext::default() {
