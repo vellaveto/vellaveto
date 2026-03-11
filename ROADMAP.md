@@ -202,10 +202,13 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 
 **Goal**
 - Close the gap between single-agent request mediation and adversarial multi-agent orchestration, where current guardrails are easiest to route around.
+- Turn the existing provenance and containment type system into a unified enforcement framework for cross-server information flow, causal containment, and semantic output contracts.
 
 **Primary modules**
+- `vellaveto-types`
 - `vellaveto-engine`
 - `vellaveto-mcp`
+- `vellaveto-http-proxy`
 - `vellaveto-approval`
 - `vellaveto-cluster`
 - adversarial and formal verification suites
@@ -219,12 +222,81 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - Masked re-execution and counterfactual validation for suspicious trajectories
 - Cryptographic inter-agent token experiments for bounded delegation chains
 
+**Semantic containment integration program**
+
+This is a mainline research-and-delivery track, not a side experiment. The
+existing types already exist in-tree: `RuntimeSecurityContext`,
+`SemanticTaint`, `TrustTier`, `SinkClass`, `ContainmentMode`, `ContextChannel`,
+and `LineageRef`. The roadmap work is to turn those types into the first
+integrated framework that combines information-flow control, counterfactual
+containment, semantic output typing, and a formal MCP attacker model.
+
+**Work package 3A — formal trust lattice for MCP servers**
+- Formalize `TrustTier` as a lattice with join/meet operations and explicit
+  information-flow rules.
+- Treat `SinkClass` as the integrity/privilege ordering and define the product
+  lattice `TrustTier × SinkClass` as the runtime enforcement space.
+- Define cross-server composition rules using Lagois-style connections where
+  trust domains must be composed across MCP server boundaries.
+- Deliverables: formal spec in `formal/` plus mediation hooks that evaluate
+  flow admissibility using the already-threaded `RuntimeSecurityContext`.
+
+**Work package 3B — mandatory inter-server information-flow control**
+- Enforce cross-server flow checks whenever tainted or lineage-tagged content
+  reaches a tool invocation boundary.
+- Deny or escalate when data from a lower-trust source reaches a higher-privilege
+  sink without explicit declassification policy.
+- Use `SemanticTaint`, `LineageRef`, and `RuntimeSecurityContext` as the shared
+  contract across MCP and HTTP mediation paths instead of creating a parallel
+  taint system.
+- Deliverables: mediation-pipeline enforcement, regression tests for
+  untrusted-to-privileged flow blocking, and Kani harnesses for the flow-check
+  logic.
+
+**Work package 3C — taint-triggered counterfactual containment**
+- Invoke counterfactual or attribution-style checks only when taint is crossing
+  a privilege boundary, rather than on every tool call.
+- Use `ContainmentMode::RequireApproval` and `semantic_risk_score` to carry the
+  causal-attribution result into runtime decisions and audit.
+- Treat "tainted data was causally necessary for a privileged action" as the
+  enforcement predicate for escalation, denial, or explicit approval.
+- Deliverables: runtime attribution gate at privilege boundaries plus Verus
+  proofs for the enforcement logic that mediates taint, privilege, and approval.
+
+**Work package 3D — semantic output contracts**
+- Formalize `ContextChannel` as an output-type system rather than a loose
+  classifier vocabulary.
+- Require MCP tools and connectors to declare expected output semantic types
+  and compare those declarations against observed response classifications at
+  runtime.
+- Escalate or quarantine when a tool typed as `Data` produces `CommandLike`,
+  `ApprovalPrompt`, `Url`, or other semantically incompatible output.
+- Deliverables: output-type contract spec, response-path classification and
+  enforcement, and regression cases for rug-pull, schema-compliant malicious
+  content, and semantic type violations.
+
+**Work package 3E — Dolev-Yao model for prompt injection over MCP**
+- Formalize an attacker that controls designated low-trust content channels
+  such as untrusted tool responses, resource content, and elicitation payloads,
+  but does not break the structural isolation enforced by the proxy.
+- Make the trust lattice and containment gates the axioms that bound attacker
+  reachability into privileged sinks.
+- Use the model to express and verify the security claim that untrusted content
+  cannot silently drive privileged effects without triggering flow control,
+  counterfactual escalation, or explicit policy override.
+- Deliverables: TLA+ or Alloy attacker model, proof obligations for key
+  safety properties, and a paper-grade formal threat model for MCP prompt
+  injection and tool-calling systems.
+
 **Delivery rule**
 - These are funded product epics, not a watchlist, but they ship behind feature flags, benchmark thresholds, and explicit rollback paths.
 
 **Exit criteria**
 - Cross-server and multi-agent flows can be constrained by explicit orchestration policy
 - High-risk delegations are explainable as bounded control-flow transitions, not emergent tool hopping
+- Cross-server information flows are mediated by a formal trust lattice and sink policy, not by ad hoc handler heuristics
+- Privileged sink decisions can escalate based on taint-triggered counterfactual evidence when untrusted input is causally necessary
+- Tool and connector responses can be checked against semantic output contracts before they silently change privilege-relevant meaning
 - At least one research-heavy containment mechanism graduates from prototype to supported feature
 
 ---
@@ -296,6 +368,9 @@ Every phase above carries explicit regression and proof work. The platform shoul
 - Extend `mcpsec` and related adversarial suites for sampling abuse, replay, retargeting, metadata poisoning, approval contamination, and multi-agent escalation
 - Add canary scenarios for provenance drift, semantic drift, and cross-server delegation abuse
 - Add focused formal invariants for replay non-admission, monotonic taint propagation, approval invalidation, and fail-closed unknown-provenance handling
+- Add formal lattice, noninterference, and flow-admissibility specs for `TrustTier × SinkClass` enforcement
+- Add proofs and executable checks for counterfactual escalation gates and semantic output-contract violations
+- Add an MCP attacker model for prompt injection that treats structural channel isolation and mediation guarantees as proof assumptions
 - Keep operator and audit surfaces aligned with new verdict types, quarantine paths, and containment transitions
 
 ---
@@ -319,6 +394,8 @@ By the end of 2026, Vellaveto should be able to claim all of the following with 
 - Sampling, elicitation, tasks, and extension flows are all enforced through shared runtime mediation
 - Operators can define common controls, approvals, quotas, and trust policy without editing low-level internals
 - Multi-agent delegation paths can be bounded, explained, and invalidated when provenance or lineage changes
+- Cross-server flows are enforced by a formal trust lattice, with taint and lineage surviving tool-to-tool propagation unless explicitly cleared
+- Semantic output contracts can detect when tools drift from declared `ContextChannel` behavior into privilege-relevant content classes
 - Compliance evidence can be generated directly from runtime facts for regulated buyer workflows
 - Connector and server trust decisions can incorporate supply-chain provenance, drift, and reputation inputs
 
