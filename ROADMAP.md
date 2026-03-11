@@ -143,7 +143,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - Transport-provided `client_key_id` and detached `request_signature` fields
   now also clamp `_meta.client_provenance`, so caller-supplied provenance
   cannot override the key id, nonce, timestamp, or detached signature bytes
-  that the HTTP proxy actually received.
+  that the HTTP proxy actually received. WebSocket now threads upgrade headers
+  into the same runtime-security-context path, and regression coverage locks
+  the same behavior on HTTP, WebSocket, and gRPC entrypoints.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

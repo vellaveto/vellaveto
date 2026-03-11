@@ -10,8 +10,59 @@
 //! Unit tests for WebSocket transport (Phase 17.1 — SEP-1288).
 
 use super::*;
+use axum::http::HeaderMap;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 use vellaveto_mcp::extractor::{self, MessageType};
+use vellaveto_types::{ClientProvenance, RequestSignature};
+
+fn empty_session_store() -> crate::session::SessionStore {
+    crate::session::SessionStore::new(std::time::Duration::from_secs(300), 8)
+}
+
+fn empty_trusted_request_signers(
+) -> std::collections::HashMap<String, crate::proxy::TrustedRequestSigner> {
+    std::collections::HashMap::new()
+}
+
+fn default_detached_signature_freshness() -> crate::proxy::DetachedSignatureFreshnessConfig {
+    crate::proxy::DetachedSignatureFreshnessConfig::default()
+}
+
+fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
+    URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(signature).expect("serialize websocket detached request signature"),
+    )
+}
+
+fn make_signed_detached_request_signature_header_with_scope(
+    action: &vellaveto_types::Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+) -> String {
+    let mut request_signature = RequestSignature {
+        key_id: Some(key_id.to_string()),
+        algorithm: Some("ed25519".to_string()),
+        nonce: Some("detached-nonce".to_string()),
+        created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        signature: None,
+    };
+    let input = vellaveto_canonical::CanonicalRequestInput::from_action(
+        action,
+        session_scope_binding,
+        Some(&ClientProvenance {
+            request_signature: Some(request_signature.clone()),
+            ..ClientProvenance::default()
+        }),
+        None,
+    );
+    let preimage = vellaveto_canonical::canonical_request_preimage(&input)
+        .expect("canonical request preimage");
+    request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
+    make_detached_request_signature_header(&request_signature)
+}
 
 // ==========================================================================
 // URL conversion tests
@@ -202,6 +253,79 @@ fn test_ws_text_frame_invalid_no_method() {
         extractor::classify_message(&msg),
         MessageType::Invalid { .. }
     ));
+}
+
+#[test]
+fn test_ws_runtime_security_context_clamps_meta_transport_signature_fields() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "client_key_id": "caller-kid",
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[33u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        crate::proxy::X_REQUEST_SIGNATURE,
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            None,
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = build_ws_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    let request_signature = provenance
+        .request_signature
+        .as_ref()
+        .expect("request signature");
+
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
+    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
+    assert_ne!(
+        request_signature.created_at.as_deref(),
+        Some("2025-01-01T00:00:00Z")
+    );
+    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
 }
 
 // ==========================================================================

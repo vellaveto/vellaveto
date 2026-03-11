@@ -172,7 +172,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Transport-provided `client_key_id` and detached `request_signature` fields
   now also override `_meta.client_provenance`, so caller metadata cannot mask
   the real key id, nonce, timestamp, or signature bytes that were presented on
-  the transport.
+  the transport. WebSocket now preserves handshake transport headers into the
+  runtime-security-context path too, and regression coverage locks the same
+  rule on HTTP, WebSocket, and gRPC request paths.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

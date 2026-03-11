@@ -136,13 +136,19 @@ pub(crate) fn ws_messages_count() -> u64 {
     WS_MESSAGES_TOTAL.load(Ordering::SeqCst)
 }
 
+#[derive(Clone)]
+struct WsHandshakeSecurity {
+    oauth_claims: Option<crate::proxy::auth::OAuthValidationEvidence>,
+    headers: HeaderMap,
+}
+
 fn build_ws_runtime_security_context(
     msg: &Value,
     action: &Action,
+    headers: &HeaderMap,
     inputs: super::helpers::TransportSecurityInputs<'_>,
 ) -> Option<RuntimeSecurityContext> {
-    let headers = HeaderMap::new();
-    super::helpers::build_runtime_security_context(msg, action, &headers, inputs)
+    super::helpers::build_runtime_security_context(msg, action, headers, inputs)
 }
 
 fn refresh_ws_acis_envelope(
@@ -373,7 +379,10 @@ pub async fn handle_ws_upgrade(
                 ws_config,
                 addr,
                 ws_trace_id,
-                oauth_claims,
+                WsHandshakeSecurity {
+                    oauth_claims,
+                    headers,
+                },
             )
         })
 }
@@ -390,7 +399,7 @@ async fn handle_ws_connection(
     ws_config: WebSocketConfig,
     peer_addr: SocketAddr,
     trace_id: String,
-    oauth_claims: Option<crate::proxy::auth::OAuthValidationEvidence>,
+    handshake_security: WsHandshakeSecurity,
 ) {
     record_ws_connection();
     let start = std::time::Instant::now();
@@ -471,7 +480,7 @@ async fn handle_ws_connection(
         let rate_window_start = rate_window_start.clone();
         let ws_config = ws_config.clone();
         let last_activity = last_activity.clone();
-        let oauth_claims = oauth_claims.clone();
+        let handshake_security = handshake_security.clone();
 
         relay_client_to_upstream(
             client_stream,
@@ -484,7 +493,8 @@ async fn handle_ws_connection(
             rate_window_start,
             last_activity,
             connection_epoch,
-            oauth_claims,
+            handshake_security.oauth_claims,
+            handshake_security.headers,
         )
     };
 
@@ -599,6 +609,7 @@ async fn relay_client_to_upstream(
     last_activity: Arc<AtomicU64>,
     connection_epoch: std::time::Instant,
     oauth_claims: Option<crate::proxy::auth::OAuthValidationEvidence>,
+    handshake_headers: HeaderMap,
 ) {
     while let Some(msg_result) = client_stream.next().await {
         let msg = match msg_result {
@@ -1486,6 +1497,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: Some(&ctx),
@@ -1537,6 +1549,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: None,
@@ -2218,6 +2231,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: Some(&ctx),
@@ -2271,6 +2285,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: None,
@@ -3016,6 +3031,7 @@ async fn relay_client_to_upstream(
                                 let security_context = build_ws_runtime_security_context(
                                     &parsed,
                                     &action,
+                                    &handshake_headers,
                                     super::helpers::TransportSecurityInputs {
                                         oauth_evidence: oauth_claims.as_ref(),
                                         eval_ctx: Some(&ctx),
@@ -3065,6 +3081,7 @@ async fn relay_client_to_upstream(
                                 let security_context = build_ws_runtime_security_context(
                                     &parsed,
                                     &action,
+                                    &handshake_headers,
                                     super::helpers::TransportSecurityInputs {
                                         oauth_evidence: oauth_claims.as_ref(),
                                         eval_ctx: None,
@@ -3569,6 +3586,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: Some(&ctx),
@@ -3616,6 +3634,7 @@ async fn relay_client_to_upstream(
                             let security_context = build_ws_runtime_security_context(
                                 &parsed,
                                 &action,
+                                &handshake_headers,
                                 super::helpers::TransportSecurityInputs {
                                     oauth_evidence: oauth_claims.as_ref(),
                                     eval_ctx: None,

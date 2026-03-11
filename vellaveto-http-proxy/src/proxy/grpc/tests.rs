@@ -1139,6 +1139,78 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
 }
 
 #[test]
+fn test_build_grpc_runtime_security_context_clamps_meta_transport_signature_fields() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "client_key_id": "caller-kid",
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = vellaveto_mcp::extractor::extract_action(
+        "shell_exec",
+        &json!({
+            "command": "echo hi"
+        }),
+    );
+    let signing_key = SigningKey::from_bytes(&[32u8; 32]);
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        None,
+    );
+
+    let security_context = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&vellaveto_types::EvaluationContext::default()),
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    let request_signature = provenance
+        .request_signature
+        .as_ref()
+        .expect("request signature");
+
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
+    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
+    assert_ne!(
+        request_signature.created_at.as_deref(),
+        Some("2025-01-01T00:00:00Z")
+    );
+    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
+}
+
+#[test]
 fn test_build_grpc_runtime_security_context_verifies_detached_signature_with_trusted_signer() {
     let msg = json!({
         "jsonrpc": "2.0",
