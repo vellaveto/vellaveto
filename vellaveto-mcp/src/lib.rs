@@ -46,6 +46,7 @@ pub mod mediation;
 pub mod memory_security;
 pub mod memory_tracking;
 pub mod nhi;
+pub mod output_contracts;
 pub mod output_security;
 pub mod output_validation;
 #[cfg(feature = "projector")]

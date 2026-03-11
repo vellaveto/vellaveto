@@ -190,6 +190,21 @@ impl SinkClass {
                 | Self::PolicyMutation
         )
     }
+
+    /// Base semantic-risk contribution for this sink class.
+    pub const fn semantic_risk_weight(self) -> u8 {
+        match self {
+            Self::ReadOnly => 5,
+            Self::LowRiskWrite => 20,
+            Self::FilesystemWrite => 30,
+            Self::NetworkEgress => 35,
+            Self::MemoryWrite => 45,
+            Self::ApprovalUi => 50,
+            Self::CodeExecution => 55,
+            Self::CredentialAccess => 60,
+            Self::PolicyMutation => 65,
+        }
+    }
 }
 
 /// Minimum trust floor required before content may reach the given sink
@@ -288,6 +303,49 @@ impl RuntimeSecurityContext {
             .most_restrictive_trust_tier()
             .unwrap_or(TrustTier::Unknown);
         !most_restrictive_trust_tier.can_flow_to(minimum_trust_tier_for_sink(sink_class), false)
+    }
+
+    /// Derives a bounded semantic-risk score for sending the current context
+    /// into the target sink.
+    pub fn recommended_semantic_risk_score_for_sink(
+        &self,
+        sink_class: SinkClass,
+    ) -> SemanticRiskScore {
+        let observed_trust_tier = self
+            .most_restrictive_trust_tier()
+            .unwrap_or(TrustTier::Unknown);
+        let required_trust_tier = minimum_trust_tier_for_sink(sink_class);
+        let trust_gap = required_trust_tier
+            .rank()
+            .saturating_sub(observed_trust_tier.rank())
+            .saturating_mul(8);
+        let taint_risk = self
+            .semantic_taint
+            .iter()
+            .map(|taint| taint_semantic_risk_weight(*taint))
+            .max()
+            .unwrap_or(0);
+        let lineage_channel_risk = self
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel.semantic_risk_weight())
+            .max()
+            .unwrap_or_else(|| if sink_class.is_privileged() { 15 } else { 0 });
+        let score = sink_class
+            .semantic_risk_weight()
+            .saturating_add(trust_gap)
+            .saturating_add(taint_risk)
+            .saturating_add(lineage_channel_risk)
+            .min(100);
+        SemanticRiskScore { value: score }
+    }
+
+    /// Keeps the higher of the existing semantic-risk score and `score`.
+    pub fn merge_semantic_risk_score(&mut self, score: SemanticRiskScore) {
+        match self.semantic_risk_score {
+            Some(current) if current.value >= score.value => {}
+            _ => self.semantic_risk_score = Some(score),
+        }
     }
 }
 
@@ -454,6 +512,40 @@ impl SemanticRiskScore {
     }
 }
 
+impl ContextChannel {
+    /// Channel-level semantic-risk contribution used for containment scoring.
+    pub const fn semantic_risk_weight(self) -> u8 {
+        match self {
+            Self::Data => 0,
+            Self::ToolOutput => 10,
+            Self::ResourceContent => 15,
+            Self::FreeText => 20,
+            Self::Memory => 20,
+            Self::Url => 25,
+            Self::CommandLike => 35,
+            Self::ApprovalPrompt => 35,
+        }
+    }
+
+    /// Detect privilege-escalating semantic drift between an expected and observed channel.
+    pub const fn violates_output_contract(self, observed: Self) -> bool {
+        match self {
+            Self::Data => matches!(
+                observed,
+                Self::FreeText | Self::Url | Self::CommandLike | Self::ApprovalPrompt
+            ),
+            Self::FreeText | Self::ToolOutput => matches!(
+                observed,
+                Self::Url | Self::CommandLike | Self::ApprovalPrompt
+            ),
+            Self::ResourceContent | Self::Url => {
+                matches!(observed, Self::CommandLike | Self::ApprovalPrompt)
+            }
+            _ => false,
+        }
+    }
+}
+
 pub fn is_security_relevant_taint(taint: SemanticTaint) -> bool {
     matches!(
         taint,
@@ -464,6 +556,19 @@ pub fn is_security_relevant_taint(taint: SemanticTaint) -> bool {
             | TaintLabel::MixedProvenance
             | TaintLabel::IntegrityFailed
     )
+}
+
+pub const fn taint_semantic_risk_weight(taint: SemanticTaint) -> u8 {
+    match taint {
+        TaintLabel::Sanitized => 0,
+        TaintLabel::Sensitive => 10,
+        TaintLabel::Untrusted => 15,
+        TaintLabel::CrossAgent => 15,
+        TaintLabel::MixedProvenance => 20,
+        TaintLabel::Replayed => 20,
+        TaintLabel::IntegrityFailed => 25,
+        TaintLabel::Quarantined => 30,
+    }
 }
 
 pub fn validate_lineage_refs(lineage_refs: &[LineageRef]) -> Result<(), String> {
@@ -648,5 +753,142 @@ mod tests {
         };
 
         assert!(!ctx.requires_explicit_gate_for_sink(SinkClass::CodeExecution));
+    }
+
+    #[test]
+    fn test_context_channel_semantic_risk_weights_are_ordered() {
+        assert!(
+            ContextChannel::CommandLike.semantic_risk_weight()
+                > ContextChannel::Url.semantic_risk_weight()
+        );
+        assert!(
+            ContextChannel::ApprovalPrompt.semantic_risk_weight()
+                >= ContextChannel::FreeText.semantic_risk_weight()
+        );
+        assert!(
+            ContextChannel::ToolOutput.semantic_risk_weight()
+                > ContextChannel::Data.semantic_risk_weight()
+        );
+    }
+
+    #[test]
+    fn test_output_contract_data_blocks_privilege_escalating_drift() {
+        assert!(ContextChannel::Data.violates_output_contract(ContextChannel::FreeText));
+        assert!(ContextChannel::Data.violates_output_contract(ContextChannel::Url));
+        assert!(ContextChannel::Data.violates_output_contract(ContextChannel::CommandLike));
+        assert!(ContextChannel::Data.violates_output_contract(ContextChannel::ApprovalPrompt));
+        assert!(!ContextChannel::Data.violates_output_contract(ContextChannel::Data));
+        assert!(!ContextChannel::Data.violates_output_contract(ContextChannel::ToolOutput));
+    }
+
+    #[test]
+    fn test_output_contract_free_text_and_tool_output_matrix() {
+        for expected in [ContextChannel::FreeText, ContextChannel::ToolOutput] {
+            assert!(expected.violates_output_contract(ContextChannel::Url));
+            assert!(expected.violates_output_contract(ContextChannel::CommandLike));
+            assert!(expected.violates_output_contract(ContextChannel::ApprovalPrompt));
+            assert!(!expected.violates_output_contract(ContextChannel::FreeText));
+            assert!(!expected.violates_output_contract(ContextChannel::ToolOutput));
+            assert!(!expected.violates_output_contract(ContextChannel::Data));
+        }
+    }
+
+    #[test]
+    fn test_output_contract_resource_and_url_only_block_high_risk_drift() {
+        for expected in [ContextChannel::ResourceContent, ContextChannel::Url] {
+            assert!(expected.violates_output_contract(ContextChannel::CommandLike));
+            assert!(expected.violates_output_contract(ContextChannel::ApprovalPrompt));
+            assert!(!expected.violates_output_contract(ContextChannel::ResourceContent));
+            assert!(!expected.violates_output_contract(ContextChannel::Url));
+            assert!(!expected.violates_output_contract(ContextChannel::FreeText));
+            assert!(!expected.violates_output_contract(ContextChannel::Data));
+        }
+    }
+
+    #[test]
+    fn test_recommended_semantic_risk_score_increases_with_trust_gap() {
+        let verified = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Verified),
+            lineage_refs: vec![LineageRef {
+                id: "trusted".into(),
+                channel: ContextChannel::ToolOutput,
+                content_hash: None,
+                source: Some("verified-server".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+        let low_trust = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Low),
+            lineage_refs: vec![LineageRef {
+                id: "low".into(),
+                channel: ContextChannel::ToolOutput,
+                content_hash: None,
+                source: Some("low-tier-server".into()),
+                trust_tier: Some(TrustTier::Low),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let verified_score =
+            verified.recommended_semantic_risk_score_for_sink(SinkClass::CredentialAccess);
+        let low_trust_score =
+            low_trust.recommended_semantic_risk_score_for_sink(SinkClass::CredentialAccess);
+
+        assert!(low_trust_score.value > verified_score.value);
+    }
+
+    #[test]
+    fn test_recommended_semantic_risk_score_increases_with_taint_and_command_like_lineage() {
+        let baseline = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Verified),
+            lineage_refs: vec![LineageRef {
+                id: "baseline".into(),
+                channel: ContextChannel::Data,
+                content_hash: None,
+                source: Some("verified-server".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+        let suspicious = RuntimeSecurityContext {
+            effective_trust_tier: Some(TrustTier::Verified),
+            semantic_taint: vec![TaintLabel::IntegrityFailed],
+            lineage_refs: vec![LineageRef {
+                id: "command-like".into(),
+                channel: ContextChannel::CommandLike,
+                content_hash: None,
+                source: Some("remote-free-text".into()),
+                trust_tier: Some(TrustTier::Verified),
+            }],
+            ..RuntimeSecurityContext::default()
+        };
+
+        let baseline_score =
+            baseline.recommended_semantic_risk_score_for_sink(SinkClass::CodeExecution);
+        let suspicious_score =
+            suspicious.recommended_semantic_risk_score_for_sink(SinkClass::CodeExecution);
+
+        assert!(suspicious_score.value > baseline_score.value);
+    }
+
+    #[test]
+    fn test_merge_semantic_risk_score_keeps_higher_value() {
+        let mut ctx = RuntimeSecurityContext {
+            semantic_risk_score: Some(SemanticRiskScore { value: 40 }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        ctx.merge_semantic_risk_score(SemanticRiskScore { value: 30 });
+        assert_eq!(
+            ctx.semantic_risk_score,
+            Some(SemanticRiskScore { value: 40 })
+        );
+
+        ctx.merge_semantic_risk_score(SemanticRiskScore { value: 70 });
+        assert_eq!(
+            ctx.semantic_risk_score,
+            Some(SemanticRiskScore { value: 70 })
+        );
     }
 }

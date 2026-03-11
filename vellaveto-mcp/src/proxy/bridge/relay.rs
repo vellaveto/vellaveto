@@ -26,6 +26,7 @@ use crate::inspection::{
     scan_response_for_injection, scan_response_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
+use crate::output_contracts::evaluate_output_contract;
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
 use crate::verified_bridge_principal;
@@ -6714,6 +6715,8 @@ impl ProxyBridge {
         let mut injection_found = false;
         let mut schema_violation_found = false;
         let mut dlp_found = false;
+        let mut semantic_contract_violation_found = false;
+        let mut observed_output_channel: Option<ContextChannel> = None;
 
         // C-8.3: Inspect response for prompt injection (OWASP MCP06)
         let injection_matches: Vec<String> = if self.injection_disabled {
@@ -7068,11 +7071,66 @@ impl ProxyBridge {
             }
         }
 
+        if let Some(tool_name) = response_tool_name.as_deref() {
+            if let Some(contract_eval) = evaluate_output_contract(Some(tool_name), &msg) {
+                observed_output_channel = Some(contract_eval.observed);
+                if contract_eval.is_violation() {
+                    semantic_contract_violation_found = true;
+                    tracing::warn!(
+                        "SECURITY: semantic output contract violation for tool '{}': expected {:?}, observed {:?}",
+                        tool_name,
+                        contract_eval.expected,
+                        contract_eval.observed
+                    );
+                    let action = vellaveto_types::Action::new(
+                        "vellaveto",
+                        "semantic_output_contract_violation",
+                        json!({
+                            "tool": tool_name,
+                            "expected_channel": contract_eval.expected,
+                            "observed_channel": contract_eval.observed,
+                            "response_id": msg.get("id"),
+                        }),
+                    );
+                    let verdict = Verdict::Allow;
+                    let envelope = crate::mediation::build_secondary_acis_envelope(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::SemanticContainment,
+                        "stdio",
+                        state.agent_id.as_deref(),
+                    );
+                    if let Err(e) = self
+                        .audit
+                        .log_entry_with_acis(
+                            &action,
+                            &verdict,
+                            json!({
+                                "source": "proxy",
+                                "event": "semantic_output_contract_violation",
+                                "tool": tool_name,
+                                "expected_channel": contract_eval.expected,
+                                "observed_channel": contract_eval.observed,
+                            }),
+                            envelope,
+                        )
+                        .await
+                    {
+                        tracing::warn!("Failed to audit semantic output contract violation: {}", e);
+                    }
+                }
+            }
+        }
+
         // OWASP ASI06: Record response data for poisoning detection.
-        // SECURITY (FIND-R79-001): Skip recording when injection, DLP, or schema
-        // violation was detected (even in log-only mode) to avoid poisoning the
-        // tracker with tainted data. Parity with HTTP/WS/gRPC handlers.
-        if !injection_found && !dlp_found && !schema_violation_found {
+        // SECURITY (FIND-R79-001): Skip recording when injection, DLP, schema,
+        // or semantic contract drift was detected (even in log-only mode) to
+        // avoid poisoning the tracker with tainted data.
+        if !injection_found
+            && !dlp_found
+            && !schema_violation_found
+            && !semantic_contract_violation_found
+        {
             state.memory_tracker.record_response(&msg);
         }
 
@@ -7090,11 +7148,19 @@ impl ProxyBridge {
             if dlp_found {
                 response_taint.push(vellaveto_types::minja::TaintLabel::Sensitive);
             }
-            let channel = if tool_name == "resources/read" {
-                ContextChannel::ResourceContent
-            } else {
-                ContextChannel::ToolOutput
-            };
+            if semantic_contract_violation_found {
+                if !response_taint.contains(&vellaveto_types::minja::TaintLabel::Untrusted) {
+                    response_taint.push(vellaveto_types::minja::TaintLabel::Untrusted);
+                }
+                response_taint.push(vellaveto_types::minja::TaintLabel::IntegrityFailed);
+            }
+            let channel = observed_output_channel.unwrap_or_else(|| {
+                if tool_name == "resources/read" {
+                    ContextChannel::ResourceContent
+                } else {
+                    ContextChannel::ToolOutput
+                }
+            });
             state.record_semantic_output(tool_name, channel, &response_taint);
         }
 

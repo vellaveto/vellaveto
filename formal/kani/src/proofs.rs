@@ -7,7 +7,7 @@
 
 //! Kani proof harnesses for Vellaveto security invariants.
 //!
-//! 84 harnesses verifying security properties using CBMC bounded model
+//! 87 harnesses verifying security properties using CBMC bounded model
 //! checking on actual Rust implementation code.
 //!
 //! K1-K9: Original harnesses (path, counters, ABAC, domain)
@@ -35,6 +35,7 @@
 //! K73-K75: Cascading failure FSM implementation-level transitions
 //! K76-K77: Injection scanner decode pipeline completeness
 //! K78-K79: Trust-containment gate checks
+//! K80-K82: Semantic output-contract checks
 
 use crate::path;
 use crate::Verdict;
@@ -2811,6 +2812,23 @@ fn any_sink_class() -> crate::trust_containment::SinkClass {
     }
 }
 
+fn any_context_channel() -> crate::output_contracts::ContextChannel {
+    use crate::output_contracts::ContextChannel;
+
+    let channel: u8 = kani::any();
+    kani::assume(channel <= 7);
+    match channel {
+        0 => ContextChannel::Data,
+        1 => ContextChannel::FreeText,
+        2 => ContextChannel::Url,
+        3 => ContextChannel::CommandLike,
+        4 => ContextChannel::ToolOutput,
+        5 => ContextChannel::ResourceContent,
+        6 => ContextChannel::ApprovalPrompt,
+        _ => ContextChannel::Memory,
+    }
+}
+
 // =========================================================================
 // K78: Trust containment — insufficient trust requires explicit gate
 // =========================================================================
@@ -2853,4 +2871,82 @@ fn proof_trust_containment_sufficient_trust_skips_gate() {
             "K79 violated: sufficient-trust source was forced through a gate"
         );
     }
+}
+
+// =========================================================================
+// K80: Data output contracts block privilege-escalating drift
+// =========================================================================
+
+#[kani::proof]
+fn proof_output_contract_data_blocks_privilege_escalating_drift() {
+    use crate::output_contracts::{violates_output_contract, ContextChannel};
+
+    let observed = any_context_channel();
+    let expected_violation = matches!(
+        observed,
+        ContextChannel::FreeText
+            | ContextChannel::Url
+            | ContextChannel::CommandLike
+            | ContextChannel::ApprovalPrompt
+    );
+
+    assert_eq!(
+        violates_output_contract(ContextChannel::Data, observed),
+        expected_violation,
+        "K80 violated: Data contract matrix drifted"
+    );
+}
+
+// =========================================================================
+// K81: Free-text/tool-output contracts block URL/command/approval drift
+// =========================================================================
+
+#[kani::proof]
+fn proof_output_contract_free_text_and_tool_output_matrix() {
+    use crate::output_contracts::{violates_output_contract, ContextChannel};
+
+    let use_free_text: bool = kani::any();
+    let expected = if use_free_text {
+        ContextChannel::FreeText
+    } else {
+        ContextChannel::ToolOutput
+    };
+    let observed = any_context_channel();
+    let expected_violation = matches!(
+        observed,
+        ContextChannel::Url | ContextChannel::CommandLike | ContextChannel::ApprovalPrompt
+    );
+
+    assert_eq!(
+        violates_output_contract(expected, observed),
+        expected_violation,
+        "K81 violated: FreeText/ToolOutput contract matrix drifted"
+    );
+}
+
+// =========================================================================
+// K82: Resource/URL contracts only escalate on command/approval drift
+// =========================================================================
+
+#[kani::proof]
+fn proof_output_contract_resource_and_url_matrix() {
+    use crate::output_contracts::{violates_output_contract, ContextChannel};
+
+    let use_resource_content: bool = kani::any();
+    let expected = if use_resource_content {
+        ContextChannel::ResourceContent
+    } else {
+        ContextChannel::Url
+    };
+    let observed = any_context_channel();
+    let expected_violation = matches!(
+        observed,
+        ContextChannel::CommandLike | ContextChannel::ApprovalPrompt
+    );
+
+    assert_eq!(
+        violates_output_contract(expected, observed),
+        expected_violation,
+        "K82 violated: ResourceContent/Url contract matrix drifted"
+    );
 }

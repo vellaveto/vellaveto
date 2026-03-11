@@ -102,9 +102,9 @@ verify: ## Run full verification suite and produce evidence bundle
 	@# Trusted formal assumption inventory
 	@echo "Checking trusted formal assumptions..."
 	bash formal/tools/check-formal-trusted-assumptions.sh
-	@# Kani (84 harnesses on actual Rust)
+	@# Kani (87 harnesses on actual Rust)
 	@if command -v cargo-kani >/dev/null 2>&1; then \
-		echo "Running Kani bounded model checking (84 harnesses)..."; \
+		echo "Running Kani bounded model checking (87 harnesses)..."; \
 		cd formal/kani && cargo kani 2>&1 | tail -10; \
 	else \
 		echo "SKIP: Kani (requires cargo-kani)"; \
@@ -213,7 +213,7 @@ formal-coq: ## Run Coq type checker (8 files, 45 theorems)
 	cd formal/coq && coq_makefile -f _CoqProject -o CoqMakefile && make -f CoqMakefile
 
 .PHONY: formal-kani
-formal-kani: ## Run Kani bounded model checking (84 harnesses)
+formal-kani: ## Run Kani bounded model checking (87 harnesses)
 	cd formal/kani && cargo kani
 
 .PHONY: formal-trusted-assumptions

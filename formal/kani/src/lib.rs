@@ -101,6 +101,9 @@
 //! | K77 | Injection: known patterns detected after decode chain | Injection completeness |
 //! | K78 | Trust containment: insufficient trust requires explicit gate | Trust containment |
 //! | K79 | Trust containment: sufficient trust does not require gate | Trust containment |
+//! | K80 | Data output contracts block privilege-escalating drift | Semantic output contracts |
+//! | K81 | Free-text/tool-output contracts block URL/command/approval drift | Semantic output contracts |
+//! | K82 | Resource/URL contracts only escalate on command/approval drift | Semantic output contracts |
 //!
 //! # Source Correspondence
 //!
@@ -123,6 +126,7 @@
 //! - `temporal_window.rs`: Extracted from `vellaveto-engine/src/collusion.rs` (sliding window)
 //! - `cascading_fsm.rs`: Extracted from `vellaveto-engine/src/cascading.rs` (circuit breaker FSM)
 //! - `injection_pipeline.rs`: Extracted from `vellaveto-mcp/src/inspection/injection.rs` (decode chain)
+//! - `output_contracts.rs`: Extracted from `vellaveto-types/src/provenance.rs` + `vellaveto-mcp/src/output_contracts.rs`
 
 pub mod path;
 pub mod verified_core;
@@ -143,6 +147,7 @@ pub mod sanitizer;
 pub mod temporal_window;
 pub mod cascading_fsm;
 pub mod injection_pipeline;
+pub mod output_contracts;
 pub mod trust_containment;
 
 #[cfg(kani)]

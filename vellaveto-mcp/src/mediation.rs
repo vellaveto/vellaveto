@@ -179,6 +179,7 @@ pub fn mediate_with_security_context(
     tenant_id: Option<&str>,
 ) -> MediationResult {
     let start = Instant::now();
+    let mut security_context = security_context.cloned();
     let dlp_findings: Vec<String> = Vec::new();
     let injection_findings: Vec<String> = Vec::new();
 
@@ -205,7 +206,7 @@ pub fn mediate_with_security_context(
             elapsed.as_micros() as u64,
             config,
             context,
-            security_context,
+            security_context.as_ref(),
         );
     }
 
@@ -231,11 +232,11 @@ pub fn mediate_with_security_context(
             elapsed.as_micros() as u64,
             config,
             context,
-            security_context,
+            security_context.as_ref(),
         );
     }
 
-    if let Some((verdict, origin)) = provenance_guard_verdict(config, security_context) {
+    if let Some((verdict, origin)) = provenance_guard_verdict(config, security_context.as_ref()) {
         let elapsed = start.elapsed();
         return build_result(
             decision_id,
@@ -251,7 +252,7 @@ pub fn mediate_with_security_context(
             elapsed.as_micros() as u64,
             config,
             context,
-            security_context,
+            security_context.as_ref(),
         );
     }
 
@@ -283,7 +284,7 @@ pub fn mediate_with_security_context(
                 elapsed.as_micros() as u64,
                 config,
                 context,
-                security_context,
+                security_context.as_ref(),
             );
         }
     }
@@ -315,12 +316,13 @@ pub fn mediate_with_security_context(
                 elapsed.as_micros() as u64,
                 config,
                 context,
-                security_context,
+                security_context.as_ref(),
             );
         }
     }
 
-    if let Some((verdict, origin)) = semantic_containment_verdict(config, security_context) {
+    if let Some((verdict, origin)) = semantic_containment_verdict(config, security_context.as_mut())
+    {
         let elapsed = start.elapsed();
         return build_result(
             decision_id,
@@ -336,7 +338,7 @@ pub fn mediate_with_security_context(
             elapsed.as_micros() as u64,
             config,
             context,
-            security_context,
+            security_context.as_ref(),
         );
     }
 
@@ -375,7 +377,7 @@ pub fn mediate_with_security_context(
         elapsed.as_micros() as u64,
         config,
         context,
-        security_context,
+        security_context.as_ref(),
     )
 }
 
@@ -622,15 +624,17 @@ fn provenance_guard_verdict(
 
 fn semantic_containment_verdict(
     config: &MediationConfig,
-    security_context: Option<&RuntimeSecurityContext>,
+    security_context: Option<&mut RuntimeSecurityContext>,
 ) -> Option<(Verdict, DecisionOrigin)> {
     let security_context = security_context?;
     let sink_class = security_context.sink_class?;
+    let derived_risk_score = security_context.recommended_semantic_risk_score_for_sink(sink_class);
 
     if config.require_lineage_for_privileged_sinks
         && sink_class.is_privileged()
         && security_context.lineage_refs.is_empty()
     {
+        security_context.merge_semantic_risk_score(derived_risk_score);
         return Some((
             Verdict::Deny {
                 reason: "privileged sink requires lineage evidence".to_string(),
@@ -643,6 +647,7 @@ fn semantic_containment_verdict(
         && sink_class.is_privileged()
         && security_context.requires_explicit_gate_for_sink(sink_class)
     {
+        security_context.merge_semantic_risk_score(derived_risk_score);
         let required_trust_tier = minimum_trust_tier_for_sink(sink_class);
         let verdict = match security_context
             .containment_mode
@@ -684,6 +689,7 @@ fn semantic_containment_verdict(
             .copied()
             .any(is_security_relevant_taint)
     {
+        security_context.merge_semantic_risk_score(derived_risk_score);
         let verdict = match security_context
             .containment_mode
             .unwrap_or(ContainmentMode::Enforce)
@@ -1568,6 +1574,10 @@ mod tests {
         assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
         assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
         assert_eq!(result.envelope.sink_class, Some(SinkClass::CodeExecution));
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 70));
     }
 
     #[test]
@@ -1605,6 +1615,10 @@ mod tests {
 
         assert!(matches!(result.verdict, Verdict::Deny { .. }));
         assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 80));
     }
 
     #[test]
@@ -1643,6 +1657,10 @@ mod tests {
 
         assert!(matches!(result.verdict, Verdict::RequireApproval { .. }));
         assert_eq!(result.origin, DecisionOrigin::SemanticContainment);
+        assert!(result
+            .envelope
+            .semantic_risk_score
+            .is_some_and(|score| score.value >= 80));
     }
 
     #[test]
@@ -1680,6 +1698,7 @@ mod tests {
 
         assert!(matches!(result.verdict, Verdict::Allow));
         assert_eq!(result.origin, DecisionOrigin::PolicyEngine);
+        assert_eq!(result.envelope.semantic_risk_score, None);
     }
 
     // ── R254: Coverage gap tests ─────────────────────────────────────────
