@@ -1079,6 +1079,59 @@ fn test_batch_rejection_security_context_marks_protocol_free_text() {
 }
 
 #[test]
+fn test_protocol_forward_security_context_marks_network_egress_data() {
+    let security_context = super::helpers::protocol_forward_security_context("pass_through");
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Observe)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("pass_through")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 35 })
+    );
+}
+
+#[test]
+fn test_session_termination_security_context_marks_memory_write() {
+    let security_context = super::helpers::session_termination_security_context();
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(security_context.effective_trust_tier, Some(TrustTier::High));
+    assert_eq!(security_context.sink_class, Some(SinkClass::MemoryWrite));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Observe)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Memory
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("session_terminated")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 65 })
+    );
+}
+
+#[test]
 fn test_approval_containment_context_from_security_context_preserves_guard_fields() {
     let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
     let security_context = super::helpers::untrusted_tool_approval_gate_security_context(&action);

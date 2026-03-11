@@ -4351,12 +4351,17 @@ async fn relay_client_to_upstream(
                                 "direction": "client_to_upstream",
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(
+                        let protocol_security_context =
+                            super::helpers::protocol_forward_security_context(
+                                "ws_message_forwarded",
+                            );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &action,
                             &Verdict::Allow,
                             DecisionOrigin::PolicyEngine,
                             "websocket",
                             Some(&session_id),
+                            Some(&protocol_security_context),
                         );
                         if let Err(e) = state
                             .audit

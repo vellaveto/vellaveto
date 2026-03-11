@@ -943,6 +943,17 @@ struct GuardSecurityContextSpec {
     extra_risk: u8,
 }
 
+struct ExplicitSecurityContextSpec {
+    lineage_id: &'static str,
+    observed_channel: ContextChannel,
+    source: &'static str,
+    effective_trust_tier: TrustTier,
+    sink_class: SinkClass,
+    containment_mode: vellaveto_types::ContainmentMode,
+    semantic_taint: Vec<SemanticTaint>,
+    extra_risk: u8,
+}
+
 fn default_guard_observed_channel(action: &Action) -> ContextChannel {
     if action.tool == "resources" && action.function == "read" {
         ContextChannel::ResourceContent
@@ -984,6 +995,33 @@ fn guard_security_context(
     }
 }
 
+fn explicit_security_context(spec: ExplicitSecurityContextSpec) -> RuntimeSecurityContext {
+    let trust_tier = Some(spec.effective_trust_tier);
+
+    RuntimeSecurityContext {
+        semantic_taint: spec.semantic_taint,
+        effective_trust_tier: Some(spec.effective_trust_tier),
+        sink_class: Some(spec.sink_class),
+        lineage_refs: vec![LineageRef {
+            id: spec.lineage_id.to_string(),
+            channel: spec.observed_channel,
+            content_hash: None,
+            source: Some(spec.source.to_string()),
+            trust_tier,
+        }],
+        containment_mode: Some(spec.containment_mode),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: spec
+                .sink_class
+                .semantic_risk_weight()
+                .saturating_add(spec.observed_channel.semantic_risk_weight())
+                .saturating_add(spec.extra_risk)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
 pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityContext {
     guard_security_context(
         action,
@@ -1001,6 +1039,32 @@ pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityConte
             extra_risk: 30,
         },
     )
+}
+
+pub(super) fn protocol_forward_security_context(source: &'static str) -> RuntimeSecurityContext {
+    explicit_security_context(ExplicitSecurityContextSpec {
+        lineage_id: source,
+        observed_channel: ContextChannel::Data,
+        source,
+        effective_trust_tier: TrustTier::Unknown,
+        sink_class: SinkClass::NetworkEgress,
+        containment_mode: vellaveto_types::ContainmentMode::Observe,
+        semantic_taint: Vec::new(),
+        extra_risk: 0,
+    })
+}
+
+pub(super) fn session_termination_security_context() -> RuntimeSecurityContext {
+    explicit_security_context(ExplicitSecurityContextSpec {
+        lineage_id: "session_terminated",
+        observed_channel: ContextChannel::Memory,
+        source: "session_terminated",
+        effective_trust_tier: TrustTier::High,
+        sink_class: SinkClass::MemoryWrite,
+        containment_mode: vellaveto_types::ContainmentMode::Observe,
+        semantic_taint: Vec::new(),
+        extra_risk: 0,
+    })
 }
 
 pub(super) fn circuit_breaker_security_context(action: &Action) -> RuntimeSecurityContext {

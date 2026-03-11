@@ -65,8 +65,9 @@ use crate::proxy::helpers::{
     notification_dlp_security_context, notification_injection_security_context,
     notification_memory_poisoning_security_context, output_schema_violation_security_context,
     parameter_dlp_security_context, parameter_injection_security_context,
-    privilege_escalation_security_context, require_approval_security_context, resolve_domains,
-    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
+    privilege_escalation_security_context, protocol_forward_security_context,
+    require_approval_security_context, resolve_domains, response_dlp_security_context,
+    response_injection_security_context, rug_pull_security_context,
     sampling_interception_security_context, tool_discovery_integrity_security_context,
     unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
@@ -658,12 +659,15 @@ impl McpGrpcService {
 
                 // Audit log the forwarded ProgressNotification.
                 let action = Action::new("progress_notification", method_name, json!({}));
-                let envelope = build_secondary_acis_envelope(
+                let protocol_security_context =
+                    protocol_forward_security_context("progress_notification_forwarded");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &Verdict::Allow,
                     DecisionOrigin::PolicyEngine,
                     "grpc",
                     Some(session_id),
+                    Some(&protocol_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -1054,12 +1058,15 @@ impl McpGrpcService {
                 // (websocket/mod.rs:1809-1838). PassThrough bypasses policy evaluation
                 // but must have an audit trail for observability.
                 let action = Action::new("passthrough", method_name, json!({}));
-                let envelope = build_secondary_acis_envelope(
+                let protocol_security_context =
+                    protocol_forward_security_context("pass_through_forwarded");
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &Verdict::Allow,
                     DecisionOrigin::PolicyEngine,
                     "grpc",
                     Some(session_id),
+                    Some(&protocol_security_context),
                 );
                 if let Err(e) = self
                     .state

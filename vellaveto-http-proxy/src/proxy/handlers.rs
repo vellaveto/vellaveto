@@ -47,8 +47,9 @@ use super::helpers::{
     memory_poisoning_security_context, notification_dlp_security_context,
     notification_injection_security_context, notification_memory_poisoning_security_context,
     parameter_dlp_security_context, parameter_injection_security_context,
-    presented_approval_matches_action, privilege_escalation_security_context, resolve_domains,
-    rug_pull_security_context, sampling_interception_security_context,
+    presented_approval_matches_action, privilege_escalation_security_context,
+    protocol_forward_security_context, resolve_domains, rug_pull_security_context,
+    sampling_interception_security_context, session_termination_security_context,
     unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
@@ -2691,12 +2692,15 @@ pub async fn handle_mcp_post(
                     "session": &session_id,
                 }),
             );
-            let envelope = build_secondary_acis_envelope(
+            let protocol_security_context =
+                protocol_forward_security_context("pass_through_forwarded");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &Verdict::Allow,
                 DecisionOrigin::PolicyEngine,
                 "http",
                 Some(&session_id),
+                Some(&protocol_security_context),
             );
             if let Err(e) = state
                 .audit
@@ -4603,12 +4607,14 @@ pub async fn handle_mcp_delete(
                         target_domains: Vec::new(),
                         resolved_ips: Vec::new(),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let session_security_context = session_termination_security_context();
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &audit_action,
                         &vellaveto_types::Verdict::Allow,
                         DecisionOrigin::SessionGuard,
                         "http",
                         Some(id),
+                        Some(&session_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -5189,12 +5195,14 @@ pub async fn handle_mcp_get(
             "has_last_event_id": last_event_id.is_some(),
         }),
     );
-    let envelope = build_secondary_acis_envelope(
+    let sse_security_context = protocol_forward_security_context("sse_resumption");
+    let envelope = build_secondary_acis_envelope_with_security_context(
         &sse_action,
         &Verdict::Allow,
         DecisionOrigin::PolicyEngine,
         "http",
         Some(&session_id),
+        Some(&sse_security_context),
     );
     if let Err(e) = state
         .audit
