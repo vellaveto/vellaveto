@@ -33,7 +33,10 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_notification_for_secrets, scan_parameters_for_secrets,
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
-use vellaveto_mcp::mediation::{build_acis_envelope, build_secondary_acis_envelope};
+use vellaveto_mcp::mediation::{
+    build_acis_envelope, build_secondary_acis_envelope,
+    build_secondary_acis_envelope_with_security_context,
+};
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, EvaluationContext, Verdict};
@@ -54,7 +57,10 @@ use super::ProxyState;
 use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
-use crate::proxy::helpers::resolve_domains;
+use crate::proxy::helpers::{
+    output_schema_violation_security_context, resolve_domains, response_dlp_security_context,
+    response_injection_security_context, tool_discovery_integrity_security_context,
+};
 use crate::proxy_metrics::record_dlp_finding;
 
 /// Global gRPC metrics counters.
@@ -2348,12 +2354,29 @@ impl McpGrpcService {
                         "transport": "grpc",
                     }),
                 );
-                let envelope = build_secondary_acis_envelope(
+                let response_tool_name = json_req
+                    .get("method")
+                    .and_then(|method| method.as_str())
+                    .and_then(|method| match method {
+                        "tools/call" => json_req
+                            .get("params")
+                            .and_then(|params| params.get("name"))
+                            .and_then(|name| name.as_str()),
+                        "resources/read" => Some("resources/read"),
+                        _ => None,
+                    });
+                let dlp_security_context = response_dlp_security_context(
+                    response_tool_name,
+                    &response_json,
+                    self.state.response_dlp_blocking,
+                );
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &verdict,
                     DecisionOrigin::Dlp,
                     "grpc",
                     Some(session_id),
+                    Some(&dlp_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -2428,12 +2451,30 @@ impl McpGrpcService {
                             "transport": "grpc",
                         }),
                     );
-                    let envelope = build_secondary_acis_envelope(
+                    let response_tool_name = json_req
+                        .get("method")
+                        .and_then(|method| method.as_str())
+                        .and_then(|method| match method {
+                            "tools/call" => json_req
+                                .get("params")
+                                .and_then(|params| params.get("name"))
+                                .and_then(|name| name.as_str()),
+                            "resources/read" => Some("resources/read"),
+                            _ => None,
+                        });
+                    let injection_security_context = response_injection_security_context(
+                        response_tool_name,
+                        &response_json,
+                        self.state.injection_blocking,
+                        "response_injection",
+                    );
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &verdict,
                         DecisionOrigin::InjectionScanner,
                         "grpc",
                         Some(session_id),
+                        Some(&injection_security_context),
                     );
                     if let Err(e) = self
                         .state
@@ -2527,12 +2568,19 @@ impl McpGrpcService {
                             finding.tool_name, finding.matched_patterns
                         ),
                     };
-                    let envelope = build_secondary_acis_envelope(
+                    let desc_security_context = tool_discovery_integrity_security_context(
+                        &finding.tool_name,
+                        vellaveto_types::ContextChannel::CommandLike,
+                        "tool_description_injection",
+                        true,
+                    );
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &desc_verdict,
                         DecisionOrigin::InjectionScanner,
                         "grpc",
                         Some(session_id),
+                        Some(&desc_security_context),
                     );
                     if let Err(e) = self
                         .state
@@ -2616,12 +2664,15 @@ impl McpGrpcService {
                                     violations
                                 ),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let schema_security_context =
+                                output_schema_violation_security_context(Some(tool_name), false);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &schema_verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&schema_security_context),
                             );
                             if let Err(e) = self
                                 .state

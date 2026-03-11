@@ -44,7 +44,7 @@ use vellaveto_mcp::inspection::{
 };
 use vellaveto_mcp::mediation::{
     build_acis_envelope_with_security_context, build_secondary_acis_envelope,
-    mediate_with_security_context,
+    build_secondary_acis_envelope_with_security_context, mediate_with_security_context,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
@@ -4370,12 +4370,19 @@ async fn relay_upstream_to_client(
                                     "transport": "websocket",
                                 }),
                             );
-                            let envelope = build_secondary_acis_envelope(
+                            let dlp_security_context =
+                                super::helpers::response_dlp_security_context(
+                                    tracked_tool_name.as_deref(),
+                                    &json_val,
+                                    state.response_dlp_blocking,
+                                );
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::Dlp,
                                 "websocket",
                                 Some(&session_id),
+                                Some(&dlp_security_context),
                             );
                             if let Err(e) = state
                                 .audit
@@ -4453,12 +4460,20 @@ async fn relay_upstream_to_client(
                                         "transport": "websocket",
                                     }),
                                 );
-                                let envelope = build_secondary_acis_envelope(
+                                let injection_security_context =
+                                    super::helpers::response_injection_security_context(
+                                        tracked_tool_name.as_deref(),
+                                        &json_val,
+                                        state.injection_blocking,
+                                        "response_injection",
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::InjectionScanner,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&injection_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -4558,13 +4573,22 @@ async fn relay_upstream_to_client(
                                             finding.tool_name, finding.matched_patterns
                                         ),
                                     };
-                                    let envelope = build_secondary_acis_envelope(
-                                        &action,
-                                        &tool_desc_verdict,
-                                        DecisionOrigin::InjectionScanner,
-                                        "websocket",
-                                        Some(&session_id),
-                                    );
+                                    let desc_security_context =
+                                        super::helpers::tool_discovery_integrity_security_context(
+                                            &finding.tool_name,
+                                            vellaveto_types::ContextChannel::CommandLike,
+                                            "tool_description_injection",
+                                            true,
+                                        );
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &tool_desc_verdict,
+                                            DecisionOrigin::InjectionScanner,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(&desc_security_context),
+                                        );
                                     if let Err(e) = state
                                         .audit
                                         .log_entry_with_acis(
@@ -5051,12 +5075,15 @@ async fn validate_ws_structured_content_response(
             let schema_verdict = Verdict::Deny {
                 reason: format!("WS structuredContent validation failed: {violations:?}"),
             };
-            let envelope = build_secondary_acis_envelope(
+            let schema_security_context =
+                super::helpers::output_schema_violation_security_context(Some(tool_name), true);
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &schema_verdict,
                 DecisionOrigin::PolicyEngine,
                 "websocket",
                 Some(session_id),
+                Some(&schema_security_context),
             );
             if let Err(e) = state
                 .audit

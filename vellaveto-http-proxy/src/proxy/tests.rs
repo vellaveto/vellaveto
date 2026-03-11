@@ -30,7 +30,8 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
 use vellaveto_types::{
-    ContextChannel, EvaluationContext, SignatureVerificationStatus, SinkClass, TrustTier,
+    ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore, SemanticTaint,
+    SignatureVerificationStatus, SinkClass, TrustTier,
 };
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
@@ -358,6 +359,202 @@ fn test_build_runtime_security_context_merges_transport_provenance_into_meta() {
         vellaveto_types::SessionKeyScope::EphemeralSession
     );
     assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_tool_discovery_integrity_security_context_marks_enforced_tool_output() {
+    let security_context = super::helpers::tool_discovery_integrity_security_context(
+        "manifest_verification",
+        ContextChannel::ToolOutput,
+        "manifest_verification_failed",
+        false,
+    );
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Untrusted)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ToolOutput
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("manifest_verification_failed")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 65 })
+    );
+}
+
+#[test]
+fn test_tool_discovery_integrity_security_context_marks_quarantined_command_like_drift() {
+    let security_context = super::helpers::tool_discovery_integrity_security_context(
+        "malicious-tool",
+        ContextChannel::CommandLike,
+        "tool_description_injection",
+        true,
+    );
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![
+            SemanticTaint::Untrusted,
+            SemanticTaint::IntegrityFailed,
+            SemanticTaint::Quarantined
+        ]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::CommandLike
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("tool_description_injection")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 100 })
+    );
+}
+
+#[test]
+fn test_response_dlp_security_context_marks_sensitive_resource_content() {
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {
+            "contents": [
+                {"uri": "https://example.test/secret.txt", "mimeType": "text/plain"}
+            ]
+        }
+    });
+
+    let security_context =
+        super::helpers::response_dlp_security_context(Some("resources/read"), &response, true);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Sensitive, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ResourceContent
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("response_dlp")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 90 })
+    );
+}
+
+#[test]
+fn test_response_injection_security_context_marks_quarantined_command_like_output() {
+    let response = json!({
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+            "content": [
+                {"type": "text", "text": "```bash\nrm -rf /tmp/build\n```"}
+            ]
+        }
+    });
+
+    let security_context = super::helpers::response_injection_security_context(
+        Some("shell_exec"),
+        &response,
+        true,
+        "response_injection",
+    );
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::CommandLike
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("response_injection")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 100 })
+    );
+}
+
+#[test]
+fn test_output_schema_violation_security_context_marks_integrity_failure() {
+    let security_context =
+        super::helpers::output_schema_violation_security_context(Some("resources/read"), false);
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Untrusted)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(security_context.lineage_refs.len(), 1);
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ResourceContent
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].source.as_deref(),
+        Some("output_schema_validation")
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 65 })
+    );
 }
 
 /// IMP-R122-004: Edge case — no headers at all falls back to bind_addr.

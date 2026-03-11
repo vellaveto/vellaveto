@@ -22,13 +22,15 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, scan_response_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
-use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
 use super::call_chain::take_tracked_tool_call;
 use super::helpers::{
-    extract_annotations_from_response, read_bounded_response, verify_manifest_from_response,
+    extract_annotations_from_response, output_schema_violation_security_context,
+    read_bounded_response, response_dlp_security_context, response_injection_security_context,
+    tool_discovery_integrity_security_context, verify_manifest_from_response,
 };
 use super::inspection::{
     check_sse_for_rug_pull_and_manifest, extract_text_from_result, register_schemas_from_sse,
@@ -573,6 +575,7 @@ pub(super) async fn forward_to_upstream_url(
                         // Try to parse and inspect the response
                         // Track whether injection blocking should prevent forwarding.
                         let mut blocked_by_injection: Option<String> = None;
+                        let mut tracked_response_tool_name: Option<String> = None;
                         // SECURITY (R36-PROXY-1): Track detection state separately from
                         // blocking state. In log-only mode, blocked_by_injection remains
                         // None but injection_detected is true, preventing tainted responses
@@ -587,6 +590,7 @@ pub(super) async fn forward_to_upstream_url(
                                 session_id,
                                 response_json.get("id"),
                             );
+                            tracked_response_tool_name = tracked_tool_name.clone();
 
                             // Inspect for injection patterns in tool results
                             if let Some(result) = response_json.get("result") {
@@ -642,13 +646,22 @@ pub(super) async fn forward_to_upstream_url(
                                                 "blocking": state.injection_blocking,
                                             }),
                                         );
-                                        let envelope = build_secondary_acis_envelope(
-                                            &action,
-                                            &verdict,
-                                            DecisionOrigin::InjectionScanner,
-                                            "http",
-                                            Some(session_id),
-                                        );
+                                        let injection_security_context =
+                                            response_injection_security_context(
+                                                tracked_tool_name.as_deref(),
+                                                &response_json,
+                                                state.injection_blocking,
+                                                "response_injection",
+                                            );
+                                        let envelope =
+                                            build_secondary_acis_envelope_with_security_context(
+                                                &action,
+                                                &verdict,
+                                                DecisionOrigin::InjectionScanner,
+                                                "http",
+                                                Some(session_id),
+                                                Some(&injection_security_context),
+                                            );
                                         if let Err(e) = state
                                             .audit
                                             .log_entry_with_acis(
@@ -725,13 +738,22 @@ pub(super) async fn forward_to_upstream_url(
                                         let desc_verdict = Verdict::Deny {
                                             reason: audit_reason,
                                         };
-                                        let envelope = build_secondary_acis_envelope(
-                                            &action,
-                                            &desc_verdict,
-                                            DecisionOrigin::InjectionScanner,
-                                            "http",
-                                            Some(session_id),
-                                        );
+                                        let desc_security_context =
+                                            tool_discovery_integrity_security_context(
+                                                &finding.tool_name,
+                                                vellaveto_types::ContextChannel::CommandLike,
+                                                "tool_description_injection",
+                                                true,
+                                            );
+                                        let envelope =
+                                            build_secondary_acis_envelope_with_security_context(
+                                                &action,
+                                                &desc_verdict,
+                                                DecisionOrigin::InjectionScanner,
+                                                "http",
+                                                Some(session_id),
+                                                Some(&desc_security_context),
+                                            );
                                         if let Err(e) = state.audit.log_entry_with_acis(
                                             &action,
                                             &desc_verdict,
@@ -824,13 +846,20 @@ pub(super) async fn forward_to_upstream_url(
                                                     "structuredContent validation failed: {violations:?}"
                                                 ),
                                             };
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &schema_verdict,
-                                                DecisionOrigin::PolicyEngine,
-                                                "http",
-                                                Some(session_id),
-                                            );
+                                            let schema_security_context =
+                                                output_schema_violation_security_context(
+                                                    Some(tool_name),
+                                                    true,
+                                                );
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &schema_verdict,
+                                                    DecisionOrigin::PolicyEngine,
+                                                    "http",
+                                                    Some(session_id),
+                                                    Some(&schema_security_context),
+                                                );
                                             if let Err(e) = state.audit.log_entry_with_acis(
                                                 &action,
                                                 &schema_verdict,
@@ -929,13 +958,22 @@ pub(super) async fn forward_to_upstream_url(
                                                     "blocking": state.injection_blocking,
                                                 }),
                                             );
-                                            let envelope = build_secondary_acis_envelope(
-                                                &action,
-                                                &verdict,
-                                                DecisionOrigin::InjectionScanner,
-                                                "http",
-                                                Some(session_id),
-                                            );
+                                            let injection_security_context =
+                                                response_injection_security_context(
+                                                    None,
+                                                    &response_json,
+                                                    state.injection_blocking,
+                                                    "error_response_injection",
+                                                );
+                                            let envelope =
+                                                build_secondary_acis_envelope_with_security_context(
+                                                    &action,
+                                                    &verdict,
+                                                    DecisionOrigin::InjectionScanner,
+                                                    "http",
+                                                    Some(session_id),
+                                                    Some(&injection_security_context),
+                                                );
                                             if let Err(e) = state
                                                 .audit
                                                 .log_entry_with_acis(
@@ -1019,13 +1057,20 @@ pub(super) async fn forward_to_upstream_url(
                                             "finding_count": dlp_findings.len(),
                                         }),
                                     );
-                                    let envelope = build_secondary_acis_envelope(
-                                        &action,
-                                        &verdict,
-                                        DecisionOrigin::Dlp,
-                                        "http",
-                                        Some(session_id),
+                                    let dlp_security_context = response_dlp_security_context(
+                                        tracked_response_tool_name.as_deref(),
+                                        &response_json,
+                                        state.response_dlp_blocking,
                                     );
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &verdict,
+                                            DecisionOrigin::Dlp,
+                                            "http",
+                                            Some(session_id),
+                                            Some(&dlp_security_context),
+                                        );
                                     if let Err(e) = state
                                         .audit
                                         .log_entry_with_acis(

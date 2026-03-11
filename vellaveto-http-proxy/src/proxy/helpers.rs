@@ -20,12 +20,13 @@ use vellaveto_approval::ApprovalStatus;
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
-use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
+use vellaveto_mcp::output_contracts::infer_observed_output_channel;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{
     Action, ClientProvenance, ContextChannel, EvaluationContext, LineageRef, ReplayStatus,
-    RequestSignature, RuntimeSecurityContext, SessionKeyScope, SignatureVerificationStatus,
-    SinkClass, TrustTier, Verdict, WorkloadBindingStatus,
+    RequestSignature, RuntimeSecurityContext, SemanticRiskScore, SemanticTaint, SessionKeyScope,
+    SignatureVerificationStatus, SinkClass, TrustTier, Verdict, WorkloadBindingStatus,
 };
 
 use super::ProxyState;
@@ -476,6 +477,192 @@ pub(super) fn build_runtime_security_context(
     }
 }
 
+pub(super) fn tool_discovery_integrity_security_context(
+    lineage_id: &str,
+    observed_channel: ContextChannel,
+    source: &str,
+    quarantined: bool,
+) -> RuntimeSecurityContext {
+    let effective_trust_tier = Some(if quarantined {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed];
+    if quarantined {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: lineage_id.to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if quarantined {
+            vellaveto_types::ContainmentMode::Quarantine
+        } else {
+            vellaveto_types::ContainmentMode::Enforce
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 55u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if quarantined { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+fn dlp_security_context(
+    observed_channel: ContextChannel,
+    blocking: bool,
+    lineage_id: &str,
+    source: &str,
+) -> RuntimeSecurityContext {
+    let effective_trust_tier = Some(if blocking {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Sensitive];
+    if blocking {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: lineage_id.to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if blocking {
+            vellaveto_types::ContainmentMode::Quarantine
+        } else {
+            vellaveto_types::ContainmentMode::Sanitize
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 55u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if blocking { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+pub(super) fn response_dlp_security_context(
+    tool_name: Option<&str>,
+    response: &Value,
+    blocking: bool,
+) -> RuntimeSecurityContext {
+    dlp_security_context(
+        infer_observed_output_channel(tool_name, response),
+        blocking,
+        "response_dlp",
+        "response_dlp",
+    )
+}
+
+pub(super) fn response_injection_security_context(
+    tool_name: Option<&str>,
+    response: &Value,
+    blocking: bool,
+    source: &str,
+) -> RuntimeSecurityContext {
+    let observed_channel = infer_observed_output_channel(tool_name, response);
+    let effective_trust_tier = Some(if blocking {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Untrusted];
+    if blocking {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "injection_detected".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if blocking {
+            vellaveto_types::ContainmentMode::Quarantine
+        } else {
+            vellaveto_types::ContainmentMode::Enforce
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 50u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if blocking { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+pub(super) fn output_schema_violation_security_context(
+    tool_name: Option<&str>,
+    blocking: bool,
+) -> RuntimeSecurityContext {
+    let effective_trust_tier = Some(if blocking {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed];
+    if blocking {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    let observed_channel = if tool_name == Some("resources/read") {
+        ContextChannel::ResourceContent
+    } else {
+        ContextChannel::Data
+    };
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "output_schema".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some("output_schema_validation".to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if blocking {
+            vellaveto_types::ContainmentMode::Quarantine
+        } else {
+            vellaveto_types::ContainmentMode::Enforce
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 50u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if blocking { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
 /// Extract a presented approval ID from a JSON-RPC message `_meta`.
 ///
 /// Accepts both top-level `_meta` and nested `params._meta`, matching the
@@ -752,12 +939,19 @@ pub(super) async fn verify_manifest_from_response(
                 let manifest_verdict = Verdict::Deny {
                     reason: format!("Manifest verification failed: {discrepancies:?}"),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let manifest_security_context = tool_discovery_integrity_security_context(
+                    "manifest_verification",
+                    ContextChannel::ToolOutput,
+                    "manifest_verification_failed",
+                    false,
+                );
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &manifest_verdict,
                     DecisionOrigin::PolicyEngine,
                     "http",
                     Some(session_id),
+                    Some(&manifest_security_context),
                 );
                 if let Err(e) = audit
                     .log_entry_with_acis(
