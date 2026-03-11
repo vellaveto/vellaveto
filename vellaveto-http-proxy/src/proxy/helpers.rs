@@ -925,18 +925,14 @@ fn apply_trusted_request_signer_metadata(
 
     match provenance.workload_identity.as_ref() {
         Some(existing_identity) if existing_identity == workload_identity => {
-            if provenance.workload_binding_status == WorkloadBindingStatus::Unknown {
-                provenance.workload_binding_status = WorkloadBindingStatus::Unverified;
-            }
+            provenance.workload_binding_status = WorkloadBindingStatus::Bound;
         }
         Some(_) => {
             provenance.workload_binding_status = WorkloadBindingStatus::Mismatch;
         }
         None => {
             provenance.workload_identity = Some(workload_identity.clone());
-            if provenance.workload_binding_status == WorkloadBindingStatus::Unknown {
-                provenance.workload_binding_status = WorkloadBindingStatus::Unverified;
-            }
+            provenance.workload_binding_status = WorkloadBindingStatus::Bound;
         }
     }
     true

@@ -18,7 +18,10 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use std::fmt::Write;
 use vellaveto_approval::ApprovalContainmentContext;
-use vellaveto_types::{ContainmentMode, ContextChannel, SemanticTaint, SinkClass, TrustTier};
+use vellaveto_types::{
+    ContainmentMode, ContextChannel, SemanticTaint, SessionKeyScope, SignatureVerificationStatus,
+    SinkClass, TrustTier, WorkloadBindingStatus,
+};
 
 use crate::AppState;
 
@@ -128,6 +131,36 @@ fn context_channel_label(channel: ContextChannel) -> &'static str {
     }
 }
 
+fn signature_status_label(status: SignatureVerificationStatus) -> &'static str {
+    match status {
+        SignatureVerificationStatus::Missing => "missing",
+        SignatureVerificationStatus::Verified => "verified",
+        SignatureVerificationStatus::Invalid => "invalid",
+        SignatureVerificationStatus::Expired => "expired",
+        SignatureVerificationStatus::Error => "error",
+    }
+}
+
+fn workload_binding_status_label(status: WorkloadBindingStatus) -> &'static str {
+    match status {
+        WorkloadBindingStatus::Unknown => "unknown",
+        WorkloadBindingStatus::Bound => "bound",
+        WorkloadBindingStatus::Missing => "missing",
+        WorkloadBindingStatus::Mismatch => "mismatch",
+        WorkloadBindingStatus::Unverified => "unverified",
+    }
+}
+
+fn session_key_scope_label(scope: SessionKeyScope) -> &'static str {
+    match scope {
+        SessionKeyScope::Unknown => "unknown",
+        SessionKeyScope::EphemeralExecution => "ephemeral_execution",
+        SessionKeyScope::EphemeralSession => "ephemeral_session",
+        SessionKeyScope::PersistedClient => "persisted_client",
+        SessionKeyScope::PersistedService => "persisted_service",
+    }
+}
+
 fn render_containment_pill(label: &str, class_name: &str) -> String {
     format!(
         r#"<span class="pill {class_name}">{}</span>"#,
@@ -170,6 +203,30 @@ fn render_approval_containment_summary(
             &format!("Risk: {}", risk.value),
             "pill-risk",
         ));
+    }
+    if let Some(signature_status) = context.signature_status {
+        pills.push(render_containment_pill(
+            &format!("Signature: {}", signature_status_label(signature_status)),
+            "pill-trust",
+        ));
+    }
+    if let Some(workload_binding_status) = context.workload_binding_status {
+        pills.push(render_containment_pill(
+            &format!(
+                "Binding: {}",
+                workload_binding_status_label(workload_binding_status)
+            ),
+            "pill-mode",
+        ));
+    }
+    if let Some(session_key_scope) = context.session_key_scope {
+        pills.push(render_containment_pill(
+            &format!("Scope: {}", session_key_scope_label(session_key_scope)),
+            "pill-channel",
+        ));
+    }
+    if context.execution_is_ephemeral {
+        pills.push(render_containment_pill("Ephemeral", "pill-trust"));
     }
     for taint in &context.semantic_taint {
         pills.push(render_containment_pill(
@@ -1156,6 +1213,10 @@ mod tests {
             sink_class: Some(SinkClass::CodeExecution),
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 91 }),
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            session_key_scope: Some(SessionKeyScope::EphemeralSession),
+            execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
 
@@ -1164,6 +1225,10 @@ mod tests {
         assert!(html.contains("Sink: code_execution"));
         assert!(html.contains("Mode: require_approval"));
         assert!(html.contains("Risk: 91"));
+        assert!(html.contains("Signature: verified"));
+        assert!(html.contains("Binding: bound"));
+        assert!(html.contains("Scope: ephemeral_session"));
+        assert!(html.contains("Ephemeral"));
         assert!(html.contains("Taint: integrity_failed"));
         assert!(html.contains("Taint: quarantined"));
         assert!(html.contains("Channel: command_like"));

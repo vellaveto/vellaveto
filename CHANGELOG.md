@@ -114,6 +114,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with a configured signer workload expectation, the HTTP proxy now marks the
   request as `workload_binding_status = mismatch` instead of silently dropping
   the conflict.
+  When a verified detached signature matches a configured signer
+  `workload_identity`, that signer projection now upgrades the request to
+  `workload_binding_status = bound` instead of leaving it as advisory-only
+  metadata, so the shared `require_workload_binding` mediation guard can admit
+  detached-signer requests on verified signer expectations alone.
 - **HTTP proxy detached request-signature freshness (Mar 2026):**
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,
@@ -152,6 +157,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require_ephemeral_client_provenance` denies non-ephemeral provenance in the
   provenance-guard phase, and HTTP detached signer metadata can satisfy that
   requirement when it projects ephemeral execution or ephemeral key scope.
+- **Approval provenance summaries (Mar 2026):**
+  Pending approvals and approval-resolution audit events now persist the
+  provenance summary that actually drove the gate, not just semantic taint.
+  `containment_context` can now carry `signature_status`,
+  `workload_binding_status`, `session_key_scope`, and
+  `execution_is_ephemeral`, and approval audit reconstruction restores that
+  summary into `client_provenance` so reviewer-visible context matches the
+  final ACIS envelope.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

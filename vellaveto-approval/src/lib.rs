@@ -19,8 +19,9 @@ use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::{
-    Action, ContainmentMode, ContextChannel, LineageRef, RuntimeSecurityContext, SemanticRiskScore,
-    SemanticTaint, SinkClass, TrustTier,
+    Action, ClientProvenance, ContainmentMode, ContextChannel, LineageRef, ReplayStatus,
+    RuntimeSecurityContext, SemanticRiskScore, SemanticTaint, SessionKeyScope,
+    SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
 };
 
 pub mod verified_approval_consumption;
@@ -170,6 +171,14 @@ pub struct ApprovalContainmentContext {
     pub containment_mode: Option<ContainmentMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub semantic_risk_score: Option<SemanticRiskScore>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_status: Option<SignatureVerificationStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workload_binding_status: Option<WorkloadBindingStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_key_scope: Option<SessionKeyScope>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub execution_is_ephemeral: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub counterfactual_review_required: bool,
 }
@@ -192,6 +201,10 @@ impl ApprovalContainmentContext {
             sink_class: self.sink_class,
             containment_mode: self.containment_mode,
             semantic_risk_score: self.semantic_risk_score,
+            signature_status: self.signature_status,
+            workload_binding_status: self.workload_binding_status,
+            session_key_scope: self.session_key_scope,
+            execution_is_ephemeral: self.execution_is_ephemeral,
             counterfactual_review_required: self.counterfactual_review_required,
         }
     }
@@ -204,6 +217,10 @@ impl ApprovalContainmentContext {
             || self.sink_class.is_some()
             || self.containment_mode.is_some()
             || self.semantic_risk_score.is_some()
+            || self.signature_status.is_some()
+            || self.workload_binding_status.is_some()
+            || self.session_key_scope.is_some()
+            || self.execution_is_ephemeral
             || self.counterfactual_review_required
     }
 
@@ -227,14 +244,31 @@ impl ApprovalContainmentContext {
             })
             .collect();
 
+        let client_provenance = if normalized.signature_status.is_some()
+            || normalized.workload_binding_status.is_some()
+            || normalized.session_key_scope.is_some()
+            || normalized.execution_is_ephemeral
+        {
+            Some(ClientProvenance {
+                signature_status: normalized.signature_status.unwrap_or_default(),
+                session_key_scope: normalized.session_key_scope.unwrap_or_default(),
+                workload_binding_status: normalized.workload_binding_status.unwrap_or_default(),
+                replay_status: ReplayStatus::NotChecked,
+                execution_is_ephemeral: normalized.execution_is_ephemeral,
+                ..ClientProvenance::default()
+            })
+        } else {
+            None
+        };
+
         Some(RuntimeSecurityContext {
             semantic_taint: normalized.semantic_taint,
+            client_provenance,
             effective_trust_tier: normalized.effective_trust_tier,
             sink_class: normalized.sink_class,
             lineage_refs,
             containment_mode: normalized.containment_mode,
             semantic_risk_score: normalized.semantic_risk_score,
-            ..RuntimeSecurityContext::default()
         })
     }
 }
@@ -1567,6 +1601,10 @@ mod tests {
                     sink_class: Some(SinkClass::CodeExecution),
                     containment_mode: Some(ContainmentMode::RequireApproval),
                     semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
+                    signature_status: Some(SignatureVerificationStatus::Verified),
+                    workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                    session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                    execution_is_ephemeral: true,
                     counterfactual_review_required: true,
                 }),
             )
@@ -1584,6 +1622,19 @@ mod tests {
             ctx.semantic_risk_score,
             Some(SemanticRiskScore { value: 95 })
         );
+        assert_eq!(
+            ctx.signature_status,
+            Some(SignatureVerificationStatus::Verified)
+        );
+        assert_eq!(
+            ctx.workload_binding_status,
+            Some(WorkloadBindingStatus::Bound)
+        );
+        assert_eq!(
+            ctx.session_key_scope,
+            Some(SessionKeyScope::EphemeralSession)
+        );
+        assert!(ctx.execution_is_ephemeral);
         assert!(ctx.counterfactual_review_required);
         assert_eq!(
             ctx.semantic_taint,
@@ -1604,6 +1655,10 @@ mod tests {
             sink_class: Some(SinkClass::CodeExecution),
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 93 }),
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            session_key_scope: Some(SessionKeyScope::EphemeralExecution),
+            execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
 
@@ -1617,6 +1672,23 @@ mod tests {
         );
         assert_eq!(runtime.effective_trust_tier, Some(TrustTier::Low));
         assert_eq!(runtime.sink_class, Some(SinkClass::CodeExecution));
+        let provenance = runtime
+            .client_provenance
+            .as_ref()
+            .expect("provenance summary should round-trip");
+        assert_eq!(
+            provenance.signature_status,
+            SignatureVerificationStatus::Verified
+        );
+        assert_eq!(
+            provenance.workload_binding_status,
+            WorkloadBindingStatus::Bound
+        );
+        assert_eq!(
+            provenance.session_key_scope,
+            SessionKeyScope::EphemeralExecution
+        );
+        assert!(provenance.execution_is_ephemeral);
         assert_eq!(
             runtime.containment_mode,
             Some(ContainmentMode::RequireApproval)
@@ -2020,6 +2092,7 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 90 }),
             counterfactual_review_required: true,
+            ..ApprovalContainmentContext::default()
         };
         let second = ApprovalContainmentContext {
             semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
@@ -2029,6 +2102,7 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 90 }),
             counterfactual_review_required: true,
+            ..ApprovalContainmentContext::default()
         };
 
         let id1 = store
@@ -2073,6 +2147,7 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 40 }),
             counterfactual_review_required: false,
+            ..ApprovalContainmentContext::default()
         };
         let high_risk = ApprovalContainmentContext {
             semantic_taint: vec![SemanticTaint::Quarantined],
@@ -2082,6 +2157,7 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
             counterfactual_review_required: true,
+            ..ApprovalContainmentContext::default()
         };
 
         let id1 = store

@@ -1278,7 +1278,7 @@ fn test_build_grpc_runtime_security_context_projects_trusted_signer_metadata() {
     assert!(provenance.execution_is_ephemeral);
     assert_eq!(
         provenance.workload_binding_status,
-        vellaveto_types::WorkloadBindingStatus::Unverified
+        vellaveto_types::WorkloadBindingStatus::Bound
     );
     assert_eq!(
         provenance

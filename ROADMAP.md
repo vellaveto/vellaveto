@@ -104,6 +104,14 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   workload evidence and signer workload expectations now surface as
   `workload_binding_status = mismatch` instead of disappearing in transport
   normalization.
+- Verified detached signer workload expectations now also project
+  `workload_binding_status = bound` when the signer-pinned workload identity is
+  satisfied, so `require_workload_binding` can admit detached-signer flows on
+  verified signer provenance instead of treating that metadata as audit-only.
+- Approval escalation and resolution now also preserve provenance summary, so
+  reviewer-facing `containment_context` and approval-resolution ACIS events can
+  show the same signature status, workload-binding status, key scope, and
+  ephemeral-execution state that drove the original admission gate.
 - Trusted detached signers now also fail closed on explicit transport
   key-scope conflicts, so persisted versus ephemeral session-key evidence
   cannot be silently merged into a single verified provenance record.

@@ -516,6 +516,10 @@ List all pending approval requests.
         "sink_class": "code_execution",
         "containment_mode": "require_approval",
         "semantic_risk_score": { "value": 86 },
+        "signature_status": "verified",
+        "workload_binding_status": "bound",
+        "session_key_scope": "ephemeral_session",
+        "execution_is_ephemeral": true,
         "counterfactual_review_required": true
       }
     }
@@ -563,6 +567,10 @@ Get details for a specific approval request.
     "sink_class": "code_execution",
     "containment_mode": "require_approval",
     "semantic_risk_score": { "value": 86 },
+    "signature_status": "verified",
+    "workload_binding_status": "bound",
+    "session_key_scope": "ephemeral_session",
+    "execution_is_ephemeral": true,
     "counterfactual_review_required": true
   }
 }
@@ -573,6 +581,9 @@ Get details for a specific approval request.
 `POST /api/evaluate`.
 `containment_context` is present when the approval was created from semantic
 containment, trust-floor, or counterfactual escalation logic.
+It can also include provenance-summary fields derived from the gated request,
+including `signature_status`, `workload_binding_status`,
+`session_key_scope`, and `execution_is_ephemeral`.
 
 ---
 

@@ -1773,6 +1773,22 @@ fn approval_containment_context_from_envelope(
         sink_class: envelope.sink_class,
         containment_mode: envelope.containment_mode,
         semantic_risk_score: envelope.semantic_risk_score,
+        signature_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.signature_status),
+        workload_binding_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.workload_binding_status),
+        session_key_scope: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.session_key_scope),
+        execution_is_ephemeral: envelope
+            .client_provenance
+            .as_ref()
+            .is_some_and(|provenance| provenance.execution_is_ephemeral),
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();

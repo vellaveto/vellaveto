@@ -24,7 +24,7 @@ use vellaveto_engine::{acis::fingerprint_action, PolicyEngine};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 use vellaveto_types::{
     Action, ContainmentMode, ContextChannel, Policy, PolicyType, SemanticRiskScore, SemanticTaint,
-    SinkClass, TrustTier,
+    SessionKeyScope, SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
 };
 
 /// Attach a simulated peer connection address to a request so that
@@ -1669,6 +1669,10 @@ async fn create_pending_approval_with_containment_context(state: &AppState) -> S
                 sink_class: Some(SinkClass::CodeExecution),
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 94 }),
+                signature_status: Some(SignatureVerificationStatus::Verified),
+                workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
         )
@@ -2115,6 +2119,10 @@ async fn approval_list_pending_includes_containment_context() {
                 sink_class: Some(SinkClass::CodeExecution),
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
+                signature_status: Some(SignatureVerificationStatus::Verified),
+                workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
         )
@@ -2154,6 +2162,22 @@ async fn approval_list_pending_includes_containment_context() {
     assert_eq!(
         approvals[0]["containment_context"]["semantic_risk_score"]["value"],
         91
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["workload_binding_status"],
+        "bound"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["session_key_scope"],
+        "ephemeral_session"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["execution_is_ephemeral"],
+        true
     );
     assert_eq!(
         approvals[0]["containment_context"]["counterfactual_review_required"],
@@ -3628,6 +3652,22 @@ async fn test_approve_audit_entry_preserves_containment_context() {
     assert_eq!(envelope["lineage_refs"][1]["channel"], "approval_prompt");
     assert_eq!(envelope["session_id"], "sess-containment");
     assert_eq!(
+        envelope["client_provenance"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["workload_binding_status"],
+        "bound"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["session_key_scope"],
+        "ephemeral_session"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["execution_is_ephemeral"],
+        true
+    );
+    assert_eq!(
         approval_entry["metadata"]["counterfactual_review_required"],
         json!(true)
     );
@@ -3680,6 +3720,22 @@ async fn test_deny_audit_entry_preserves_containment_context() {
     assert_eq!(envelope["semantic_risk_score"]["value"], 94);
     assert_eq!(envelope["lineage_refs"][0]["channel"], "command_like");
     assert_eq!(envelope["lineage_refs"][1]["channel"], "approval_prompt");
+    assert_eq!(
+        envelope["client_provenance"]["signature_status"],
+        "verified"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["workload_binding_status"],
+        "bound"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["session_key_scope"],
+        "ephemeral_session"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["execution_is_ephemeral"],
+        true
+    );
     assert_eq!(
         denial_entry["metadata"]["counterfactual_review_required"],
         json!(true)
