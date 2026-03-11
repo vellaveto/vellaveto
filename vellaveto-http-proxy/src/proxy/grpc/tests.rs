@@ -1042,6 +1042,10 @@ fn test_build_grpc_runtime_security_context_preserves_detached_signature_and_wor
             .and_then(|identity| identity.namespace.as_deref()),
         Some("prod")
     );
+    assert!(
+        provenance.canonical_request_hash.is_some(),
+        "gRPC runtime provenance should carry canonical request binding"
+    );
 }
 
 #[test]

@@ -293,6 +293,10 @@ fn test_build_runtime_security_context_infers_http_provenance_and_lineage() {
         provenance.workload_binding_status,
         WorkloadBindingStatus::Missing
     );
+    assert!(
+        provenance.canonical_request_hash.is_some(),
+        "transport-built security context should seal canonical request hash"
+    );
 }
 
 #[test]
@@ -610,6 +614,10 @@ fn test_build_runtime_security_context_uses_projected_transport_identity_for_wor
         vellaveto_types::SessionKeyScope::PersistedClient
     );
     assert!(provenance.execution_is_ephemeral);
+    assert!(
+        provenance.canonical_request_hash.is_some(),
+        "projected transport identity should still receive canonical request binding"
+    );
 }
 
 #[test]
@@ -791,6 +799,10 @@ fn test_build_runtime_security_context_uses_detached_request_signature_without_o
     assert_eq!(
         provenance.workload_binding_status,
         WorkloadBindingStatus::Unknown
+    );
+    assert!(
+        provenance.canonical_request_hash.is_some(),
+        "detached signatures should still receive canonical request binding"
     );
 }
 

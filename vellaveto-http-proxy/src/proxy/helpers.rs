@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_audit::AuditLogger;
+use vellaveto_canonical::{canonical_request_hash, CanonicalRequestInput};
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
@@ -724,6 +725,38 @@ fn infer_trust_tier(
     None
 }
 
+fn routing_identity_from_eval_ctx(eval_ctx: Option<&EvaluationContext>) -> Option<&str> {
+    eval_ctx.and_then(|ctx| {
+        ctx.agent_identity
+            .as_ref()
+            .and_then(|identity| identity.subject.as_deref())
+            .or(ctx.agent_id.as_deref())
+    })
+}
+
+fn attach_canonical_request_hash(
+    action: &Action,
+    eval_ctx: Option<&EvaluationContext>,
+    security_context: &mut RuntimeSecurityContext,
+) {
+    let Some(provenance) = security_context.client_provenance.as_mut() else {
+        return;
+    };
+    if provenance.canonical_request_hash.is_some() {
+        return;
+    }
+
+    let input = CanonicalRequestInput::from_action(
+        action,
+        provenance.session_scope_binding.as_deref(),
+        Some(&*provenance),
+        routing_identity_from_eval_ctx(eval_ctx),
+    );
+    if let Ok(hash) = canonical_request_hash(&input) {
+        provenance.canonical_request_hash = Some(hash);
+    }
+}
+
 fn build_runtime_security_context_from_transport(
     msg: &Value,
     action: &Action,
@@ -745,6 +778,7 @@ fn build_runtime_security_context_from_transport(
         security_context.effective_trust_tier =
             infer_trust_tier(&security_context, oauth_evidence, eval_ctx);
     }
+    attach_canonical_request_hash(action, eval_ctx, &mut security_context);
 
     if security_context == RuntimeSecurityContext::default() {
         None

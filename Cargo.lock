@@ -5493,6 +5493,7 @@ dependencies = [
  "uuid",
  "vellaveto-approval",
  "vellaveto-audit",
+ "vellaveto-canonical",
  "vellaveto-config",
  "vellaveto-engine",
  "vellaveto-mcp",

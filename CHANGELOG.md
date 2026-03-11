@@ -125,6 +125,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bearer-token custom claims are projected into session `agent_identity`
   earlier in the request lifecycle instead of being read directly in the audit
   path.
+- **HTTP proxy transport canonical binding parity (Mar 2026):**
+  The HTTP proxy now seals `client_provenance.canonical_request_hash` during
+  runtime-security-context construction instead of waiting for shared
+  mediation. Pre-mediation deny, approval-gate, and transport-control audits
+  therefore carry the same opaque session-bound canonical request hash as the
+  final mediated verdict path.
 
 ### Fixed
 

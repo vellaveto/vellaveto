@@ -108,6 +108,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   workload claims win over projected transport identity for workload binding,
   while bearer-token custom claims are projected into session `agent_identity`
   before mediation rather than being pulled directly into audit context.
+- HTTP transport runtime security contexts now also seal
+  `client_provenance.canonical_request_hash` at build time, so pre-mediation
+  deny, approval, and control-plane audit events carry the same opaque
+  canonical request binding as the final mediated verdict path.
 - Session-miss fallbacks in HTTP request mediation now preserve the current
   transport-authenticated identity instead of collapsing to an empty evaluation
   context.
