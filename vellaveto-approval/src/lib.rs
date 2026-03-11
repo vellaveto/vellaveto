@@ -18,7 +18,9 @@ use tokio::sync::RwLock;
 use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 use vellaveto_types::unicode::normalize_homoglyphs;
-use vellaveto_types::Action;
+use vellaveto_types::{
+    Action, ContainmentMode, ContextChannel, SemanticRiskScore, SemanticTaint, SinkClass, TrustTier,
+};
 
 pub mod verified_approval_consumption;
 pub mod verified_approval_scope;
@@ -115,6 +117,11 @@ pub struct PendingApproval {
     /// modified after approval creation, the fingerprint will not match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_fingerprint: Option<String>,
+    /// Structured semantic-containment context captured when the approval was
+    /// requested. This lets reviewers inspect why the action was escalated
+    /// without parsing free-form reason strings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containment_context: Option<ApprovalContainmentContext>,
 }
 
 impl PendingApproval {
@@ -142,6 +149,60 @@ impl PendingApproval {
             action_fingerprint.is_some(),
             request_matches_bound_fingerprint,
         )
+    }
+}
+
+/// Structured semantic-containment context attached to an approval request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalContainmentContext {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_taint: Vec<SemanticTaint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lineage_channels: Vec<ContextChannel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_trust_tier: Option<TrustTier>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink_class: Option<SinkClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containment_mode: Option<ContainmentMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_risk_score: Option<SemanticRiskScore>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub counterfactual_review_required: bool,
+}
+
+impl ApprovalContainmentContext {
+    #[must_use]
+    pub fn normalized(&self) -> Self {
+        let mut semantic_taint = self.semantic_taint.clone();
+        semantic_taint.sort_by_key(|taint| semantic_taint_rank(*taint));
+        semantic_taint.dedup();
+
+        let mut lineage_channels = self.lineage_channels.clone();
+        lineage_channels.sort_by_key(|channel| context_channel_rank(*channel));
+        lineage_channels.dedup();
+
+        Self {
+            semantic_taint,
+            lineage_channels,
+            effective_trust_tier: self.effective_trust_tier,
+            sink_class: self.sink_class,
+            containment_mode: self.containment_mode,
+            semantic_risk_score: self.semantic_risk_score,
+            counterfactual_review_required: self.counterfactual_review_required,
+        }
+    }
+
+    #[must_use]
+    pub fn is_meaningful(&self) -> bool {
+        !self.semantic_taint.is_empty()
+            || !self.lineage_channels.is_empty()
+            || self.effective_trust_tier.is_some()
+            || self.sink_class.is_some()
+            || self.containment_mode.is_some()
+            || self.semantic_risk_score.is_some()
+            || self.counterfactual_review_required
     }
 }
 
@@ -176,6 +237,36 @@ pub const MIN_FINGERPRINT_LEN: usize = 32;
 ///
 /// SECURITY (E3-1): SHA-256 hex = 64 chars; allow headroom for future algorithms.
 pub const MAX_FINGERPRINT_LEN: usize = 128;
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+const fn context_channel_rank(channel: ContextChannel) -> u8 {
+    match channel {
+        ContextChannel::Data => 0,
+        ContextChannel::ToolOutput => 1,
+        ContextChannel::ResourceContent => 2,
+        ContextChannel::FreeText => 3,
+        ContextChannel::Memory => 4,
+        ContextChannel::Url => 5,
+        ContextChannel::CommandLike => 6,
+        ContextChannel::ApprovalPrompt => 7,
+    }
+}
+
+const fn semantic_taint_rank(taint: SemanticTaint) -> u8 {
+    match taint {
+        SemanticTaint::Sanitized => 0,
+        SemanticTaint::Sensitive => 1,
+        SemanticTaint::Untrusted => 2,
+        SemanticTaint::CrossAgent => 3,
+        SemanticTaint::MixedProvenance => 4,
+        SemanticTaint::Replayed => 5,
+        SemanticTaint::IntegrityFailed => 6,
+        SemanticTaint::Quarantined => 7,
+    }
+}
 
 /// Extract a presented approval ID from a JSON-RPC message `_meta`.
 ///
@@ -235,6 +326,16 @@ fn compute_dedup_key(
     requested_by: Option<&str>,
     session_id: Option<&str>,
 ) -> Result<String, ApprovalError> {
+    compute_dedup_key_with_context(action, reason, requested_by, session_id, None)
+}
+
+fn compute_dedup_key_with_context(
+    action: &Action,
+    reason: &str,
+    requested_by: Option<&str>,
+    session_id: Option<&str>,
+    containment_context: Option<&ApprovalContainmentContext>,
+) -> Result<String, ApprovalError> {
     // SECURITY (R33-SUP-4): Include resolved_ips in the dedup key. Without this,
     // two actions targeting the same domain but resolving to different IPs (e.g.,
     // due to DNS rebinding) would incorrectly deduplicate, and approving one
@@ -276,7 +377,13 @@ fn compute_dedup_key(
     // to a single session. Without this, an approval created in session A
     // could be consumed by session B via dedup collision (cross-session replay).
     let sess_component = session_id.unwrap_or("\x00NOSESS\x00");
-    let input = format!("{canonical_str}||{reason}||{rb_component}||{sess_component}");
+    let containment_component = match containment_context {
+        Some(context) if context.is_meaningful() => serde_json::to_string(&context.normalized())?,
+        _ => "\x00NOCTX\x00".to_string(),
+    };
+    let input = format!(
+        "{canonical_str}||{reason}||{rb_component}||{sess_component}||{containment_component}"
+    );
     let hash = Sha256::digest(input.as_bytes());
     Ok(format!("{hash:x}"))
 }
@@ -485,11 +592,12 @@ impl ApprovalStore {
         dedup.clear();
         for approval in pending.values() {
             if approval.status == ApprovalStatus::Pending {
-                let key = compute_dedup_key(
+                let key = compute_dedup_key_with_context(
                     &approval.action,
                     &approval.reason,
                     approval.requested_by.as_deref(),
                     approval.session_id.as_deref(),
+                    approval.containment_context.as_ref(),
                 )?;
                 dedup.insert(key, approval.id.clone());
             }
@@ -513,6 +621,27 @@ impl ApprovalStore {
         requested_by: Option<String>,
         session_id: Option<String>,
         action_fingerprint: Option<String>,
+    ) -> Result<String, ApprovalError> {
+        self.create_with_context(
+            action,
+            reason,
+            requested_by,
+            session_id,
+            action_fingerprint,
+            None,
+        )
+        .await
+    }
+
+    /// Create a new pending approval with optional semantic-containment context.
+    pub async fn create_with_context(
+        &self,
+        action: Action,
+        reason: String,
+        requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
+        containment_context: Option<ApprovalContainmentContext>,
     ) -> Result<String, ApprovalError> {
         // SECURITY (FIND-R46-011): Validate reason length at the store level.
         // SECURITY (R246-APPR-1): Don't expose actual length in error message.
@@ -611,11 +740,16 @@ impl ApprovalStore {
             }
         }
 
-        let dedup_key = compute_dedup_key(
+        let containment_context = containment_context
+            .map(|context| context.normalized())
+            .filter(|context| context.is_meaningful());
+
+        let dedup_key = compute_dedup_key_with_context(
             &action,
             &reason,
             requested_by.as_deref(),
             session_id.as_deref(),
+            containment_context.as_ref(),
         )?;
 
         // Check dedup index: if an identical pending approval exists, return its ID
@@ -659,6 +793,7 @@ impl ApprovalStore {
             requested_by,
             session_id,
             action_fingerprint,
+            containment_context,
         };
 
         // SECURITY (FIND-029/FIND-030): Acquire both locks in consistent order
@@ -1354,6 +1489,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_approval_with_containment_context_persists() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let id = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(ApprovalContainmentContext {
+                    semantic_taint: vec![
+                        SemanticTaint::Quarantined,
+                        SemanticTaint::IntegrityFailed,
+                    ],
+                    lineage_channels: vec![
+                        ContextChannel::CommandLike,
+                        ContextChannel::ApprovalPrompt,
+                    ],
+                    effective_trust_tier: Some(TrustTier::Quarantined),
+                    sink_class: Some(SinkClass::CodeExecution),
+                    containment_mode: Some(ContainmentMode::RequireApproval),
+                    semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
+                    counterfactual_review_required: true,
+                }),
+            )
+            .await
+            .unwrap();
+
+        let approval = store.get(&id).await.unwrap();
+        let ctx = approval
+            .containment_context
+            .expect("containment context should persist");
+        assert_eq!(ctx.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(ctx.sink_class, Some(SinkClass::CodeExecution));
+        assert_eq!(ctx.containment_mode, Some(ContainmentMode::RequireApproval));
+        assert_eq!(
+            ctx.semantic_risk_score,
+            Some(SemanticRiskScore { value: 95 })
+        );
+        assert!(ctx.counterfactual_review_required);
+        assert_eq!(
+            ctx.semantic_taint,
+            vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined]
+        );
+        assert_eq!(
+            ctx.lineage_channels,
+            vec![ContextChannel::CommandLike, ContextChannel::ApprovalPrompt]
+        );
+    }
+
+    #[tokio::test]
     async fn test_approve() {
         let dir = TempDir::new().unwrap();
         let store = ApprovalStore::new(
@@ -1716,6 +1907,115 @@ mod tests {
         // The new one should be pending
         let approval = store.get(&id2).await.unwrap();
         assert_eq!(approval.status, ApprovalStatus::Pending);
+    }
+
+    #[tokio::test]
+    async fn test_dedup_normalizes_equivalent_containment_context() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let first = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::Quarantined, SemanticTaint::IntegrityFailed],
+            lineage_channels: vec![ContextChannel::ApprovalPrompt, ContextChannel::CommandLike],
+            effective_trust_tier: Some(TrustTier::Quarantined),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(SemanticRiskScore { value: 90 }),
+            counterfactual_review_required: true,
+        };
+        let second = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+            lineage_channels: vec![ContextChannel::CommandLike, ContextChannel::ApprovalPrompt],
+            effective_trust_tier: Some(TrustTier::Quarantined),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(SemanticRiskScore { value: 90 }),
+            counterfactual_review_required: true,
+        };
+
+        let id1 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(first),
+            )
+            .await
+            .unwrap();
+        let id2 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(second),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(id1, id2, "Equivalent containment context must deduplicate");
+    }
+
+    #[tokio::test]
+    async fn test_dedup_distinguishes_materially_different_containment_context() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let low_risk = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::Untrusted],
+            lineage_channels: vec![ContextChannel::ToolOutput],
+            effective_trust_tier: Some(TrustTier::Verified),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(SemanticRiskScore { value: 40 }),
+            counterfactual_review_required: false,
+        };
+        let high_risk = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::Quarantined],
+            lineage_channels: vec![ContextChannel::CommandLike],
+            effective_trust_tier: Some(TrustTier::Quarantined),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
+            counterfactual_review_required: true,
+        };
+
+        let id1 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(low_risk),
+            )
+            .await
+            .unwrap();
+        let id2 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(high_risk),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(
+            id1, id2,
+            "Materially different containment context must not deduplicate"
+        );
     }
 
     #[tokio::test]
@@ -3262,6 +3562,7 @@ mod tests {
             requested_by: Some("requester".to_string()),
             session_id: Some("session-a".to_string()),
             action_fingerprint: Some(action_fingerprint.clone()),
+            containment_context: None,
         };
 
         assert!(approval.scope_matches(Some("session-a"), Some(action_fingerprint.as_str())));

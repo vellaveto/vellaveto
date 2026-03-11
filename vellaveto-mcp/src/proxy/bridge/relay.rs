@@ -37,11 +37,11 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
-use vellaveto_approval::ApprovalStatus;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_config::ToolManifest;
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
-use vellaveto_types::acis::DecisionOrigin;
+use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport,
     sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, ContextChannel,
@@ -263,6 +263,28 @@ fn push_unique_taint(taints: &mut Vec<SemanticTaint>, taint: SemanticTaint) {
     if !taints.contains(&taint) {
         taints.push(taint);
     }
+}
+
+fn approval_containment_context_from_envelope(
+    envelope: &AcisDecisionEnvelope,
+    reason: &str,
+) -> Option<ApprovalContainmentContext> {
+    let context = ApprovalContainmentContext {
+        semantic_taint: envelope.semantic_taint.clone(),
+        lineage_channels: envelope
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel)
+            .collect(),
+        effective_trust_tier: envelope.effective_trust_tier,
+        sink_class: envelope.sink_class,
+        containment_mode: envelope.containment_mode,
+        semantic_risk_score: envelope.semantic_risk_score,
+        counterfactual_review_required: reason.contains("counterfactual review required"),
+    }
+    .normalized();
+
+    context.is_meaningful().then_some(context)
 }
 
 fn normalize_request_principal_id(principal: &str) -> String {
@@ -949,11 +971,12 @@ impl ProxyBridge {
         reason: &str,
         session_id: Option<&str>,
         requested_by: Option<&str>,
+        containment_context: Option<ApprovalContainmentContext>,
     ) -> Option<String> {
         let store = self.approval_store.as_ref()?;
         let action_fingerprint = fingerprint_action(action);
         match store
-            .create(
+            .create_with_context(
                 action.clone(),
                 reason.to_string(),
                 // SECURITY (R246-RELAY-2): Pass the agent identity as requested_by.
@@ -961,6 +984,7 @@ impl ProxyBridge {
                 requested_by.map(ToOwned::to_owned),
                 session_id.map(ToOwned::to_owned),
                 Some(action_fingerprint),
+                containment_context,
             )
             .await
         {
@@ -1733,6 +1757,8 @@ impl ProxyBridge {
                             "stdio",
                             state.agent_id.as_deref(),
                         );
+                        let approval_context =
+                            approval_containment_context_from_envelope(&ra_envelope, &reason);
                         if let Err(e) = self
                             .audit
                             .log_entry_with_acis(
@@ -1749,7 +1775,7 @@ impl ProxyBridge {
                         let approval_id = if let Some(ref store) = self.approval_store {
                             let action_fingerprint = fingerprint_action(&action);
                             match store
-                                .create(
+                                .create_with_context(
                                     action,
                                     reason.clone(),
                                     // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
@@ -1757,6 +1783,7 @@ impl ProxyBridge {
                                     // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
                                     Some(state.session_id.clone()),
                                     Some(action_fingerprint),
+                                    approval_context,
                                 )
                                 .await
                             {
@@ -1893,6 +1920,8 @@ impl ProxyBridge {
                             "stdio",
                             state.agent_id.as_deref(),
                         );
+                        let approval_context =
+                            approval_containment_context_from_envelope(&ut_ra_envelope, &reason);
                         if let Err(e) = self
                             .audit
                             .log_entry_with_acis(
@@ -1909,7 +1938,7 @@ impl ProxyBridge {
                         let approval_id = if let Some(ref store) = self.approval_store {
                             let action_fingerprint = fingerprint_action(&action);
                             match store
-                                .create(
+                                .create_with_context(
                                     action,
                                     reason.clone(),
                                     // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
@@ -1917,6 +1946,7 @@ impl ProxyBridge {
                                     // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
                                     Some(state.session_id.clone()),
                                     Some(action_fingerprint),
+                                    approval_context,
                                 )
                                 .await
                             {
@@ -2353,10 +2383,12 @@ impl ProxyBridge {
                 // create a pending approval and inject the ID into
                 // the JSON-RPC error data.
                 if let Verdict::RequireApproval { ref reason } = verdict {
+                    let approval_context =
+                        approval_containment_context_from_envelope(&acis_envelope, reason);
                     if let Some(ref store) = self.approval_store {
                         let action_fingerprint = fingerprint_action(&action);
                         match store
-                            .create(
+                            .create_with_context(
                                 action.clone(),
                                 reason.clone(),
                                 // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
@@ -2364,6 +2396,7 @@ impl ProxyBridge {
                                 // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
                                 Some(state.session_id.clone()),
                                 Some(action_fingerprint),
+                                approval_context,
                             )
                             .await
                         {
@@ -3028,10 +3061,12 @@ impl ProxyBridge {
             }
             ProxyDecision::Block(mut response, verdict) => {
                 if let Verdict::RequireApproval { ref reason } = verdict {
+                    let approval_context =
+                        approval_containment_context_from_envelope(&acis_envelope, reason);
                     if let Some(ref store) = self.approval_store {
                         let action_fingerprint = fingerprint_action(&action);
                         match store
-                            .create(
+                            .create_with_context(
                                 action.clone(),
                                 reason.clone(),
                                 // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
@@ -3039,6 +3074,7 @@ impl ProxyBridge {
                                 // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
                                 Some(state.session_id.clone()),
                                 Some(action_fingerprint),
+                                approval_context,
                             )
                             .await
                         {
@@ -4856,17 +4892,6 @@ impl ProxyBridge {
             Ok((Verdict::RequireApproval { reason }, _)) => {
                 let mut response =
                     make_approval_response(&id, "Request blocked: security policy violation");
-                if let Some(approval_id) = self
-                    .create_pending_approval(
-                        &action,
-                        &reason,
-                        Some(state.session_id.as_str()),
-                        state.agent_id.as_deref(),
-                    )
-                    .await
-                {
-                    Self::inject_approval_id(&mut response, approval_id);
-                }
                 let ra_verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
@@ -4877,6 +4902,20 @@ impl ProxyBridge {
                     "stdio",
                     state.agent_id.as_deref(),
                 );
+                let approval_context =
+                    approval_containment_context_from_envelope(&ra_envelope, &reason);
+                if let Some(approval_id) = self
+                    .create_pending_approval(
+                        &action,
+                        &reason,
+                        Some(state.session_id.as_str()),
+                        state.agent_id.as_deref(),
+                        approval_context,
+                    )
+                    .await
+                {
+                    Self::inject_approval_id(&mut response, approval_id);
+                }
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -5694,17 +5733,6 @@ impl ProxyBridge {
             Ok((Verdict::RequireApproval { reason }, _)) => {
                 let mut response =
                     make_approval_response(&id, "Request blocked: security policy violation");
-                if let Some(approval_id) = self
-                    .create_pending_approval(
-                        &action,
-                        &reason,
-                        Some(state.session_id.as_str()),
-                        state.agent_id.as_deref(),
-                    )
-                    .await
-                {
-                    Self::inject_approval_id(&mut response, approval_id);
-                }
                 let ra_verdict = Verdict::RequireApproval {
                     reason: reason.clone(),
                 };
@@ -5715,6 +5743,20 @@ impl ProxyBridge {
                     "stdio",
                     state.agent_id.as_deref(),
                 );
+                let approval_context =
+                    approval_containment_context_from_envelope(&ra_envelope, &reason);
+                if let Some(approval_id) = self
+                    .create_pending_approval(
+                        &action,
+                        &reason,
+                        Some(state.session_id.as_str()),
+                        state.agent_id.as_deref(),
+                        approval_context,
+                    )
+                    .await
+                {
+                    Self::inject_approval_id(&mut response, approval_id);
+                }
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -7943,7 +7985,7 @@ mod tests {
         let action =
             extract_extension_action("x-custom", "x-custom/run", &json!({"path": "/tmp/test"}));
         let approval_id = bridge
-            .create_pending_approval(&action, "Approval required", None, None)
+            .create_pending_approval(&action, "Approval required", None, None, None)
             .await
             .unwrap();
         let approval = store.get(&approval_id).await.unwrap();
@@ -8065,6 +8107,7 @@ mod tests {
                 "Write requires approval",
                 Some("session-123"),
                 Some("agent-alpha"),
+                None,
             )
             .await
             .unwrap();
@@ -8072,6 +8115,47 @@ mod tests {
         let approval = store.get(&approval_id).await.unwrap();
         assert_eq!(approval.requested_by.as_deref(), Some("agent-alpha"));
         assert_eq!(approval.session_id.as_deref(), Some("session-123"));
+    }
+
+    #[tokio::test]
+    async fn test_create_pending_approval_persists_containment_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let audit = Arc::new(vellaveto_audit::AuditLogger::new(
+            dir.path().join("audit.log"),
+        ));
+        let store = Arc::new(ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            Duration::from_secs(900),
+        ));
+        let bridge = ProxyBridge::new(PolicyEngine::new(false), vec![], audit)
+            .with_approval_store(store.clone());
+
+        let action = extract_action("write_file", &json!({"path": "/tmp/out"}));
+        let containment_context = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::Quarantined, SemanticTaint::IntegrityFailed],
+            lineage_channels: vec![ContextChannel::CommandLike, ContextChannel::ToolOutput],
+            effective_trust_tier: Some(TrustTier::Low),
+            sink_class: Some(vellaveto_types::SinkClass::CodeExecution),
+            containment_mode: Some(vellaveto_types::ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 91 }),
+            counterfactual_review_required: true,
+        };
+        let approval_id = bridge
+            .create_pending_approval(
+                &action,
+                "Write requires approval; counterfactual review required",
+                Some("session-123"),
+                Some("agent-alpha"),
+                Some(containment_context.clone()),
+            )
+            .await
+            .unwrap();
+
+        let approval = store.get(&approval_id).await.unwrap();
+        assert_eq!(
+            approval.containment_context,
+            Some(containment_context.normalized())
+        );
     }
 
     /// SECURITY (R246-RELAY-2): Self-approval is blocked when requested_by is set.

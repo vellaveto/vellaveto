@@ -578,6 +578,7 @@ impl ClusterBackend for RedisBackend {
             requested_by,
             session_id,
             action_fingerprint,
+            containment_context: None,
         };
 
         let approval_json = serde_json::to_string(&approval)
