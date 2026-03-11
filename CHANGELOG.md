@@ -52,6 +52,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   foundation, remove the retired "all phases implemented" framing, and point
   contributors at the active transport, product, research, compliance, and
   trust tracks.
+- **HTTP proxy containment-audit parity (Mar 2026):**
+  The HTTP proxy now carries structured `RuntimeSecurityContext` across nearly
+  all request, response, discovery, guard, and protocol control secondary ACIS
+  audit paths in HTTP, WebSocket, and gRPC. This includes approval gates,
+  DLP/injection/schema events, memory-poisoning and rug-pull denials, sampling
+  and elicitation interception, invalid call-chain denials, WebSocket binary
+  rejection/drop, upstream rate limiting, and forwarded protocol control
+  messages. The remaining context-free secondary envelopes are now confined to
+  the smart-fallback, auth, and inspection helper buckets.
 
 ### Fixed
 

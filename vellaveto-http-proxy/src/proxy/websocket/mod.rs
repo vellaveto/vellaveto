@@ -42,8 +42,8 @@ use vellaveto_mcp::inspection::{
     scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::mediation::{
-    build_acis_envelope_with_security_context, build_secondary_acis_envelope,
-    build_secondary_acis_envelope_with_security_context, mediate_with_security_context,
+    build_acis_envelope_with_security_context, build_secondary_acis_envelope_with_security_context,
+    mediate_with_security_context,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
@@ -3949,12 +3949,18 @@ async fn relay_client_to_upstream(
                                         "direction": "client_to_upstream",
                                     }),
                                 );
-                                let envelope = build_secondary_acis_envelope(
+                                let elicitation_security_context =
+                                    super::helpers::protocol_forward_channel_security_context(
+                                        "ws_elicitation_forwarded",
+                                        vellaveto_types::ContextChannel::ApprovalPrompt,
+                                    );
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &Verdict::Allow,
                                     DecisionOrigin::PolicyEngine,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&elicitation_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -4427,12 +4433,17 @@ async fn relay_client_to_upstream(
                 let binary_verdict = Verdict::Deny {
                     reason: "Binary frames not supported for JSON-RPC".to_string(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let binary_security_context =
+                    super::helpers::protocol_binary_rejection_security_context(
+                        "ws_binary_frame_rejected",
+                    );
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &binary_verdict,
                     DecisionOrigin::PolicyEngine,
                     "websocket",
                     Some(&session_id),
+                    Some(&binary_security_context),
                 );
                 if let Err(e) = state
                     .audit
@@ -4535,12 +4546,15 @@ async fn relay_upstream_to_client(
             let rate_verdict = Verdict::Deny {
                 reason: "Upstream rate limit exceeded".to_string(),
             };
-            let envelope = build_secondary_acis_envelope(
+            let rate_limit_security_context =
+                super::helpers::protocol_rate_limit_security_context("ws_upstream_rate_limit");
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &rate_verdict,
                 DecisionOrigin::RateLimiter,
                 "websocket",
                 Some(&session_id),
+                Some(&rate_limit_security_context),
             );
             if let Err(e) = state
                 .audit
@@ -4927,12 +4941,18 @@ async fn relay_upstream_to_client(
                                 "direction": "upstream_to_client",
                             }),
                         );
-                        let envelope = build_secondary_acis_envelope(
+                        let message_security_context =
+                            super::helpers::protocol_message_forward_security_context(
+                                &json_val,
+                                "ws_upstream_message_forwarded",
+                            );
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &action,
                             &Verdict::Allow,
                             DecisionOrigin::PolicyEngine,
                             "websocket",
                             Some(&session_id),
+                            Some(&message_security_context),
                         );
                         if let Err(e) = state
                             .audit
@@ -5194,12 +5214,17 @@ async fn relay_upstream_to_client(
                 let upstream_binary_verdict = Verdict::Deny {
                     reason: "Binary frames not supported for JSON-RPC".to_string(),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let upstream_binary_security_context =
+                    super::helpers::protocol_binary_rejection_security_context(
+                        "ws_upstream_binary_dropped",
+                    );
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &upstream_binary_verdict,
                     DecisionOrigin::PolicyEngine,
                     "websocket",
                     Some(&session_id),
+                    Some(&upstream_binary_security_context),
                 );
                 if let Err(e) = state
                     .audit

@@ -66,6 +66,14 @@ Before opening large new tracks, the current dirty worktree should be reduced in
 - Make transport evidence complete: signature status, replay result, canonical binding, workload binding, and origin lineage
 - Extend parity coverage to sampling, elicitation, tasks, and extension methods
 
+**Progress update (Mar 2026)**
+- Shared containment-aware secondary ACIS coverage is now in place for almost all
+  HTTP proxy request, response, discovery, guard, and protocol control events
+  across HTTP, WebSocket, and gRPC.
+- The remaining plain secondary-envelope work in this bundle is now concentrated
+  in smart-fallback, auth, and inspection helper paths rather than the main
+  transport handlers.
+
 **Exit criteria**
 - `cargo fmt --check`
 - `cargo test -p vellaveto-http-proxy`

@@ -954,6 +954,16 @@ struct ExplicitSecurityContextSpec {
     extra_risk: u8,
 }
 
+struct NetworkSecurityContextSpec {
+    lineage_id: &'static str,
+    observed_channel: ContextChannel,
+    source: &'static str,
+    effective_trust_tier: TrustTier,
+    containment_mode: vellaveto_types::ContainmentMode,
+    semantic_taint: Vec<SemanticTaint>,
+    extra_risk: u8,
+}
+
 fn default_guard_observed_channel(action: &Action) -> ContextChannel {
     if action.tool == "resources" && action.function == "read" {
         ContextChannel::ResourceContent
@@ -1022,6 +1032,19 @@ fn explicit_security_context(spec: ExplicitSecurityContextSpec) -> RuntimeSecuri
     }
 }
 
+fn network_security_context(spec: NetworkSecurityContextSpec) -> RuntimeSecurityContext {
+    explicit_security_context(ExplicitSecurityContextSpec {
+        lineage_id: spec.lineage_id,
+        observed_channel: spec.observed_channel,
+        source: spec.source,
+        effective_trust_tier: spec.effective_trust_tier,
+        sink_class: SinkClass::NetworkEgress,
+        containment_mode: spec.containment_mode,
+        semantic_taint: spec.semantic_taint,
+        extra_risk: spec.extra_risk,
+    })
+}
+
 pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityContext {
     guard_security_context(
         action,
@@ -1042,16 +1065,29 @@ pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityConte
 }
 
 pub(super) fn protocol_forward_security_context(source: &'static str) -> RuntimeSecurityContext {
-    explicit_security_context(ExplicitSecurityContextSpec {
+    protocol_forward_channel_security_context(source, ContextChannel::Data)
+}
+
+pub(super) fn protocol_forward_channel_security_context(
+    source: &'static str,
+    observed_channel: ContextChannel,
+) -> RuntimeSecurityContext {
+    network_security_context(NetworkSecurityContextSpec {
         lineage_id: source,
-        observed_channel: ContextChannel::Data,
+        observed_channel,
         source,
         effective_trust_tier: TrustTier::Unknown,
-        sink_class: SinkClass::NetworkEgress,
         containment_mode: vellaveto_types::ContainmentMode::Observe,
         semantic_taint: Vec::new(),
         extra_risk: 0,
     })
+}
+
+pub(super) fn protocol_message_forward_security_context(
+    message: &Value,
+    source: &'static str,
+) -> RuntimeSecurityContext {
+    protocol_forward_channel_security_context(source, message_payload_observed_channel(message))
 }
 
 pub(super) fn session_termination_security_context() -> RuntimeSecurityContext {
@@ -1064,6 +1100,44 @@ pub(super) fn session_termination_security_context() -> RuntimeSecurityContext {
         containment_mode: vellaveto_types::ContainmentMode::Observe,
         semantic_taint: Vec::new(),
         extra_risk: 0,
+    })
+}
+
+pub(super) fn invalid_call_chain_security_context() -> RuntimeSecurityContext {
+    network_security_context(NetworkSecurityContextSpec {
+        lineage_id: "invalid_call_chain_header",
+        observed_channel: ContextChannel::Data,
+        source: "invalid_call_chain_header",
+        effective_trust_tier: TrustTier::Quarantined,
+        containment_mode: vellaveto_types::ContainmentMode::Quarantine,
+        semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+        extra_risk: 20,
+    })
+}
+
+pub(super) fn protocol_binary_rejection_security_context(
+    source: &'static str,
+) -> RuntimeSecurityContext {
+    network_security_context(NetworkSecurityContextSpec {
+        lineage_id: source,
+        observed_channel: ContextChannel::Data,
+        source,
+        effective_trust_tier: TrustTier::Quarantined,
+        containment_mode: vellaveto_types::ContainmentMode::Quarantine,
+        semantic_taint: vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined],
+        extra_risk: 15,
+    })
+}
+
+pub(super) fn protocol_rate_limit_security_context(source: &'static str) -> RuntimeSecurityContext {
+    network_security_context(NetworkSecurityContextSpec {
+        lineage_id: source,
+        observed_channel: ContextChannel::Data,
+        source,
+        effective_trust_tier: TrustTier::Unknown,
+        containment_mode: vellaveto_types::ContainmentMode::Enforce,
+        semantic_taint: Vec::new(),
+        extra_risk: 10,
     })
 }
 

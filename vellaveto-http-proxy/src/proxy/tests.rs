@@ -1132,6 +1132,121 @@ fn test_session_termination_security_context_marks_memory_write() {
 }
 
 #[test]
+fn test_invalid_call_chain_security_context_marks_quarantined_integrity_failure() {
+    let security_context = super::helpers::invalid_call_chain_security_context();
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 55 })
+    );
+}
+
+#[test]
+fn test_protocol_binary_rejection_security_context_marks_quarantined_network_egress() {
+    let security_context =
+        super::helpers::protocol_binary_rejection_security_context("ws_binary_frame_rejected");
+
+    assert_eq!(
+        security_context.semantic_taint,
+        vec![SemanticTaint::Untrusted, SemanticTaint::Quarantined]
+    );
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Quarantined)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Quarantine)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 50 })
+    );
+}
+
+#[test]
+fn test_protocol_rate_limit_security_context_marks_enforced_network_egress() {
+    let security_context =
+        super::helpers::protocol_rate_limit_security_context("ws_upstream_rate_limit");
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Data
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 45 })
+    );
+}
+
+#[test]
+fn test_protocol_message_forward_security_context_infers_message_channel() {
+    let message = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+            "url": "https://example.com/consent"
+        }
+    });
+
+    let security_context = super::helpers::protocol_message_forward_security_context(
+        &message,
+        "ws_upstream_message_forwarded",
+    );
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(security_context.sink_class, Some(SinkClass::NetworkEgress));
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Observe)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::Url
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 60 })
+    );
+}
+
+#[test]
 fn test_approval_containment_context_from_security_context_preserves_guard_fields() {
     let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
     let security_context = super::helpers::untrusted_tool_approval_gate_security_context(&action);
