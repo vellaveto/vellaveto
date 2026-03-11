@@ -233,9 +233,7 @@ fn decode_dpop_request_signature(
     headers: &HeaderMap,
     oauth_claims: Option<&OAuthClaims>,
 ) -> Option<RequestSignature> {
-    if oauth_claims.is_none() {
-        return None;
-    }
+    oauth_claims?;
 
     let proof_jwt = headers
         .get("dpop")

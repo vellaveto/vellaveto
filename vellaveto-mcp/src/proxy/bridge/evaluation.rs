@@ -40,6 +40,27 @@ pub(super) struct MediatedProxyDecision {
     pub result: MediationResult,
 }
 
+pub(super) struct ToolCallEvaluationInput<'a> {
+    pub id: &'a Value,
+    pub action: &'a vellaveto_types::Action,
+    pub tool_name: &'a str,
+    pub annotations: Option<&'a ToolAnnotations>,
+    pub context: Option<&'a EvaluationContext>,
+    pub security_context: Option<&'a RuntimeSecurityContext>,
+    pub session_id: Option<&'a str>,
+    pub tenant_id: Option<&'a str>,
+}
+
+pub(super) struct ResourceReadEvaluationInput<'a> {
+    pub id: &'a Value,
+    pub action: &'a vellaveto_types::Action,
+    pub uri: &'a str,
+    pub context: Option<&'a EvaluationContext>,
+    pub security_context: Option<&'a RuntimeSecurityContext>,
+    pub session_id: Option<&'a str>,
+    pub tenant_id: Option<&'a str>,
+}
+
 impl ProxyBridge {
     /// Evaluate an action against policies, optionally producing a trace.
     ///
@@ -240,16 +261,16 @@ impl ProxyBridge {
         annotations: Option<&ToolAnnotations>,
         context: Option<&EvaluationContext>,
     ) -> (ProxyDecision, Option<EvaluationTrace>) {
-        let evaluated = self.evaluate_tool_call_with_security_context(
+        let evaluated = self.evaluate_tool_call_with_security_context(ToolCallEvaluationInput {
             id,
             action,
             tool_name,
             annotations,
             context,
-            None,
-            None,
-            context.and_then(|ctx| ctx.tenant_id.as_deref()),
-        );
+            security_context: None,
+            session_id: None,
+            tenant_id: context.and_then(|ctx| ctx.tenant_id.as_deref()),
+        });
         let trace = if self.enable_trace {
             evaluated.result.trace.clone()
         } else {
@@ -260,33 +281,32 @@ impl ProxyBridge {
 
     pub(super) fn evaluate_tool_call_with_security_context(
         &self,
-        id: &Value,
-        action: &vellaveto_types::Action,
-        tool_name: &str,
-        annotations: Option<&ToolAnnotations>,
-        context: Option<&EvaluationContext>,
-        security_context: Option<&RuntimeSecurityContext>,
-        session_id: Option<&str>,
-        tenant_id: Option<&str>,
+        input: ToolCallEvaluationInput<'_>,
     ) -> MediatedProxyDecision {
         let decision_id = uuid::Uuid::new_v4().to_string().replace('-', "");
         let result = mediate_with_security_context(
             &decision_id,
-            action,
+            input.action,
             &self.engine,
-            context,
-            security_context,
+            input.context,
+            input.security_context,
             "stdio",
             &self.mediation_config,
-            session_id,
-            tenant_id,
+            input.session_id,
+            input.tenant_id,
         );
         let trace = if self.enable_trace {
             result.trace.as_ref()
         } else {
             None
         };
-        let decision = self.proxy_decision_from_result(id, tool_name, annotations, &result, trace);
+        let decision = self.proxy_decision_from_result(
+            input.id,
+            input.tool_name,
+            input.annotations,
+            &result,
+            trace,
+        );
         MediatedProxyDecision { decision, result }
     }
 
@@ -301,46 +321,41 @@ impl ProxyBridge {
         uri: &str,
         context: Option<&EvaluationContext>,
     ) -> ProxyDecision {
-        self.evaluate_resource_read_with_security_context(
+        self.evaluate_resource_read_with_security_context(ResourceReadEvaluationInput {
             id,
             action,
             uri,
             context,
-            None,
-            None,
-            context.and_then(|ctx| ctx.tenant_id.as_deref()),
-        )
+            security_context: None,
+            session_id: None,
+            tenant_id: context.and_then(|ctx| ctx.tenant_id.as_deref()),
+        })
         .decision
     }
 
     pub(super) fn evaluate_resource_read_with_security_context(
         &self,
-        id: &Value,
-        action: &vellaveto_types::Action,
-        uri: &str,
-        context: Option<&EvaluationContext>,
-        security_context: Option<&RuntimeSecurityContext>,
-        session_id: Option<&str>,
-        tenant_id: Option<&str>,
+        input: ResourceReadEvaluationInput<'_>,
     ) -> MediatedProxyDecision {
         let decision_id = uuid::Uuid::new_v4().to_string().replace('-', "");
         let result = mediate_with_security_context(
             &decision_id,
-            action,
+            input.action,
             &self.engine,
-            context,
-            security_context,
+            input.context,
+            input.security_context,
             "stdio",
             &self.mediation_config,
-            session_id,
-            tenant_id,
+            input.session_id,
+            input.tenant_id,
         );
         let trace = if self.enable_trace {
             result.trace.as_ref()
         } else {
             None
         };
-        let decision = self.proxy_decision_from_resource_result(id, uri, &result, trace);
+        let decision =
+            self.proxy_decision_from_resource_result(input.id, input.uri, &result, trace);
         MediatedProxyDecision { decision, result }
     }
 

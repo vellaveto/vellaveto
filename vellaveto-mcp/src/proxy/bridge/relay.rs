@@ -2249,14 +2249,16 @@ impl ProxyBridge {
         let security_context = state
             .runtime_security_context(Self::build_runtime_security_context(&msg, &action, ann));
         let evaluated = self.evaluate_tool_call_with_security_context(
-            &id,
-            &action,
-            &tool_name,
-            ann,
-            Some(&eval_ctx),
-            security_context.as_ref(),
-            Some(state.session_id.as_str()),
-            eval_ctx.tenant_id.as_deref(),
+            super::evaluation::ToolCallEvaluationInput {
+                id: &id,
+                action: &action,
+                tool_name: &tool_name,
+                annotations: ann,
+                context: Some(&eval_ctx),
+                security_context: security_context.as_ref(),
+                session_id: Some(state.session_id.as_str()),
+                tenant_id: eval_ctx.tenant_id.as_deref(),
+            },
         );
         let eval_trace = if self.enable_trace {
             evaluated.result.trace.clone()
@@ -3159,13 +3161,15 @@ impl ProxyBridge {
         let security_context = state
             .runtime_security_context(Self::build_runtime_security_context(&msg, &action, None));
         let evaluated = self.evaluate_resource_read_with_security_context(
-            &id,
-            &action,
-            &uri,
-            Some(&eval_ctx),
-            security_context.as_ref(),
-            Some(state.session_id.as_str()),
-            eval_ctx.tenant_id.as_deref(),
+            super::evaluation::ResourceReadEvaluationInput {
+                id: &id,
+                action: &action,
+                uri: &uri,
+                context: Some(&eval_ctx),
+                security_context: security_context.as_ref(),
+                session_id: Some(state.session_id.as_str()),
+                tenant_id: eval_ctx.tenant_id.as_deref(),
+            },
         );
         let mut acis_envelope = evaluated.result.envelope;
         let mut final_origin = evaluated.result.origin;

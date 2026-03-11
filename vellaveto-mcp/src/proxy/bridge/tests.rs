@@ -2266,14 +2266,16 @@ fn test_evaluate_tool_call_with_security_context_blocks_tainted_privileged_sink(
     };
 
     let evaluated = bridge.evaluate_tool_call_with_security_context(
-        &json!(1),
-        &action,
-        "bash",
-        None,
-        None,
-        Some(&security_context),
-        Some("session-1"),
-        None,
+        super::evaluation::ToolCallEvaluationInput {
+            id: &json!(1),
+            action: &action,
+            tool_name: "bash",
+            annotations: None,
+            context: None,
+            security_context: Some(&security_context),
+            session_id: Some("session-1"),
+            tenant_id: None,
+        },
     );
 
     assert!(matches!(
