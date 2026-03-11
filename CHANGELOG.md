@@ -169,6 +169,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `session_scope_binding` is always taken from the transport runtime when
   available, and `canonical_request_hash` is always recomputed from the live
   request context instead of trusting caller-supplied hashes.
+  Transport-provided `client_key_id` and detached `request_signature` fields
+  now also override `_meta.client_provenance`, so caller metadata cannot mask
+  the real key id, nonce, timestamp, or signature bytes that were presented on
+  the transport.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

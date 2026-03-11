@@ -140,6 +140,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   values: `session_scope_binding` is sourced from the transport session, and
   `canonical_request_hash` is recomputed from the live request instead of
   preserving an untrusted caller-provided hash.
+- Transport-provided `client_key_id` and detached `request_signature` fields
+  now also clamp `_meta.client_provenance`, so caller-supplied provenance
+  cannot override the key id, nonce, timestamp, or detached signature bytes
+  that the HTTP proxy actually received.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

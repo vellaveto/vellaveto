@@ -630,6 +630,35 @@ fn merge_request_signature(
     }
 }
 
+fn merge_transport_owned_request_signature(
+    existing: Option<RequestSignature>,
+    transport: Option<RequestSignature>,
+) -> Option<RequestSignature> {
+    match (existing, transport) {
+        (None, None) => None,
+        (Some(existing), None) => Some(existing),
+        (None, Some(transport)) => Some(transport),
+        (Some(existing), Some(mut transport)) => {
+            if transport.key_id.is_none() {
+                transport.key_id = existing.key_id;
+            }
+            if transport.algorithm.is_none() {
+                transport.algorithm = existing.algorithm;
+            }
+            if transport.nonce.is_none() {
+                transport.nonce = existing.nonce;
+            }
+            if transport.created_at.is_none() {
+                transport.created_at = existing.created_at;
+            }
+            if transport.signature.is_none() {
+                transport.signature = existing.signature;
+            }
+            Some(transport)
+        }
+    }
+}
+
 fn merge_signature_verification_status(
     existing: SignatureVerificationStatus,
     transport: SignatureVerificationStatus,
@@ -780,10 +809,12 @@ fn merge_client_provenance(
         (None, None) => None,
         (Some(provenance), None) | (None, Some(provenance)) => Some(provenance),
         (Some(mut existing), Some(transport)) => {
-            existing.request_signature =
-                merge_request_signature(existing.request_signature, transport.request_signature);
+            existing.request_signature = merge_transport_owned_request_signature(
+                existing.request_signature,
+                transport.request_signature,
+            );
 
-            if existing.client_key_id.is_none() {
+            if transport.client_key_id.is_some() {
                 existing.client_key_id = transport.client_key_id;
             }
             existing.signature_status = merge_signature_verification_status(

@@ -1759,6 +1759,79 @@ fn test_build_runtime_security_context_clamps_meta_runtime_owned_provenance_fiel
 }
 
 #[test]
+fn test_build_runtime_security_context_clamps_meta_transport_signature_fields() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "client_provenance": {
+                    "client_key_id": "caller-kid",
+                    "request_signature": {
+                        "key_id": "caller-kid",
+                        "algorithm": "ed25519",
+                        "nonce": "caller-nonce",
+                        "created_at": "2025-01-01T00:00:00Z",
+                        "signature": "deadbeef"
+                    }
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[31u8; 32]);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            None,
+        )
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        super::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: None,
+            sessions: &empty_session_store(),
+            session_id: None,
+            trusted_request_signers: &empty_trusted_request_signers(),
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+    let request_signature = provenance
+        .request_signature
+        .as_ref()
+        .expect("request signature");
+
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
+    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
+    assert_ne!(
+        request_signature.created_at.as_deref(),
+        Some("2025-01-01T00:00:00Z")
+    );
+    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
+}
+
+#[test]
 fn test_build_runtime_security_context_expires_stale_detached_request_signature() {
     let msg = json!({
         "jsonrpc": "2.0",
