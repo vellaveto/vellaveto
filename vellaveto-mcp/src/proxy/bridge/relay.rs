@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
-use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
+use vellaveto_approval::{bind_session_scope, ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_config::ToolManifest;
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
@@ -1239,7 +1239,7 @@ impl ProxyBridge {
                 // SECURITY (R246-RELAY-2): Pass the agent identity as requested_by.
                 // Previously hardcoded to None, bypassing self-approval prevention.
                 requested_by.map(ToOwned::to_owned),
-                session_id.map(ToOwned::to_owned),
+                session_id.map(bind_session_scope),
                 Some(action_fingerprint),
                 containment_context,
             )
@@ -2038,7 +2038,7 @@ impl ProxyBridge {
                                     // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                     state.agent_id.clone(),
                                     // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
-                                    Some(state.session_id.clone()),
+                                    Some(bind_session_scope(&state.session_id)),
                                     Some(action_fingerprint),
                                     approval_context,
                                 )
@@ -2201,7 +2201,7 @@ impl ProxyBridge {
                                     // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                     state.agent_id.clone(),
                                     // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
-                                    Some(state.session_id.clone()),
+                                    Some(bind_session_scope(&state.session_id)),
                                     Some(action_fingerprint),
                                     approval_context,
                                 )
@@ -2653,7 +2653,7 @@ impl ProxyBridge {
                                 // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                 state.agent_id.clone(),
                                 // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
-                                Some(state.session_id.clone()),
+                                Some(bind_session_scope(&state.session_id)),
                                 Some(action_fingerprint),
                                 approval_context,
                             )
@@ -3333,7 +3333,7 @@ impl ProxyBridge {
                                 // SECURITY (R246-RELAY-2): Pass agent identity as requested_by.
                                 state.agent_id.clone(),
                                 // SECURITY (R246-RELAY-1): Use per-relay session_id, not agent_id.
-                                Some(state.session_id.clone()),
+                                Some(bind_session_scope(&state.session_id)),
                                 Some(action_fingerprint),
                                 approval_context,
                             )
@@ -8712,8 +8712,12 @@ mod tests {
             .unwrap();
 
         let approval = store.get(&approval_id).await.unwrap();
+        let expected_session_binding = bind_session_scope("session-123");
         assert_eq!(approval.requested_by.as_deref(), Some("agent-alpha"));
-        assert_eq!(approval.session_id.as_deref(), Some("session-123"));
+        assert_eq!(
+            approval.session_id.as_deref(),
+            Some(expected_session_binding.as_str())
+        );
     }
 
     #[tokio::test]

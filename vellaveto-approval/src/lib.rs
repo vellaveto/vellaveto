@@ -108,9 +108,10 @@ pub struct PendingApproval {
     /// Used to prevent self-approval: the resolver must differ from the requester.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requested_by: Option<String>,
-    /// SECURITY (E3-1): Session that requested this approval.
+    /// SECURITY (E3-1): Session scope bound to this approval.
     /// When set, the approval is scoped to this session — approvals from other
     /// sessions cannot satisfy this request (cross-session replay prevention).
+    /// Some callers persist an opaque binding instead of the raw session ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     /// SECURITY (E3-1): ACIS action fingerprint (SHA-256 of tool+function+paths+domains).
@@ -135,7 +136,7 @@ impl PendingApproval {
     ) -> bool {
         let request_matches_bound_session = matches!(
             (self.session_id.as_deref(), session_id),
-            (Some(bound), Some(request)) if request == bound
+            (Some(bound), Some(request)) if bind_session_scope(request) == bind_session_scope(bound)
         );
         let request_matches_bound_fingerprint = matches!(
             (self.action_fingerprint.as_deref(), action_fingerprint),
@@ -269,6 +270,24 @@ pub const MIN_FINGERPRINT_LEN: usize = 32;
 ///
 /// SECURITY (E3-1): SHA-256 hex = 64 chars; allow headroom for future algorithms.
 pub const MAX_FINGERPRINT_LEN: usize = 128;
+
+const SESSION_BINDING_PREFIX: &str = "sidbind:v1:";
+
+/// Derive an opaque, deterministic session binding for persisted approval scope.
+///
+/// Passing an already-derived binding is a no-op so callers can safely bind at
+/// the edge without worrying about double hashing.
+#[must_use]
+pub fn bind_session_scope(session_id: &str) -> String {
+    if session_id.starts_with(SESSION_BINDING_PREFIX) {
+        return session_id.to_string();
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"vellaveto:approval:session_scope:v1:");
+    hasher.update(session_id.as_bytes());
+    format!("{SESSION_BINDING_PREFIX}{:x}", hasher.finalize())
+}
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -3644,6 +3663,29 @@ mod tests {
         assert!(approval.scope_matches(Some("session-a"), Some(action_fingerprint.as_str())));
         assert!(!approval.scope_matches(Some("session-b"), Some(action_fingerprint.as_str())));
         assert!(!approval.scope_matches(Some("session-a"), None));
+    }
+
+    #[test]
+    fn test_pending_approval_scope_matches_opaque_session_binding() {
+        let action_fingerprint = sample_action_fingerprint();
+        let approval = PendingApproval {
+            id: "approval-2".to_string(),
+            action: test_action(),
+            reason: "needs review".to_string(),
+            created_at: Utc::now(),
+            expires_at: Utc::now() + Duration::minutes(15),
+            status: ApprovalStatus::Pending,
+            resolved_by: None,
+            resolved_at: None,
+            consumed_at: None,
+            requested_by: Some("requester".to_string()),
+            session_id: Some(bind_session_scope("session-a")),
+            action_fingerprint: Some(action_fingerprint.clone()),
+            containment_context: None,
+        };
+
+        assert!(approval.scope_matches(Some("session-a"), Some(action_fingerprint.as_str())));
+        assert!(!approval.scope_matches(Some("session-b"), Some(action_fingerprint.as_str())));
     }
 
     #[tokio::test]

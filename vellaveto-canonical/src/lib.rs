@@ -24,6 +24,9 @@ pub enum CanonicalizationError {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CanonicalRequestInput {
+    /// Opaque session binding included in the canonical preimage.
+    ///
+    /// This intentionally avoids serializing the raw session identifier.
     pub session_id: Option<String>,
     pub action_kind: String,
     pub target_identity: serde_json::Value,
@@ -43,7 +46,7 @@ impl CanonicalRequestInput {
     ) -> Self {
         let request_signature = provenance.and_then(|p| p.request_signature.as_ref());
         Self {
-            session_id: session_id.map(std::string::ToString::to_string),
+            session_id: session_id.map(canonical_session_binding),
             action_kind: format!("{}:{}", action.tool, action.function),
             target_identity: json!({
                 "tool": action.tool,
@@ -59,6 +62,13 @@ impl CanonicalRequestInput {
             routing_identity: routing_identity.map(std::string::ToString::to_string),
         }
     }
+}
+
+fn canonical_session_binding(session_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"vellaveto:canonical:session_scope:v1:");
+    hasher.update(session_id.as_bytes());
+    format!("sidbind:v1:{}", hex::encode(hasher.finalize()))
 }
 
 /// Stable semantic lineage node used for provenance-aware audit correlation.
@@ -357,6 +367,24 @@ mod tests {
         let hash_a = canonical_request_hash(&input_a).unwrap();
         let hash_b = canonical_request_hash(&input_b).unwrap();
         assert_eq!(hash_a, hash_b);
+    }
+
+    #[test]
+    fn test_canonical_request_input_uses_opaque_session_binding() {
+        let action = Action {
+            tool: "http_request".into(),
+            function: "call".into(),
+            parameters: json!({"url": "https://example.com"}),
+            target_paths: vec![],
+            target_domains: vec!["example.com".into()],
+            resolved_ips: vec![],
+        };
+
+        let input = CanonicalRequestInput::from_action(&action, Some("session-1"), None, None);
+        let session_binding = input.session_id.as_deref().expect("session binding");
+
+        assert_ne!(session_binding, "session-1");
+        assert!(session_binding.starts_with("sidbind:v1:"));
     }
 
     #[test]
