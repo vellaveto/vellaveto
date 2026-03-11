@@ -15,10 +15,12 @@
 
 use std::sync::Arc;
 use tempfile::TempDir;
-use vellaveto_approval::ApprovalStore;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStore};
 use vellaveto_cluster::local::LocalBackend;
 use vellaveto_cluster::ClusterBackend;
-use vellaveto_types::Action;
+use vellaveto_types::{
+    Action, ContainmentMode, ContextChannel, SemanticRiskScore, SemanticTaint, SinkClass, TrustTier,
+};
 
 /// Helper: create a LocalBackend with a temporary persistence file.
 fn make_backend() -> (Arc<dyn ClusterBackend>, TempDir) {
@@ -40,6 +42,18 @@ fn make_action() -> Action {
     )
 }
 
+fn make_containment_context() -> ApprovalContainmentContext {
+    ApprovalContainmentContext {
+        semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+        lineage_channels: vec![ContextChannel::ToolOutput, ContextChannel::CommandLike],
+        effective_trust_tier: Some(TrustTier::Low),
+        sink_class: Some(SinkClass::CodeExecution),
+        containment_mode: Some(ContainmentMode::RequireApproval),
+        semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
+        counterfactual_review_required: true,
+    }
+}
+
 #[tokio::test]
 async fn test_create_and_get_approval() {
     let (backend, _tmp) = make_backend();
@@ -59,6 +73,29 @@ async fn test_create_and_get_approval() {
         approval.status,
         vellaveto_approval::ApprovalStatus::Pending
     ));
+}
+
+#[tokio::test]
+async fn test_create_and_get_approval_with_containment_context() {
+    let (backend, _tmp) = make_backend();
+
+    let id = backend
+        .approval_create_with_context(
+            make_action(),
+            "needs review".to_string(),
+            None,
+            None,
+            None,
+            Some(make_containment_context()),
+        )
+        .await
+        .expect("create should succeed");
+
+    let approval = backend.approval_get(&id).await.expect("get should succeed");
+    assert_eq!(
+        approval.containment_context,
+        Some(make_containment_context().normalized())
+    );
 }
 
 #[tokio::test]

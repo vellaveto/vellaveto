@@ -29,7 +29,7 @@ pub mod discovery_static;
 
 use async_trait::async_trait;
 use thiserror::Error;
-use vellaveto_approval::PendingApproval;
+use vellaveto_approval::{ApprovalContainmentContext, PendingApproval};
 
 /// Errors from cluster backend operations.
 ///
@@ -113,6 +113,27 @@ pub trait ClusterBackend: Send + Sync {
         requested_by: Option<String>,
         session_id: Option<String>,
         action_fingerprint: Option<String>,
+    ) -> Result<String, ClusterError> {
+        self.approval_create_with_context(
+            action,
+            reason,
+            requested_by,
+            session_id,
+            action_fingerprint,
+            None,
+        )
+        .await
+    }
+
+    /// Create a new pending approval with optional semantic-containment context.
+    async fn approval_create_with_context(
+        &self,
+        action: vellaveto_types::Action,
+        reason: String,
+        requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
+        containment_context: Option<ApprovalContainmentContext>,
     ) -> Result<String, ClusterError>;
 
     /// Get an approval by ID.

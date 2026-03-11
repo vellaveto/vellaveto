@@ -2037,6 +2037,44 @@ async fn approval_list_pending_after_evaluate() {
 }
 
 #[tokio::test]
+async fn approval_list_pending_after_evaluate_includes_containment_context() {
+    let (state, _tmp) = make_approval_state();
+    let approval_id = create_pending_approval(&state).await;
+
+    let app = routes::build_router(state);
+    let resp = app
+        .oneshot(
+            Request::get("/api/approvals/pending")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let approvals = json["approvals"].as_array().unwrap();
+    assert_eq!(approvals[0]["id"], approval_id);
+    assert_eq!(
+        approvals[0]["containment_context"]["containment_mode"],
+        "require_approval"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["sink_class"],
+        "filesystem_write"
+    );
+    assert!(
+        approvals[0]["containment_context"]["semantic_risk_score"]["value"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+}
+
+#[tokio::test]
 async fn approval_list_pending_includes_containment_context() {
     let (state, _tmp) = make_approval_state();
     let action = sensitive_delete_action("/important");

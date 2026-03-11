@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use deadpool_redis::redis;
 use deadpool_redis::redis::AsyncCommands;
 use deadpool_redis::{Config as PoolConfig, Pool, Runtime};
-use vellaveto_approval::{ApprovalStatus, PendingApproval};
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus, PendingApproval};
 use vellaveto_types::Action;
 
 use crate::{ClusterBackend, ClusterError};
@@ -320,11 +320,12 @@ impl RedisBackend {
 
     /// Compute a dedup key from action + reason + requested_by + session_id.
     /// Mirrors the logic in vellaveto-approval to ensure compatibility.
-    fn compute_dedup_hash(
+    fn compute_dedup_hash_with_context(
         action: &Action,
         reason: &str,
         requested_by: Option<&str>,
         session_id: Option<&str>,
+        containment_context: Option<&ApprovalContainmentContext>,
     ) -> Result<String, ClusterError> {
         use sha2::{Digest, Sha256};
         use unicode_normalization::UnicodeNormalization;
@@ -362,9 +363,16 @@ impl RedisBackend {
         // approval created in session A cannot be reused through a collision
         // with the same action in session B.
         let sess_component = session_id.unwrap_or("\x00NOSESS\x00");
+        let containment_component = match containment_context {
+            Some(context) if context.is_meaningful() => {
+                serde_json::to_string(&context.normalized())
+                    .map_err(|e| ClusterError::Serialization(e.to_string()))?
+            }
+            _ => "\x00NOCTX\x00".to_string(),
+        };
         let input = format!(
-            "{}||{}||{}||{}",
-            canonical_str, reason, rb_component, sess_component
+            "{}||{}||{}||{}||{}",
+            canonical_str, reason, rb_component, sess_component, containment_component
         );
         let hash = Sha256::digest(input.as_bytes());
         Ok(format!("{:x}", hash))
@@ -450,13 +458,14 @@ return 1
 
 #[async_trait]
 impl ClusterBackend for RedisBackend {
-    async fn approval_create(
+    async fn approval_create_with_context(
         &self,
         action: Action,
         reason: String,
         requested_by: Option<String>,
         session_id: Option<String>,
         action_fingerprint: Option<String>,
+        containment_context: Option<ApprovalContainmentContext>,
     ) -> Result<String, ClusterError> {
         // SECURITY (FIND-R111-001): Validate reason length — mirrors vellaveto-approval
         // store-level check. Without this, an attacker can store arbitrarily large strings
@@ -549,11 +558,16 @@ impl ClusterBackend for RedisBackend {
             ));
         }
 
-        let dedup_hash = Self::compute_dedup_hash(
+        let containment_context = containment_context
+            .map(|context| context.normalized())
+            .filter(|context| context.is_meaningful());
+
+        let dedup_hash = Self::compute_dedup_hash_with_context(
             &action,
             &reason,
             requested_by.as_deref(),
             session_id.as_deref(),
+            containment_context.as_ref(),
         )?;
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
@@ -578,7 +592,7 @@ impl ClusterBackend for RedisBackend {
             requested_by,
             session_id,
             action_fingerprint,
-            containment_context: None,
+            containment_context,
         };
 
         let approval_json = serde_json::to_string(&approval)
@@ -811,11 +825,12 @@ impl ClusterBackend for RedisBackend {
                     if let Ok(approval) = serde_json::from_str::<PendingApproval>(&json) {
                         let _: Result<(), _> =
                             conn.zrem(self.pending_set_key(), &approval.id).await;
-                        if let Ok(dedup_hash) = Self::compute_dedup_hash(
+                        if let Ok(dedup_hash) = Self::compute_dedup_hash_with_context(
                             &approval.action,
                             &approval.reason,
                             approval.requested_by.as_deref(),
                             approval.session_id.as_deref(),
+                            approval.containment_context.as_ref(),
                         ) {
                             let _: Result<(), _> = conn.del(self.dedup_key(&dedup_hash)).await;
                         }
@@ -1105,7 +1120,25 @@ impl RedisBackend {
         requested_by: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<String, ClusterError> {
-        Self::compute_dedup_hash(action, reason, requested_by, session_id)
+        Self::compute_dedup_hash_with_context(action, reason, requested_by, session_id, None)
+    }
+
+    /// Expose compute_dedup_hash_with_context for testing.
+    #[cfg(test)]
+    pub(crate) fn test_compute_dedup_hash_with_context(
+        action: &Action,
+        reason: &str,
+        requested_by: Option<&str>,
+        session_id: Option<&str>,
+        containment_context: Option<&ApprovalContainmentContext>,
+    ) -> Result<String, ClusterError> {
+        Self::compute_dedup_hash_with_context(
+            action,
+            reason,
+            requested_by,
+            session_id,
+            containment_context,
+        )
     }
 
     /// Persist an updated approval and cleanup associated indices.
@@ -1131,11 +1164,12 @@ impl RedisBackend {
                 .map_err(|e| ClusterError::Connection(format!("Redis ZREM failed: {}", e)))?;
 
             // Remove dedup key
-            if let Ok(dedup_hash) = Self::compute_dedup_hash(
+            if let Ok(dedup_hash) = Self::compute_dedup_hash_with_context(
                 &approval.action,
                 &approval.reason,
                 approval.requested_by.as_deref(),
                 approval.session_id.as_deref(),
+                approval.containment_context.as_ref(),
             ) {
                 let _: () = conn.del(self.dedup_key(&dedup_hash)).await.map_err(|e| {
                     ClusterError::Connection(format!("Redis DEL dedup failed: {}", e))
@@ -1166,6 +1200,24 @@ mod tests {
             target_paths: vec![],
             target_domains: vec![],
             resolved_ips: vec![],
+        }
+    }
+
+    fn make_containment_context(risk: u8) -> ApprovalContainmentContext {
+        ApprovalContainmentContext {
+            semantic_taint: vec![
+                vellaveto_types::SemanticTaint::Quarantined,
+                vellaveto_types::SemanticTaint::IntegrityFailed,
+            ],
+            lineage_channels: vec![
+                vellaveto_types::ContextChannel::CommandLike,
+                vellaveto_types::ContextChannel::ToolOutput,
+            ],
+            effective_trust_tier: Some(vellaveto_types::TrustTier::Low),
+            sink_class: Some(vellaveto_types::SinkClass::CodeExecution),
+            containment_mode: Some(vellaveto_types::ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: risk }),
+            counterfactual_review_required: risk >= 90,
         }
     }
 
@@ -1509,6 +1561,68 @@ mod tests {
             h1, h2,
             "None vs Some(session_id) must produce different hashes"
         );
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_normalizes_equivalent_containment_context() {
+        let action = make_action("tool", "func");
+        let first = make_containment_context(90);
+        let second = ApprovalContainmentContext {
+            semantic_taint: vec![
+                vellaveto_types::SemanticTaint::IntegrityFailed,
+                vellaveto_types::SemanticTaint::Quarantined,
+            ],
+            lineage_channels: vec![
+                vellaveto_types::ContextChannel::ToolOutput,
+                vellaveto_types::ContextChannel::CommandLike,
+            ],
+            ..make_containment_context(90)
+        };
+
+        let h1 = RedisBackend::test_compute_dedup_hash_with_context(
+            &action,
+            "reason",
+            Some("alice"),
+            Some("session-1"),
+            Some(&first),
+        )
+        .unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash_with_context(
+            &action,
+            "reason",
+            Some("alice"),
+            Some("session-1"),
+            Some(&second),
+        )
+        .unwrap();
+
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_dedup_hash_distinguishes_containment_context() {
+        let action = make_action("tool", "func");
+        let low_risk = make_containment_context(40);
+        let high_risk = make_containment_context(95);
+
+        let h1 = RedisBackend::test_compute_dedup_hash_with_context(
+            &action,
+            "reason",
+            Some("alice"),
+            Some("session-1"),
+            Some(&low_risk),
+        )
+        .unwrap();
+        let h2 = RedisBackend::test_compute_dedup_hash_with_context(
+            &action,
+            "reason",
+            Some("alice"),
+            Some("session-1"),
+            Some(&high_risk),
+        )
+        .unwrap();
+
+        assert_ne!(h1, h2);
     }
 
     #[test]

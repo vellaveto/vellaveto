@@ -20,13 +20,15 @@ use serde_json::json;
 use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use vellaveto_approval::ApprovalStatus;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_engine::acis::fingerprint_action;
-use vellaveto_mcp::mediation::build_acis_envelope;
+use vellaveto_mcp::mediation::{build_acis_envelope, build_acis_envelope_with_security_context};
+use vellaveto_mcp::tool_registry::TrustLevel;
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport, Action,
-    EvaluationContext, Verdict,
+    ContainmentMode, EvaluationContext, RuntimeSecurityContext, SemanticTaint, SinkClass,
+    TrustTier, Verdict,
 };
 
 use governor::clock::Clock;
@@ -1732,6 +1734,167 @@ fn build_evaluate_acis_envelope(
     )
 }
 
+fn build_evaluate_acis_envelope_with_security_context(
+    action: &Action,
+    verdict: &Verdict,
+    context: Option<&EvaluationContext>,
+    tenant_id: &str,
+    origin: DecisionOrigin,
+    evaluation_us: u64,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> AcisDecisionEnvelope {
+    build_acis_envelope_with_security_context(
+        &uuid::Uuid::new_v4().to_string().replace('-', ""),
+        action,
+        verdict,
+        origin,
+        "http",
+        &[],
+        Some(evaluation_us),
+        None,
+        Some(tenant_id),
+        context,
+        security_context,
+    )
+}
+
+fn approval_containment_context_from_envelope(
+    envelope: &AcisDecisionEnvelope,
+    reason: &str,
+) -> Option<ApprovalContainmentContext> {
+    let context = ApprovalContainmentContext {
+        semantic_taint: envelope.semantic_taint.clone(),
+        lineage_channels: envelope
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel)
+            .collect(),
+        effective_trust_tier: envelope.effective_trust_tier,
+        sink_class: envelope.sink_class,
+        containment_mode: envelope.containment_mode,
+        semantic_risk_score: envelope.semantic_risk_score,
+        counterfactual_review_required: reason.contains("counterfactual review required"),
+    }
+    .normalized();
+
+    context.is_meaningful().then_some(context)
+}
+
+fn contains_security_keyword(tool: &str, function: &str, keywords: &[&str]) -> bool {
+    keywords
+        .iter()
+        .any(|keyword| tool.contains(keyword) || function.contains(keyword))
+}
+
+fn looks_like_mutating_action(tool: &str, function: &str) -> bool {
+    contains_security_keyword(
+        tool,
+        function,
+        &[
+            "write", "edit", "update", "delete", "remove", "create", "append", "save", "set",
+        ],
+    )
+}
+
+fn looks_like_read_only_action(tool: &str, function: &str) -> bool {
+    contains_security_keyword(
+        tool,
+        function,
+        &["read", "list", "get", "fetch", "show", "view", "describe"],
+    )
+}
+
+fn infer_action_sink_class(action: &Action) -> Option<SinkClass> {
+    let tool = action.tool.to_ascii_lowercase();
+    let function = action.function.to_ascii_lowercase();
+
+    if action.tool == "resources" && action.function == "read" {
+        return Some(SinkClass::ReadOnly);
+    }
+    if contains_security_keyword(&tool, &function, &["approval", "consent", "prompt"]) {
+        return Some(SinkClass::ApprovalUi);
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &[
+            "secret",
+            "credential",
+            "token",
+            "password",
+            "apikey",
+            "api_key",
+            "auth",
+        ],
+    ) {
+        return Some(SinkClass::CredentialAccess);
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &["policy", "config", "rule", "governance"],
+    ) {
+        return Some(SinkClass::PolicyMutation);
+    }
+    if contains_security_keyword(&tool, &function, &["memory", "memo", "cache", "store"]) {
+        return Some(SinkClass::MemoryWrite);
+    }
+    if contains_security_keyword(
+        &tool,
+        &function,
+        &[
+            "exec", "execute", "run", "shell", "bash", "python", "node", "script", "command",
+            "spawn", "terminal",
+        ],
+    ) {
+        return Some(SinkClass::CodeExecution);
+    }
+    if !action.target_domains.is_empty() {
+        return Some(SinkClass::NetworkEgress);
+    }
+    if !action.target_paths.is_empty() {
+        if looks_like_mutating_action(&tool, &function) {
+            return Some(SinkClass::FilesystemWrite);
+        }
+        return Some(SinkClass::ReadOnly);
+    }
+    if looks_like_mutating_action(&tool, &function) {
+        return Some(SinkClass::LowRiskWrite);
+    }
+    if looks_like_read_only_action(&tool, &function) {
+        return Some(SinkClass::ReadOnly);
+    }
+    Some(SinkClass::LowRiskWrite)
+}
+
+fn build_server_approval_security_context(
+    action: &Action,
+    effective_trust_tier: Option<TrustTier>,
+    semantic_taint: Vec<SemanticTaint>,
+) -> Option<RuntimeSecurityContext> {
+    let mut security_context = RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: infer_action_sink_class(action),
+        containment_mode: Some(ContainmentMode::RequireApproval),
+        ..RuntimeSecurityContext::default()
+    };
+
+    if let Some(sink_class) = security_context.sink_class {
+        let semantic_risk = security_context.recommended_semantic_risk_score_for_sink(sink_class);
+        security_context.merge_semantic_risk_score(semantic_risk);
+        let counterfactual =
+            security_context.recommended_counterfactual_attribution_score_for_sink(sink_class);
+        security_context.merge_semantic_risk_score(counterfactual);
+    }
+
+    if security_context == RuntimeSecurityContext::default() {
+        None
+    } else {
+        Some(security_context)
+    }
+}
+
 fn is_valid_tls_metadata_token(value: &str) -> bool {
     value
         .chars()
@@ -2175,7 +2338,7 @@ async fn evaluate(
         let tool_name = &action.tool;
         let trust = registry.check_trust_level(tool_name).await;
         match trust {
-            vellaveto_mcp::tool_registry::TrustLevel::Unknown => {
+            TrustLevel::Unknown => {
                 // Unknown tool: register it and require approval
                 registry.register_unknown(tool_name).await;
                 match presented_approval_matches_action(
@@ -2242,6 +2405,22 @@ async fn evaluate(
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
+                        let approval_security_context = build_server_approval_security_context(
+                            &action,
+                            Some(TrustTier::Unknown),
+                            vec![SemanticTaint::Untrusted],
+                        );
+                        let approval_envelope = build_evaluate_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            context.as_ref(),
+                            &tenant_ctx.tenant_id,
+                            DecisionOrigin::TopologyGuard,
+                            eval_start.elapsed().as_micros() as u64,
+                            approval_security_context.as_ref(),
+                        );
+                        let approval_context =
+                            approval_containment_context_from_envelope(&approval_envelope, &reason);
                         // SECURITY (R30-SRV-3): Defer metrics recording until after
                         // approval creation — if creation fails, the final verdict is
                         // Deny, not RequireApproval. Recording both double-counts.
@@ -2257,12 +2436,13 @@ async fn evaluate(
                             None
                         };
                         let approval_id = match state
-                            .create_approval(
+                            .create_approval_with_context(
                                 action.clone(),
                                 reason,
                                 requested_by,
                                 None,
                                 Some(fingerprint_action(&action)),
+                                approval_context,
                             )
                             .await
                         {
@@ -2332,14 +2512,7 @@ async fn evaluate(
                                     tls_metadata.as_ref(),
                                     json!({"registry": "unknown_tool", "approval_id": approval_id}),
                                 ),
-                                build_evaluate_acis_envelope(
-                                    &action,
-                                    &verdict,
-                                    context.as_ref(),
-                                    &tenant_ctx.tenant_id,
-                                    DecisionOrigin::TopologyGuard,
-                                    eval_start.elapsed().as_micros() as u64,
-                                ),
+                                approval_envelope,
                             )
                             .await
                         {
@@ -2357,7 +2530,7 @@ async fn evaluate(
                     }
                 }
             }
-            vellaveto_mcp::tool_registry::TrustLevel::Untrusted { score } => {
+            TrustLevel::Untrusted { score } => {
                 match presented_approval_matches_action(
                     &state,
                     presented_approval_id.as_deref(),
@@ -2428,6 +2601,22 @@ async fn evaluate(
                         let verdict = Verdict::RequireApproval {
                             reason: reason.clone(),
                         };
+                        let approval_security_context = build_server_approval_security_context(
+                            &action,
+                            Some(TrustTier::Untrusted),
+                            vec![SemanticTaint::Untrusted],
+                        );
+                        let approval_envelope = build_evaluate_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            context.as_ref(),
+                            &tenant_ctx.tenant_id,
+                            DecisionOrigin::TopologyGuard,
+                            eval_start.elapsed().as_micros() as u64,
+                            approval_security_context.as_ref(),
+                        );
+                        let approval_context =
+                            approval_containment_context_from_envelope(&approval_envelope, &reason);
                         // SECURITY (R30-SRV-3): Defer metrics until after approval creation
 
                         let requester = crate::routes::approval::derive_resolver_identity(
@@ -2440,12 +2629,13 @@ async fn evaluate(
                             None
                         };
                         let approval_id = match state
-                            .create_approval(
+                            .create_approval_with_context(
                                 action.clone(),
                                 reason,
                                 requested_by,
                                 None,
                                 Some(fingerprint_action(&action)),
+                                approval_context,
                             )
                             .await
                         {
@@ -2515,14 +2705,7 @@ async fn evaluate(
                                     tls_metadata.as_ref(),
                                     json!({"registry": "untrusted_tool", "approval_id": approval_id}),
                                 ),
-                                build_evaluate_acis_envelope(
-                                    &action,
-                                    &verdict,
-                                    context.as_ref(),
-                                    &tenant_ctx.tenant_id,
-                                    DecisionOrigin::TopologyGuard,
-                                    eval_start.elapsed().as_micros() as u64,
-                                ),
+                                approval_envelope,
                             )
                             .await
                         {
@@ -2540,7 +2723,7 @@ async fn evaluate(
                     }
                 }
             }
-            vellaveto_mcp::tool_registry::TrustLevel::Trusted => {
+            TrustLevel::Trusted => {
                 // Trusted — proceed to engine evaluation
             }
         }
@@ -2668,6 +2851,7 @@ async fn evaluate(
         Verdict::RequireApproval { .. } => DecisionOrigin::ApprovalGate,
         _ => DecisionOrigin::PolicyEngine,
     };
+    let mut approval_security_context: Option<RuntimeSecurityContext> = None;
 
     // If RequireApproval, create a pending approval.
     // Fail-closed: if approval creation fails, convert to Deny so the caller
@@ -2697,6 +2881,19 @@ async fn evaluate(
                     )
                 }
                 Ok(None) => {
+                    let derived_security_context =
+                        build_server_approval_security_context(&action, None, Vec::new());
+                    let approval_envelope = build_evaluate_acis_envelope_with_security_context(
+                        &action,
+                        &verdict,
+                        context.as_ref(),
+                        &tenant_ctx.tenant_id,
+                        DecisionOrigin::ApprovalGate,
+                        eval_start.elapsed().as_micros() as u64,
+                        derived_security_context.as_ref(),
+                    );
+                    let approval_context =
+                        approval_containment_context_from_envelope(&approval_envelope, reason);
                     // SECURITY (R9-2): Record the requester identity so the approval endpoint
                     // can enforce separation of privilege (different principal must approve).
                     let requester =
@@ -2707,17 +2904,19 @@ async fn evaluate(
                         None
                     };
                     match state
-                        .create_approval(
+                        .create_approval_with_context(
                             action.clone(),
                             reason.clone(),
                             requested_by,
                             None,
                             Some(fingerprint_action(&action)),
+                            approval_context,
                         )
                         .await
                     {
                         Ok(id) => {
                             acis_origin = DecisionOrigin::ApprovalGate;
+                            approval_security_context = derived_security_context;
                             (verdict, Some(id))
                         }
                         Err(e) => {
@@ -2823,13 +3022,14 @@ async fn evaluate(
             obj.insert("opa".to_string(), opa);
         }
     }
-    let acis_envelope = build_evaluate_acis_envelope(
+    let acis_envelope = build_evaluate_acis_envelope_with_security_context(
         &action,
         &verdict,
         context.as_ref(),
         &tenant_ctx.tenant_id,
         acis_origin,
         eval_start.elapsed().as_micros() as u64,
+        approval_security_context.as_ref(),
     );
 
     if let Err(e) = state

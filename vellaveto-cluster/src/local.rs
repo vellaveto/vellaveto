@@ -15,7 +15,7 @@
 
 use async_trait::async_trait;
 use std::sync::Arc;
-use vellaveto_approval::ApprovalStore;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStore};
 
 use crate::{ClusterBackend, ClusterError};
 
@@ -37,17 +37,25 @@ impl LocalBackend {
 
 #[async_trait]
 impl ClusterBackend for LocalBackend {
-    async fn approval_create(
+    async fn approval_create_with_context(
         &self,
         action: vellaveto_types::Action,
         reason: String,
         requested_by: Option<String>,
         session_id: Option<String>,
         action_fingerprint: Option<String>,
+        containment_context: Option<ApprovalContainmentContext>,
     ) -> Result<String, ClusterError> {
         Ok(self
             .approvals
-            .create(action, reason, requested_by, session_id, action_fingerprint)
+            .create_with_context(
+                action,
+                reason,
+                requested_by,
+                session_id,
+                action_fingerprint,
+                containment_context,
+            )
             .await?)
     }
 

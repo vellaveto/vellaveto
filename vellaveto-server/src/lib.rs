@@ -38,7 +38,7 @@ use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use vellaveto_approval::ApprovalStore;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStore};
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::PolicyConfig;
 use vellaveto_engine::PolicyEngine;
@@ -1150,14 +1150,50 @@ impl AppState {
         session_id: Option<String>,
         action_fingerprint: Option<String>,
     ) -> Result<String, ApprovalOpError> {
+        self.create_approval_with_context(
+            action,
+            reason,
+            requested_by,
+            session_id,
+            action_fingerprint,
+            None,
+        )
+        .await
+    }
+
+    /// Create an approval with optional semantic-containment context, dispatching
+    /// to the cluster backend if available.
+    pub async fn create_approval_with_context(
+        &self,
+        action: vellaveto_types::Action,
+        reason: String,
+        requested_by: Option<String>,
+        session_id: Option<String>,
+        action_fingerprint: Option<String>,
+        containment_context: Option<ApprovalContainmentContext>,
+    ) -> Result<String, ApprovalOpError> {
         if let Some(ref cluster) = self.cluster {
             Ok(cluster
-                .approval_create(action, reason, requested_by, session_id, action_fingerprint)
+                .approval_create_with_context(
+                    action,
+                    reason,
+                    requested_by,
+                    session_id,
+                    action_fingerprint,
+                    containment_context,
+                )
                 .await?)
         } else {
             Ok(self
                 .approvals
-                .create(action, reason, requested_by, session_id, action_fingerprint)
+                .create_with_context(
+                    action,
+                    reason,
+                    requested_by,
+                    session_id,
+                    action_fingerprint,
+                    containment_context,
+                )
                 .await?)
         }
     }
