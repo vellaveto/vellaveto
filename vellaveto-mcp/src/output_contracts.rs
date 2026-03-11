@@ -15,7 +15,10 @@
 //! the expected contract.
 
 use serde_json::Value;
-use vellaveto_types::ContextChannel;
+use vellaveto_types::{
+    ContainmentMode, ContextChannel, LineageRef, RuntimeSecurityContext, SemanticRiskScore,
+    SemanticTaint, TrustTier,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutputContractEvaluation {
@@ -34,6 +37,50 @@ impl OutputContractEvaluation {
                 self.observed,
                 ContextChannel::CommandLike | ContextChannel::ApprovalPrompt
             )
+    }
+
+    pub fn violation_security_context(self) -> Option<RuntimeSecurityContext> {
+        if !self.is_violation() {
+            return None;
+        }
+
+        let quarantined = self.requires_quarantine();
+        let effective_trust_tier = Some(if quarantined {
+            TrustTier::Quarantined
+        } else {
+            TrustTier::Untrusted
+        });
+        let mut semantic_taint = vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed];
+        if quarantined {
+            semantic_taint.push(SemanticTaint::Quarantined);
+        }
+
+        let semantic_risk = 45u8
+            .saturating_add(self.observed.semantic_risk_weight())
+            .saturating_add(if quarantined { 20 } else { 0 })
+            .min(100);
+
+        Some(RuntimeSecurityContext {
+            semantic_taint,
+            effective_trust_tier,
+            sink_class: None,
+            lineage_refs: vec![LineageRef {
+                id: "output_contract_observed".to_string(),
+                channel: self.observed,
+                content_hash: None,
+                source: Some("semantic_output_contract".to_string()),
+                trust_tier: effective_trust_tier,
+            }],
+            containment_mode: Some(if quarantined {
+                ContainmentMode::Quarantine
+            } else {
+                ContainmentMode::Enforce
+            }),
+            semantic_risk_score: Some(SemanticRiskScore {
+                value: semantic_risk,
+            }),
+            ..RuntimeSecurityContext::default()
+        })
     }
 }
 
@@ -310,5 +357,62 @@ mod tests {
         let eval = evaluate_output_contract(Some("search_web"), &response).expect("evaluation");
         assert!(eval.is_violation());
         assert!(!eval.requires_quarantine());
+    }
+
+    #[test]
+    fn test_quarantined_violation_security_context() {
+        let eval = OutputContractEvaluation {
+            expected: ContextChannel::Data,
+            observed: ContextChannel::CommandLike,
+        };
+
+        let context = eval
+            .violation_security_context()
+            .expect("violations should produce context");
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![
+                SemanticTaint::Untrusted,
+                SemanticTaint::IntegrityFailed,
+                SemanticTaint::Quarantined
+            ]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Quarantine));
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 100 })
+        );
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::CommandLike);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("semantic_output_contract")
+        );
+    }
+
+    #[test]
+    fn test_non_quarantined_violation_security_context() {
+        let eval = OutputContractEvaluation {
+            expected: ContextChannel::Data,
+            observed: ContextChannel::Url,
+        };
+
+        let context = eval
+            .violation_security_context()
+            .expect("violations should produce context");
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Untrusted));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Enforce));
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 70 })
+        );
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::Url);
     }
 }

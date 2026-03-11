@@ -1654,6 +1654,28 @@ async fn create_pending_approval_for_action(state: &AppState, action: &Action) -
         .to_string()
 }
 
+async fn create_pending_approval_with_containment_context(state: &AppState) -> String {
+    state
+        .create_approval_with_context(
+            sensitive_delete_action("/important"),
+            "needs review".to_string(),
+            Some("requester".to_string()),
+            Some("sess-containment".to_string()),
+            Some("f".repeat(64)),
+            Some(ApprovalContainmentContext {
+                semantic_taint: vec![SemanticTaint::Quarantined, SemanticTaint::IntegrityFailed],
+                lineage_channels: vec![ContextChannel::CommandLike, ContextChannel::ApprovalPrompt],
+                effective_trust_tier: Some(TrustTier::Low),
+                sink_class: Some(SinkClass::CodeExecution),
+                containment_mode: Some(ContainmentMode::RequireApproval),
+                semantic_risk_score: Some(SemanticRiskScore { value: 94 }),
+                counterfactual_review_required: true,
+            }),
+        )
+        .await
+        .expect("manual approval creation should succeed")
+}
+
 async fn create_approved_manual_approval(
     state: &AppState,
     action: &Action,
@@ -3550,6 +3572,117 @@ async fn test_deny_creates_audit_entry() {
     assert!(
         verdict.get("Deny").is_some(),
         "Denial audit entry should have Deny verdict, got: {verdict}"
+    );
+}
+
+#[tokio::test]
+async fn test_approve_audit_entry_preserves_containment_context() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval_with_containment_context(&state).await;
+
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "admin"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{approval_id}/approve"))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let approval_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_approved")
+        })
+        .expect("Should find an audit entry with event=approval_approved");
+
+    let envelope = &approval_entry["acis_envelope"];
+    assert_eq!(envelope["effective_trust_tier"], "low");
+    assert_eq!(envelope["sink_class"], "code_execution");
+    assert_eq!(envelope["containment_mode"], "require_approval");
+    assert_eq!(envelope["semantic_risk_score"]["value"], 94);
+    assert_eq!(
+        envelope["semantic_taint"],
+        json!(["integrity_failed", "quarantined"])
+    );
+    assert_eq!(envelope["lineage_refs"][0]["channel"], "command_like");
+    assert_eq!(envelope["lineage_refs"][1]["channel"], "approval_prompt");
+    assert_eq!(envelope["session_id"], "sess-containment");
+    assert_eq!(
+        approval_entry["metadata"]["counterfactual_review_required"],
+        json!(true)
+    );
+}
+
+#[tokio::test]
+async fn test_deny_audit_entry_preserves_containment_context() {
+    let (state, tmp) = make_approval_state();
+    let audit_path = tmp.path().join("audit.log");
+    let approval_id = create_pending_approval_with_containment_context(&state).await;
+
+    let app = routes::build_router(state.clone());
+    let body = serde_json::to_string(&json!({"resolved_by": "security-team"})).unwrap();
+    let resp = app
+        .oneshot(
+            Request::post(format!("/api/approvals/{approval_id}/deny"))
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let content = tokio::fs::read_to_string(&audit_path)
+        .await
+        .expect("audit log should exist");
+    let entries: Vec<serde_json::Value> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("each audit line should be valid JSON"))
+        .collect();
+
+    let denial_entry = entries
+        .iter()
+        .find(|e| {
+            e.get("metadata")
+                .and_then(|m| m.get("event"))
+                .and_then(|v| v.as_str())
+                == Some("approval_denied")
+        })
+        .expect("Should find an audit entry with event=approval_denied");
+
+    let envelope = &denial_entry["acis_envelope"];
+    assert_eq!(envelope["effective_trust_tier"], "low");
+    assert_eq!(envelope["sink_class"], "code_execution");
+    assert_eq!(envelope["containment_mode"], "require_approval");
+    assert_eq!(envelope["semantic_risk_score"]["value"], 94);
+    assert_eq!(envelope["lineage_refs"][0]["channel"], "command_like");
+    assert_eq!(envelope["lineage_refs"][1]["channel"], "approval_prompt");
+    assert_eq!(
+        denial_entry["metadata"]["counterfactual_review_required"],
+        json!(true)
     );
 }
 

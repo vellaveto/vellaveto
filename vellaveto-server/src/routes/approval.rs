@@ -25,7 +25,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use vellaveto_mcp::mediation::build_secondary_acis_envelope;
+use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_types::acis::DecisionOrigin;
 use vellaveto_types::{Action, Verdict};
 
@@ -331,12 +331,24 @@ pub async fn approve_approval(
         if let Some(ref r) = reason {
             meta["reason"] = json!(r);
         }
-        let acis_envelope = build_secondary_acis_envelope(
+        if approval
+            .containment_context
+            .as_ref()
+            .is_some_and(|context| context.counterfactual_review_required)
+        {
+            meta["counterfactual_review_required"] = json!(true);
+        }
+        let approval_security_context = approval
+            .containment_context
+            .as_ref()
+            .and_then(|context| context.to_runtime_security_context());
+        let acis_envelope = build_secondary_acis_envelope_with_security_context(
             &audit_action,
             &Verdict::Allow,
             DecisionOrigin::ApprovalGate,
             "http",
-            None,
+            approval.session_id.as_deref(),
+            approval_security_context.as_ref(),
         );
         if let Err(e) = state
             .audit
@@ -476,12 +488,24 @@ pub async fn deny_approval(
         let deny_verdict = Verdict::Deny {
             reason: "approval_denied".to_string(),
         };
-        let acis_envelope = build_secondary_acis_envelope(
+        if approval
+            .containment_context
+            .as_ref()
+            .is_some_and(|context| context.counterfactual_review_required)
+        {
+            meta["counterfactual_review_required"] = json!(true);
+        }
+        let approval_security_context = approval
+            .containment_context
+            .as_ref()
+            .and_then(|context| context.to_runtime_security_context());
+        let acis_envelope = build_secondary_acis_envelope_with_security_context(
             &audit_action,
             &deny_verdict,
             DecisionOrigin::ApprovalGate,
             "http",
-            None,
+            approval.session_id.as_deref(),
+            approval_security_context.as_ref(),
         );
         if let Err(e) = state
             .audit

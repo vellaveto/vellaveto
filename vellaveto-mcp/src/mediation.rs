@@ -559,7 +559,23 @@ pub fn build_secondary_acis_envelope(
     transport: &str,
     session_id: Option<&str>,
 ) -> AcisDecisionEnvelope {
-    build_acis_envelope(
+    build_secondary_acis_envelope_with_security_context(
+        action, verdict, origin, transport, session_id, None,
+    )
+}
+
+/// Variant of [`build_secondary_acis_envelope`] that preserves provenance and
+/// containment metadata for secondary decisions emitted outside the primary
+/// policy-evaluation path.
+pub fn build_secondary_acis_envelope_with_security_context(
+    action: &Action,
+    verdict: &Verdict,
+    origin: DecisionOrigin,
+    transport: &str,
+    session_id: Option<&str>,
+    security_context: Option<&RuntimeSecurityContext>,
+) -> AcisDecisionEnvelope {
+    build_acis_envelope_with_security_context(
         &uuid::Uuid::new_v4().to_string().replace('-', ""),
         action,
         verdict,
@@ -570,6 +586,7 @@ pub fn build_secondary_acis_envelope(
         session_id,
         None,
         None,
+        security_context,
     )
 }
 
@@ -2108,5 +2125,62 @@ mod tests {
                 env.validate()
             );
         }
+    }
+
+    #[test]
+    fn test_build_secondary_envelope_preserves_security_context() {
+        let action = test_action();
+        let security_context = RuntimeSecurityContext {
+            semantic_taint: vec![vellaveto_types::SemanticTaint::Quarantined],
+            effective_trust_tier: Some(vellaveto_types::TrustTier::Low),
+            sink_class: Some(vellaveto_types::SinkClass::CodeExecution),
+            lineage_refs: vec![vellaveto_types::LineageRef {
+                id: "approval_ctx_0".to_string(),
+                channel: vellaveto_types::ContextChannel::CommandLike,
+                content_hash: None,
+                source: Some("approval_review".to_string()),
+                trust_tier: Some(vellaveto_types::TrustTier::Low),
+            }],
+            containment_mode: Some(vellaveto_types::ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 92 }),
+            ..RuntimeSecurityContext::default()
+        };
+        let verdict = Verdict::Deny {
+            reason: "approval denied".to_string(),
+        };
+        let env = build_secondary_acis_envelope_with_security_context(
+            &action,
+            &verdict,
+            DecisionOrigin::ApprovalGate,
+            "http",
+            Some("sess-1"),
+            Some(&security_context),
+        );
+
+        assert_eq!(
+            env.semantic_taint,
+            vec![vellaveto_types::SemanticTaint::Quarantined]
+        );
+        assert_eq!(
+            env.effective_trust_tier,
+            Some(vellaveto_types::TrustTier::Low)
+        );
+        assert_eq!(
+            env.sink_class,
+            Some(vellaveto_types::SinkClass::CodeExecution)
+        );
+        assert_eq!(
+            env.containment_mode,
+            Some(vellaveto_types::ContainmentMode::RequireApproval)
+        );
+        assert_eq!(
+            env.semantic_risk_score,
+            Some(vellaveto_types::SemanticRiskScore { value: 92 })
+        );
+        assert_eq!(env.lineage_refs.len(), 1);
+        assert_eq!(
+            env.lineage_refs[0].channel,
+            vellaveto_types::ContextChannel::CommandLike
+        );
     }
 }

@@ -26,7 +26,7 @@ use crate::inspection::{
     scan_response_for_injection, scan_response_for_secrets, scan_tool_descriptions,
     scan_tool_descriptions_with_scanner,
 };
-use crate::output_contracts::evaluate_output_contract;
+use crate::output_contracts::{evaluate_output_contract, infer_observed_output_channel};
 use crate::output_validation::ValidationResult;
 use crate::proxy::types::{ProxyDecision, ProxyError};
 use crate::verified_bridge_principal;
@@ -44,9 +44,9 @@ use vellaveto_engine::deputy::DeputyValidationBinding;
 use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
     project_agent_identity_from_transport, project_capability_token_from_transport,
-    sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, ContextChannel,
-    EvaluationContext, EvaluationTrace, LineageRef, RuntimeSecurityContext, SemanticTaint,
-    TrustTier, Verdict,
+    sanitize_for_log, unicode::normalize_homoglyphs, Action, CallChainEntry, ContainmentMode,
+    ContextChannel, EvaluationContext, EvaluationTrace, LineageRef, RuntimeSecurityContext,
+    SemanticRiskScore, SemanticTaint, TrustTier, Verdict,
 };
 
 const SYNTHETIC_DELEGATION_AGENT_ID: &str = "delegation-hop";
@@ -285,6 +285,96 @@ fn approval_containment_context_from_envelope(
     .normalized();
 
     context.is_meaningful().then_some(context)
+}
+
+fn response_dlp_security_context(
+    tool_name: Option<&str>,
+    response: &Value,
+    blocking: bool,
+) -> RuntimeSecurityContext {
+    let observed_channel = infer_observed_output_channel(tool_name, response);
+    let effective_trust_tier = Some(if blocking {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Sensitive];
+    if blocking {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    let semantic_risk_score = Some(SemanticRiskScore {
+        value: 55u8
+            .saturating_add(observed_channel.semantic_risk_weight())
+            .saturating_add(if blocking { 20 } else { 0 })
+            .min(100),
+    });
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "response_dlp".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some("response_dlp".to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if blocking {
+            ContainmentMode::Quarantine
+        } else {
+            ContainmentMode::Sanitize
+        }),
+        semantic_risk_score,
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+fn output_schema_violation_security_context(
+    tool_name: Option<&str>,
+    blocking: bool,
+) -> RuntimeSecurityContext {
+    let effective_trust_tier = Some(if blocking {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed];
+    if blocking {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    let observed_channel = if tool_name == Some("resources/read") {
+        ContextChannel::ResourceContent
+    } else {
+        ContextChannel::Data
+    };
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: "output_schema".to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some("output_schema_validation".to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if blocking {
+            ContainmentMode::Quarantine
+        } else {
+            ContainmentMode::Enforce
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 50u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if blocking { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
 }
 
 fn normalize_request_principal_id(principal: &str) -> String {
@@ -6907,13 +6997,19 @@ impl ProxyBridge {
                                         "structuredContent schema validation blocked: no schema registered for tool '{tool_name}'"
                                     ),
                                 };
+                                let schema_security_context =
+                                    output_schema_violation_security_context(
+                                        Some(tool_name),
+                                        self.output_schema_blocking,
+                                    );
                                 let schema_ns_envelope =
-                                    crate::mediation::build_secondary_acis_envelope(
+                                    crate::mediation::build_secondary_acis_envelope_with_security_context(
                                         &action,
                                         &schema_ns_verdict,
                                         DecisionOrigin::PolicyEngine,
                                         "stdio",
                                         state.agent_id.as_deref(),
+                                        Some(&schema_security_context),
                                     );
                                 if let Err(e) = self
                                     .audit
@@ -6970,13 +7066,18 @@ impl ProxyBridge {
                                     "structuredContent validation failed: {violations:?}"
                                 ),
                             };
+                            let schema_security_context = output_schema_violation_security_context(
+                                Some(tool_name),
+                                self.output_schema_blocking,
+                            );
                             let schema_inv_envelope =
-                                crate::mediation::build_secondary_acis_envelope(
+                                crate::mediation::build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &schema_inv_verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "stdio",
                                     state.agent_id.as_deref(),
+                                    Some(&schema_security_context),
                                 );
                             if let Err(e) = self
                                 .audit
@@ -7032,13 +7133,17 @@ impl ProxyBridge {
                             "structuredContent schema validation blocked: tool context unavailable"
                                 .to_string(),
                     };
-                    let schema_ctx_envelope = crate::mediation::build_secondary_acis_envelope(
-                        &action,
-                        &schema_ctx_verdict,
-                        DecisionOrigin::PolicyEngine,
-                        "stdio",
-                        state.agent_id.as_deref(),
-                    );
+                    let schema_security_context =
+                        output_schema_violation_security_context(None, self.output_schema_blocking);
+                    let schema_ctx_envelope =
+                        crate::mediation::build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &schema_ctx_verdict,
+                            DecisionOrigin::PolicyEngine,
+                            "stdio",
+                            state.agent_id.as_deref(),
+                            Some(&schema_security_context),
+                        );
                     if let Err(e) = self
                         .audit
                         .log_entry_with_acis(
@@ -7097,13 +7202,20 @@ impl ProxyBridge {
                 } else {
                     Verdict::Allow // Log-only
                 };
-                let resp_dlp_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action,
-                    &verdict,
-                    DecisionOrigin::Dlp,
-                    "stdio",
-                    state.agent_id.as_deref(),
+                let dlp_security_context = response_dlp_security_context(
+                    response_tool_name.as_deref(),
+                    &msg,
+                    self.response_dlp_blocking,
                 );
+                let resp_dlp_envelope =
+                    crate::mediation::build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &verdict,
+                        DecisionOrigin::Dlp,
+                        "stdio",
+                        state.agent_id.as_deref(),
+                        Some(&dlp_security_context),
+                    );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -7162,13 +7274,16 @@ impl ProxyBridge {
                         }),
                     );
                     let verdict = Verdict::Allow;
-                    let envelope = crate::mediation::build_secondary_acis_envelope(
-                        &action,
-                        &verdict,
-                        DecisionOrigin::SemanticContainment,
-                        "stdio",
-                        state.agent_id.as_deref(),
-                    );
+                    let contract_security_context = contract_eval.violation_security_context();
+                    let envelope =
+                        crate::mediation::build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::SemanticContainment,
+                            "stdio",
+                            state.agent_id.as_deref(),
+                            contract_security_context.as_ref(),
+                        );
                     if let Err(e) = self
                         .audit
                         .log_entry_with_acis(
@@ -7869,6 +7984,60 @@ mod tests {
         state.record_forwarded_action("read_file");
         state.record_forwarded_action("read_file");
         assert_eq!(state.call_counts.get("read_file"), Some(&2));
+    }
+
+    #[test]
+    fn test_response_dlp_security_context_marks_sensitive_channel() {
+        let response = json!({
+            "result": {
+                "content": [
+                    {"type": "text", "text": "api_key=secret-value"}
+                ]
+            }
+        });
+
+        let context = response_dlp_security_context(Some("search_web"), &response, true);
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![SemanticTaint::Sensitive, SemanticTaint::Quarantined]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Quarantine));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("response_dlp")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 95 })
+        );
+    }
+
+    #[test]
+    fn test_output_schema_violation_security_context_marks_integrity_failure() {
+        let context = output_schema_violation_security_context(Some("resources/read"), false);
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Untrusted));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Enforce));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(
+            context.lineage_refs[0].channel,
+            ContextChannel::ResourceContent
+        );
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("output_schema_validation")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 65 })
+        );
     }
 
     #[tokio::test]

@@ -19,7 +19,8 @@ use unicode_normalization::UnicodeNormalization;
 use uuid::Uuid;
 use vellaveto_types::unicode::normalize_homoglyphs;
 use vellaveto_types::{
-    Action, ContainmentMode, ContextChannel, SemanticRiskScore, SemanticTaint, SinkClass, TrustTier,
+    Action, ContainmentMode, ContextChannel, LineageRef, RuntimeSecurityContext, SemanticRiskScore,
+    SemanticTaint, SinkClass, TrustTier,
 };
 
 pub mod verified_approval_consumption;
@@ -203,6 +204,37 @@ impl ApprovalContainmentContext {
             || self.containment_mode.is_some()
             || self.semantic_risk_score.is_some()
             || self.counterfactual_review_required
+    }
+
+    #[must_use]
+    pub fn to_runtime_security_context(&self) -> Option<RuntimeSecurityContext> {
+        let normalized = self.normalized();
+        if !normalized.is_meaningful() {
+            return None;
+        }
+
+        let lineage_refs = normalized
+            .lineage_channels
+            .iter()
+            .enumerate()
+            .map(|(index, channel)| LineageRef {
+                id: format!("approval_ctx_{index}"),
+                channel: *channel,
+                content_hash: None,
+                source: Some("approval_review".to_string()),
+                trust_tier: normalized.effective_trust_tier,
+            })
+            .collect();
+
+        Some(RuntimeSecurityContext {
+            semantic_taint: normalized.semantic_taint,
+            effective_trust_tier: normalized.effective_trust_tier,
+            sink_class: normalized.sink_class,
+            lineage_refs,
+            containment_mode: normalized.containment_mode,
+            semantic_risk_score: normalized.semantic_risk_score,
+            ..RuntimeSecurityContext::default()
+        })
     }
 }
 
@@ -1541,6 +1573,50 @@ mod tests {
         assert_eq!(
             ctx.lineage_channels,
             vec![ContextChannel::CommandLike, ContextChannel::ApprovalPrompt]
+        );
+    }
+
+    #[test]
+    fn test_containment_context_to_runtime_security_context_preserves_fields() {
+        let context = ApprovalContainmentContext {
+            semantic_taint: vec![SemanticTaint::Quarantined, SemanticTaint::IntegrityFailed],
+            lineage_channels: vec![ContextChannel::ApprovalPrompt, ContextChannel::CommandLike],
+            effective_trust_tier: Some(TrustTier::Low),
+            sink_class: Some(SinkClass::CodeExecution),
+            containment_mode: Some(ContainmentMode::RequireApproval),
+            semantic_risk_score: Some(SemanticRiskScore { value: 93 }),
+            counterfactual_review_required: true,
+        };
+
+        let runtime = context
+            .to_runtime_security_context()
+            .expect("meaningful context should convert");
+
+        assert_eq!(
+            runtime.semantic_taint,
+            vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined]
+        );
+        assert_eq!(runtime.effective_trust_tier, Some(TrustTier::Low));
+        assert_eq!(runtime.sink_class, Some(SinkClass::CodeExecution));
+        assert_eq!(
+            runtime.containment_mode,
+            Some(ContainmentMode::RequireApproval)
+        );
+        assert_eq!(
+            runtime.semantic_risk_score,
+            Some(SemanticRiskScore { value: 93 })
+        );
+        assert_eq!(runtime.lineage_refs.len(), 2);
+        assert_eq!(runtime.lineage_refs[0].id, "approval_ctx_0");
+        assert_eq!(
+            runtime.lineage_refs[0].source.as_deref(),
+            Some("approval_review")
+        );
+        assert_eq!(runtime.lineage_refs[0].trust_tier, Some(TrustTier::Low));
+        assert_eq!(runtime.lineage_refs[0].channel, ContextChannel::CommandLike);
+        assert_eq!(
+            runtime.lineage_refs[1].channel,
+            ContextChannel::ApprovalPrompt
         );
     }
 
