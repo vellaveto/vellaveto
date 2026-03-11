@@ -175,6 +175,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the transport. WebSocket now preserves handshake transport headers into the
   runtime-security-context path too, and regression coverage locks the same
   rule on HTTP, WebSocket, and gRPC request paths.
+  WebSocket parity now also covers runtime-owned provenance fields:
+  `_meta.client_provenance.session_scope_binding` and
+  `_meta.client_provenance.canonical_request_hash` are replaced by the live WS
+  session binding and recomputed canonical hash. gRPC regression coverage now
+  locks the same runtime-owned provenance rule across HTTP, WebSocket, and
+  gRPC entrypoints.
+  Session-scope trust clamping now has explicit WebSocket and gRPC regression
+  coverage too, so `_meta.client_provenance.session_key_scope` and
+  `execution_is_ephemeral` cannot override persisted transport scope on those
+  entrypoints either.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

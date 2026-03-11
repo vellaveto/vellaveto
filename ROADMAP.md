@@ -146,6 +146,16 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   that the HTTP proxy actually received. WebSocket now threads upgrade headers
   into the same runtime-security-context path, and regression coverage locks
   the same behavior on HTTP, WebSocket, and gRPC entrypoints.
+- WebSocket parity now also covers runtime-owned provenance fields, so
+  caller-supplied `_meta.client_provenance.session_scope_binding` and
+  `_meta.client_provenance.canonical_request_hash` cannot override the live
+  session binding or the recomputed canonical hash on WS request paths. gRPC
+  regression coverage now locks the same runtime-owned provenance rule across
+  all three transport entrypoints.
+- Session-scope trust clamping now also has explicit WebSocket and gRPC
+  regression coverage, so `_meta.client_provenance.session_key_scope` and
+  `execution_is_ephemeral` cannot override persisted transport scope outside
+  the HTTP entrypoint either.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and
