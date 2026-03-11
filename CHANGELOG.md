@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `require_agent_identity` wired into `MediationConfig` as Step 0 in the
     `mediate()` pipeline. Unauthenticated traffic denied with `SessionGuard`
     origin before DLP/injection scanning runs. 6 enforcement tests.
-  - **Gap 5 (P2 — CLAUDE.md stale counts):** Updated Verus 321→534, total
-    545→767+ across CLAUDE.md.
+  - **Gap 5 (P2 — stale proof inventory counts):** Updated Verus 321→534,
+    total 545→767+ across contributor guidance and formal inventory docs.
   - **Gap 2+4 (P1 — secondary ACIS decision envelopes) — DONE:**
     `build_secondary_acis_envelope()` convenience helper in `mediation.rs`.
     194 secondary security-decision sites across all 4 transports wired
@@ -48,11 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime enforcement, policy/approval/operator productization, multi-agent
   containment, compliance evidence generation, and supply-chain trust.
 - **Contributor guidance sync (Mar 2026):**
-  `CLAUDE.md` now matches the roadmap reset: the shared substrate is treated as
-  shipped foundation, the "all phases implemented" wording is removed, and the
-  current execution priorities point contributors at the active transport,
-  product, research, compliance, and trust tracks instead of the retired
-  phase-73-to-81 framing.
+  `AGENTS.md` and `ROADMAP.md` now treat the shared substrate as shipped
+  foundation, remove the retired "all phases implemented" framing, and point
+  contributors at the active transport, product, research, compliance, and
+  trust tracks.
 
 ### Fixed
 
@@ -1711,7 +1710,7 @@ Dynamic report generation for SOC 2 Type II auditors, scanning audit entries and
 
 ### Changed
 
-- **CLAUDE.md trimmed** — 47,834 bytes → 11,675 bytes (76% reduction). Collapsed "What's Done" section to 16 one-line summaries, trimmed file locations table from ~120 to ~52 rows, simplified Swarm section to reference `.claude/rules/`.
+- **Local contributor guide trimmed** — 47,834 bytes → 11,675 bytes (76% reduction). Collapsed the oversized status summary, trimmed the file locations table from ~120 to ~52 rows, and simplified the local coordination guidance to reference `.claude/rules/`.
 
 ### Documentation
 

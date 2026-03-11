@@ -37,13 +37,13 @@ echo ""
 # Phase 1: Launch discovery agents in parallel
 echo "--- Phase 1: Discovery Agents ---"
 
-ADVERSARIAL_PROMPT="You are the Adversarial Researcher agent for R238. Read .claude/agents/adversarial.md, then CLAUDE.md for full project context.
+ADVERSARIAL_PROMPT="You are the Adversarial Researcher agent for R238. Read .claude/agents/adversarial.md, then AGENTS.md, README.md, and ROADMAP.md for project context.
 
 This is round R238 — a DEEP codebase sweep after 237 prior audit rounds and 1,630+ findings fixed. Your job: find what 237 rounds missed.
 
 FOCUS AREAS for R238 (pick 3-4 and go DEEP):
 
-1. CROSS-CRATE INVARIANT VIOLATIONS: Check that invariants documented in CLAUDE.md are actually enforced everywhere. For example: does every transport (HTTP/WS/gRPC/stdio/SSE) actually have DLP scanning? Does every deserialized struct have deny_unknown_fields? Grep systematically.
+1. CROSS-CRATE INVARIANT VIOLATIONS: Check that invariants documented in AGENTS.md and README.md are actually enforced everywhere. For example: does every transport (HTTP/WS/gRPC/stdio/SSE) actually have DLP scanning? Does every deserialized struct have deny_unknown_fields? Grep systematically.
 
 2. RACE CONDITIONS & CONCURRENCY: Search for RwLock/Mutex usage. Check for TOCTOU patterns (read then act without holding lock). Check AtomicU64 ordering (Relaxed on security counters is a bypass). Check DashMap iteration-under-mutation.
 
@@ -59,7 +59,7 @@ Report findings as: python3 scripts/lib/lock.py append coordination/events.jsonl
 
 CRITICAL: Read coordination/events.jsonl first to avoid duplicates. Be specific with file:line references. No false positives — every finding must be verifiable."
 
-GAP_HUNTER_PROMPT="You are the Gap Hunter agent for R238. Read .claude/agents/gap-hunter.md, then CLAUDE.md for full project context.
+GAP_HUNTER_PROMPT="You are the Gap Hunter agent for R238. Read .claude/agents/gap-hunter.md, then AGENTS.md, README.md, and ROADMAP.md for project context.
 
 This is round R238 — deep sweep after 237 rounds. Find the gaps that compound over time.
 
@@ -67,13 +67,13 @@ FOCUS AREAS for R238 (pick 3-4 and go DEEP):
 
 1. TEST COVERAGE GAPS: The project claims 10,350 tests. Find crates/modules with disproportionately low coverage. Check: does vellaveto-approval have tests? Does vellaveto-cluster? Do the SDKs (sdk/python, sdk/typescript, sdk/go, sdk/java) have integration tests that actually hit a running server? Are there critical code paths with zero test coverage?
 
-2. DOCUMENTATION DRIFT: Compare CLAUDE.md claims against actual code. Does the test count match? Are all listed file paths still valid? Are the architecture rules (crate dependency graph) actually enforced in Cargo.toml? Is the OpenAPI spec (docs/openapi.yaml) in sync with actual server routes?
+2. DOCUMENTATION DRIFT: Compare README.md, AGENTS.md, and ROADMAP.md claims against actual code. Do the counts match? Are all listed file paths still valid? Are the architecture rules (crate dependency graph) actually enforced in Cargo.toml? Is the OpenAPI spec (docs/openapi.yaml) in sync with actual server routes?
 
 3. FAIL-CLOSED AUDIT: Systematically check every error/default path in security-critical code. grep for unwrap_or(false), unwrap_or(true), unwrap_or_default() in engine/audit/mcp crates. Each one is a potential fail-open. Check Default impls on security types — are defaults restrictive?
 
 4. BOUNDARY VALIDATION: Check every struct that takes external input. Does it validate string lengths? Does it validate collection sizes (Vec/HashMap bounds)? Does it validate numeric ranges? Are there MAX_* constants for every bounded field?
 
-5. TRANSPORT PARITY: The CLAUDE.md documents a parity matrix. Systematically verify: does the gRPC handler have the same checks as the HTTP handler? Does stdio? Does SSE? Pick 3 security features and trace them across all transports.
+5. TRANSPORT PARITY: README.md documents verified transport parity. Systematically verify: does the gRPC handler have the same checks as the HTTP handler? Does stdio? Does SSE? Pick 3 security features and trace them across all transports.
 
 6. SDK PARITY: Check if all 4 SDKs (Python, TypeScript, Go, Java) expose the same API surface. Check if request/response formats match the server. Check if SDKs validate input before sending.
 
@@ -81,7 +81,7 @@ Report findings as: python3 scripts/lib/lock.py append coordination/events.jsonl
 
 CRITICAL: Read coordination/events.jsonl first to avoid duplicates. Provide concrete evidence (file:line) for every finding."
 
-IMPROVEMENT_PROMPT="You are the Improvement Scout agent for R238. Read .claude/agents/improvement-scout.md, then CLAUDE.md for full project context.
+IMPROVEMENT_PROMPT="You are the Improvement Scout agent for R238. Read .claude/agents/improvement-scout.md, then AGENTS.md, README.md, and ROADMAP.md for project context.
 
 This is round R238 — deep sweep after 237 rounds. Focus on structural improvements with highest ROI.
 
@@ -103,7 +103,7 @@ Report as: python3 scripts/lib/lock.py append coordination/events.jsonl '{\"even
 
 CRITICAL: Read coordination/events.jsonl first to avoid duplicates. Every proposal must have concrete impact/effort analysis."
 
-ORCHESTRATOR_PROMPT="You are the Orchestrator agent for R238. Read .claude/agents/orchestrator.md, then CLAUDE.md for project context.
+ORCHESTRATOR_PROMPT="You are the Orchestrator agent for R238. Read .claude/agents/orchestrator.md, then AGENTS.md, README.md, and ROADMAP.md for project context.
 
 This is R238 — a full codebase sweep. Your job:
 

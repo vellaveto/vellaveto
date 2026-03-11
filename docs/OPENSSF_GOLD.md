@@ -71,7 +71,7 @@ Best Practices Gold badge. Criteria are organized by category.
 | `test_statement_coverage90` | MET | cargo-llvm-cov in CI (coverage.yml) |
 | `test_branch_coverage80` | MET | cargo-llvm-cov with branch coverage |
 | `tests_are_added` | MET | CONTRIBUTING.md policy, PR review enforcement |
-| `tests_documented_added` | MET | CONTRIBUTING.md, CLAUDE.md testing protocol |
+| `tests_documented_added` | MET | CONTRIBUTING.md testing rules, AGENTS.md verification order |
 | `warnings` | MET | RUSTFLAGS=-Dwarnings in CI (all warnings are errors) |
 | `warnings_fixed` | MET | Zero warnings policy enforced |
 | `warnings_strict` | MET | `-D warnings` flag in CI |
@@ -80,7 +80,7 @@ Best Practices Gold badge. Criteria are organized by category.
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| `know_secure_design` | MET | CLAUDE.md security principles, SECURITY.md |
+| `know_secure_design` | MET | AGENTS.md fail-closed conventions, SECURITY.md principles |
 | `know_common_errors` | MET | OWASP Top 10, CWE coverage in audit rounds |
 | `crypto_published` | MET | Ed25519, XChaCha20-Poly1305, Argon2id (all published standards) |
 | `crypto_call` | MET | Uses ed25519-dalek, chacha20poly1305, argon2 crates |

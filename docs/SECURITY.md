@@ -60,6 +60,7 @@ Vellaveto follows these security principles:
 3. **Least Privilege**: Minimal permissions for the Vellaveto process.
 4. **Observability**: All decisions logged, all failures diagnosed.
 5. **Zero Trust**: Validate every request, authenticate every caller.
+6. **Semantic Containment**: Untrusted semantic content carries trust tier, taint, lineage, and risk metadata; privileged flows require containment, approval, or quarantine when that metadata crosses trust or meaning boundaries.
 
 ---
 

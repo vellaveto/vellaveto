@@ -6,7 +6,6 @@ on:
     paths:
       - 'site/**'
       - 'README.md'
-      - 'CLAUDE.md'
       - 'docs/**'
       - '.github/workflows/deploy-site.yml'
   workflow_dispatch:

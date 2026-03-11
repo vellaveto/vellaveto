@@ -508,7 +508,16 @@ List all pending approval requests.
       "expires_at": "2026-02-08T11:00:00Z",
       "requested_by": "agent-123",
       "session_id": "sess-456",
-      "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
+      "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2",
+      "containment_context": {
+        "semantic_taint": ["untrusted", "integrity_failed"],
+        "lineage_channels": ["tool_output", "command_like"],
+        "effective_trust_tier": "untrusted",
+        "sink_class": "code_execution",
+        "containment_mode": "require_approval",
+        "semantic_risk_score": { "value": 86 },
+        "counterfactual_review_required": true
+      }
     }
   ]
 }
@@ -546,13 +555,24 @@ Get details for a specific approval request.
   "expires_at": "2026-02-08T11:00:00Z",
   "requested_by": "agent-123",
   "session_id": "sess-456",
-  "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2"
+  "action_fingerprint": "5e8d4b2a0d7c4d1ef5d1a9d6108fe0e9d57dd4d5b64c47b95bf1c9a0fd21e3d2",
+  "containment_context": {
+    "semantic_taint": ["untrusted", "integrity_failed"],
+    "lineage_channels": ["tool_output", "command_like"],
+    "effective_trust_tier": "untrusted",
+    "sink_class": "code_execution",
+    "containment_mode": "require_approval",
+    "semantic_risk_score": { "value": 86 },
+    "counterfactual_review_required": true
+  }
 }
 ```
 
 `status` may be `pending`, `approved`, `consumed`, `denied`, or `expired`.
 `consumed_at` is populated after a successful single-use reuse through
 `POST /api/evaluate`.
+`containment_context` is present when the approval was created from semantic
+containment, trust-floor, or counterfactual escalation logic.
 
 ---
 

@@ -178,5 +178,5 @@ No transport-local fingerprint generation exists.
 
 - [ACIS types](../vellaveto-types/src/acis.rs)
 - [Mediation helpers](../vellaveto-mcp/src/mediation.rs)
-- [Transport parity matrix](../CLAUDE.md) — Section 4 of onboarding rules
+- [Transport coverage](../README.md) — verified parity across HTTP, WebSocket, gRPC, stdio, and SSE
 - [Execution Board](../EXECUTION_BOARD_90_DAYS.md) — E1-3 acceptance criteria

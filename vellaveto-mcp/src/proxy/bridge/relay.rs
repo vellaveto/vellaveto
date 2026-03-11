@@ -456,6 +456,48 @@ fn shield_failure_security_context(message: &Value, source: &str) -> RuntimeSecu
     }
 }
 
+fn tool_discovery_integrity_security_context(
+    lineage_id: &str,
+    observed_channel: ContextChannel,
+    source: &str,
+    quarantined: bool,
+) -> RuntimeSecurityContext {
+    let effective_trust_tier = Some(if quarantined {
+        TrustTier::Quarantined
+    } else {
+        TrustTier::Untrusted
+    });
+    let mut semantic_taint = vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed];
+    if quarantined {
+        semantic_taint.push(SemanticTaint::Quarantined);
+    }
+
+    RuntimeSecurityContext {
+        semantic_taint,
+        effective_trust_tier,
+        sink_class: None,
+        lineage_refs: vec![LineageRef {
+            id: lineage_id.to_string(),
+            channel: observed_channel,
+            content_hash: None,
+            source: Some(source.to_string()),
+            trust_tier: effective_trust_tier,
+        }],
+        containment_mode: Some(if quarantined {
+            ContainmentMode::Quarantine
+        } else {
+            ContainmentMode::Enforce
+        }),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: 55u8
+                .saturating_add(observed_channel.semantic_risk_weight())
+                .saturating_add(if quarantined { 20 } else { 0 })
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
 fn output_schema_violation_security_context(
     tool_name: Option<&str>,
     blocking: bool,
@@ -7630,13 +7672,21 @@ impl ProxyBridge {
                         safe_desc_tool, finding.matched_patterns
                     ),
                 };
-                let desc_inj_envelope = crate::mediation::build_secondary_acis_envelope(
-                    &action,
-                    &desc_inj_verdict,
-                    DecisionOrigin::InjectionScanner,
-                    "stdio",
-                    None,
+                let desc_inj_security_context = tool_discovery_integrity_security_context(
+                    &safe_desc_tool,
+                    ContextChannel::CommandLike,
+                    "tool_description_injection",
+                    true,
                 );
+                let desc_inj_envelope =
+                    crate::mediation::build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &desc_inj_verdict,
+                        DecisionOrigin::InjectionScanner,
+                        "stdio",
+                        None,
+                        Some(&desc_inj_security_context),
+                    );
                 if let Err(e) = self
                     .audit
                     .log_entry_with_acis(
@@ -7684,13 +7734,21 @@ impl ProxyBridge {
                             let mfst_verdict = Verdict::Deny {
                                 reason: format!("Manifest verification failed: {discrepancies:?}"),
                             };
-                            let mfst_envelope = crate::mediation::build_secondary_acis_envelope(
-                                &action,
-                                &mfst_verdict,
-                                DecisionOrigin::CapabilityEnforcement,
-                                "stdio",
-                                None,
+                            let mfst_security_context = tool_discovery_integrity_security_context(
+                                "manifest_verification",
+                                ContextChannel::ToolOutput,
+                                "manifest_verification_failed",
+                                false,
                             );
+                            let mfst_envelope =
+                                crate::mediation::build_secondary_acis_envelope_with_security_context(
+                                    &action,
+                                    &mfst_verdict,
+                                    DecisionOrigin::CapabilityEnforcement,
+                                    "stdio",
+                                    None,
+                                    Some(&mfst_security_context),
+                                );
                             if let Err(e) = self
                                 .audit
                                 .log_entry_with_acis(
@@ -7749,13 +7807,22 @@ impl ProxyBridge {
                                         "Schema poisoning detected: tool '{name}' schema changed (similarity={similarity:.2})"
                                     ),
                                 };
-                                let sp_envelope = crate::mediation::build_secondary_acis_envelope(
-                                    &action,
-                                    &sp_verdict,
-                                    DecisionOrigin::CapabilityEnforcement,
-                                    "stdio",
-                                    None,
+                                let safe_tool_name = vellaveto_types::sanitize_for_log(name, 256);
+                                let sp_security_context = tool_discovery_integrity_security_context(
+                                    &safe_tool_name,
+                                    ContextChannel::ToolOutput,
+                                    "schema_poisoning_detected",
+                                    true,
                                 );
+                                let sp_envelope =
+                                    crate::mediation::build_secondary_acis_envelope_with_security_context(
+                                        &action,
+                                        &sp_verdict,
+                                        DecisionOrigin::CapabilityEnforcement,
+                                        "stdio",
+                                        None,
+                                        Some(&sp_security_context),
+                                    );
                                 if let Err(e) = self
                                     .audit
                                     .log_entry_with_acis(
@@ -7806,13 +7873,23 @@ impl ProxyBridge {
                                             "Tool '{name}' schema drifted (similarity={similarity:.2})"
                                         ),
                                     };
+                                    let safe_tool_name =
+                                        vellaveto_types::sanitize_for_log(name, 256);
+                                    let td_security_context =
+                                        tool_discovery_integrity_security_context(
+                                            &safe_tool_name,
+                                            ContextChannel::ToolOutput,
+                                            "tool_drift_blocked",
+                                            true,
+                                        );
                                     let td_envelope =
-                                        crate::mediation::build_secondary_acis_envelope(
+                                        crate::mediation::build_secondary_acis_envelope_with_security_context(
                                             &action,
                                             &td_verdict,
                                             DecisionOrigin::CapabilityEnforcement,
                                             "stdio",
                                             None,
+                                            Some(&td_security_context),
                                         );
                                     if let Err(e) = self
                                         .audit
@@ -8324,6 +8401,64 @@ mod tests {
         assert_eq!(
             context.lineage_refs[0].source.as_deref(),
             Some("shield_desanitize_failed")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 100 })
+        );
+    }
+
+    #[test]
+    fn test_tool_discovery_integrity_security_context_marks_enforced_tool_output() {
+        let context = tool_discovery_integrity_security_context(
+            "manifest_verification",
+            ContextChannel::ToolOutput,
+            "manifest_verification_failed",
+            false,
+        );
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![SemanticTaint::Untrusted, SemanticTaint::IntegrityFailed]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Untrusted));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Enforce));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::ToolOutput);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("manifest_verification_failed")
+        );
+        assert_eq!(
+            context.semantic_risk_score,
+            Some(SemanticRiskScore { value: 65 })
+        );
+    }
+
+    #[test]
+    fn test_tool_discovery_integrity_security_context_marks_quarantined_command_like_drift() {
+        let context = tool_discovery_integrity_security_context(
+            "malicious-tool",
+            ContextChannel::CommandLike,
+            "tool_description_injection",
+            true,
+        );
+
+        assert_eq!(
+            context.semantic_taint,
+            vec![
+                SemanticTaint::Untrusted,
+                SemanticTaint::IntegrityFailed,
+                SemanticTaint::Quarantined
+            ]
+        );
+        assert_eq!(context.effective_trust_tier, Some(TrustTier::Quarantined));
+        assert_eq!(context.containment_mode, Some(ContainmentMode::Quarantine));
+        assert_eq!(context.lineage_refs.len(), 1);
+        assert_eq!(context.lineage_refs[0].channel, ContextChannel::CommandLike);
+        assert_eq!(
+            context.lineage_refs[0].source.as_deref(),
+            Some("tool_description_injection")
         );
         assert_eq!(
             context.semantic_risk_score,
