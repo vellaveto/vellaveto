@@ -83,6 +83,17 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   transport provenance can populate richer workload fields as well as
   `session_key_scope` and `execution_is_ephemeral` from authenticated identity
   claims instead of relying on metadata-only overrides.
+- Authenticated HTTP transport now accepts an explicit `x-workload-claims`
+  header as a second workload-provenance source, allowing allowlisted
+  workload metadata to be carried even when `X-Agent-Identity` is absent and
+  taking precedence over bearer-token custom claims when both are present.
+- HTTP and WebSocket provenance also ingest a detached `x-request-signature`
+  header for request-signature metadata, preserving non-DPoP signature inputs
+  in `client_provenance` while still treating them as non-authoritative unless
+  separately verified.
+- gRPC session identity now uses the same validated claim-merging path as
+  HTTP/WS, so explicit workload claims and verified bearer-token custom claims
+  no longer disappear on the gRPC transport before policy evaluation.
 - Session-miss fallbacks in HTTP request mediation now preserve the current
   transport-authenticated identity instead of collapsing to an empty evaluation
   context.

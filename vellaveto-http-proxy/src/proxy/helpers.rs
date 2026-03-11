@@ -33,7 +33,10 @@ use vellaveto_types::{
 use super::auth::OAuthValidationEvidence;
 use super::ProxyState;
 use crate::oauth::OAuthClaims;
+use crate::proxy::X_REQUEST_SIGNATURE;
 use crate::session::SessionStore;
+
+const MAX_REQUEST_SIGNATURE_HEADER_BYTES: usize = 8192;
 
 /// Resolve target domains to IP addresses for DNS rebinding protection.
 ///
@@ -247,6 +250,79 @@ fn decode_dpop_request_signature(
     })
 }
 
+#[derive(Debug, Clone, Default)]
+struct DetachedRequestSignatureEvidence {
+    request_signature: Option<RequestSignature>,
+    signature_status: SignatureVerificationStatus,
+}
+
+fn decode_detached_request_signature(headers: &HeaderMap) -> DetachedRequestSignatureEvidence {
+    let header_value = match headers
+        .get(X_REQUEST_SIGNATURE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+    {
+        Some(value) if !value.is_empty() => value,
+        Some(_) => {
+            return DetachedRequestSignatureEvidence {
+                request_signature: None,
+                signature_status: SignatureVerificationStatus::Invalid,
+            };
+        }
+        None => return DetachedRequestSignatureEvidence::default(),
+    };
+
+    if header_value.len() > MAX_REQUEST_SIGNATURE_HEADER_BYTES {
+        return DetachedRequestSignatureEvidence {
+            request_signature: None,
+            signature_status: SignatureVerificationStatus::Invalid,
+        };
+    }
+
+    let payload = match URL_SAFE_NO_PAD.decode(header_value) {
+        Ok(payload) => payload,
+        Err(_) => {
+            return DetachedRequestSignatureEvidence {
+                request_signature: None,
+                signature_status: SignatureVerificationStatus::Invalid,
+            };
+        }
+    };
+    let signature = match serde_json::from_slice::<RequestSignature>(&payload) {
+        Ok(signature) => signature,
+        Err(_) => {
+            return DetachedRequestSignatureEvidence {
+                request_signature: None,
+                signature_status: SignatureVerificationStatus::Invalid,
+            };
+        }
+    };
+    if signature.validate().is_err() {
+        return DetachedRequestSignatureEvidence {
+            request_signature: None,
+            signature_status: SignatureVerificationStatus::Invalid,
+        };
+    }
+
+    DetachedRequestSignatureEvidence {
+        request_signature: Some(signature),
+        signature_status: SignatureVerificationStatus::Missing,
+    }
+}
+
+fn merge_signature_status(
+    transport_status: SignatureVerificationStatus,
+    detached_status: SignatureVerificationStatus,
+) -> SignatureVerificationStatus {
+    match transport_status {
+        SignatureVerificationStatus::Verified => SignatureVerificationStatus::Verified,
+        SignatureVerificationStatus::Invalid => SignatureVerificationStatus::Invalid,
+        SignatureVerificationStatus::Expired => SignatureVerificationStatus::Expired,
+        SignatureVerificationStatus::Error => SignatureVerificationStatus::Error,
+        SignatureVerificationStatus::Missing => detached_status,
+    }
+}
+
 fn infer_workload_platform(subject: &str) -> String {
     if subject.starts_with("spiffe://") {
         "spiffe".to_string()
@@ -261,31 +337,93 @@ fn agent_identity_from_eval_ctx(eval_ctx: Option<&EvaluationContext>) -> Option<
     eval_ctx.and_then(|ctx| ctx.agent_identity.as_ref())
 }
 
-fn build_workload_identity(eval_ctx: Option<&EvaluationContext>) -> Option<WorkloadIdentity> {
-    let identity = agent_identity_from_eval_ctx(eval_ctx)?;
-    let workload_id = identity
-        .subject
-        .as_deref()
+fn transport_claim_str<'a>(
+    eval_ctx: Option<&'a EvaluationContext>,
+    oauth_evidence: Option<&'a OAuthValidationEvidence>,
+    key: &str,
+) -> Option<&'a str> {
+    agent_identity_from_eval_ctx(eval_ctx)
+        .and_then(|identity| identity.claim_str(key))
+        .or_else(|| {
+            oauth_evidence
+                .and_then(|evidence| evidence.workload_claims.get(key))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            oauth_evidence
+                .and_then(|evidence| evidence.custom_claims.get(key))
+                .and_then(Value::as_str)
+        })
+}
+
+fn transport_claim_bool(
+    eval_ctx: Option<&EvaluationContext>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+    key: &str,
+) -> Option<bool> {
+    agent_identity_from_eval_ctx(eval_ctx)
+        .and_then(|identity| identity.claims.get(key))
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            oauth_evidence
+                .and_then(|evidence| evidence.workload_claims.get(key))
+                .and_then(Value::as_bool)
+        })
+        .or_else(|| {
+            oauth_evidence
+                .and_then(|evidence| evidence.custom_claims.get(key))
+                .and_then(Value::as_bool)
+        })
+}
+
+fn workload_id_from_transport(
+    eval_ctx: Option<&EvaluationContext>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+) -> Option<String> {
+    agent_identity_from_eval_ctx(eval_ctx)
+        .and_then(|identity| identity.subject.as_deref())
         .map(str::trim)
-        .filter(|subject| !subject.is_empty())?;
+        .filter(|subject| !subject.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            transport_claim_str(eval_ctx, oauth_evidence, "workload_id").map(str::to_string)
+        })
+        .or_else(|| transport_claim_str(eval_ctx, oauth_evidence, "spiffe_id").map(str::to_string))
+        .or_else(|| {
+            oauth_evidence.and_then(|evidence| {
+                let subject = evidence.claims.sub.trim();
+                (!subject.is_empty()
+                    && (subject.starts_with("spiffe://") || subject.starts_with("did:")))
+                .then(|| subject.to_string())
+            })
+        })
+}
+
+fn build_workload_identity(
+    eval_ctx: Option<&EvaluationContext>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+) -> Option<WorkloadIdentity> {
+    let workload_id = workload_id_from_transport(eval_ctx, oauth_evidence)?;
 
     Some(WorkloadIdentity {
-        platform: Some(infer_workload_platform(workload_id)),
-        workload_id: workload_id.to_string(),
-        namespace: identity.claim_str("namespace").map(str::to_string),
-        service_account: identity.claim_str("service_account").map(str::to_string),
-        process_identity: identity.claim_str("process_identity").map(str::to_string),
-        attestation_level: identity
-            .claim_str("attestation_level")
+        platform: Some(infer_workload_platform(&workload_id)),
+        workload_id,
+        namespace: transport_claim_str(eval_ctx, oauth_evidence, "namespace").map(str::to_string),
+        service_account: transport_claim_str(eval_ctx, oauth_evidence, "service_account")
+            .map(str::to_string),
+        process_identity: transport_claim_str(eval_ctx, oauth_evidence, "process_identity")
+            .map(str::to_string),
+        attestation_level: transport_claim_str(eval_ctx, oauth_evidence, "attestation_level")
             .map(str::to_string)
             .or_else(|| Some("jwt".to_string())),
     })
 }
 
-fn build_session_key_scope(eval_ctx: Option<&EvaluationContext>) -> SessionKeyScope {
-    match agent_identity_from_eval_ctx(eval_ctx)
-        .and_then(|identity| identity.claim_str("session_key_scope"))
-    {
+fn build_session_key_scope(
+    eval_ctx: Option<&EvaluationContext>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
+) -> SessionKeyScope {
+    match transport_claim_str(eval_ctx, oauth_evidence, "session_key_scope") {
         Some("ephemeral_execution") => SessionKeyScope::EphemeralExecution,
         Some("ephemeral_session") => SessionKeyScope::EphemeralSession,
         Some("persisted_client") => SessionKeyScope::PersistedClient,
@@ -296,6 +434,7 @@ fn build_session_key_scope(eval_ctx: Option<&EvaluationContext>) -> SessionKeySc
 
 fn execution_is_ephemeral(
     eval_ctx: Option<&EvaluationContext>,
+    oauth_evidence: Option<&OAuthValidationEvidence>,
     session_key_scope: SessionKeyScope,
 ) -> bool {
     if matches!(
@@ -305,10 +444,7 @@ fn execution_is_ephemeral(
         return true;
     }
 
-    agent_identity_from_eval_ctx(eval_ctx)
-        .and_then(|identity| identity.claims.get("execution_is_ephemeral"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+    transport_claim_bool(eval_ctx, oauth_evidence, "execution_is_ephemeral").unwrap_or(false)
 }
 
 fn build_workload_binding_status(
@@ -332,35 +468,52 @@ fn build_client_provenance(
     oauth_evidence: Option<&OAuthValidationEvidence>,
     eval_ctx: Option<&EvaluationContext>,
 ) -> Option<ClientProvenance> {
-    let signature_status = oauth_evidence.map_or_else(
+    let detached_signature = decode_detached_request_signature(headers);
+    let transport_signature_status = oauth_evidence.map_or_else(
         || SignatureVerificationStatus::Missing,
         OAuthValidationEvidence::signature_status,
     );
-    if oauth_evidence.is_none() && signature_status == SignatureVerificationStatus::Missing {
+    let signature_status = merge_signature_status(
+        transport_signature_status,
+        detached_signature.signature_status,
+    );
+    if oauth_evidence.is_none()
+        && detached_signature.request_signature.is_none()
+        && signature_status == SignatureVerificationStatus::Missing
+    {
         return None;
     }
 
     let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
     let client_key_id = oauth_claims
         .and_then(|claims| claims.cnf.as_ref())
-        .and_then(|cnf| cnf.jkt.clone());
+        .and_then(|cnf| cnf.jkt.clone())
+        .or_else(|| {
+            detached_signature
+                .request_signature
+                .as_ref()
+                .and_then(|signature| signature.key_id.clone())
+        });
     let request_signature = if oauth_evidence.is_some_and(|evidence| evidence.dpop_proof_verified) {
-        decode_dpop_request_signature(headers, oauth_claims).or_else(|| {
-            Some(RequestSignature {
-                key_id: client_key_id.clone(),
-                algorithm: Some("dpop+jwt".to_string()),
-                nonce: None,
-                created_at: None,
-                signature: None,
-            })
-        })
+        merge_request_signature(
+            decode_dpop_request_signature(headers, oauth_claims).or_else(|| {
+                Some(RequestSignature {
+                    key_id: client_key_id.clone(),
+                    algorithm: Some("dpop+jwt".to_string()),
+                    nonce: None,
+                    created_at: None,
+                    signature: None,
+                })
+            }),
+            detached_signature.request_signature,
+        )
     } else {
-        None
+        detached_signature.request_signature
     };
-    let workload_identity = build_workload_identity(eval_ctx);
+    let workload_identity = build_workload_identity(eval_ctx, oauth_evidence);
     let workload_binding_status =
         build_workload_binding_status(eval_ctx, workload_identity.as_ref(), oauth_evidence);
-    let session_key_scope = build_session_key_scope(eval_ctx);
+    let session_key_scope = build_session_key_scope(eval_ctx, oauth_evidence);
 
     Some(ClientProvenance {
         request_signature,
@@ -374,7 +527,7 @@ fn build_client_provenance(
             OAuthValidationEvidence::replay_status,
         ),
         canonical_request_hash: None,
-        execution_is_ephemeral: execution_is_ephemeral(eval_ctx, session_key_scope),
+        execution_is_ephemeral: execution_is_ephemeral(eval_ctx, oauth_evidence, session_key_scope),
     })
 }
 

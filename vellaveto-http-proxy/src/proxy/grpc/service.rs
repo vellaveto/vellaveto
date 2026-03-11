@@ -103,6 +103,97 @@ fn record_grpc_message(direction: &str) {
     .increment(1);
 }
 
+async fn sync_transport_agent_identity(
+    state: &Arc<ProxyState>,
+    metadata: &tonic::metadata::MetadataMap,
+    session_id: &str,
+) -> Result<(), Status> {
+    let workload_claims = super::interceptors::extract_workload_claims(metadata)?;
+
+    if let Some(identity_token) = super::interceptors::extract_agent_identity_token(metadata) {
+        if let Some(ref oauth_validator) = state.oauth {
+            match oauth_validator
+                .validate_token(&format!("Bearer {identity_token}"))
+                .await
+            {
+                Ok(claims) => {
+                    let identity = crate::proxy::auth::build_validated_agent_identity(
+                        claims,
+                        &identity_token,
+                        workload_claims.unwrap_or_default(),
+                    )
+                    .map_err(|error| {
+                        tracing::warn!("gRPC agent identity claims validation failed: {}", error);
+                        Status::unauthenticated("Invalid agent identity token")
+                    })?;
+                    if let Some(mut session) = state.sessions.get_mut(session_id) {
+                        session.agent_identity = Some(identity);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("gRPC agent identity JWT validation failed: {}", e);
+                    return Err(Status::unauthenticated("Invalid agent identity token"));
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let Some(ref oauth_validator) = state.oauth else {
+        return Ok(());
+    };
+    let auth_header = match metadata
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(header) => header,
+        None => return Ok(()),
+    };
+    let bearer_token = match crate::oauth::extract_bearer_token(auth_header) {
+        Ok(token) => token,
+        Err(_) => return Ok(()),
+    };
+    let has_transport_claims = workload_claims
+        .as_ref()
+        .is_some_and(|claims| !claims.is_empty());
+    let has_token_claims = crate::proxy::auth::extract_custom_jwt_claims(bearer_token)
+        .is_some_and(|claims| !claims.is_empty());
+    if !has_transport_claims && !has_token_claims {
+        return Ok(());
+    }
+
+    match oauth_validator.validate_token(auth_header).await {
+        Ok(claims) => {
+            let identity = crate::proxy::auth::build_validated_agent_identity(
+                claims,
+                bearer_token,
+                workload_claims.unwrap_or_default(),
+            )
+            .map_err(|error| {
+                tracing::warn!(
+                    "gRPC transport identity claims validation failed: {}",
+                    error
+                );
+                Status::unauthenticated("Invalid authorization token")
+            })?;
+            if let Some(mut session) = state.sessions.get_mut(session_id) {
+                if session.agent_identity.is_none() {
+                    session.agent_identity = Some(identity);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "gRPC OAuth validation failed for transport identity sync: {}",
+                e
+            );
+            return Err(Status::unauthenticated("Invalid authorization token"));
+        }
+    }
+
+    Ok(())
+}
+
 /// The MCP gRPC service implementation.
 pub struct McpGrpcService {
     state: Arc<ProxyState>,
@@ -4242,40 +4333,9 @@ impl McpService for McpGrpcService {
             }
         }
 
-        // SECURITY (FIND-R54-GRPC-005): Extract and validate agent identity.
-        // Parity with HTTP handler's validate_agent_identity (auth.rs:345).
-        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
-            if let Some(ref oauth_validator) = self.state.oauth {
-                match oauth_validator
-                    .validate_token(&format!("Bearer {}", identity_token))
-                    .await
-                {
-                    Ok(claims) => {
-                        let identity = vellaveto_types::AgentIdentity {
-                            issuer: if claims.iss.is_empty() {
-                                None
-                            } else {
-                                Some(claims.iss.clone())
-                            },
-                            subject: if claims.sub.is_empty() {
-                                None
-                            } else {
-                                Some(claims.sub.clone())
-                            },
-                            audience: claims.aud.clone(),
-                            claims: Default::default(),
-                        };
-                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
-                            session.agent_identity = Some(identity);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("gRPC agent identity JWT validation failed: {}", e);
-                        return Err(Status::unauthenticated("Invalid agent identity token"));
-                    }
-                }
-            }
-        }
+        // SECURITY (FIND-R54-GRPC-005): Sync validated transport identity and
+        // explicit workload claims into the session. Parity with HTTP/WS.
+        sync_transport_agent_identity(&self.state, &metadata, &session_id).await?;
 
         // SECURITY (FIND-R54-002): Sync call chain from metadata to session.
         // Parity with HTTP handler's sync_session_call_chain_from_headers.
@@ -4362,39 +4422,9 @@ impl McpService for McpGrpcService {
             }
         }
 
-        // SECURITY (FIND-R54-GRPC-005): Extract agent identity at stream start.
-        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
-            if let Some(ref oauth_validator) = self.state.oauth {
-                match oauth_validator
-                    .validate_token(&format!("Bearer {}", identity_token))
-                    .await
-                {
-                    Ok(claims) => {
-                        let identity = vellaveto_types::AgentIdentity {
-                            issuer: if claims.iss.is_empty() {
-                                None
-                            } else {
-                                Some(claims.iss.clone())
-                            },
-                            subject: if claims.sub.is_empty() {
-                                None
-                            } else {
-                                Some(claims.sub.clone())
-                            },
-                            audience: claims.aud.clone(),
-                            claims: Default::default(),
-                        };
-                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
-                            session.agent_identity = Some(identity);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("gRPC stream agent identity JWT validation failed: {}", e);
-                        return Err(Status::unauthenticated("Invalid agent identity token"));
-                    }
-                }
-            }
-        }
+        // SECURITY (FIND-R54-GRPC-005): Sync validated transport identity and
+        // explicit workload claims into the session at stream start.
+        sync_transport_agent_identity(&self.state, &metadata, &session_id).await?;
 
         // SECURITY (FIND-R54-002): Sync call chain from metadata at stream start.
         {
@@ -4612,44 +4642,9 @@ impl McpService for McpGrpcService {
             }
         }
 
-        // SECURITY (FIND-R224-003): Extract and validate agent identity — parity
-        // with call() (line 3154) and stream_call(). Without this, ABAC policies
-        // referencing agent_identity attributes evaluate against None for subscribe.
-        if let Some(identity_token) = super::interceptors::extract_agent_identity_token(&metadata) {
-            if let Some(ref oauth_validator) = self.state.oauth {
-                match oauth_validator
-                    .validate_token(&format!("Bearer {}", identity_token))
-                    .await
-                {
-                    Ok(claims) => {
-                        let identity = vellaveto_types::AgentIdentity {
-                            issuer: if claims.iss.is_empty() {
-                                None
-                            } else {
-                                Some(claims.iss.clone())
-                            },
-                            subject: if claims.sub.is_empty() {
-                                None
-                            } else {
-                                Some(claims.sub.clone())
-                            },
-                            audience: claims.aud.clone(),
-                            claims: Default::default(),
-                        };
-                        if let Some(mut session) = self.state.sessions.get_mut(&session_id) {
-                            session.agent_identity = Some(identity);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "gRPC subscribe agent identity JWT validation failed: {}",
-                            e
-                        );
-                        return Err(Status::unauthenticated("Invalid agent identity token"));
-                    }
-                }
-            }
-        }
+        // SECURITY (FIND-R224-003): Sync validated transport identity and
+        // explicit workload claims so subscribe gets the same agent context.
+        sync_transport_agent_identity(&self.state, &metadata, &session_id).await?;
 
         // SECURITY (FIND-R224-008): Extract call chain from metadata — parity
         // with call() and stream_call(). Without this, policies that reference

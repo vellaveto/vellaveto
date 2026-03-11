@@ -951,6 +951,7 @@ fn test_metadata_constants() {
     assert_eq!(METADATA_AUTHORIZATION, "authorization");
     assert_eq!(METADATA_MCP_SESSION_ID, "mcp-session-id");
     assert_eq!(METADATA_AGENT_IDENTITY, "x-agent-identity");
+    assert_eq!(METADATA_WORKLOAD_CLAIMS, "x-workload-claims");
     assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
     assert_eq!(METADATA_REQUEST_ID, "x-request-id");
 }

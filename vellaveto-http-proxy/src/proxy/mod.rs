@@ -385,3 +385,11 @@ pub(crate) fn validate_upstream_url_scheme(url: &str) -> Result<(), String> {
 /// Contains a signed JWT with claims identifying the agent (issuer, subject, custom claims).
 /// Provides stronger identity guarantees than the simple agent_id string derived from OAuth.
 const X_AGENT_IDENTITY: &str = "x-agent-identity";
+
+/// Header carrying authenticated workload claims for transport provenance.
+/// The value is a base64url-encoded JSON object with allowlisted workload fields.
+const X_WORKLOAD_CLAIMS: &str = "x-workload-claims";
+
+/// Header carrying detached per-request signature metadata for provenance.
+/// The value is a base64url-encoded `RequestSignature` JSON object.
+const X_REQUEST_SIGNATURE: &str = "x-request-signature";

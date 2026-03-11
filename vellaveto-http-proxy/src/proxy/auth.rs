@@ -22,12 +22,24 @@ use std::ops::Deref;
 use subtle::ConstantTimeEq;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_types::acis::DecisionOrigin;
-use vellaveto_types::{Action, ReplayStatus, SignatureVerificationStatus, Verdict};
+use vellaveto_types::{Action, AgentIdentity, ReplayStatus, SignatureVerificationStatus, Verdict};
 
 use super::helpers::oauth_dpop_failure_security_context;
-use super::{ProxyState, X_AGENT_IDENTITY};
+use super::{ProxyState, X_AGENT_IDENTITY, X_WORKLOAD_CLAIMS};
 use crate::oauth::{OAuthClaims, OAuthError};
 use crate::proxy_metrics::{record_dpop_failure, record_dpop_replay_detected};
+
+const MAX_WORKLOAD_CLAIMS_HEADER_BYTES: usize = 4096;
+const SUPPORTED_WORKLOAD_CLAIMS: &[&str] = &[
+    "workload_id",
+    "spiffe_id",
+    "namespace",
+    "service_account",
+    "process_identity",
+    "attestation_level",
+    "session_key_scope",
+    "execution_is_ephemeral",
+];
 
 /// Build the effective request URI from headers and bind address.
 ///
@@ -116,9 +128,28 @@ struct DpopAuditParams<'a> {
     dpop_reason: &'a str,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum WorkloadClaimsError {
+    Invalid,
+}
+
+impl IntoResponse for WorkloadClaimsError {
+    fn into_response(self) -> Response {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Invalid workload claims header"
+            })),
+        )
+            .into_response()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct OAuthValidationEvidence {
     pub claims: OAuthClaims,
+    pub custom_claims: HashMap<String, Value>,
+    pub workload_claims: HashMap<String, Value>,
     pub dpop_proof_verified: bool,
 }
 
@@ -148,12 +179,12 @@ impl Deref for OAuthValidationEvidence {
     }
 }
 
-fn extract_custom_identity_claims(identity_token: &str) -> Option<HashMap<String, Value>> {
+pub(super) fn extract_custom_jwt_claims(token: &str) -> Option<HashMap<String, Value>> {
     const RESERVED_CLAIMS: &[&str] = &[
         "iss", "sub", "aud", "exp", "iat", "nbf", "scope", "resource", "cnf",
     ];
 
-    let payload_segment = identity_token.split('.').nth(1)?;
+    let payload_segment = token.split('.').nth(1)?;
     let payload_bytes = URL_SAFE_NO_PAD.decode(payload_segment).ok()?;
     let mut payload =
         serde_json::from_slice::<serde_json::Map<String, Value>>(&payload_bytes).ok()?;
@@ -163,6 +194,89 @@ fn extract_custom_identity_claims(identity_token: &str) -> Option<HashMap<String
     }
 
     Some(payload.into_iter().collect())
+}
+
+pub(super) fn decode_workload_claims_value(
+    encoded: &str,
+) -> Result<HashMap<String, Value>, WorkloadClaimsError> {
+    if encoded.len() > MAX_WORKLOAD_CLAIMS_HEADER_BYTES {
+        return Err(WorkloadClaimsError::Invalid);
+    }
+
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| WorkloadClaimsError::Invalid)?;
+    let decoded =
+        serde_json::from_slice::<Value>(&payload).map_err(|_| WorkloadClaimsError::Invalid)?;
+    let object = decoded.as_object().ok_or(WorkloadClaimsError::Invalid)?;
+    let mut claims = HashMap::new();
+
+    for key in SUPPORTED_WORKLOAD_CLAIMS {
+        let Some(value) = object.get(*key) else {
+            continue;
+        };
+        match (*key, value) {
+            ("execution_is_ephemeral", Value::Bool(_)) => {
+                claims.insert((*key).to_string(), value.clone());
+            }
+            (
+                "workload_id" | "spiffe_id" | "namespace" | "service_account" | "process_identity"
+                | "attestation_level" | "session_key_scope",
+                Value::String(text),
+            ) if !text.trim().is_empty() => {
+                claims.insert((*key).to_string(), value.clone());
+            }
+            _ => return Err(WorkloadClaimsError::Invalid),
+        }
+    }
+
+    if claims.is_empty() && !object.is_empty() {
+        return Err(WorkloadClaimsError::Invalid);
+    }
+
+    Ok(claims)
+}
+
+fn extract_workload_claims(
+    headers: &HeaderMap,
+) -> Result<HashMap<String, Value>, WorkloadClaimsError> {
+    let header_value = match headers
+        .get(X_WORKLOAD_CLAIMS)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+    {
+        Some(value) if !value.is_empty() => value,
+        Some(_) => return Err(WorkloadClaimsError::Invalid),
+        None => return Ok(HashMap::new()),
+    };
+
+    decode_workload_claims_value(header_value)
+}
+
+pub(super) fn build_validated_agent_identity(
+    claims: OAuthClaims,
+    token: &str,
+    workload_claims: HashMap<String, Value>,
+) -> Result<AgentIdentity, String> {
+    let mut merged_claims = extract_custom_jwt_claims(token).unwrap_or_default();
+    merged_claims.extend(workload_claims);
+
+    let identity = AgentIdentity {
+        issuer: if claims.iss.is_empty() {
+            None
+        } else {
+            Some(claims.iss)
+        },
+        subject: if claims.sub.is_empty() {
+            None
+        } else {
+            Some(claims.sub)
+        },
+        audience: claims.aud,
+        claims: merged_claims,
+    };
+    identity.validate()?;
+    Ok(identity)
 }
 
 async fn audit_dpop_validation_failure(
@@ -304,6 +418,9 @@ pub(super) async fn validate_oauth(
             tracing::debug!("OAuth token validated for subject: {}", claims.sub);
             Ok(Some(OAuthValidationEvidence {
                 claims,
+                custom_claims: extract_custom_jwt_claims(bearer_token).unwrap_or_default(),
+                workload_claims: extract_workload_claims(headers)
+                    .map_err(IntoResponse::into_response)?,
                 dpop_proof_verified,
             }))
         }
@@ -486,43 +603,31 @@ pub(super) async fn validate_agent_identity(
         .await
     {
         Ok(claims) => {
-            // Convert OAuthClaims to AgentIdentity
-            let identity = vellaveto_types::AgentIdentity {
-                issuer: if claims.iss.is_empty() {
-                    None
-                } else {
-                    Some(claims.iss)
-                },
-                subject: if claims.sub.is_empty() {
-                    None
-                } else {
-                    Some(claims.sub)
-                },
-                audience: claims.aud,
-                claims: extract_custom_identity_claims(identity_token).unwrap_or_default(),
-            };
-            if let Err(error) = identity.validate() {
-                tracing::warn!("X-Agent-Identity claims validation failed: {}", error);
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "jsonrpc": "2.0",
-                        "error": {
-                            "code": -32001,
-                            "message": "Invalid agent identity token"
-                        },
-                        "id": null
-                    })),
-                )
-                    .into_response());
+            match build_validated_agent_identity(claims, identity_token, HashMap::new()) {
+                Ok(identity) => {
+                    tracing::debug!(
+                        "X-Agent-Identity validated: issuer={:?}, subject={:?}",
+                        identity.issuer,
+                        identity.subject
+                    );
+                    Ok(Some(identity))
+                }
+                Err(error) => {
+                    tracing::warn!("X-Agent-Identity claims validation failed: {}", error);
+                    Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "error": {
+                                "code": -32001,
+                                "message": "Invalid agent identity token"
+                            },
+                            "id": null
+                        })),
+                    )
+                        .into_response())
+                }
             }
-
-            tracing::debug!(
-                "X-Agent-Identity validated: issuer={:?}, subject={:?}",
-                identity.issuer,
-                identity.subject
-            );
-            Ok(Some(identity))
         }
         Err(e) => {
             // SECURITY (R28-PROXY-5): Log details server-side only; return
@@ -717,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_custom_identity_claims_filters_standard_fields() {
+    fn test_extract_custom_jwt_claims_filters_standard_fields() {
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","typ":"JWT"}"#);
         let payload = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&json!({
@@ -733,7 +838,7 @@ mod tests {
         );
         let token = format!("{header}.{payload}.sig");
 
-        let claims = extract_custom_identity_claims(&token).expect("custom claims");
+        let claims = extract_custom_jwt_claims(&token).expect("custom claims");
 
         assert_eq!(claims.get("namespace"), Some(&json!("prod")));
         assert_eq!(claims.get("service_account"), Some(&json!("frontend")));
@@ -745,7 +850,95 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_custom_identity_claims_invalid_token_returns_none() {
-        assert!(extract_custom_identity_claims("not-a-jwt").is_none());
+    fn test_extract_custom_jwt_claims_invalid_token_returns_none() {
+        assert!(extract_custom_jwt_claims("not-a-jwt").is_none());
+    }
+
+    #[test]
+    fn test_extract_workload_claims_accepts_base64url_json_object() {
+        let mut headers = HeaderMap::new();
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "workload_id": "spiffe://cluster/ns/app",
+                "namespace": "prod",
+                "service_account": "frontend",
+                "execution_is_ephemeral": true,
+                "ignored_future_key": "ignored"
+            }))
+            .expect("serialize workload claims"),
+        );
+        headers.insert(X_WORKLOAD_CLAIMS, payload.parse().expect("header value"));
+
+        let claims = extract_workload_claims(&headers).expect("workload claims");
+
+        assert_eq!(
+            claims.get("workload_id"),
+            Some(&json!("spiffe://cluster/ns/app"))
+        );
+        assert_eq!(claims.get("namespace"), Some(&json!("prod")));
+        assert_eq!(claims.get("service_account"), Some(&json!("frontend")));
+        assert_eq!(claims.get("execution_is_ephemeral"), Some(&json!(true)));
+        assert!(!claims.contains_key("ignored_future_key"));
+    }
+
+    #[test]
+    fn test_extract_workload_claims_rejects_invalid_shape() {
+        let mut headers = HeaderMap::new();
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "namespace": ["prod"]
+            }))
+            .expect("serialize workload claims"),
+        );
+        headers.insert(X_WORKLOAD_CLAIMS, payload.parse().expect("header value"));
+
+        let response = extract_workload_claims(&headers)
+            .expect_err("invalid workload claims")
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn test_build_validated_agent_identity_merges_workload_claims() {
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"ES256","typ":"JWT"}"#);
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "iss": "https://issuer.example",
+                "sub": "spiffe://cluster/ns/from-token",
+                "aud": ["mcp-server"],
+                "namespace": "token-ns",
+                "service_account": "token-sa"
+            }))
+            .expect("serialize payload"),
+        );
+        let token = format!("{header}.{payload}.sig");
+
+        let identity = build_validated_agent_identity(
+            OAuthClaims {
+                iss: "https://issuer.example".to_string(),
+                sub: "spiffe://cluster/ns/from-token".to_string(),
+                aud: vec!["mcp-server".to_string()],
+                exp: 0,
+                iat: 0,
+                scope: String::new(),
+                resource: None,
+                cnf: None,
+            },
+            &token,
+            HashMap::from([
+                ("namespace".to_string(), json!("header-ns")),
+                ("process_identity".to_string(), json!("pid://grpc/1")),
+            ]),
+        )
+        .expect("validated identity");
+
+        assert_eq!(
+            identity.claim_str("namespace"),
+            Some("header-ns"),
+            "explicit workload claims should override token claims"
+        );
+        assert_eq!(identity.claim_str("service_account"), Some("token-sa"));
+        assert_eq!(identity.claim_str("process_identity"), Some("pid://grpc/1"));
     }
 }

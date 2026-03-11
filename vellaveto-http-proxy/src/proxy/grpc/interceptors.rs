@@ -12,10 +12,12 @@
 //! These interceptors run before the `McpGrpcService` handler, providing
 //! the same auth and rate-limiting guarantees as the HTTP/WS transports.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use serde_json::Value;
 use tonic::{service::Interceptor, Request, Status};
 
 use super::super::ProxyState;
@@ -33,6 +35,7 @@ pub(crate) fn contains_dangerous_chars(s: &str) -> bool {
 pub const METADATA_AUTHORIZATION: &str = "authorization";
 pub const METADATA_MCP_SESSION_ID: &str = "mcp-session-id";
 pub const METADATA_AGENT_IDENTITY: &str = "x-agent-identity";
+pub const METADATA_WORKLOAD_CLAIMS: &str = "x-workload-claims";
 pub const METADATA_UPSTREAM_AGENTS: &str = "x-upstream-agents";
 pub const METADATA_REQUEST_ID: &str = "x-request-id";
 
@@ -305,9 +308,35 @@ pub fn extract_agent_identity_token(metadata: &tonic::metadata::MetadataMap) -> 
         .map(|s| s.to_string())
 }
 
+/// Extract explicit workload claims from gRPC metadata.
+///
+/// Returns `Ok(None)` when the metadata key is absent. Returns an error when the
+/// key is present but malformed so the transport can fail closed.
+pub fn extract_workload_claims(
+    metadata: &tonic::metadata::MetadataMap,
+) -> Result<Option<HashMap<String, Value>>, Status> {
+    let Some(raw) = metadata
+        .get(METADATA_WORKLOAD_CLAIMS)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+    else {
+        return Ok(None);
+    };
+
+    if raw.is_empty() || contains_dangerous_chars(raw) {
+        return Err(Status::invalid_argument("Invalid workload claims metadata"));
+    }
+
+    crate::proxy::auth::decode_workload_claims_value(raw)
+        .map(Some)
+        .map_err(|_| Status::invalid_argument("Invalid workload claims metadata"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use serde_json::json;
 
     // contains_dangerous_chars
 
@@ -463,6 +492,41 @@ mod tests {
         assert_eq!(extract_agent_identity_token(&m), Some(exact));
     }
 
+    #[test]
+    fn test_extract_workload_claims_valid() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&json!({
+                "workload_id": "spiffe://cluster/ns/grpc",
+                "namespace": "prod",
+                "execution_is_ephemeral": true
+            }))
+            .expect("serialize workload claims"),
+        );
+        m.insert(METADATA_WORKLOAD_CLAIMS, payload.parse().unwrap());
+
+        let claims = extract_workload_claims(&m)
+            .expect("workload claims")
+            .expect("workload claims present");
+
+        assert_eq!(
+            claims.get("workload_id"),
+            Some(&json!("spiffe://cluster/ns/grpc"))
+        );
+        assert_eq!(claims.get("namespace"), Some(&json!("prod")));
+        assert_eq!(claims.get("execution_is_ephemeral"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn test_extract_workload_claims_invalid_returns_status() {
+        let mut m = tonic::metadata::MetadataMap::new();
+        m.insert(METADATA_WORKLOAD_CLAIMS, "not-base64".parse().unwrap());
+
+        let err = extract_workload_claims(&m).expect_err("invalid workload claims");
+
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    }
+
     // RateLimitInterceptor
 
     #[test]
@@ -560,6 +624,7 @@ mod tests {
         assert_eq!(METADATA_AUTHORIZATION, "authorization");
         assert_eq!(METADATA_MCP_SESSION_ID, "mcp-session-id");
         assert_eq!(METADATA_AGENT_IDENTITY, "x-agent-identity");
+        assert_eq!(METADATA_WORKLOAD_CLAIMS, "x-workload-claims");
         assert_eq!(METADATA_UPSTREAM_AGENTS, "x-upstream-agents");
         assert_eq!(METADATA_REQUEST_ID, "x-request-id");
         assert_eq!(METADATA_TRACEPARENT, "traceparent");

@@ -83,6 +83,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workload_identity` fields (`namespace`, `service_account`,
   `process_identity`, `attestation_level`) plus `session_key_scope` and
   `execution_is_ephemeral` from validated transport identity claims.
+- **HTTP proxy explicit workload-claims transport path (Mar 2026):**
+  Authenticated HTTP and WebSocket requests can now carry a dedicated
+  `x-workload-claims` header with base64url-encoded workload metadata.
+  When present, the HTTP proxy prefers those allowlisted transport claims over
+  bearer-token custom claims for `workload_id`, `namespace`,
+  `service_account`, `process_identity`, `attestation_level`,
+  `session_key_scope`, and `execution_is_ephemeral`, while still failing closed
+  on malformed header values.
+- **HTTP proxy detached request-signature ingestion (Mar 2026):**
+  HTTP and WebSocket runtime provenance now also accepts a detached
+  `x-request-signature` header with base64url-encoded `RequestSignature`
+  metadata. Verified DPoP evidence still takes precedence, but detached
+  signature fields now survive into `client_provenance` for audit and policy
+  inputs, and malformed detached signature headers are surfaced as
+  `signature_status = invalid` instead of being silently ignored.
+- **gRPC transport identity parity (Mar 2026):**
+  The gRPC transport now uses the same validated transport-identity helpers as
+  HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of
+  dropping them, explicit `x-workload-claims` metadata can enrich or override
+  workload fields, and verified bearer-token custom claims can now synthesize
+  session `agent_identity` context when no separate identity token is present.
 
 ### Fixed
 

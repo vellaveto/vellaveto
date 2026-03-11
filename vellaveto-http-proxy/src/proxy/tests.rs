@@ -30,8 +30,9 @@ use vellaveto_mcp::inspection::{
     inspect_for_injection, sanitize_for_injection_scan, scan_text_for_secrets,
 };
 use vellaveto_types::{
-    Action, AgentIdentity, ContainmentMode, ContextChannel, EvaluationContext, SemanticRiskScore,
-    SemanticTaint, SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
+    Action, AgentIdentity, ContainmentMode, ContextChannel, EvaluationContext, RequestSignature,
+    SemanticRiskScore, SemanticTaint, SignatureVerificationStatus, SinkClass, TrustTier,
+    WorkloadBindingStatus,
 };
 
 // Classification and extraction are tested in vellaveto-mcp::extractor.
@@ -49,10 +50,46 @@ fn make_dpop_proof(iat: u64, jti: &str) -> String {
     format!("{header}.{payload}.sig")
 }
 
+fn make_detached_request_signature_header(signature: &RequestSignature) -> String {
+    URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(signature).expect("serialize detached request signature"))
+}
+
 fn make_oauth_validation_evidence(
     sub: &str,
     jkt: &str,
     dpop_proof_verified: bool,
+) -> super::auth::OAuthValidationEvidence {
+    make_oauth_validation_evidence_with_transport_claims(
+        sub,
+        jkt,
+        dpop_proof_verified,
+        std::collections::HashMap::new(),
+        std::collections::HashMap::new(),
+    )
+}
+
+fn make_oauth_validation_evidence_with_claims(
+    sub: &str,
+    jkt: &str,
+    dpop_proof_verified: bool,
+    custom_claims: std::collections::HashMap<String, serde_json::Value>,
+) -> super::auth::OAuthValidationEvidence {
+    make_oauth_validation_evidence_with_transport_claims(
+        sub,
+        jkt,
+        dpop_proof_verified,
+        custom_claims,
+        std::collections::HashMap::new(),
+    )
+}
+
+fn make_oauth_validation_evidence_with_transport_claims(
+    sub: &str,
+    jkt: &str,
+    dpop_proof_verified: bool,
+    custom_claims: std::collections::HashMap<String, serde_json::Value>,
+    workload_claims: std::collections::HashMap<String, serde_json::Value>,
 ) -> super::auth::OAuthValidationEvidence {
     super::auth::OAuthValidationEvidence {
         claims: crate::oauth::OAuthClaims {
@@ -67,6 +104,8 @@ fn make_oauth_validation_evidence(
                 jkt: Some(jkt.to_string()),
             }),
         },
+        custom_claims,
+        workload_claims,
         dpop_proof_verified,
     }
 }
@@ -470,6 +509,289 @@ fn test_build_runtime_security_context_derives_workload_binding_from_agent_ident
         vellaveto_types::SessionKeyScope::EphemeralExecution
     );
     assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_runtime_security_context_uses_oauth_claims_for_workload_binding_without_agent_identity(
+) {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "dpop",
+        make_dpop_proof(1_741_611_000, "nonce-oauth-workload")
+            .parse()
+            .expect("valid dpop header"),
+    );
+    let oauth_claims = make_oauth_validation_evidence_with_claims(
+        "spiffe://cluster/ns/oauth-agent",
+        "thumbprint-oauth-workload",
+        true,
+        std::collections::HashMap::from([
+            ("namespace".to_string(), json!("prod")),
+            ("service_account".to_string(), json!("api")),
+            ("process_identity".to_string(), json!("pid://api/7")),
+            ("attestation_level".to_string(), json!("signed_jwt")),
+            ("session_key_scope".to_string(), json!("persisted_client")),
+            ("execution_is_ephemeral".to_string(), json!(true)),
+        ]),
+    );
+    let eval_ctx = EvaluationContext {
+        agent_id: Some("oauth-agent".to_string()),
+        ..EvaluationContext::default()
+    };
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        Some(&oauth_claims),
+        Some(&eval_ctx),
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.workload_binding_status,
+        WorkloadBindingStatus::Bound
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|workload| workload.workload_id.as_str()),
+        Some("spiffe://cluster/ns/oauth-agent")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.platform.as_deref()),
+        Some("spiffe")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.namespace.as_deref()),
+        Some("prod")
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::PersistedClient
+    );
+    assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_runtime_security_context_prefers_explicit_workload_claims_over_oauth_custom_claims() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "dpop",
+        make_dpop_proof(1_741_612_000, "nonce-transport-workload")
+            .parse()
+            .expect("valid dpop header"),
+    );
+    let oauth_claims = make_oauth_validation_evidence_with_transport_claims(
+        "agent-claims-only",
+        "thumbprint-transport-workload",
+        true,
+        std::collections::HashMap::from([
+            (
+                "workload_id".to_string(),
+                json!("spiffe://cluster/ns/from-token"),
+            ),
+            ("namespace".to_string(), json!("token-ns")),
+            ("service_account".to_string(), json!("token-sa")),
+        ]),
+        std::collections::HashMap::from([
+            (
+                "workload_id".to_string(),
+                json!("spiffe://cluster/ns/from-header"),
+            ),
+            ("namespace".to_string(), json!("header-ns")),
+            ("service_account".to_string(), json!("header-sa")),
+            ("process_identity".to_string(), json!("pid://header/1")),
+            ("attestation_level".to_string(), json!("transport_asserted")),
+            (
+                "session_key_scope".to_string(),
+                json!("ephemeral_execution"),
+            ),
+            ("execution_is_ephemeral".to_string(), json!(true)),
+        ]),
+    );
+
+    let security_context = super::helpers::build_runtime_security_context(
+        &msg,
+        &action,
+        &headers,
+        Some(&oauth_claims),
+        None,
+    )
+    .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.workload_binding_status,
+        WorkloadBindingStatus::Bound
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .map(|workload| workload.workload_id.as_str()),
+        Some("spiffe://cluster/ns/from-header")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.namespace.as_deref()),
+        Some("header-ns")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.service_account.as_deref()),
+        Some("header-sa")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.process_identity.as_deref()),
+        Some("pid://header/1")
+    );
+    assert_eq!(
+        provenance
+            .workload_identity
+            .as_ref()
+            .and_then(|workload| workload.attestation_level.as_deref()),
+        Some("transport_asserted")
+    );
+    assert_eq!(
+        provenance.session_key_scope,
+        vellaveto_types::SessionKeyScope::EphemeralExecution
+    );
+    assert!(provenance.execution_is_ephemeral);
+}
+
+#[test]
+fn test_build_runtime_security_context_uses_detached_request_signature_without_oauth() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        make_detached_request_signature_header(&RequestSignature {
+            key_id: Some("detached-kid".to_string()),
+            algorithm: Some("ed25519".to_string()),
+            nonce: Some("detached-nonce".to_string()),
+            created_at: Some("2026-03-11T16:30:00Z".to_string()),
+            signature: Some("deadbeef".to_string()),
+        })
+        .parse()
+        .expect("detached signature header"),
+    );
+
+    let security_context =
+        super::helpers::build_runtime_security_context(&msg, &action, &headers, None, None)
+            .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Missing
+    );
+    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.algorithm.as_deref()),
+        Some("ed25519")
+    );
+    assert_eq!(
+        provenance
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.nonce.as_deref()),
+        Some("detached-nonce")
+    );
+    assert_eq!(
+        provenance.workload_binding_status,
+        WorkloadBindingStatus::Unknown
+    );
+}
+
+#[test]
+fn test_build_runtime_security_context_marks_invalid_detached_request_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action = extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-request-signature",
+        "not-base64".parse().expect("header value"),
+    );
+
+    let security_context =
+        super::helpers::build_runtime_security_context(&msg, &action, &headers, None, None)
+            .expect("security context");
+    let provenance = security_context
+        .client_provenance
+        .as_ref()
+        .expect("client provenance");
+
+    assert_eq!(
+        provenance.signature_status,
+        SignatureVerificationStatus::Invalid
+    );
+    assert!(provenance.request_signature.is_none());
+    assert!(provenance.client_key_id.is_none());
 }
 
 #[test]
