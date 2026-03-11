@@ -34,7 +34,7 @@ use vellaveto_mcp::inspection::{
     scan_response_for_secrets, scan_tool_descriptions, scan_tool_descriptions_with_scanner,
 };
 use vellaveto_mcp::mediation::{
-    build_acis_envelope, build_secondary_acis_envelope,
+    build_acis_envelope, build_acis_envelope_with_security_context, build_secondary_acis_envelope,
     build_secondary_acis_envelope_with_security_context,
 };
 use vellaveto_mcp::output_validation::ValidationResult;
@@ -63,8 +63,9 @@ use crate::proxy::helpers::{
     memory_poisoning_security_context, notification_dlp_security_context,
     notification_injection_security_context, notification_memory_poisoning_security_context,
     output_schema_violation_security_context, parameter_dlp_security_context,
-    parameter_injection_security_context, privilege_escalation_security_context, resolve_domains,
-    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
+    parameter_injection_security_context, privilege_escalation_security_context,
+    require_approval_security_context, resolve_domains, response_dlp_security_context,
+    response_injection_security_context, rug_pull_security_context,
     tool_discovery_integrity_security_context, unknown_tool_approval_gate_security_context,
     untrusted_tool_approval_gate_security_context,
 };
@@ -2028,12 +2029,14 @@ impl McpGrpcService {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                let envelope = build_secondary_acis_envelope(
+                let circuit_breaker_security_context = circuit_breaker_security_context(&action);
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &verdict,
                     DecisionOrigin::CircuitBreaker,
                     "grpc",
                     Some(session_id),
+                    Some(&circuit_breaker_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -2310,7 +2313,8 @@ impl McpGrpcService {
                 make_proto_denial_response(proto_req, "Denied by policy")
             }
             Verdict::RequireApproval { reason, .. } => {
-                let acis_envelope = build_acis_envelope(
+                let approval_security_context = require_approval_security_context(&action);
+                let acis_envelope = build_acis_envelope_with_security_context(
                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                     &action,
                     &verdict,
@@ -2321,6 +2325,7 @@ impl McpGrpcService {
                     Some(session_id),
                     None,
                     Some(&ctx),
+                    Some(&approval_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -2346,20 +2351,18 @@ impl McpGrpcService {
                 }
                 // SECURITY (FIND-R211-002): Create pending approval in store — parity
                 // with HTTP handler (handlers.rs:1927) and WS (create_ws_approval).
-                let approval_id = if let Some(ref approval_store) = self.state.approval_store {
-                    approval_store
-                        .create(
-                            action.clone(),
-                            reason.clone(),
-                            requested_by.clone(),
-                            Some(session_id.to_string()),
-                            Some(fingerprint_action(&action)),
-                        )
-                        .await
-                        .ok()
-                } else {
-                    None
-                };
+                let containment_context = approval_containment_context_from_security_context(
+                    &approval_security_context,
+                    &reason,
+                );
+                let approval_id = create_pending_approval_with_context(
+                    &self.state,
+                    session_id,
+                    &action,
+                    &reason,
+                    containment_context,
+                )
+                .await;
                 self.approval_required_response(proto_req, approval_id)
             }
             // SECURITY (FIND-R113-003): Generic deny message; detailed reason in audit log

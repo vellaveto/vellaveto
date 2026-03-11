@@ -40,8 +40,8 @@ use super::call_chain::{
     track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use super::helpers::{
-    approval_containment_context_from_security_context, build_runtime_security_context,
-    circuit_breaker_security_context, consume_presented_approval,
+    approval_containment_context_from_envelope, approval_containment_context_from_security_context,
+    build_runtime_security_context, circuit_breaker_security_context, consume_presented_approval,
     create_pending_approval_with_context, extract_approval_id_from_meta,
     invalid_presented_approval_security_context, memory_poisoning_security_context,
     notification_dlp_security_context, notification_injection_security_context,
@@ -2150,12 +2150,15 @@ pub async fn handle_mcp_post(
                         reason: format!("Circuit breaker open: {reason}"),
                     };
                     // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                    let envelope = build_secondary_acis_envelope(
+                    let circuit_breaker_security_context =
+                        circuit_breaker_security_context(&action);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &verdict,
                         DecisionOrigin::CircuitBreaker,
                         "http",
                         Some(&session_id),
+                        Some(&circuit_breaker_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -2489,36 +2492,24 @@ pub async fn handle_mcp_post(
 
                     // Create pending approval for RequireApproval verdicts
                     let approval_id = if matches!(&verdict, Verdict::RequireApproval { .. }) {
-                        if let Some(ref store) = state.approval_store {
-                            match store
-                                .create(
-                                    action.clone(),
-                                    reason.clone(),
-                                    requested_by.clone(),
-                                    Some(session_id.clone()),
-                                    Some(fingerprint_action(&action)),
-                                )
-                                .await
-                            {
-                                Ok(aid) => {
-                                    tracing::info!(
-                                        "Created pending approval {} for resource '{}'",
-                                        aid,
-                                        uri
-                                    );
-                                    Some(aid)
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Failed to create approval for resource: {}",
-                                        e
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            None
+                        let containment_context =
+                            approval_containment_context_from_envelope(&acis_envelope, &reason);
+                        let approval_id = create_pending_approval_with_context(
+                            &state,
+                            &session_id,
+                            &action,
+                            &reason,
+                            containment_context,
+                        )
+                        .await;
+                        if let Some(ref approval_id) = approval_id {
+                            tracing::info!(
+                                "Created pending approval {} for resource '{}'",
+                                approval_id,
+                                uri
+                            );
                         }
+                        approval_id
                     } else {
                         None
                     };

@@ -982,6 +982,57 @@ fn test_approval_containment_context_from_security_context_preserves_guard_field
     assert!(!containment_context.counterfactual_review_required);
 }
 
+#[test]
+fn test_circuit_breaker_security_context_marks_resource_content_for_resource_reads() {
+    let action = extractor::extract_resource_action("https://example.test/private.txt");
+
+    let security_context = super::helpers::circuit_breaker_security_context(&action);
+
+    assert_eq!(security_context.sink_class, Some(SinkClass::ReadOnly));
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::Enforce)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ResourceContent
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 30 })
+    );
+}
+
+#[test]
+fn test_require_approval_security_context_marks_resource_content_for_resource_reads() {
+    let action = extractor::extract_resource_action("file:///etc/hosts");
+
+    let security_context = super::helpers::require_approval_security_context(&action);
+
+    assert!(security_context.semantic_taint.is_empty());
+    assert_eq!(security_context.sink_class, Some(SinkClass::ReadOnly));
+    assert_eq!(
+        security_context.effective_trust_tier,
+        Some(TrustTier::Unknown)
+    );
+    assert_eq!(
+        security_context.containment_mode,
+        Some(ContainmentMode::RequireApproval)
+    );
+    assert_eq!(
+        security_context.lineage_refs[0].channel,
+        ContextChannel::ResourceContent
+    );
+    assert_eq!(
+        security_context.semantic_risk_score,
+        Some(SemanticRiskScore { value: 35 })
+    );
+}
+
 /// IMP-R122-004: Edge case — no headers at all falls back to bind_addr.
 #[test]
 fn test_build_effective_request_uri_no_headers_falls_back_to_bind_addr() {

@@ -22,7 +22,7 @@ use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::mediation::build_secondary_acis_envelope_with_security_context;
 use vellaveto_mcp::output_contracts::infer_observed_output_channel;
-use vellaveto_types::acis::DecisionOrigin;
+use vellaveto_types::acis::{AcisDecisionEnvelope, DecisionOrigin};
 use vellaveto_types::{
     Action, ClientProvenance, ContextChannel, EvaluationContext, LineageRef, ReplayStatus,
     RequestSignature, RuntimeSecurityContext, SemanticRiskScore, SemanticTaint, SessionKeyScope,
@@ -935,7 +935,7 @@ pub(super) fn output_schema_violation_security_context(
 
 struct GuardSecurityContextSpec {
     lineage_id: &'static str,
-    observed_channel: ContextChannel,
+    observed_channel: Option<ContextChannel>,
     source: &'static str,
     effective_trust_tier: TrustTier,
     containment_mode: vellaveto_types::ContainmentMode,
@@ -943,11 +943,22 @@ struct GuardSecurityContextSpec {
     extra_risk: u8,
 }
 
+fn default_guard_observed_channel(action: &Action) -> ContextChannel {
+    if action.tool == "resources" && action.function == "read" {
+        ContextChannel::ResourceContent
+    } else {
+        ContextChannel::ToolOutput
+    }
+}
+
 fn guard_security_context(
     action: &Action,
     spec: GuardSecurityContextSpec,
 ) -> RuntimeSecurityContext {
     let sink_class = infer_sink_class(action);
+    let observed_channel = spec
+        .observed_channel
+        .unwrap_or_else(|| default_guard_observed_channel(action));
     let trust_tier = Some(spec.effective_trust_tier);
 
     RuntimeSecurityContext {
@@ -956,7 +967,7 @@ fn guard_security_context(
         sink_class: Some(sink_class),
         lineage_refs: vec![LineageRef {
             id: spec.lineage_id.to_string(),
-            channel: spec.observed_channel,
+            channel: observed_channel,
             content_hash: None,
             source: Some(spec.source.to_string()),
             trust_tier,
@@ -965,7 +976,7 @@ fn guard_security_context(
         semantic_risk_score: Some(SemanticRiskScore {
             value: sink_class
                 .semantic_risk_weight()
-                .saturating_add(spec.observed_channel.semantic_risk_weight())
+                .saturating_add(observed_channel.semantic_risk_weight())
                 .saturating_add(spec.extra_risk)
                 .min(100),
         }),
@@ -978,7 +989,7 @@ pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityConte
         action,
         GuardSecurityContextSpec {
             lineage_id: "rug_pull",
-            observed_channel: ContextChannel::ToolOutput,
+            observed_channel: None,
             source: "rug_pull_tool_blocked",
             effective_trust_tier: TrustTier::Quarantined,
             containment_mode: vellaveto_types::ContainmentMode::Quarantine,
@@ -997,7 +1008,7 @@ pub(super) fn circuit_breaker_security_context(action: &Action) -> RuntimeSecuri
         action,
         GuardSecurityContextSpec {
             lineage_id: "circuit_breaker",
-            observed_channel: ContextChannel::ToolOutput,
+            observed_channel: None,
             source: "circuit_breaker_rejected",
             effective_trust_tier: TrustTier::Unknown,
             containment_mode: vellaveto_types::ContainmentMode::Enforce,
@@ -1012,7 +1023,7 @@ pub(super) fn privilege_escalation_security_context(action: &Action) -> RuntimeS
         action,
         GuardSecurityContextSpec {
             lineage_id: "privilege_escalation",
-            observed_channel: ContextChannel::ToolOutput,
+            observed_channel: None,
             source: "privilege_escalation_blocked",
             effective_trust_tier: TrustTier::Low,
             containment_mode: vellaveto_types::ContainmentMode::Enforce,
@@ -1029,7 +1040,7 @@ pub(super) fn unknown_tool_approval_gate_security_context(
         action,
         GuardSecurityContextSpec {
             lineage_id: "unknown_tool_approval_gate",
-            observed_channel: ContextChannel::ToolOutput,
+            observed_channel: None,
             source: "unknown_tool_approval_gate",
             effective_trust_tier: TrustTier::Unknown,
             containment_mode: vellaveto_types::ContainmentMode::RequireApproval,
@@ -1046,7 +1057,7 @@ pub(super) fn untrusted_tool_approval_gate_security_context(
         action,
         GuardSecurityContextSpec {
             lineage_id: "untrusted_tool_approval_gate",
-            observed_channel: ContextChannel::ToolOutput,
+            observed_channel: None,
             source: "untrusted_tool_approval_gate",
             effective_trust_tier: TrustTier::Untrusted,
             containment_mode: vellaveto_types::ContainmentMode::RequireApproval,
@@ -1063,12 +1074,28 @@ pub(super) fn invalid_presented_approval_security_context(
         action,
         GuardSecurityContextSpec {
             lineage_id: "approval_scope_mismatch",
-            observed_channel: ContextChannel::ApprovalPrompt,
+            observed_channel: Some(ContextChannel::ApprovalPrompt),
             source: "presented_approval_invalid",
             effective_trust_tier: TrustTier::Quarantined,
             containment_mode: vellaveto_types::ContainmentMode::Quarantine,
             semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
             extra_risk: 25,
+        },
+    )
+}
+
+#[cfg(any(feature = "grpc", test))]
+pub(super) fn require_approval_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "require_approval",
+            observed_channel: None,
+            source: "require_approval",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::RequireApproval,
+            semantic_taint: Vec::new(),
+            extra_risk: 15,
         },
     )
 }
@@ -1088,6 +1115,28 @@ pub(super) fn approval_containment_context_from_security_context(
         sink_class: security_context.sink_class,
         containment_mode: security_context.containment_mode,
         semantic_risk_score: security_context.semantic_risk_score,
+        counterfactual_review_required: reason.contains("counterfactual review required"),
+    }
+    .normalized();
+
+    context.is_meaningful().then_some(context)
+}
+
+pub(super) fn approval_containment_context_from_envelope(
+    envelope: &AcisDecisionEnvelope,
+    reason: &str,
+) -> Option<ApprovalContainmentContext> {
+    let context = ApprovalContainmentContext {
+        semantic_taint: envelope.semantic_taint.clone(),
+        lineage_channels: envelope
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel)
+            .collect(),
+        effective_trust_tier: envelope.effective_trust_tier,
+        sink_class: envelope.sink_class,
+        containment_mode: envelope.containment_mode,
+        semantic_risk_score: envelope.semantic_risk_score,
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();

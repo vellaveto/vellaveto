@@ -1833,6 +1833,11 @@ async fn relay_client_to_upstream(
                                 let approval_verdict = Verdict::RequireApproval {
                                     reason: reason.clone(),
                                 };
+                                let containment_context =
+                                    super::helpers::approval_containment_context_from_envelope(
+                                        &acis_envelope,
+                                        reason,
+                                    );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -1865,7 +1870,14 @@ async fn relay_client_to_upstream(
                                 }
                                 let approval_reason = "Approval required";
                                 let approval_id =
-                                    create_ws_approval(&state, &session_id, &action, reason).await;
+                                    super::helpers::create_pending_approval_with_context(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        reason,
+                                        containment_context,
+                                    )
+                                    .await;
                                 let error = make_ws_error_response_with_data(
                                     Some(id),
                                     -32001,
@@ -2103,12 +2115,15 @@ async fn relay_client_to_upstream(
                                     reason: format!("Circuit breaker open: {reason}"),
                                 };
                                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                                let envelope = build_secondary_acis_envelope(
+                                let circuit_breaker_security_context =
+                                    super::helpers::circuit_breaker_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::CircuitBreaker,
                                     "websocket",
                                     Some(&session_id),
+                                    Some(&circuit_breaker_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -2504,6 +2519,11 @@ async fn relay_client_to_upstream(
                                 let approval_verdict = Verdict::RequireApproval {
                                     reason: reason.clone(),
                                 };
+                                let containment_context =
+                                    super::helpers::approval_containment_context_from_envelope(
+                                        &acis_envelope,
+                                        reason,
+                                    );
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2536,8 +2556,25 @@ async fn relay_client_to_upstream(
                                         continue;
                                     }
                                 }
-                                let error =
-                                    make_ws_error_response(Some(id), -32001, "Denied by policy");
+                                let approval_id =
+                                    super::helpers::create_pending_approval_with_context(
+                                        &state,
+                                        &session_id,
+                                        &action,
+                                        reason,
+                                        containment_context,
+                                    )
+                                    .await;
+                                let error = make_ws_error_response_with_data(
+                                    Some(id),
+                                    -32001,
+                                    "Approval required",
+                                    Some(json!({
+                                        "verdict": "require_approval",
+                                        "reason": reason,
+                                        "approval_id": approval_id,
+                                    })),
+                                );
                                 let mut sink = client_sink.lock().await;
                                 let _ = sink.send(Message::Text(error.into())).await;
                             }
