@@ -58,11 +58,15 @@ use crate::proxy::call_chain::{
     check_privilege_escalation, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use crate::proxy::helpers::{
+    approval_containment_context_from_security_context, circuit_breaker_security_context,
+    create_pending_approval_with_context, invalid_presented_approval_security_context,
     memory_poisoning_security_context, notification_dlp_security_context,
     notification_injection_security_context, notification_memory_poisoning_security_context,
     output_schema_violation_security_context, parameter_dlp_security_context,
-    parameter_injection_security_context, resolve_domains, response_dlp_security_context,
-    response_injection_security_context, tool_discovery_integrity_security_context,
+    parameter_injection_security_context, privilege_escalation_security_context, resolve_domains,
+    response_dlp_security_context, response_injection_security_context, rug_pull_security_context,
+    tool_discovery_integrity_security_context, unknown_tool_approval_gate_security_context,
+    untrusted_tool_approval_gate_security_context,
 };
 use crate::proxy_metrics::record_dlp_finding;
 
@@ -1058,12 +1062,14 @@ impl McpGrpcService {
                     tool_name
                 ),
             };
-            let envelope = build_secondary_acis_envelope(
+            let rug_pull_security_context = rug_pull_security_context(&action);
+            let envelope = build_secondary_acis_envelope_with_security_context(
                 &action,
                 &verdict,
                 DecisionOrigin::CapabilityEnforcement,
                 "grpc",
                 Some(session_id),
+                Some(&rug_pull_security_context),
             );
             if let Err(e) = self
                 .state
@@ -1193,12 +1199,14 @@ impl McpGrpcService {
                     reason: format!("Circuit breaker open: {}", reason),
                 };
                 // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                let envelope = build_secondary_acis_envelope(
+                let circuit_breaker_security_context = circuit_breaker_security_context(&action);
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &verdict,
                     DecisionOrigin::CircuitBreaker,
                     "grpc",
                     Some(session_id),
+                    Some(&circuit_breaker_security_context),
                 );
                 if let Err(e) = self
                     .state
@@ -1245,12 +1253,15 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Unknown tool requires approval".to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let approval_security_context =
+                                unknown_tool_approval_gate_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&approval_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -1271,33 +1282,35 @@ impl McpGrpcService {
                             {
                                 tracing::warn!("Failed to audit gRPC unknown tool: {}", e);
                             }
-                            let approval_id =
-                                if let Some(ref approval_store) = self.state.approval_store {
-                                    approval_store
-                                        .create(
-                                            action.clone(),
-                                            "Unknown tool requires approval".to_string(),
-                                            requested_by.clone(),
-                                            Some(session_id.to_string()),
-                                            Some(fingerprint_action(&action)),
-                                        )
-                                        .await
-                                        .ok()
-                                } else {
-                                    None
-                                };
+                            let approval_reason = "Unknown tool requires approval";
+                            let containment_context =
+                                approval_containment_context_from_security_context(
+                                    &approval_security_context,
+                                    approval_reason,
+                                );
+                            let approval_id = create_pending_approval_with_context(
+                                &self.state,
+                                session_id,
+                                &action,
+                                approval_reason,
+                                containment_context,
+                            )
+                            .await;
                             return self.approval_required_response(proto_req, approval_id);
                         }
                         Err(()) => {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let invalid_approval_security_context =
+                                invalid_presented_approval_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&invalid_approval_security_context),
                             );
                             let _ = self
                                 .state
@@ -1334,12 +1347,15 @@ impl McpGrpcService {
                             let verdict = Verdict::Deny {
                                 reason: "Untrusted tool requires approval".to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let approval_security_context =
+                                untrusted_tool_approval_gate_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&approval_security_context),
                             );
                             if let Err(e) = self
                                 .state
@@ -1360,33 +1376,35 @@ impl McpGrpcService {
                             {
                                 tracing::warn!("Failed to audit gRPC untrusted tool: {}", e);
                             }
-                            let approval_id =
-                                if let Some(ref approval_store) = self.state.approval_store {
-                                    approval_store
-                                        .create(
-                                            action.clone(),
-                                            "Untrusted tool requires approval".to_string(),
-                                            requested_by.clone(),
-                                            Some(session_id.to_string()),
-                                            Some(fingerprint_action(&action)),
-                                        )
-                                        .await
-                                        .ok()
-                                } else {
-                                    None
-                                };
+                            let approval_reason = "Untrusted tool requires approval";
+                            let containment_context =
+                                approval_containment_context_from_security_context(
+                                    &approval_security_context,
+                                    approval_reason,
+                                );
+                            let approval_id = create_pending_approval_with_context(
+                                &self.state,
+                                session_id,
+                                &action,
+                                approval_reason,
+                                containment_context,
+                            )
+                            .await;
                             return self.approval_required_response(proto_req, approval_id);
                         }
                         Err(()) => {
                             let verdict = Verdict::Deny {
                                 reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let invalid_approval_security_context =
+                                invalid_presented_approval_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
+                                Some(&invalid_approval_security_context),
                             );
                             let _ = self
                                 .state
@@ -1613,12 +1631,15 @@ impl McpGrpcService {
                         let priv_verdict = Verdict::Deny {
                             reason: internal_reason,
                         };
-                        let envelope = build_secondary_acis_envelope(
+                        let privilege_escalation_security_context =
+                            privilege_escalation_security_context(&action);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &action,
                             &priv_verdict,
                             DecisionOrigin::PolicyEngine,
                             "grpc",
                             Some(session_id),
+                            Some(&privilege_escalation_security_context),
                         );
                         if let Err(e) = self
                             .state

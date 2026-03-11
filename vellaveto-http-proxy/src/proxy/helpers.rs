@@ -16,7 +16,7 @@ use bytes::Bytes;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use vellaveto_approval::ApprovalStatus;
+use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
 use vellaveto_audit::AuditLogger;
 use vellaveto_config::{ManifestConfig, ToolManifest};
 use vellaveto_engine::acis::fingerprint_action;
@@ -933,6 +933,168 @@ pub(super) fn output_schema_violation_security_context(
     }
 }
 
+struct GuardSecurityContextSpec {
+    lineage_id: &'static str,
+    observed_channel: ContextChannel,
+    source: &'static str,
+    effective_trust_tier: TrustTier,
+    containment_mode: vellaveto_types::ContainmentMode,
+    semantic_taint: Vec<SemanticTaint>,
+    extra_risk: u8,
+}
+
+fn guard_security_context(
+    action: &Action,
+    spec: GuardSecurityContextSpec,
+) -> RuntimeSecurityContext {
+    let sink_class = infer_sink_class(action);
+    let trust_tier = Some(spec.effective_trust_tier);
+
+    RuntimeSecurityContext {
+        semantic_taint: spec.semantic_taint,
+        effective_trust_tier: trust_tier,
+        sink_class: Some(sink_class),
+        lineage_refs: vec![LineageRef {
+            id: spec.lineage_id.to_string(),
+            channel: spec.observed_channel,
+            content_hash: None,
+            source: Some(spec.source.to_string()),
+            trust_tier,
+        }],
+        containment_mode: Some(spec.containment_mode),
+        semantic_risk_score: Some(SemanticRiskScore {
+            value: sink_class
+                .semantic_risk_weight()
+                .saturating_add(spec.observed_channel.semantic_risk_weight())
+                .saturating_add(spec.extra_risk)
+                .min(100),
+        }),
+        ..RuntimeSecurityContext::default()
+    }
+}
+
+pub(super) fn rug_pull_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "rug_pull",
+            observed_channel: ContextChannel::ToolOutput,
+            source: "rug_pull_tool_blocked",
+            effective_trust_tier: TrustTier::Quarantined,
+            containment_mode: vellaveto_types::ContainmentMode::Quarantine,
+            semantic_taint: vec![
+                SemanticTaint::Untrusted,
+                SemanticTaint::IntegrityFailed,
+                SemanticTaint::Quarantined,
+            ],
+            extra_risk: 30,
+        },
+    )
+}
+
+pub(super) fn circuit_breaker_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "circuit_breaker",
+            observed_channel: ContextChannel::ToolOutput,
+            source: "circuit_breaker_rejected",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: Vec::new(),
+            extra_risk: 10,
+        },
+    )
+}
+
+pub(super) fn privilege_escalation_security_context(action: &Action) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "privilege_escalation",
+            observed_channel: ContextChannel::ToolOutput,
+            source: "privilege_escalation_blocked",
+            effective_trust_tier: TrustTier::Low,
+            containment_mode: vellaveto_types::ContainmentMode::Enforce,
+            semantic_taint: vec![SemanticTaint::Untrusted],
+            extra_risk: 25,
+        },
+    )
+}
+
+pub(super) fn unknown_tool_approval_gate_security_context(
+    action: &Action,
+) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "unknown_tool_approval_gate",
+            observed_channel: ContextChannel::ToolOutput,
+            source: "unknown_tool_approval_gate",
+            effective_trust_tier: TrustTier::Unknown,
+            containment_mode: vellaveto_types::ContainmentMode::RequireApproval,
+            semantic_taint: Vec::new(),
+            extra_risk: 15,
+        },
+    )
+}
+
+pub(super) fn untrusted_tool_approval_gate_security_context(
+    action: &Action,
+) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "untrusted_tool_approval_gate",
+            observed_channel: ContextChannel::ToolOutput,
+            source: "untrusted_tool_approval_gate",
+            effective_trust_tier: TrustTier::Untrusted,
+            containment_mode: vellaveto_types::ContainmentMode::RequireApproval,
+            semantic_taint: vec![SemanticTaint::Untrusted],
+            extra_risk: 20,
+        },
+    )
+}
+
+pub(super) fn invalid_presented_approval_security_context(
+    action: &Action,
+) -> RuntimeSecurityContext {
+    guard_security_context(
+        action,
+        GuardSecurityContextSpec {
+            lineage_id: "approval_scope_mismatch",
+            observed_channel: ContextChannel::ApprovalPrompt,
+            source: "presented_approval_invalid",
+            effective_trust_tier: TrustTier::Quarantined,
+            containment_mode: vellaveto_types::ContainmentMode::Quarantine,
+            semantic_taint: vec![SemanticTaint::IntegrityFailed, SemanticTaint::Quarantined],
+            extra_risk: 25,
+        },
+    )
+}
+
+pub(super) fn approval_containment_context_from_security_context(
+    security_context: &RuntimeSecurityContext,
+    reason: &str,
+) -> Option<ApprovalContainmentContext> {
+    let context = ApprovalContainmentContext {
+        semantic_taint: security_context.semantic_taint.clone(),
+        lineage_channels: security_context
+            .lineage_refs
+            .iter()
+            .map(|lineage| lineage.channel)
+            .collect(),
+        effective_trust_tier: security_context.effective_trust_tier,
+        sink_class: security_context.sink_class,
+        containment_mode: security_context.containment_mode,
+        semantic_risk_score: security_context.semantic_risk_score,
+        counterfactual_review_required: reason.contains("counterfactual review required"),
+    }
+    .normalized();
+
+    context.is_meaningful().then_some(context)
+}
+
 /// Extract a presented approval ID from a JSON-RPC message `_meta`.
 ///
 /// Accepts both top-level `_meta` and nested `params._meta`, matching the
@@ -1048,6 +1210,44 @@ pub(super) async fn consume_presented_approval(
                 "Presented approval consume failed"
             );
             Err(())
+        }
+    }
+}
+
+pub(super) async fn create_pending_approval_with_context(
+    state: &ProxyState,
+    session_id: &str,
+    action: &Action,
+    reason: &str,
+    containment_context: Option<ApprovalContainmentContext>,
+) -> Option<String> {
+    let store = state.approval_store.as_ref()?;
+    let requested_by = state.sessions.get_mut(session_id).and_then(|session| {
+        session
+            .agent_identity
+            .as_ref()
+            .and_then(|identity| identity.subject.clone())
+            .or_else(|| session.oauth_subject.clone())
+    });
+    match store
+        .create_with_context(
+            action.clone(),
+            reason.to_string(),
+            requested_by,
+            Some(session_id.to_string()),
+            Some(fingerprint_action(action)),
+            containment_context,
+        )
+        .await
+    {
+        Ok(id) => Some(id),
+        Err(error) => {
+            tracing::error!(
+                session_id = %session_id,
+                error = %error,
+                "Failed to create pending approval with containment context"
+            );
+            None
         }
     }
 }

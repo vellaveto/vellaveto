@@ -40,11 +40,15 @@ use super::call_chain::{
     track_pending_tool_call, validate_call_chain_header, MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
 };
 use super::helpers::{
-    build_runtime_security_context, consume_presented_approval, extract_approval_id_from_meta,
-    memory_poisoning_security_context, notification_dlp_security_context,
-    notification_injection_security_context, notification_memory_poisoning_security_context,
-    parameter_dlp_security_context, parameter_injection_security_context,
-    presented_approval_matches_action, resolve_domains,
+    approval_containment_context_from_security_context, build_runtime_security_context,
+    circuit_breaker_security_context, consume_presented_approval,
+    create_pending_approval_with_context, extract_approval_id_from_meta,
+    invalid_presented_approval_security_context, memory_poisoning_security_context,
+    notification_dlp_security_context, notification_injection_security_context,
+    notification_memory_poisoning_security_context, parameter_dlp_security_context,
+    parameter_injection_security_context, presented_approval_matches_action,
+    privilege_escalation_security_context, resolve_domains, rug_pull_security_context,
+    unknown_tool_approval_gate_security_context, untrusted_tool_approval_gate_security_context,
 };
 use super::inspection::{attach_session_header, attach_trace_header};
 use super::origin::validate_origin;
@@ -480,12 +484,14 @@ pub async fn handle_mcp_post(
                         "Tool '{tool_name}' blocked: annotations changed since initial tools/list (rug-pull detected)"
                     ),
                 };
-                let envelope = build_secondary_acis_envelope(
+                let rug_pull_security_context = rug_pull_security_context(&action);
+                let envelope = build_secondary_acis_envelope_with_security_context(
                     &action,
                     &verdict,
                     DecisionOrigin::CapabilityEnforcement,
                     "http",
                     Some(&session_id),
+                    Some(&rug_pull_security_context),
                 );
                 if let Err(e) = state
                     .audit
@@ -680,12 +686,15 @@ pub async fn handle_mcp_post(
                         reason: format!("Circuit breaker open: {reason}"),
                     };
                     // SECURITY (R251-ACIS-1): Use CircuitBreaker origin, not RateLimiter.
-                    let envelope = build_secondary_acis_envelope(
+                    let circuit_breaker_security_context =
+                        circuit_breaker_security_context(&action);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
                         &action,
                         &verdict,
                         DecisionOrigin::CircuitBreaker,
                         "http",
                         Some(&session_id),
+                        Some(&circuit_breaker_security_context),
                     );
                     if let Err(e) = state
                         .audit
@@ -744,12 +753,15 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let invalid_approval_security_context =
+                                    invalid_presented_approval_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&invalid_approval_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -789,12 +801,15 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let approval_security_context =
+                                unknown_tool_approval_gate_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "http",
                                 Some(&session_id),
+                                Some(&approval_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
@@ -805,20 +820,19 @@ pub async fn handle_mcp_post(
                                 tracing::error!("AUDIT FAILURE: {}", e);
                             }
                             // Create pending approval if store is configured
-                            let approval_id = if let Some(ref store) = state.approval_store {
-                                store
-                                    .create(
-                                        action.clone(),
-                                        reason.clone(),
-                                        requested_by.clone(),
-                                        Some(session_id.clone()),
-                                        Some(fingerprint_action(&action)),
-                                    )
-                                    .await
-                                    .ok()
-                            } else {
-                                None
-                            };
+                            let containment_context =
+                                approval_containment_context_from_security_context(
+                                    &approval_security_context,
+                                    &reason,
+                                );
+                            let approval_id = create_pending_approval_with_context(
+                                &state,
+                                &session_id,
+                                &action,
+                                &reason,
+                                containment_context,
+                            )
+                            .await;
                             let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
                             let response = make_denial_response(&id, &error_data.to_string());
                             return attach_session_header(
@@ -844,12 +858,15 @@ pub async fn handle_mcp_post(
                                 let verdict = Verdict::Deny {
                                     reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
                                 };
-                                let envelope = build_secondary_acis_envelope(
+                                let invalid_approval_security_context =
+                                    invalid_presented_approval_security_context(&action);
+                                let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
+                                    Some(&invalid_approval_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -890,12 +907,15 @@ pub async fn handle_mcp_post(
                             let verdict = Verdict::RequireApproval {
                                 reason: reason.clone(),
                             };
-                            let envelope = build_secondary_acis_envelope(
+                            let approval_security_context =
+                                untrusted_tool_approval_gate_security_context(&action);
+                            let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "http",
                                 Some(&session_id),
+                                Some(&approval_security_context),
                             );
                             if let Err(e) = state.audit.log_entry_with_acis(
                                 &action,
@@ -905,20 +925,19 @@ pub async fn handle_mcp_post(
                             ).await {
                                 tracing::error!("AUDIT FAILURE: {}", e);
                             }
-                            let approval_id = if let Some(ref store) = state.approval_store {
-                                store
-                                    .create(
-                                        action.clone(),
-                                        reason.clone(),
-                                        requested_by.clone(),
-                                        Some(session_id.clone()),
-                                        Some(fingerprint_action(&action)),
-                                    )
-                                    .await
-                                    .ok()
-                            } else {
-                                None
-                            };
+                            let containment_context =
+                                approval_containment_context_from_security_context(
+                                    &approval_security_context,
+                                    &reason,
+                                );
+                            let approval_id = create_pending_approval_with_context(
+                                &state,
+                                &session_id,
+                                &action,
+                                &reason,
+                                containment_context,
+                            )
+                            .await;
                             let error_data = json!({"verdict": "require_approval", "reason": reason, "approval_id": approval_id});
                             let response = make_denial_response(&id, &error_data.to_string());
                             return attach_session_header(
@@ -1113,12 +1132,15 @@ pub async fn handle_mcp_post(
                         };
 
                         // Audit the privilege escalation with full details
-                        let envelope = build_secondary_acis_envelope(
+                        let privilege_escalation_security_context =
+                            privilege_escalation_security_context(&action);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
                             &action,
                             &verdict,
                             DecisionOrigin::PolicyEngine,
                             "http",
                             Some(&session_id),
+                            Some(&privilege_escalation_security_context),
                         );
                         if let Err(e) = state
                             .audit
