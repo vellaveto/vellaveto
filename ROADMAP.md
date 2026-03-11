@@ -124,6 +124,22 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `effective_trust_tier` metadata instead of only supplying a default, so
   caller-provided security context cannot override replay, mismatch, expiry,
   or invalid-signature downgrades on the HTTP proxy path.
+- Transport-negative detached provenance now also clamps explicit
+  `client_provenance` metadata itself, so caller-supplied `signature_status`
+  or `replay_status` values cannot override invalid-signature or replay
+  outcomes before the transport trust floor is derived.
+- Conflicting authenticated transport workload identity now also clamps
+  caller-supplied `client_provenance.workload_identity`, so `_meta`
+  provenance cannot override real transport workload evidence or keep a
+  privileged request in a `bound` state after a mismatch.
+- Caller-supplied `client_provenance.session_key_scope` and
+  `execution_is_ephemeral` now also clamp to authenticated transport scope, so
+  ephemeral-only policy checks can no longer be bypassed by `_meta`
+  provenance that disagrees with the verified transport identity.
+- Runtime-owned provenance fields now also ignore caller-supplied `_meta`
+  values: `session_scope_binding` is sourced from the transport session, and
+  `canonical_request_hash` is recomputed from the live request instead of
+  preserving an untrusted caller-provided hash.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

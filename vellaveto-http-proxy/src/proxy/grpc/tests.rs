@@ -1241,11 +1241,22 @@ fn test_build_grpc_runtime_security_context_projects_trusted_signer_metadata() {
         .expect("session")
         .session_scope_binding
         .clone();
-    let header = make_signed_detached_request_signature_header_with_scope(
+    let header = make_signed_detached_request_signature_header_with_binding(
         &action,
         "detached-key",
         &signing_key,
-        Some(session_scope_binding.as_str()),
+        DetachedSignatureBinding {
+            session_scope_binding: Some(session_scope_binding.as_str()),
+            routing_identity: None,
+            workload_identity: Some(vellaveto_types::WorkloadIdentity {
+                platform: Some("spiffe".into()),
+                workload_id: "spiffe://cluster/ns/meta/sa/meta".into(),
+                namespace: Some("meta".into()),
+                service_account: Some("meta".into()),
+                process_identity: None,
+                attestation_level: Some("jwt".into()),
+            }),
+        },
     );
 
     let security_context = service::build_grpc_runtime_security_context(
@@ -1656,6 +1667,87 @@ fn test_build_grpc_runtime_security_context_clamps_meta_trust_with_invalid_detac
     assert_eq!(
         security_context.effective_trust_tier,
         Some(vellaveto_types::TrustTier::Untrusted)
+    );
+}
+
+#[test]
+fn test_build_grpc_runtime_security_context_clamps_meta_replay_status_with_detached_signature() {
+    let msg = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {
+            "vellavetoSecurityContext": {
+                "effective_trust_tier": "verified",
+                "client_provenance": {
+                    "replay_status": "fresh"
+                }
+            }
+        },
+        "method": "tools/call",
+        "params": {
+            "name": "shell_exec",
+            "arguments": {"command": "echo hi"}
+        }
+    });
+    let action =
+        vellaveto_mcp::extractor::extract_action("shell_exec", &json!({"command": "echo hi"}));
+    let signing_key = SigningKey::from_bytes(&[29u8; 32]);
+    let trusted_request_signers = trusted_request_signers_for("detached-key", &signing_key);
+    let sessions = empty_session_store();
+    let session_id = sessions.get_or_create(None);
+    let session_scope_binding = sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-key",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let eval_ctx = vellaveto_types::EvaluationContext::default();
+
+    let first = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("first security context");
+    let second = service::build_grpc_runtime_security_context(
+        &msg,
+        &action,
+        Some(header.as_str()),
+        crate::proxy::helpers::TransportSecurityInputs {
+            oauth_evidence: None,
+            eval_ctx: Some(&eval_ctx),
+            sessions: &sessions,
+            session_id: Some(&session_id),
+            trusted_request_signers: &trusted_request_signers,
+            detached_signature_freshness: default_detached_signature_freshness(),
+        },
+    )
+    .expect("second security context");
+
+    assert_eq!(
+        first.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::Fresh)
+    );
+    assert_eq!(
+        second.client_provenance.as_ref().map(|p| p.replay_status),
+        Some(vellaveto_types::ReplayStatus::ReplayDetected)
+    );
+    assert_eq!(
+        second.effective_trust_tier,
+        Some(vellaveto_types::TrustTier::Quarantined)
     );
 }
 

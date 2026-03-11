@@ -152,6 +152,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `_meta.vellavetoSecurityContext.effective_trust_tier` instead of only filling
   it when absent, so caller-supplied trust metadata cannot mask replayed,
   expired, mismatched, or invalid detached provenance.
+  Transport-negative provenance now also clamps `_meta.client_provenance`
+  directly: invalid detached signature evidence overrides a caller-supplied
+  `signature_status = verified`, and replay detection overrides a caller-
+  supplied `replay_status = fresh`, so runtime metadata can no longer mask
+  detached-signature failures before trust-tier inference.
+  Conflicting transport workload identity now also fails closed against
+  `_meta.client_provenance.workload_identity`: when authenticated transport
+  workload claims disagree with caller-supplied provenance, VellaVeto keeps the
+  transport identity, marks `workload_binding_status = mismatch`, and downgrades
+  the request to `untrusted`.
+  Explicit `_meta.client_provenance.session_key_scope` and
+  `execution_is_ephemeral` now also clamp to authenticated transport scope, so
+  caller-supplied ephemeral metadata cannot mask a persisted transport client.
+  Runtime-owned provenance fields now also seal over `_meta` values:
+  `session_scope_binding` is always taken from the transport runtime when
+  available, and `canonical_request_hash` is always recomputed from the live
+  request context instead of trusting caller-supplied hashes.
 - **HTTP proxy trusted signer scope binding (Mar 2026):**
   Trusted detached signer metadata now fails closed when it conflicts with
   explicit transport key-scope evidence. A signer that projects an ephemeral

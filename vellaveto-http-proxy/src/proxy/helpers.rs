@@ -630,6 +630,148 @@ fn merge_request_signature(
     }
 }
 
+fn merge_signature_verification_status(
+    existing: SignatureVerificationStatus,
+    transport: SignatureVerificationStatus,
+) -> SignatureVerificationStatus {
+    use SignatureVerificationStatus::{Error, Expired, Invalid, Missing, Verified};
+
+    match (existing, transport) {
+        (Error, _) | (_, Error) => Error,
+        (Invalid, _) | (_, Invalid) => Invalid,
+        (Expired, _) | (_, Expired) => Expired,
+        (Verified, _) | (_, Verified) => Verified,
+        (Missing, Missing) => Missing,
+    }
+}
+
+fn merge_replay_status(existing: ReplayStatus, transport: ReplayStatus) -> ReplayStatus {
+    use ReplayStatus::{Fresh, NotChecked, ReplayDetected};
+
+    match (existing, transport) {
+        (ReplayDetected, _) | (_, ReplayDetected) => ReplayDetected,
+        (Fresh, _) | (_, Fresh) => Fresh,
+        (NotChecked, NotChecked) => NotChecked,
+    }
+}
+
+fn workload_identity_conflicts(existing: &WorkloadIdentity, transport: &WorkloadIdentity) -> bool {
+    existing.workload_id != transport.workload_id
+        || option_values_conflict(existing.platform.as_deref(), transport.platform.as_deref())
+        || option_values_conflict(
+            existing.namespace.as_deref(),
+            transport.namespace.as_deref(),
+        )
+        || option_values_conflict(
+            existing.service_account.as_deref(),
+            transport.service_account.as_deref(),
+        )
+        || option_values_conflict(
+            existing.process_identity.as_deref(),
+            transport.process_identity.as_deref(),
+        )
+        || option_values_conflict(
+            existing.attestation_level.as_deref(),
+            transport.attestation_level.as_deref(),
+        )
+}
+
+fn option_values_conflict<T: PartialEq + ?Sized>(
+    existing: Option<&T>,
+    transport: Option<&T>,
+) -> bool {
+    matches!((existing, transport), (Some(existing), Some(transport)) if existing != transport)
+}
+
+fn merge_workload_identity(
+    existing: Option<WorkloadIdentity>,
+    transport: Option<WorkloadIdentity>,
+) -> (Option<WorkloadIdentity>, bool) {
+    match (existing, transport) {
+        (None, None) => (None, false),
+        (Some(existing), None) => (Some(existing), false),
+        (None, Some(transport)) => (Some(transport), false),
+        (Some(mut existing), Some(transport)) => {
+            if workload_identity_conflicts(&existing, &transport) {
+                return (Some(transport), true);
+            }
+
+            if existing.platform.is_none() {
+                existing.platform = transport.platform;
+            }
+            if existing.namespace.is_none() {
+                existing.namespace = transport.namespace;
+            }
+            if existing.service_account.is_none() {
+                existing.service_account = transport.service_account;
+            }
+            if existing.process_identity.is_none() {
+                existing.process_identity = transport.process_identity;
+            }
+            if existing.attestation_level.is_none() {
+                existing.attestation_level = transport.attestation_level;
+            }
+            if existing.workload_id.is_empty() {
+                existing.workload_id = transport.workload_id;
+            }
+
+            (Some(existing), false)
+        }
+    }
+}
+
+fn merge_workload_binding_status(
+    existing: WorkloadBindingStatus,
+    transport: WorkloadBindingStatus,
+    workload_identity_conflict: bool,
+) -> WorkloadBindingStatus {
+    use WorkloadBindingStatus::{Bound, Mismatch, Missing, Unknown, Unverified};
+
+    if workload_identity_conflict || matches!(existing, Mismatch) || matches!(transport, Mismatch) {
+        return Mismatch;
+    }
+    if matches!(existing, Missing) || matches!(transport, Missing) {
+        return Missing;
+    }
+    if matches!(existing, Unverified) || matches!(transport, Unverified) {
+        return Unverified;
+    }
+    if matches!(existing, Bound) || matches!(transport, Bound) {
+        return Bound;
+    }
+
+    Unknown
+}
+
+fn merge_session_key_scope(
+    existing: SessionKeyScope,
+    transport: SessionKeyScope,
+) -> SessionKeyScope {
+    if transport == SessionKeyScope::Unknown {
+        existing
+    } else {
+        transport
+    }
+}
+
+fn merge_execution_is_ephemeral(
+    existing: bool,
+    transport: bool,
+    merged_session_key_scope: SessionKeyScope,
+) -> bool {
+    match merged_session_key_scope {
+        SessionKeyScope::EphemeralExecution | SessionKeyScope::EphemeralSession => true,
+        SessionKeyScope::PersistedClient | SessionKeyScope::PersistedService => false,
+        SessionKeyScope::Unknown => {
+            if transport {
+                true
+            } else {
+                existing
+            }
+        }
+    }
+}
+
 fn merge_client_provenance(
     existing: Option<ClientProvenance>,
     transport: Option<ClientProvenance>,
@@ -644,36 +786,33 @@ fn merge_client_provenance(
             if existing.client_key_id.is_none() {
                 existing.client_key_id = transport.client_key_id;
             }
-            if existing.signature_status == SignatureVerificationStatus::Missing
-                && transport.signature_status != SignatureVerificationStatus::Missing
-            {
-                existing.signature_status = transport.signature_status;
-            }
-            if existing.session_key_scope == SessionKeyScope::Unknown
-                && transport.session_key_scope != SessionKeyScope::Unknown
-            {
-                existing.session_key_scope = transport.session_key_scope;
-            }
-            if existing.workload_identity.is_none() {
-                existing.workload_identity = transport.workload_identity;
-            }
-            if existing.workload_binding_status == WorkloadBindingStatus::Unknown
-                && transport.workload_binding_status != WorkloadBindingStatus::Unknown
-            {
-                existing.workload_binding_status = transport.workload_binding_status;
-            }
-            if existing.replay_status == ReplayStatus::NotChecked
-                && transport.replay_status != ReplayStatus::NotChecked
-            {
-                existing.replay_status = transport.replay_status;
-            }
-            if existing.session_scope_binding.is_none() {
+            existing.signature_status = merge_signature_verification_status(
+                existing.signature_status,
+                transport.signature_status,
+            );
+            existing.session_key_scope =
+                merge_session_key_scope(existing.session_key_scope, transport.session_key_scope);
+            let (merged_workload_identity, workload_identity_conflict) =
+                merge_workload_identity(existing.workload_identity, transport.workload_identity);
+            existing.workload_identity = merged_workload_identity;
+            existing.workload_binding_status = merge_workload_binding_status(
+                existing.workload_binding_status,
+                transport.workload_binding_status,
+                workload_identity_conflict,
+            );
+            existing.replay_status =
+                merge_replay_status(existing.replay_status, transport.replay_status);
+            if transport.session_scope_binding.is_some() {
                 existing.session_scope_binding = transport.session_scope_binding;
             }
-            if existing.canonical_request_hash.is_none() {
+            if transport.canonical_request_hash.is_some() {
                 existing.canonical_request_hash = transport.canonical_request_hash;
             }
-            existing.execution_is_ephemeral |= transport.execution_is_ephemeral;
+            existing.execution_is_ephemeral = merge_execution_is_ephemeral(
+                existing.execution_is_ephemeral,
+                transport.execution_is_ephemeral,
+                existing.session_key_scope,
+            );
             Some(existing)
         }
     }
@@ -796,9 +935,6 @@ fn attach_canonical_request_hash(
     let Some(provenance) = security_context.client_provenance.as_mut() else {
         return;
     };
-    if provenance.canonical_request_hash.is_some() {
-        return;
-    }
 
     let input = CanonicalRequestInput::from_action(
         action,
@@ -921,9 +1057,7 @@ fn verify_detached_request_signature(
         provenance.signature_status = SignatureVerificationStatus::Expired;
         return;
     }
-    if provenance.signature_status != SignatureVerificationStatus::Verified
-        || provenance.replay_status != ReplayStatus::NotChecked
-    {
+    if provenance.signature_status != SignatureVerificationStatus::Verified {
         return;
     }
     if !apply_trusted_request_signer_metadata(provenance, trusted_signer) {
@@ -936,7 +1070,10 @@ fn verify_detached_request_signature(
     let Some(mut session) = inputs.sessions.get_mut(session_id) else {
         return;
     };
-    provenance.replay_status = session.record_verified_request_nonce(&request_nonce);
+    provenance.replay_status = merge_replay_status(
+        provenance.replay_status,
+        session.record_verified_request_nonce(&request_nonce),
+    );
 }
 
 fn apply_trusted_request_signer_metadata(
