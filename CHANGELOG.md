@@ -286,6 +286,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Live HTTP, WebSocket, and gRPC coverage now also locks the emitted approval-
   gate audit entry, so the persisted pending approval and the ACIS JSONL record
   both preserve the same clamped `client_provenance` summary.
+- **HTTP proxy live presented-approval replay prevention (Mar 2026):**
+  Live HTTP POST, WebSocket `/mcp/ws`, and gRPC unary coverage now proves that
+  an approved presented `approval_id` is consumed exactly once on the real
+  handler path: the first call forwards upstream and marks the approval
+  `Consumed`, and a replayed second call with the same `approval_id` fails
+  closed as `Denied by policy`. The replayed invalid-approval audit entry keeps
+  the same clamped transport provenance in ACIS instead of dropping back to a
+  context-free denial record.
 
 ### Fixed
 

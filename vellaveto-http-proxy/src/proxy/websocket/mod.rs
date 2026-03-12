@@ -884,6 +884,7 @@ async fn relay_client_to_upstream(
 
                         let mut action = extractor::extract_action(tool_name, arguments);
                         let mut matched_approval_id: Option<String> = None;
+                        let mut matched_approval_registry: Option<&'static str> = None;
 
                         // SECURITY (FIND-R75-002): DNS resolution for IP-based policy evaluation.
                         // Parity with HTTP handler (handlers.rs:717). Without this, policies
@@ -1269,6 +1270,7 @@ async fn relay_client_to_upstream(
                                     {
                                         Ok(Some(approval_id)) => {
                                             matched_approval_id = Some(approval_id);
+                                            matched_approval_registry = Some("unknown_tool");
                                         }
                                         Ok(None) => {
                                             registry.register_unknown(tool_name).await;
@@ -1353,6 +1355,15 @@ async fn relay_client_to_upstream(
                                             };
                                             let invalid_approval_security_context =
                                                 super::helpers::invalid_presented_approval_security_context(&action);
+                                            let combined_security_context =
+                                                super::helpers::merge_transport_security_context(
+                                                    registry_runtime_security_context.as_ref(),
+                                                    Some(&invalid_approval_security_context),
+                                                );
+                                            let effective_security_context =
+                                                combined_security_context
+                                                    .as_ref()
+                                                    .unwrap_or(&invalid_approval_security_context);
                                             let envelope =
                                                 build_secondary_acis_envelope_with_security_context(
                                                     &action,
@@ -1360,7 +1371,7 @@ async fn relay_client_to_upstream(
                                                     DecisionOrigin::PolicyEngine,
                                                     "websocket",
                                                     Some(&session_id),
-                                                    Some(&invalid_approval_security_context),
+                                                    Some(effective_security_context),
                                                 );
                                             let _ = state
                                                 .audit
@@ -1401,6 +1412,7 @@ async fn relay_client_to_upstream(
                                     {
                                         Ok(Some(approval_id)) => {
                                             matched_approval_id = Some(approval_id);
+                                            matched_approval_registry = Some("untrusted_tool");
                                         }
                                         Ok(None) => {
                                             let verdict = Verdict::Deny {
@@ -1484,6 +1496,15 @@ async fn relay_client_to_upstream(
                                             };
                                             let invalid_approval_security_context =
                                                 super::helpers::invalid_presented_approval_security_context(&action);
+                                            let combined_security_context =
+                                                super::helpers::merge_transport_security_context(
+                                                    registry_runtime_security_context.as_ref(),
+                                                    Some(&invalid_approval_security_context),
+                                                );
+                                            let effective_security_context =
+                                                combined_security_context
+                                                    .as_ref()
+                                                    .unwrap_or(&invalid_approval_security_context);
                                             let envelope =
                                                 build_secondary_acis_envelope_with_security_context(
                                                     &action,
@@ -1491,7 +1512,7 @@ async fn relay_client_to_upstream(
                                                     DecisionOrigin::PolicyEngine,
                                                     "websocket",
                                                     Some(&session_id),
-                                                    Some(&invalid_approval_security_context),
+                                                    Some(effective_security_context),
                                                 );
                                             let _ = state
                                                 .audit
@@ -1801,6 +1822,49 @@ async fn relay_client_to_upstream(
                                 .await
                                 .is_err()
                                 {
+                                    let deny_verdict = Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    };
+                                    let invalid_approval_security_context =
+                                        super::helpers::invalid_presented_approval_security_context(
+                                            &action,
+                                        );
+                                    let combined_security_context =
+                                        super::helpers::merge_transport_security_context(
+                                            security_context.as_ref(),
+                                            Some(&invalid_approval_security_context),
+                                        );
+                                    let effective_security_context = combined_security_context
+                                        .as_ref()
+                                        .unwrap_or(&invalid_approval_security_context);
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &deny_verdict,
+                                            DecisionOrigin::ApprovalGate,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(effective_security_context),
+                                        );
+                                    let mut audit_metadata = json!({
+                                        "source": "ws_proxy",
+                                        "session": session_id,
+                                        "transport": "websocket",
+                                        "event": "presented_approval_replay_denied",
+                                        "approval_id": matched_approval_id,
+                                    });
+                                    if let Some(registry) = matched_approval_registry {
+                                        audit_metadata["registry"] = json!(registry);
+                                    }
+                                    let _ = state
+                                        .audit
+                                        .log_entry_with_acis(
+                                            &action,
+                                            &deny_verdict,
+                                            audit_metadata,
+                                            envelope,
+                                        )
+                                        .await;
                                     let error_resp = make_ws_error_response(
                                         Some(id),
                                         -32001,

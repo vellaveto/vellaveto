@@ -25,7 +25,7 @@ use tempfile::TempDir;
 use tokio_tungstenite::tungstenite::http::Request as WsRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
-use vellaveto_approval::ApprovalStore;
+use vellaveto_approval::{ApprovalStatus, ApprovalStore};
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_engine::PolicyEngine;
@@ -63,10 +63,26 @@ fn make_signed_detached_request_signature_header_with_scope(
     signing_key: &SigningKey,
     session_scope_binding: Option<&str>,
 ) -> String {
+    make_signed_detached_request_signature_header_with_scope_nonce(
+        action,
+        key_id,
+        signing_key,
+        session_scope_binding,
+        "detached-nonce",
+    )
+}
+
+fn make_signed_detached_request_signature_header_with_scope_nonce(
+    action: &vellaveto_types::Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+    nonce: &str,
+) -> String {
     let mut request_signature = RequestSignature {
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
-        nonce: Some("detached-nonce".to_string()),
+        nonce: Some(nonce.to_string()),
         created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         signature: None,
     };
@@ -133,6 +149,40 @@ async fn mock_ws_upstream_handler(
     ws.on_upgrade(|mut socket| async move {
         while let Some(Ok(message)) = socket.recv().await {
             match message {
+                axum::extract::ws::Message::Text(text) => {
+                    let msg: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!({}));
+                    let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                    let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                    let response = match method {
+                        "tools/call" => {
+                            let tool_name = msg
+                                .get("params")
+                                .and_then(|p| p.get("name"))
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("unknown");
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {
+                                    "content": [{
+                                        "type": "text",
+                                        "text": format!("Tool {} executed successfully", tool_name)
+                                    }]
+                                }
+                            })
+                        }
+                        _ => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {}
+                        }),
+                    };
+                    let _ = socket
+                        .send(axum::extract::ws::Message::Text(
+                            response.to_string().into(),
+                        ))
+                        .await;
+                }
                 axum::extract::ws::Message::Ping(payload) => {
                     let _ = socket.send(axum::extract::ws::Message::Pong(payload)).await;
                 }
@@ -517,6 +567,25 @@ async fn read_matching_audit_entry(
         .expect("matching audit entry")
 }
 
+async fn read_presented_approval_audit_entry(
+    audit_path: &std::path::Path,
+    source: &str,
+    approval_id: &str,
+) -> Value {
+    let content = tokio::fs::read_to_string(audit_path)
+        .await
+        .expect("read audit log");
+    content
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+        .find(|entry| {
+            entry["metadata"]["source"] == source
+                && entry["metadata"]["approval_id"] == approval_id
+                && entry["acis_envelope"]["decision"] == "deny"
+        })
+        .expect("matching presented-approval audit entry")
+}
+
 fn assert_audit_entry_has_clamped_transport_provenance(
     entry: &Value,
     session_id: &str,
@@ -543,6 +612,32 @@ fn assert_audit_entry_has_clamped_transport_provenance(
         entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
         false
     );
+}
+
+fn assert_replay_audit_entry_has_transport_provenance(
+    entry: &Value,
+    session_id: &str,
+    session_scope_binding: &str,
+) {
+    assert_eq!(entry["acis_envelope"]["session_id"], session_id);
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
+        session_scope_binding
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_key_scope"],
+        "persisted_client"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
+        false
+    );
+    assert!(entry["acis_envelope"]["client_provenance"]["signature_status"].is_string());
+    assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
 }
 
 async fn json_body(resp: axum::response::Response) -> Value {
@@ -6897,6 +6992,272 @@ async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
         } else {
             "unknown_tool"
         },
+    )
+    .await;
+    assert_replay_audit_entry_has_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+
+    let _ = client_ws.close(None).await;
+}
+
+async fn seed_approved_tool_approval(
+    store: &ApprovalStore,
+    requested_by: &str,
+    session_scope_binding: &str,
+    action: &vellaveto_types::Action,
+) -> String {
+    let approval_id = store
+        .create_with_context(
+            action.clone(),
+            "Approval required".to_string(),
+            Some(requested_by.to_string()),
+            Some(session_scope_binding.to_string()),
+            Some(vellaveto_engine::acis::fingerprint_action(action)),
+            None,
+        )
+        .await
+        .expect("create approval");
+    store
+        .approve(&approval_id, "reviewer")
+        .await
+        .expect("approve seeded approval");
+    approval_id
+}
+
+#[tokio::test]
+async fn http_presented_tool_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    let approval_store = Arc::new(ApprovalStore::new(
+        tmp.path().join("approvals.jsonl"),
+        Duration::from_secs(300),
+    ));
+    state.approval_store = Some(approval_store.clone());
+    let registry = Arc::new(ToolRegistry::with_threshold(
+        tmp.path().join("tool-registry"),
+        0.8,
+    ));
+    state.tool_registry = Some(registry);
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("http-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_action("read_file", &json!({"path": "/tmp/test"}));
+    let approval_id = seed_approved_tool_approval(
+        &approval_store,
+        "http-agent",
+        &session_scope_binding,
+        &action,
+    )
+    .await;
+
+    let signing_key = SigningKey::from_bytes(&[62u8; 32]);
+    state.trusted_request_signers =
+        Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let app = build_router(state);
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {"approval_id": approval_id},
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    });
+    let request_signature = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let second_request_signature = make_signed_detached_request_signature_header_with_scope_nonce(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+        "detached-nonce-2",
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &session_id)
+                .header("x-request-signature", &request_signature)
+                .body(Body::from(serde_json::to_vec(&body).expect("json body")))
+                .unwrap(),
+        )
+        .await
+        .expect("first response");
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_json = json_body(first).await;
+    assert_eq!(
+        first_json["result"]["content"][0]["text"],
+        "Tool read_file executed successfully"
+    );
+    let consumed = approval_store
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(consumed.status, ApprovalStatus::Consumed);
+
+    let second = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &session_id)
+                .header("x-request-signature", &second_request_signature)
+                .body(Body::from(serde_json::to_vec(&body).expect("json body")))
+                .unwrap(),
+        )
+        .await
+        .expect("second response");
+    assert_eq!(second.status(), StatusCode::OK);
+    let second_json = json_body(second).await;
+    assert_eq!(second_json["error"]["message"], "Denied by policy");
+
+    let audit_entry = read_presented_approval_audit_entry(
+        &tmp.path().join("audit.log"),
+        "http_proxy",
+        &approval_id,
+    )
+    .await;
+    assert_replay_audit_entry_has_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+}
+
+#[tokio::test]
+async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream_ws().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    let approval_store = Arc::new(ApprovalStore::new(
+        tmp.path().join("approvals.jsonl"),
+        Duration::from_secs(300),
+    ));
+    state.approval_store = Some(approval_store.clone());
+    let registry = Arc::new(ToolRegistry::with_threshold(
+        tmp.path().join("tool-registry"),
+        0.8,
+    ));
+    state.tool_registry = Some(registry);
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("ws-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_action("read_file", &json!({"path": "/tmp/test"}));
+    let approval_id =
+        seed_approved_tool_approval(&approval_store, "ws-agent", &session_scope_binding, &action)
+            .await;
+
+    let signing_key = SigningKey::from_bytes(&[63u8; 32]);
+    state.trusted_request_signers =
+        Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
+        return;
+    };
+    let request = WsRequest::builder()
+        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
+        .header(
+            "x-request-signature",
+            make_signed_detached_request_signature_header_with_scope(
+                &action,
+                "detached-kid",
+                &signing_key,
+                Some(session_scope_binding.as_str()),
+            ),
+        )
+        .body(())
+        .unwrap();
+    let (mut client_ws, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .expect("websocket connect timeout")
+    .expect("websocket connect");
+
+    let message = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "_meta": {"approval_id": approval_id},
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/tmp/test"}
+        }
+    });
+    client_ws
+        .send(WsMessage::Text(message.to_string().into()))
+        .await
+        .expect("first websocket send");
+    let first = recv_ws_json(&mut client_ws).await;
+    assert_eq!(
+        first["result"]["content"][0]["text"],
+        "Tool read_file executed successfully"
+    );
+    let consumed = approval_store
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(consumed.status, ApprovalStatus::Consumed);
+
+    client_ws
+        .send(WsMessage::Text(message.to_string().into()))
+        .await
+        .expect("second websocket send");
+    let second = recv_ws_json(&mut client_ws).await;
+    assert_eq!(second["error"]["message"], "Denied by policy");
+
+    let audit_entry = read_presented_approval_audit_entry(
+        &tmp.path().join("audit.log"),
+        "ws_proxy",
+        &approval_id,
     )
     .await;
     assert_audit_entry_has_clamped_transport_provenance(

@@ -751,6 +751,7 @@ pub async fn handle_mcp_post(
             }
 
             let mut matched_approval_id: Option<String> = None;
+            let mut matched_approval_registry: Option<&'static str> = None;
 
             // Tool registry check: if enabled, unknown or untrusted tools
             // require approval before engine evaluation. This runs before the
@@ -802,6 +803,7 @@ pub async fn handle_mcp_post(
                         {
                             Ok(Some(approval_id)) => {
                                 matched_approval_id = Some(approval_id);
+                                matched_approval_registry = Some("unknown_tool");
                             }
                             Ok(None) => {}
                             Err(()) => {
@@ -810,13 +812,20 @@ pub async fn handle_mcp_post(
                                 };
                                 let invalid_approval_security_context =
                                     invalid_presented_approval_security_context(&action);
+                                let combined_security_context = merge_transport_security_context(
+                                    registry_runtime_security_context.as_ref(),
+                                    Some(&invalid_approval_security_context),
+                                );
+                                let effective_security_context = combined_security_context
+                                    .as_ref()
+                                    .unwrap_or(&invalid_approval_security_context);
                                 let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
-                                    Some(&invalid_approval_security_context),
+                                    Some(effective_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -914,6 +923,7 @@ pub async fn handle_mcp_post(
                         {
                             Ok(Some(approval_id)) => {
                                 matched_approval_id = Some(approval_id);
+                                matched_approval_registry = Some("untrusted_tool");
                             }
                             Ok(None) => {}
                             Err(()) => {
@@ -922,13 +932,20 @@ pub async fn handle_mcp_post(
                                 };
                                 let invalid_approval_security_context =
                                     invalid_presented_approval_security_context(&action);
+                                let combined_security_context = merge_transport_security_context(
+                                    registry_runtime_security_context.as_ref(),
+                                    Some(&invalid_approval_security_context),
+                                );
+                                let effective_security_context = combined_security_context
+                                    .as_ref()
+                                    .unwrap_or(&invalid_approval_security_context);
                                 let envelope = build_secondary_acis_envelope_with_security_context(
                                     &action,
                                     &verdict,
                                     DecisionOrigin::PolicyEngine,
                                     "http",
                                     Some(&session_id),
-                                    Some(&invalid_approval_security_context),
+                                    Some(effective_security_context),
                                 );
                                 if let Err(e) = state
                                     .audit
@@ -1445,6 +1462,42 @@ pub async fn handle_mcp_post(
                     .await
                     .is_err()
                     {
+                        let verdict = Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        };
+                        let invalid_approval_security_context =
+                            invalid_presented_approval_security_context(&action);
+                        let combined_security_context = merge_transport_security_context(
+                            security_context.as_ref(),
+                            Some(&invalid_approval_security_context),
+                        );
+                        let effective_security_context = combined_security_context
+                            .as_ref()
+                            .unwrap_or(&invalid_approval_security_context);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::ApprovalGate,
+                            "http",
+                            Some(&session_id),
+                            Some(effective_security_context),
+                        );
+                        let mut audit_metadata = json!({
+                            "source": "http_proxy",
+                            "session": &session_id,
+                            "event": "presented_approval_replay_denied",
+                            "approval_id": matched_approval_id,
+                        });
+                        if let Some(registry) = matched_approval_registry {
+                            audit_metadata["registry"] = json!(registry);
+                        }
+                        if let Err(e) = state
+                            .audit
+                            .log_entry_with_acis(&action, &verdict, audit_metadata, envelope)
+                            .await
+                        {
+                            tracing::warn!("Failed to audit replayed presented approval: {}", e);
+                        }
                         let response = serde_json::json!({
                             "jsonrpc": "2.0",
                             "id": id,

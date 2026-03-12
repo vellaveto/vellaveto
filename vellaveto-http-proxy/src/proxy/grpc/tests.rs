@@ -107,9 +107,68 @@ fn make_test_state() -> crate::proxy::ProxyState {
     }
 }
 
+async fn start_mock_upstream() -> Option<String> {
+    let app = axum::Router::new().route(
+        "/mcp",
+        axum::routing::post(|body: axum::body::Bytes| async move {
+            let msg: Value = serde_json::from_slice(&body).unwrap_or_else(|_| json!({}));
+            let id = msg.get("id").cloned().unwrap_or(Value::Null);
+            let method = msg.get("method").and_then(|m| m.as_str()).unwrap_or("");
+
+            let response = match method {
+                "tools/call" => {
+                    let tool_name = msg
+                        .get("params")
+                        .and_then(|p| p.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("unknown");
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{
+                                "type": "text",
+                                "text": format!("Tool {} executed successfully", tool_name)
+                            }]
+                        }
+                    })
+                }
+                _ => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {}
+                }),
+            };
+
+            axum::Json(response)
+        }),
+    );
+
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("skipping grpc test: cannot bind mock upstream: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind grpc mock upstream: {error}"),
+    };
+    let addr = listener.local_addr().expect("listener addr");
+    let url = format!("http://{addr}/mcp");
+
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("serve mock upstream");
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    Some(url)
+}
+
 #[derive(Default)]
 struct DetachedSignatureBinding<'a> {
     session_scope_binding: Option<&'a str>,
+    nonce: Option<String>,
+    created_at: Option<String>,
     routing_identity: Option<&'a str>,
     workload_identity: Option<vellaveto_types::WorkloadIdentity>,
 }
@@ -145,8 +204,10 @@ fn make_signed_detached_request_signature_header_with_binding(
     let mut request_signature = RequestSignature {
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
-        nonce: Some("detached-nonce".to_string()),
-        created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        nonce: binding.nonce.or_else(|| Some("detached-nonce".to_string())),
+        created_at: binding.created_at.or_else(|| {
+            Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        }),
         signature: None,
     };
     let input = CanonicalRequestInput::from_action(
@@ -196,6 +257,25 @@ async fn read_matching_audit_entry(
         .expect("matching audit entry")
 }
 
+async fn read_presented_approval_audit_entry(
+    audit_path: &std::path::Path,
+    source: &str,
+    approval_id: &str,
+) -> Value {
+    let content = tokio::fs::read_to_string(audit_path)
+        .await
+        .expect("read audit log");
+    content
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+        .find(|entry| {
+            entry["metadata"]["source"] == source
+                && entry["metadata"]["approval_id"] == approval_id
+                && entry["acis_envelope"]["decision"] == "deny"
+        })
+        .expect("matching presented-approval audit entry")
+}
+
 fn assert_audit_entry_has_clamped_transport_provenance(
     entry: &Value,
     session_id: &str,
@@ -222,6 +302,32 @@ fn assert_audit_entry_has_clamped_transport_provenance(
         entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
         false
     );
+}
+
+fn assert_replay_audit_entry_has_transport_provenance(
+    entry: &Value,
+    session_id: &str,
+    session_scope_binding: &str,
+) {
+    assert_eq!(entry["acis_envelope"]["session_id"], session_id);
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
+        session_scope_binding
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["session_key_scope"],
+        "persisted_client"
+    );
+    assert_eq!(
+        entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
+        false
+    );
+    assert!(entry["acis_envelope"]["client_provenance"]["signature_status"].is_string());
+    assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2031,12 +2137,6 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
             0.8,
         ),
     ));
-    state
-        .tool_registry
-        .as_ref()
-        .expect("tool registry")
-        .register_unknown("untrusted_tool")
-        .await;
 
     let session_id = state.sessions.get_or_create(None);
     let session_scope_binding = state
@@ -2089,9 +2189,9 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
         }),
     };
     let action = vellaveto_mcp::extractor::extract_action(
-        "untrusted_tool",
+        "read_file",
         &json!({
-            "command": "echo hi"
+            "path": "/tmp/test"
         }),
     );
     let signing_key = SigningKey::from_bytes(&[49u8; 32]);
@@ -2153,6 +2253,225 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
 
     let audit_entry = read_matching_audit_entry(&audit_path, "grpc_proxy", "untrusted_tool").await;
     assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+}
+
+#[tokio::test]
+async fn test_grpc_unary_presented_tool_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream().await else {
+        return;
+    };
+
+    let mut state = make_test_state();
+    state.upstream_url = upstream_url;
+    let policies = vec![vellaveto_types::Policy {
+        id: "read_file:*".to_string(),
+        name: "Allow read_file".to_string(),
+        policy_type: vellaveto_types::PolicyType::Allow,
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = std::sync::Arc::new(
+        vellaveto_engine::PolicyEngine::with_policies(false, &policies)
+            .expect("compile replay policies"),
+    );
+    state.policies = std::sync::Arc::new(policies);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+    state.tool_registry = Some(std::sync::Arc::new(
+        vellaveto_mcp::tool_registry::ToolRegistry::with_threshold(
+            dir.path().join("tool-registry"),
+            0.8,
+        ),
+    ));
+    state
+        .tool_registry
+        .as_ref()
+        .expect("tool registry")
+        .register_unknown("read_file")
+        .await;
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(vellaveto_types::AgentIdentity {
+            subject: Some("grpc-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = vellaveto_mcp::extractor::extract_action(
+        "read_file",
+        &json!({
+            "path": "/tmp/test"
+        }),
+    );
+    let approval_id = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .create_with_context(
+            action.clone(),
+            "Approval required".to_string(),
+            Some("grpc-agent".to_string()),
+            Some(session_scope_binding.clone()),
+            Some(vellaveto_engine::acis::fingerprint_action(&action)),
+            None,
+        )
+        .await
+        .expect("create approval");
+    state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .approve(&approval_id, "reviewer")
+        .await
+        .expect("approve presented approval");
+
+    let signing_key = SigningKey::from_bytes(&[64u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let second_header = make_signed_detached_request_signature_header_with_binding(
+        &action,
+        "detached-kid",
+        &signing_key,
+        DetachedSignatureBinding {
+            session_scope_binding: Some(session_scope_binding.as_str()),
+            nonce: Some("detached-nonce-2".to_string()),
+            created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            ..DetachedSignatureBinding::default()
+        },
+    );
+
+    let state = std::sync::Arc::new(state);
+    let svc = service::McpGrpcService::new(state.clone(), 100);
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id_oneof: Some(json_rpc_request::IdOneof::IdInt(1)),
+        method: "tools/call".to_string(),
+        params: Some(prost_types::Struct {
+            fields: vec![
+                (
+                    "name".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StringValue("read_file".to_string())),
+                    },
+                ),
+                (
+                    "arguments".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StructValue(prost_types::Struct {
+                            fields: vec![(
+                                "path".to_string(),
+                                prost_types::Value {
+                                    kind: Some(Kind::StringValue("/tmp/test".to_string())),
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                        })),
+                    },
+                ),
+                (
+                    "_meta".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StructValue(prost_types::Struct {
+                            fields: vec![(
+                                "approval_id".to_string(),
+                                prost_types::Value {
+                                    kind: Some(Kind::StringValue(approval_id.clone())),
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                        })),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }),
+    };
+
+    let mut first_request = TonicRequest::new(req.clone());
+    first_request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    first_request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        header.parse().expect("request signature metadata"),
+    );
+    let first = <service::McpGrpcService as proto::mcp_service_server::McpService>::call(
+        &svc,
+        first_request,
+    )
+    .await
+    .expect("first grpc response")
+    .into_inner();
+    assert!(first.error.is_none(), "{first:?}");
+    assert!(first.result.is_some(), "{first:?}");
+
+    let consumed = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(
+        consumed.status,
+        vellaveto_approval::ApprovalStatus::Consumed
+    );
+
+    let mut second_request = TonicRequest::new(req);
+    second_request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    second_request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        second_header.parse().expect("request signature metadata"),
+    );
+    let second = <service::McpGrpcService as proto::mcp_service_server::McpService>::call(
+        &svc,
+        second_request,
+    )
+    .await
+    .expect("second grpc response")
+    .into_inner();
+    let error = second.error.expect("replayed approval denial");
+    assert_eq!(error.message, "Denied by policy");
+
+    let audit_entry =
+        read_presented_approval_audit_entry(&audit_path, "grpc_proxy", &approval_id).await;
+    assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
         &session_scope_binding,
@@ -2268,6 +2587,8 @@ fn test_build_grpc_runtime_security_context_projects_trusted_signer_metadata() {
         &signing_key,
         DetachedSignatureBinding {
             session_scope_binding: Some(session_scope_binding.as_str()),
+            nonce: None,
+            created_at: None,
             routing_identity: None,
             workload_identity: None,
         },
@@ -2442,6 +2763,8 @@ fn test_build_grpc_runtime_security_context_marks_workload_mismatch_for_trusted_
         &signing_key,
         DetachedSignatureBinding {
             session_scope_binding: Some(session_scope_binding.as_str()),
+            nonce: None,
+            created_at: None,
             routing_identity: Some("spiffe://cluster/ns/prod/sa/other"),
             workload_identity: Some(vellaveto_types::WorkloadIdentity {
                 platform: Some("spiffe".into()),

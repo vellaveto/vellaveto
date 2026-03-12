@@ -185,6 +185,11 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   Those same live-path tests now also assert the emitted ACIS audit envelope,
   so approval-gate audit JSONL entries and stored pending approvals stay in
   lockstep on transport-clamped `client_provenance`.
+- Live HTTP POST, WebSocket `/mcp/ws`, and gRPC unary coverage now also proves
+  one-shot presented-approval consumption on the real handler path: an
+  approved `approval_id` forwards exactly once, transitions to `Consumed`, and
+  then fails closed on replay with `Denied by policy`, while the replay denial
+  audit entry preserves the same transport-clamped provenance fields.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

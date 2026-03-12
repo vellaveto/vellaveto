@@ -1438,6 +1438,7 @@ impl McpGrpcService {
 
         let mut action = extractor::extract_action(tool_name, arguments);
         let mut matched_approval_id: Option<String> = None;
+        let mut matched_approval_registry: Option<&'static str> = None;
 
         // SECURITY (IMP-R218-002): Extract requester identity for self-approval prevention.
         // This prefers agent_identity.subject, then falls back to oauth_subject.
@@ -1533,6 +1534,7 @@ impl McpGrpcService {
                     {
                         Ok(Some(approval_id)) => {
                             matched_approval_id = Some(approval_id);
+                            matched_approval_registry = Some("unknown_tool");
                         }
                         Ok(None) => {
                             registry.register_unknown(tool_name).await;
@@ -1597,13 +1599,20 @@ impl McpGrpcService {
                             };
                             let invalid_approval_security_context =
                                 invalid_presented_approval_security_context(&action);
+                            let combined_security_context = merge_grpc_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&invalid_approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&invalid_approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
-                                Some(&invalid_approval_security_context),
+                                Some(effective_security_context),
                             );
                             let _ = self
                                 .state
@@ -1616,6 +1625,7 @@ impl McpGrpcService {
                                         "session": session_id,
                                         "transport": "grpc",
                                         "registry": "unknown_tool",
+                                        "approval_id": crate::proxy::helpers::extract_approval_id_from_meta(json_req),
                                     }),
                                     envelope,
                                 )
@@ -1635,6 +1645,7 @@ impl McpGrpcService {
                     {
                         Ok(Some(approval_id)) => {
                             matched_approval_id = Some(approval_id);
+                            matched_approval_registry = Some("untrusted_tool");
                         }
                         Ok(None) => {
                             let verdict = Verdict::Deny {
@@ -1698,13 +1709,20 @@ impl McpGrpcService {
                             };
                             let invalid_approval_security_context =
                                 invalid_presented_approval_security_context(&action);
+                            let combined_security_context = merge_grpc_security_context(
+                                registry_runtime_security_context.as_ref(),
+                                Some(&invalid_approval_security_context),
+                            );
+                            let effective_security_context = combined_security_context
+                                .as_ref()
+                                .unwrap_or(&invalid_approval_security_context);
                             let envelope = build_secondary_acis_envelope_with_security_context(
                                 &action,
                                 &verdict,
                                 DecisionOrigin::PolicyEngine,
                                 "grpc",
                                 Some(session_id),
-                                Some(&invalid_approval_security_context),
+                                Some(effective_security_context),
                             );
                             let _ = self
                                 .state
@@ -1717,6 +1735,7 @@ impl McpGrpcService {
                                         "session": session_id,
                                         "transport": "grpc",
                                         "registry": "untrusted_tool",
+                                        "approval_id": crate::proxy::helpers::extract_approval_id_from_meta(json_req),
                                     }),
                                     envelope,
                                 )
@@ -1998,6 +2017,41 @@ impl McpGrpcService {
                 .await
                 .is_err()
                 {
+                    let deny_verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    let invalid_approval_security_context =
+                        invalid_presented_approval_security_context(&action);
+                    let combined_security_context = merge_grpc_security_context(
+                        security_context.as_ref(),
+                        Some(&invalid_approval_security_context),
+                    );
+                    let effective_security_context = combined_security_context
+                        .as_ref()
+                        .unwrap_or(&invalid_approval_security_context);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &deny_verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "grpc",
+                        Some(session_id),
+                        Some(effective_security_context),
+                    );
+                    let mut audit_metadata = json!({
+                        "source": "grpc_proxy",
+                        "session": session_id,
+                        "transport": "grpc",
+                        "event": "presented_approval_replay_denied",
+                        "approval_id": matched_approval_id,
+                    });
+                    if let Some(registry) = matched_approval_registry {
+                        audit_metadata["registry"] = json!(registry);
+                    }
+                    let _ = self
+                        .state
+                        .audit
+                        .log_entry_with_acis(&action, &deny_verdict, audit_metadata, envelope)
+                        .await;
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
 
