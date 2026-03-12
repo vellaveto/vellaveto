@@ -1583,8 +1583,7 @@ async fn relay_client_to_upstream(
                                 sessions: &state.sessions,
                                 session_id: Some(&session_id),
                                 trusted_request_signers: &state.trusted_request_signers,
-                                detached_signature_freshness: state
-                                    .detached_signature_freshness,
+                                detached_signature_freshness: state.detached_signature_freshness,
                             },
                         );
 
@@ -1975,18 +1974,12 @@ async fn relay_client_to_upstream(
                                 if reason == INVALID_PRESENTED_APPROVAL_REASON
                                     && presented_approval_id.is_some()
                                 {
-                                    extra["event"] =
-                                        json!("presented_approval_replay_denied");
+                                    extra["event"] = json!("presented_approval_replay_denied");
                                     extra["approval_id"] = json!(presented_approval_id);
                                 }
                                 if let Err(e) = state
                                     .audit
-                                    .log_entry_with_acis(
-                                        &action,
-                                        &verdict,
-                                        extra,
-                                        acis_envelope,
-                                    )
+                                    .log_entry_with_acis(&action, &verdict, extra, acis_envelope)
                                     .await
                                 {
                                     tracing::error!(
@@ -2376,8 +2369,7 @@ async fn relay_client_to_upstream(
                                 sessions: &state.sessions,
                                 session_id: Some(&session_id),
                                 trusted_request_signers: &state.trusted_request_signers,
-                                detached_signature_freshness: state
-                                    .detached_signature_freshness,
+                                detached_signature_freshness: state.detached_signature_freshness,
                             },
                         );
 
@@ -3228,79 +3220,75 @@ async fn relay_client_to_upstream(
                                 sessions: &state.sessions,
                                 session_id: Some(&session_id),
                                 trusted_request_signers: &state.trusted_request_signers,
-                                detached_signature_freshness: state
-                                    .detached_signature_freshness,
+                                detached_signature_freshness: state.detached_signature_freshness,
                             },
                         );
 
                         // TOCTOU-safe evaluation + session update (write lock)
-                        let (mediation_result, task_eval_ctx) =
-                            if let Some(mut session) = state.sessions.get_mut(&session_id) {
-                                let ctx = EvaluationContext {
-                                    timestamp: None,
-                                    agent_id: session.oauth_subject.clone(),
-                                    agent_identity: session.agent_identity.clone(),
-                                    call_counts: session.call_counts.clone(),
-                                    previous_actions: session
-                                        .action_history
-                                        .iter()
-                                        .cloned()
-                                        .collect(),
-                                    call_chain: session.current_call_chain.clone(),
-                                    tenant_id: None,
-                                    verification_tier: None,
-                                    capability_token: None,
-                                    session_state: None,
-                                };
-                                let result = mediate_with_security_context(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &state.engine,
-                                    Some(&ctx),
-                                    security_context.as_ref(),
-                                    "websocket",
-                                    &state.mediation_config,
-                                    Some(&session_id),
-                                    None,
-                                );
-
-                                // Update session atomically on Allow
-                                if matches!(result.verdict, Verdict::Allow) {
-                                    session.touch();
-                                    use crate::proxy::call_chain::{
-                                        MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
-                                    };
-                                    if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
-                                        || session.call_counts.contains_key(task_method)
-                                    {
-                                        let count = session
-                                            .call_counts
-                                            .entry(task_method.to_string())
-                                            .or_insert(0);
-                                        *count = count.saturating_add(1);
-                                    }
-                                    if session.action_history.len() >= MAX_ACTION_HISTORY {
-                                        session.action_history.pop_front();
-                                    }
-                                    session.action_history.push_back(task_method.to_string());
-                                }
-
-                                (result, ctx)
-                            } else {
-                                let ctx = EvaluationContext::default();
-                                let result = mediate_with_security_context(
-                                    &uuid::Uuid::new_v4().to_string().replace('-', ""),
-                                    &action,
-                                    &state.engine,
-                                    None,
-                                    security_context.as_ref(),
-                                    "websocket",
-                                    &state.mediation_config,
-                                    Some(&session_id),
-                                    None,
-                                );
-                                (result, ctx)
+                        let (mediation_result, task_eval_ctx) = if let Some(mut session) =
+                            state.sessions.get_mut(&session_id)
+                        {
+                            let ctx = EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_counts: session.call_counts.clone(),
+                                previous_actions: session.action_history.iter().cloned().collect(),
+                                call_chain: session.current_call_chain.clone(),
+                                tenant_id: None,
+                                verification_tier: None,
+                                capability_token: None,
+                                session_state: None,
                             };
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                Some(&ctx),
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
+
+                            // Update session atomically on Allow
+                            if matches!(result.verdict, Verdict::Allow) {
+                                session.touch();
+                                use crate::proxy::call_chain::{
+                                    MAX_ACTION_HISTORY, MAX_CALL_COUNT_TOOLS,
+                                };
+                                if session.call_counts.len() < MAX_CALL_COUNT_TOOLS
+                                    || session.call_counts.contains_key(task_method)
+                                {
+                                    let count = session
+                                        .call_counts
+                                        .entry(task_method.to_string())
+                                        .or_insert(0);
+                                    *count = count.saturating_add(1);
+                                }
+                                if session.action_history.len() >= MAX_ACTION_HISTORY {
+                                    session.action_history.pop_front();
+                                }
+                                session.action_history.push_back(task_method.to_string());
+                            }
+
+                            (result, ctx)
+                        } else {
+                            let ctx = EvaluationContext::default();
+                            let result = mediate_with_security_context(
+                                &uuid::Uuid::new_v4().to_string().replace('-', ""),
+                                &action,
+                                &state.engine,
+                                None,
+                                security_context.as_ref(),
+                                "websocket",
+                                &state.mediation_config,
+                                Some(&session_id),
+                                None,
+                            );
+                            (result, ctx)
+                        };
 
                         let mut final_origin = mediation_result.origin;
                         let mut acis_envelope = mediation_result.envelope.clone();
@@ -3843,8 +3831,7 @@ async fn relay_client_to_upstream(
                                 sessions: &state.sessions,
                                 session_id: Some(&session_id),
                                 trusted_request_signers: &state.trusted_request_signers,
-                                detached_signature_freshness: state
-                                    .detached_signature_freshness,
+                                detached_signature_freshness: state.detached_signature_freshness,
                             },
                         );
 

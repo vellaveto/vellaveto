@@ -427,10 +427,10 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -2357,10 +2357,10 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -2778,10 +2778,10 @@ async fn trace_resource_read_denied_includes_trace() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -2894,10 +2894,10 @@ async fn trace_constraint_details_visible() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -3334,10 +3334,10 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
 
     let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
     let http_client = reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client");
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
+        .build()
+        .expect("test http client");
 
     let oauth_config = OAuthConfig {
         issuer: TEST_ISSUER.to_string(),
@@ -4522,10 +4522,10 @@ fn build_api_key_test_state(
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5046,10 +5046,10 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5200,10 +5200,10 @@ async fn task_get_allowed_when_no_deny_policy() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5305,10 +5305,10 @@ async fn task_request_fail_closed_no_matching_policy() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5409,10 +5409,10 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5519,10 +5519,10 @@ async fn task_request_clean_params_not_dlp_blocked() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5627,10 +5627,10 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5739,10 +5739,10 @@ async fn extension_method_fail_closed_no_matching_policy() {
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -6071,10 +6071,10 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -6641,10 +6641,10 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
         http_client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(5))
-                .timeout(Duration::from_secs(15))
-                .build()
-                .expect("test http client"),
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(15))
+            .build()
+            .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,

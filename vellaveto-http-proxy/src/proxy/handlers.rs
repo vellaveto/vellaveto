@@ -1963,12 +1963,7 @@ pub async fn handle_mcp_post(
 
                     if let Err(e) = state
                         .audit
-                        .log_entry_with_acis(
-                            &action,
-                            &verdict,
-                            audit_metadata,
-                            acis_envelope,
-                        )
+                        .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
                         .await
                     {
                         tracing::error!(
