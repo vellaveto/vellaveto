@@ -25,7 +25,10 @@ use tempfile::TempDir;
 use tokio_tungstenite::tungstenite::http::Request as WsRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
-use vellaveto_approval::{ApprovalStatus, ApprovalStore};
+use vellaveto_approval::{
+    fingerprint_review_client_key_id, fingerprint_review_session_scope_binding, ApprovalStatus,
+    ApprovalStore,
+};
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_engine::PolicyEngine;
@@ -555,16 +558,22 @@ async fn read_matching_audit_entry(
     source: &str,
     registry: &str,
 ) -> Value {
-    let content = tokio::fs::read_to_string(audit_path)
-        .await
-        .expect("read audit log");
-    content
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
-        .find(|entry| {
-            entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
-        })
-        .expect("matching audit entry")
+    for _ in 0..20 {
+        let content = tokio::fs::read_to_string(audit_path)
+            .await
+            .expect("read audit log");
+        if let Some(entry) = content
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+            .find(|entry| {
+                entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
+            })
+        {
+            return entry;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("matching audit entry");
 }
 
 async fn read_presented_approval_audit_entry(
@@ -572,18 +581,25 @@ async fn read_presented_approval_audit_entry(
     source: &str,
     approval_id: &str,
 ) -> Value {
-    let content = tokio::fs::read_to_string(audit_path)
-        .await
-        .expect("read audit log");
-    content
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
-        .find(|entry| {
-            entry["metadata"]["source"] == source
-                && entry["metadata"]["approval_id"] == approval_id
-                && entry["acis_envelope"]["decision"] == "deny"
-        })
-        .expect("matching presented-approval audit entry")
+    for _ in 0..20 {
+        let content = tokio::fs::read_to_string(audit_path)
+            .await
+            .expect("read audit log");
+        if let Some(entry) = content
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+            .find(|entry| {
+                entry["metadata"]["source"] == source
+                    && entry["metadata"]["approval_id"] == approval_id
+                    && entry["metadata"]["event"] == "presented_approval_replay_denied"
+                    && entry["acis_envelope"]["decision"] == "deny"
+            })
+        {
+            return entry;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("matching presented-approval audit entry");
 }
 
 fn assert_audit_entry_has_clamped_transport_provenance(
@@ -594,11 +610,11 @@ fn assert_audit_entry_has_clamped_transport_provenance(
     assert_eq!(entry["acis_envelope"]["session_id"], session_id);
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["client_key_id"],
-        "detached-kid"
+        fingerprint_review_client_key_id("detached-kid")
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
-        session_scope_binding
+        fingerprint_review_session_scope_binding(session_scope_binding)
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["signature_status"],
@@ -612,6 +628,12 @@ fn assert_audit_entry_has_clamped_transport_provenance(
         entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
         false
     );
+    assert!(entry["acis_envelope"]["client_provenance"]["request_signature"].is_null());
+    assert!(
+        entry["acis_envelope"]["client_provenance"]["canonical_request_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("reqfp:v1:"))
+    );
 }
 
 fn assert_replay_audit_entry_has_transport_provenance(
@@ -622,11 +644,11 @@ fn assert_replay_audit_entry_has_transport_provenance(
     assert_eq!(entry["acis_envelope"]["session_id"], session_id);
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["client_key_id"],
-        "detached-kid"
+        fingerprint_review_client_key_id("detached-kid")
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
-        session_scope_binding
+        fingerprint_review_session_scope_binding(session_scope_binding)
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_key_scope"],
@@ -637,7 +659,12 @@ fn assert_replay_audit_entry_has_transport_provenance(
         false
     );
     assert!(entry["acis_envelope"]["client_provenance"]["signature_status"].is_string());
-    assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
+    assert!(
+        entry["acis_envelope"]["client_provenance"]["canonical_request_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("reqfp:v1:"))
+    );
+    assert!(entry["acis_envelope"]["client_provenance"]["request_signature"].is_null());
 }
 
 fn assert_presented_approval_replay_metadata(entry: &Value, approval_id: &str) {

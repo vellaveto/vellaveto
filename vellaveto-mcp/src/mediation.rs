@@ -29,6 +29,10 @@
 
 use std::time::Instant;
 
+use vellaveto_approval::{
+    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
+    fingerprint_review_session_scope_binding,
+};
 use vellaveto_canonical::{canonical_request_hash, CanonicalRequestInput};
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::PolicyEngine;
@@ -36,8 +40,8 @@ use vellaveto_types::acis::{
     AcisActionSummary, AcisDecisionEnvelope, DecisionKind, DecisionOrigin,
 };
 use vellaveto_types::{
-    is_security_relevant_taint, minimum_trust_tier_for_sink, Action, ContainmentMode,
-    EvaluationContext, EvaluationTrace, ReplayStatus, RuntimeSecurityContext,
+    is_security_relevant_taint, minimum_trust_tier_for_sink, Action, ClientProvenance,
+    ContainmentMode, EvaluationContext, EvaluationTrace, ReplayStatus, RuntimeSecurityContext,
     SignatureVerificationStatus, Verdict, WorkloadBindingStatus,
 };
 
@@ -507,7 +511,8 @@ pub fn build_acis_envelope_with_security_context(
                 .min(256)
         })
         .unwrap_or(0);
-    let client_provenance = enrich_client_provenance(action, session_id, context, security_context);
+    let client_provenance = enrich_client_provenance(action, session_id, context, security_context)
+        .map(sanitize_client_provenance_for_audit);
 
     AcisDecisionEnvelope {
         decision_id: decision_id.to_string(),
@@ -831,6 +836,30 @@ fn enrich_client_provenance(
         provenance.canonical_request_hash = Some(hash);
     }
     Some(provenance)
+}
+
+fn sanitize_client_provenance_for_audit(provenance: ClientProvenance) -> ClientProvenance {
+    ClientProvenance {
+        request_signature: None,
+        signature_status: provenance.signature_status,
+        client_key_id: provenance
+            .client_key_id
+            .as_deref()
+            .map(fingerprint_review_client_key_id),
+        session_key_scope: provenance.session_key_scope,
+        workload_identity: None,
+        workload_binding_status: provenance.workload_binding_status,
+        replay_status: provenance.replay_status,
+        session_scope_binding: provenance
+            .session_scope_binding
+            .as_deref()
+            .map(fingerprint_review_session_scope_binding),
+        canonical_request_hash: provenance
+            .canonical_request_hash
+            .as_deref()
+            .map(fingerprint_review_canonical_request_hash),
+        execution_is_ephemeral: provenance.execution_is_ephemeral,
+    }
 }
 
 #[cfg(test)]
@@ -1369,11 +1398,17 @@ mod tests {
         );
 
         assert!(env.client_provenance.is_some());
-        assert!(env
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.as_ref())
-            .is_some());
+        let provenance = env.client_provenance.as_ref().expect("client provenance");
+        assert!(provenance.request_signature.is_none());
+        assert!(provenance.client_key_id.is_none());
+        assert_eq!(
+            provenance
+                .canonical_request_hash
+                .as_deref()
+                .map(|hash| hash.starts_with("reqfp:v1:")),
+            Some(true)
+        );
+        assert!(provenance.workload_identity.is_none());
         assert!(env.validate().is_ok());
     }
 

@@ -1626,6 +1626,7 @@ impl McpGrpcService {
                                         "transport": "grpc",
                                         "registry": "unknown_tool",
                                         "approval_id": crate::proxy::helpers::extract_approval_id_from_meta(json_req),
+                                        "event": "presented_approval_replay_denied",
                                     }),
                                     envelope,
                                 )
@@ -1736,6 +1737,7 @@ impl McpGrpcService {
                                         "transport": "grpc",
                                         "registry": "untrusted_tool",
                                         "approval_id": crate::proxy::helpers::extract_approval_id_from_meta(json_req),
+                                        "event": "presented_approval_replay_denied",
                                     }),
                                     envelope,
                                 )
@@ -2108,19 +2110,24 @@ impl McpGrpcService {
                     Some(&ctx),
                     security_context.as_ref(),
                 );
+                let mut audit_metadata = json!({
+                    "source": "grpc_proxy",
+                    "session": session_id,
+                    "transport": "grpc",
+                });
+                let presented_approval_id =
+                    crate::proxy::helpers::extract_approval_id_from_meta(json_req);
+                if reason == INVALID_PRESENTED_APPROVAL_REASON && presented_approval_id.is_some() {
+                    audit_metadata["event"] = json!("presented_approval_replay_denied");
+                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                    if let Some(registry) = matched_approval_registry {
+                        audit_metadata["registry"] = json!(registry);
+                    }
+                }
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry_with_acis(
-                        &action,
-                        &verdict,
-                        json!({
-                            "source": "grpc_proxy",
-                            "session": session_id,
-                            "transport": "grpc",
-                        }),
-                        acis_envelope,
-                    )
+                    .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC deny: {}", e);

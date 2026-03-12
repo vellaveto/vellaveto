@@ -644,28 +644,22 @@ fn test_ws_secondary_acis_envelope_uses_clamped_transport_provenance() {
         .client_provenance
         .as_ref()
         .expect("client provenance");
-    let request_signature = provenance
-        .request_signature
-        .as_ref()
-        .expect("request signature");
-
-    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
-    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
-    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
-    assert_ne!(
-        request_signature.created_at.as_deref(),
-        Some("2025-01-01T00:00:00Z")
+    assert!(provenance.request_signature.is_none());
+    assert_eq!(
+        provenance.client_key_id.as_deref(),
+        Some(fingerprint_review_client_key_id("detached-kid").as_str())
     );
-    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
     assert_eq!(
         provenance.session_scope_binding.as_deref(),
-        Some(session_scope_binding.as_str())
+        Some(fingerprint_review_session_scope_binding(session_scope_binding.as_str()).as_str())
     );
-    assert_ne!(
-        provenance.canonical_request_hash.as_deref(),
-        Some("caller-hash")
+    assert_eq!(
+        provenance
+            .canonical_request_hash
+            .as_deref()
+            .map(|hash| hash.starts_with("reqfp:v1:")),
+        Some(true)
     );
-    assert!(provenance.canonical_request_hash.is_some());
     assert_eq!(
         provenance.session_key_scope,
         vellaveto_types::SessionKeyScope::PersistedClient

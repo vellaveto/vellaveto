@@ -248,16 +248,24 @@ async fn read_matching_audit_entry(
     source: &str,
     registry: &str,
 ) -> Value {
-    let content = tokio::fs::read_to_string(audit_path)
-        .await
-        .expect("read audit log");
-    content
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
-        .find(|entry| {
-            entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
-        })
-        .expect("matching audit entry")
+    let mut last_content = String::new();
+    for _ in 0..100 {
+        let content = tokio::fs::read_to_string(audit_path)
+            .await
+            .expect("read audit log");
+        last_content = content.clone();
+        if let Some(entry) = content
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+            .find(|entry| {
+                entry["metadata"]["source"] == source && entry["metadata"]["registry"] == registry
+            })
+        {
+            return entry;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("matching audit entry: source={source} registry={registry} content={last_content}");
 }
 
 async fn read_presented_approval_audit_entry(
@@ -265,18 +273,29 @@ async fn read_presented_approval_audit_entry(
     source: &str,
     approval_id: &str,
 ) -> Value {
-    let content = tokio::fs::read_to_string(audit_path)
-        .await
-        .expect("read audit log");
-    content
-        .lines()
-        .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
-        .find(|entry| {
-            entry["metadata"]["source"] == source
-                && entry["metadata"]["approval_id"] == approval_id
-                && entry["acis_envelope"]["decision"] == "deny"
-        })
-        .expect("matching presented-approval audit entry")
+    let mut last_content = String::new();
+    for _ in 0..100 {
+        let content = tokio::fs::read_to_string(audit_path)
+            .await
+            .expect("read audit log");
+        last_content = content.clone();
+        if let Some(entry) = content
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).expect("parse audit entry"))
+            .find(|entry| {
+                entry["metadata"]["source"] == source
+                    && entry["metadata"]["approval_id"] == approval_id
+                    && entry["metadata"]["event"] == "presented_approval_replay_denied"
+                    && entry["acis_envelope"]["decision"] == "deny"
+            })
+        {
+            return entry;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!(
+        "matching presented-approval audit entry: source={source} approval_id={approval_id} content={last_content}"
+    );
 }
 
 fn assert_audit_entry_has_clamped_transport_provenance(
@@ -287,11 +306,11 @@ fn assert_audit_entry_has_clamped_transport_provenance(
     assert_eq!(entry["acis_envelope"]["session_id"], session_id);
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["client_key_id"],
-        "detached-kid"
+        fingerprint_review_client_key_id("detached-kid")
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
-        session_scope_binding
+        fingerprint_review_session_scope_binding(session_scope_binding)
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["signature_status"],
@@ -305,6 +324,12 @@ fn assert_audit_entry_has_clamped_transport_provenance(
         entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
         false
     );
+    assert!(entry["acis_envelope"]["client_provenance"]["request_signature"].is_null());
+    assert!(
+        entry["acis_envelope"]["client_provenance"]["canonical_request_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("reqfp:v1:"))
+    );
 }
 
 fn assert_replay_audit_entry_has_transport_provenance(
@@ -315,11 +340,11 @@ fn assert_replay_audit_entry_has_transport_provenance(
     assert_eq!(entry["acis_envelope"]["session_id"], session_id);
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["client_key_id"],
-        "detached-kid"
+        fingerprint_review_client_key_id("detached-kid")
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
-        session_scope_binding
+        fingerprint_review_session_scope_binding(session_scope_binding)
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_key_scope"],
@@ -330,7 +355,12 @@ fn assert_replay_audit_entry_has_transport_provenance(
         false
     );
     assert!(entry["acis_envelope"]["client_provenance"]["signature_status"].is_string());
-    assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
+    assert!(
+        entry["acis_envelope"]["client_provenance"]["canonical_request_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("reqfp:v1:"))
+    );
+    assert!(entry["acis_envelope"]["client_provenance"]["request_signature"].is_null());
 }
 
 fn assert_presented_approval_replay_metadata(entry: &Value, approval_id: &str) {
@@ -1748,28 +1778,22 @@ fn test_build_grpc_secondary_acis_envelope_uses_clamped_transport_provenance() {
         .client_provenance
         .as_ref()
         .expect("client provenance");
-    let request_signature = provenance
-        .request_signature
-        .as_ref()
-        .expect("request signature");
-
-    assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
-    assert_eq!(request_signature.key_id.as_deref(), Some("detached-kid"));
-    assert_ne!(request_signature.nonce.as_deref(), Some("caller-nonce"));
-    assert_ne!(
-        request_signature.created_at.as_deref(),
-        Some("2025-01-01T00:00:00Z")
+    assert!(provenance.request_signature.is_none());
+    assert_eq!(
+        provenance.client_key_id.as_deref(),
+        Some(fingerprint_review_client_key_id("detached-kid").as_str())
     );
-    assert_ne!(request_signature.signature.as_deref(), Some("deadbeef"));
     assert_eq!(
         provenance.session_scope_binding.as_deref(),
-        Some(session_scope_binding.as_str())
+        Some(fingerprint_review_session_scope_binding(session_scope_binding.as_str()).as_str())
     );
-    assert_ne!(
-        provenance.canonical_request_hash.as_deref(),
-        Some("caller-hash")
+    assert_eq!(
+        provenance
+            .canonical_request_hash
+            .as_deref()
+            .map(|hash| hash.starts_with("reqfp:v1:")),
+        Some(true)
     );
-    assert!(provenance.canonical_request_hash.is_some());
     assert_eq!(
         provenance.session_key_scope,
         vellaveto_types::SessionKeyScope::PersistedClient
@@ -2033,6 +2057,12 @@ async fn test_grpc_unary_unknown_tool_approval_persists_clamped_transport_proven
             0.8,
         ),
     ));
+    state
+        .tool_registry
+        .as_ref()
+        .expect("tool registry")
+        .register_unknown("untrusted_tool")
+        .await;
 
     let session_id = state.sessions.get_or_create(None);
     let session_scope_binding = state
@@ -2172,6 +2202,12 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
             0.8,
         ),
     ));
+    state
+        .tool_registry
+        .as_ref()
+        .expect("tool registry")
+        .register_unknown("untrusted_tool")
+        .await;
 
     let session_id = state.sessions.get_or_create(None);
     let session_scope_binding = state
@@ -2224,9 +2260,9 @@ async fn test_grpc_unary_untrusted_tool_approval_persists_clamped_transport_prov
         }),
     };
     let action = vellaveto_mcp::extractor::extract_action(
-        "read_file",
+        "untrusted_tool",
         &json!({
-            "path": "/tmp/test"
+            "command": "echo hi"
         }),
     );
     let signing_key = SigningKey::from_bytes(&[49u8; 32]);

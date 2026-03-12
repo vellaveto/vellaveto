@@ -113,6 +113,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   but store review-safe fingerprints for `client_key_id`,
   `session_scope_binding`, and `canonical_request_hash` instead of raw
   transport identifiers.
+- Shared ACIS envelope construction now also persists only audit-safe client
+  provenance summaries: `client_key_id`, `session_scope_binding`, and
+  `canonical_request_hash` are fingerprinted, while raw `request_signature`
+  and `workload_identity` details are omitted from persisted audit records.
 - Verified detached signer workload mismatches now also downgrade the effective
   trust tier to `untrusted`, so privileged sink trust-floor checks can still
   gate mismatched signer provenance even when the explicit workload-binding
@@ -213,6 +217,11 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   show the same signature status, detached key ID, replay summary,
   workload-binding status, session scope binding, canonical request hash, key
   scope, and ephemeral-execution state that drove the original admission gate.
+- gRPC approval-gate replay denial is now aligned with HTTP and WebSocket: a
+  consumed presented approval on the live unary tool path emits
+  `presented_approval_replay_denied` metadata together with the same
+  transport-clamped provenance summary preserved in stored pending approvals
+  and approval-gate ACIS envelopes.
 - The stdio proxy now forwards the shared
   `require_ephemeral_client_provenance` mediation guard too, so ephemeral-only
   provenance admission stays aligned across stdio, HTTP, WebSocket, and gRPC

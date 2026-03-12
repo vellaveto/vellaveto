@@ -28,6 +28,9 @@ use bytes::Bytes;
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
+use vellaveto_approval::{
+    fingerprint_review_client_key_id, fingerprint_review_session_scope_binding,
+};
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_mcp::inspection::{
@@ -240,11 +243,11 @@ fn assert_audit_entry_has_clamped_transport_provenance(
     assert_eq!(entry["acis_envelope"]["session_id"], session_id);
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["client_key_id"],
-        "detached-kid"
+        fingerprint_review_client_key_id("detached-kid")
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["session_scope_binding"],
-        session_scope_binding
+        fingerprint_review_session_scope_binding(session_scope_binding)
     );
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["signature_status"],
@@ -257,6 +260,12 @@ fn assert_audit_entry_has_clamped_transport_provenance(
     assert_eq!(
         entry["acis_envelope"]["client_provenance"]["execution_is_ephemeral"],
         false
+    );
+    assert!(entry["acis_envelope"]["client_provenance"]["request_signature"].is_null());
+    assert!(
+        entry["acis_envelope"]["client_provenance"]["canonical_request_hash"]
+            .as_str()
+            .is_some_and(|hash| hash.starts_with("reqfp:v1:"))
     );
 }
 

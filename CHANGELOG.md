@@ -131,6 +131,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Legacy approvals with raw values remain compatible during approval
   consumption, but new approval contexts exposed through the server, MCP relay,
   and HTTP proxy now use review fingerprints by default.
+- **ACIS client provenance is now audit-safe (Mar 2026):**
+  Shared ACIS envelope construction now fingerprints persisted
+  `client_key_id`, `session_scope_binding`, and `canonical_request_hash`, and
+  omits raw `request_signature` and `workload_identity` details from audit
+  records. The runtime still uses full provenance in memory for admission and
+  replay checks, but audit JSONL and downstream approval views now retain only
+  review-safe provenance summaries.
+- **gRPC approval replay audits now preserve replay metadata (Mar 2026):**
+  gRPC tool approval replay denials now emit the same
+  `presented_approval_replay_denied` event metadata as the other transports,
+  including `approval_id`, registry context, and transport-clamped provenance
+  in the persisted ACIS envelope. The gRPC test helpers now also retry long
+  enough for async audit writes before failing.
 - **HTTP proxy detached request-signature freshness (Mar 2026):**
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,
