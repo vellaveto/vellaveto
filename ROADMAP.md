@@ -196,7 +196,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   context-free denial handling after the approval has already been consumed.
   gRPC and WebSocket now have seeded replay tests on live non-tool paths, and
   HTTP has deterministic consumed-approval matching coverage on the shared
-  approval gate.
+  approval gate. Those replay tests now also lock the emitted replay `event`,
+  `approval_id`, and the action-specific metadata operators need to triage
+  task and extension approval replays.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

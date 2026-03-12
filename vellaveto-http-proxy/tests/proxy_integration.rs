@@ -640,6 +640,14 @@ fn assert_replay_audit_entry_has_transport_provenance(
     assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
 }
 
+fn assert_presented_approval_replay_metadata(entry: &Value, approval_id: &str) {
+    assert_eq!(
+        entry["metadata"]["event"],
+        "presented_approval_replay_denied"
+    );
+    assert_eq!(entry["metadata"]["approval_id"], approval_id);
+}
+
 async fn json_body(resp: axum::response::Response) -> Value {
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
         .await
@@ -7158,6 +7166,7 @@ async fn http_presented_tool_approval_is_consumed_once_and_replay_denied() {
         &approval_id,
     )
     .await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
     assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
@@ -7276,6 +7285,7 @@ async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
         &approval_id,
     )
     .await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
     assert_audit_entry_has_clamped_transport_provenance(
         &audit_entry,
         &session_id,
@@ -7415,11 +7425,14 @@ async fn ws_presented_extension_approval_is_consumed_once_and_replay_denied() {
         &approval_id,
     )
     .await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
     assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
         &session_scope_binding,
     );
+    assert_eq!(audit_entry["metadata"]["extension_id"], "x-vellaveto-audit");
+    assert_eq!(audit_entry["metadata"]["method"], "x-vellaveto-audit/stats");
 
     let _ = client_ws.close(None).await;
 }

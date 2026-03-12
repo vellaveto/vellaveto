@@ -330,6 +330,14 @@ fn assert_replay_audit_entry_has_transport_provenance(
     assert!(entry["acis_envelope"]["client_provenance"]["canonical_request_hash"].is_string());
 }
 
+fn assert_presented_approval_replay_metadata(entry: &Value, approval_id: &str) {
+    assert_eq!(
+        entry["metadata"]["event"],
+        "presented_approval_replay_denied"
+    );
+    assert_eq!(entry["metadata"]["approval_id"], approval_id);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // GrpcConfig tests
 // ═══════════════════════════════════════════════════════════════════════
@@ -2471,6 +2479,7 @@ async fn test_grpc_unary_presented_tool_approval_is_consumed_once_and_replay_den
 
     let audit_entry =
         read_presented_approval_audit_entry(&audit_path, "grpc_proxy", &approval_id).await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
     assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
@@ -2701,11 +2710,14 @@ async fn test_grpc_unary_presented_task_approval_is_consumed_once_and_replay_den
 
     let audit_entry =
         read_presented_approval_audit_entry(&audit_path, "grpc_proxy", &approval_id).await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
     assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
         &session_scope_binding,
     );
+    assert_eq!(audit_entry["metadata"]["task_method"], "tasks/get");
+    assert_eq!(audit_entry["metadata"]["task_id"], "task-abc");
 }
 
 #[test]

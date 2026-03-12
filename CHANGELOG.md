@@ -227,7 +227,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same transport-provenance-aware deny audits as tool calls across HTTP,
   WebSocket, and gRPC. Targeted coverage now locks those replay-denial paths
   with seeded approval-consumption tests on gRPC and WebSocket plus HTTP
-  consumed-approval matching coverage at the shared approval gate.
+  consumed-approval matching coverage at the shared approval gate. Replay
+  tests now also assert the emitted `event`, `approval_id`, and action-specific
+  audit metadata for task and extension denial paths.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of
