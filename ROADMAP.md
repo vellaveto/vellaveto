@@ -1,7 +1,7 @@
 # Vellaveto Roadmap
 
 > **Version:** 8.0.0-planning
-> **Updated:** 2026-03-11
+> **Updated:** 2026-03-12
 > **Status:** shared substrate shipped; 2026 execution roadmap
 > **Current focus:** close the dirty worktree, finish transport convergence, then expand runtime, product, research, compliance, and supply-chain coverage
 > **Strategic position:** fail-closed control plane for MCP and tool-calling agents
@@ -190,6 +190,13 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   approved `approval_id` forwards exactly once, transitions to `Consumed`, and
   then fails closed on replay with `Denied by policy`, while the replay denial
   audit entry preserves the same transport-clamped provenance fields.
+- The same replay-denial audit treatment now covers resource, task, and
+  extension approval consumption across HTTP, WebSocket, and gRPC, so the
+  remaining non-tool presented-approval flows no longer fall back to
+  context-free denial handling after the approval has already been consumed.
+  gRPC and WebSocket now have seeded replay tests on live non-tool paths, and
+  HTTP has deterministic consumed-approval matching coverage on the shared
+  approval gate.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and

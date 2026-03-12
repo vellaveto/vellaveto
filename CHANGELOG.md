@@ -222,6 +222,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `execution_is_ephemeral`, and approval audit reconstruction restores that
   summary into `client_provenance` so reviewer-visible context matches the
   final ACIS envelope.
+- **HTTP proxy presented-approval replay audits (Mar 2026):**
+  Replayed presented approvals on resource, task, and extension flows now emit
+  the same transport-provenance-aware deny audits as tool calls across HTTP,
+  WebSocket, and gRPC. Targeted coverage now locks those replay-denial paths
+  with seeded approval-consumption tests on gRPC and WebSocket plus HTTP
+  consumed-approval matching coverage at the shared approval gate.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

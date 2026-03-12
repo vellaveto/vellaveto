@@ -2637,6 +2637,46 @@ pub async fn handle_mcp_post(
                     .await
                     .is_err()
                     {
+                        let verdict = Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        };
+                        let invalid_approval_security_context =
+                            invalid_presented_approval_security_context(&action);
+                        let combined_security_context = merge_transport_security_context(
+                            security_context.as_ref(),
+                            Some(&invalid_approval_security_context),
+                        );
+                        let effective_security_context = combined_security_context
+                            .as_ref()
+                            .unwrap_or(&invalid_approval_security_context);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::ApprovalGate,
+                            "http",
+                            Some(&session_id),
+                            Some(effective_security_context),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                build_audit_context(
+                                    &session_id,
+                                    json!({
+                                        "event": "presented_approval_replay_denied",
+                                        "approval_id": matched_approval_id,
+                                        "uri": uri,
+                                    }),
+                                    &oauth_claims,
+                                ),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit resource replayed approval: {}", e);
+                        }
                         let response = serde_json::json!({
                             "jsonrpc": "2.0",
                             "id": id,
@@ -2708,16 +2748,20 @@ pub async fn handle_mcp_post(
                         None
                     };
 
+                    let mut audit_metadata = json!({"resource_uri": uri});
+                    if code == -32001
+                        && reason == INVALID_PRESENTED_APPROVAL_REASON
+                        && presented_approval_id.is_some()
+                    {
+                        audit_metadata["event"] = json!("presented_approval_replay_denied");
+                        audit_metadata["approval_id"] = json!(presented_approval_id);
+                    }
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
                             &action,
                             &verdict,
-                            build_audit_context(
-                                &session_id,
-                                json!({"resource_uri": uri}),
-                                &oauth_claims,
-                            ),
+                            build_audit_context(&session_id, audit_metadata, &oauth_claims),
                             acis_envelope,
                         )
                         .await
@@ -3831,6 +3875,47 @@ pub async fn handle_mcp_post(
                     .await
                     .is_err()
                     {
+                        let verdict = Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        };
+                        let invalid_approval_security_context =
+                            invalid_presented_approval_security_context(&action);
+                        let combined_security_context = merge_transport_security_context(
+                            security_context.as_ref(),
+                            Some(&invalid_approval_security_context),
+                        );
+                        let effective_security_context = combined_security_context
+                            .as_ref()
+                            .unwrap_or(&invalid_approval_security_context);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::ApprovalGate,
+                            "http",
+                            Some(&session_id),
+                            Some(effective_security_context),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                build_audit_context(
+                                    &session_id,
+                                    json!({
+                                        "event": "presented_approval_replay_denied",
+                                        "approval_id": matched_approval_id,
+                                        "task_method": task_method,
+                                        "task_id": task_id,
+                                    }),
+                                    &oauth_claims,
+                                ),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit task replayed approval: {}", e);
+                        }
                         return attach_session_header(
                             make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
                             &session_id,
@@ -3899,20 +3984,23 @@ pub async fn handle_mcp_post(
                     let verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let mut audit_metadata = json!({
+                        "event": "task_request_denied",
+                        "task_method": task_method,
+                        "task_id": task_id,
+                    });
+                    if reason == INVALID_PRESENTED_APPROVAL_REASON
+                        && presented_approval_id.is_some()
+                    {
+                        audit_metadata["event"] = json!("presented_approval_replay_denied");
+                        audit_metadata["approval_id"] = json!(presented_approval_id);
+                    }
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
                             &action,
                             &verdict,
-                            build_audit_context(
-                                &session_id,
-                                json!({
-                                    "event": "task_request_denied",
-                                    "task_method": task_method,
-                                    "task_id": task_id,
-                                }),
-                                &oauth_claims,
-                            ),
+                            build_audit_context(&session_id, audit_metadata, &oauth_claims),
                             acis_envelope,
                         )
                         .await
@@ -4552,6 +4640,47 @@ pub async fn handle_mcp_post(
                     .await
                     .is_err()
                     {
+                        let verdict = Verdict::Deny {
+                            reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                        };
+                        let invalid_approval_security_context =
+                            invalid_presented_approval_security_context(&action);
+                        let combined_security_context = merge_transport_security_context(
+                            security_context.as_ref(),
+                            Some(&invalid_approval_security_context),
+                        );
+                        let effective_security_context = combined_security_context
+                            .as_ref()
+                            .unwrap_or(&invalid_approval_security_context);
+                        let envelope = build_secondary_acis_envelope_with_security_context(
+                            &action,
+                            &verdict,
+                            DecisionOrigin::ApprovalGate,
+                            "http",
+                            Some(&session_id),
+                            Some(effective_security_context),
+                        );
+                        if let Err(e) = state
+                            .audit
+                            .log_entry_with_acis(
+                                &action,
+                                &verdict,
+                                build_audit_context(
+                                    &session_id,
+                                    json!({
+                                        "event": "presented_approval_replay_denied",
+                                        "approval_id": matched_approval_id,
+                                        "extension_id": extension_id,
+                                        "method": method,
+                                    }),
+                                    &oauth_claims,
+                                ),
+                                envelope,
+                            )
+                            .await
+                        {
+                            tracing::warn!("Failed to audit extension replayed approval: {}", e);
+                        }
                         return attach_session_header(
                             make_jsonrpc_error(msg.get("id"), -32001, "Denied by policy"),
                             &session_id,
@@ -4604,21 +4733,24 @@ pub async fn handle_mcp_post(
                     let ext_deny_verdict = Verdict::Deny {
                         reason: reason.clone(),
                     };
+                    let mut audit_metadata = json!({
+                        "event": "extension_method_denied",
+                        "extension_id": extension_id,
+                        "method": method,
+                        "reason": &reason,
+                    });
+                    if reason == INVALID_PRESENTED_APPROVAL_REASON
+                        && presented_approval_id.is_some()
+                    {
+                        audit_metadata["event"] = json!("presented_approval_replay_denied");
+                        audit_metadata["approval_id"] = json!(presented_approval_id);
+                    }
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
                             &action,
                             &ext_deny_verdict,
-                            build_audit_context(
-                                &session_id,
-                                json!({
-                                    "event": "extension_method_denied",
-                                    "extension_id": extension_id,
-                                    "method": method,
-                                    "reason": &reason,
-                                }),
-                                &oauth_claims,
-                            ),
+                            build_audit_context(&session_id, audit_metadata, &oauth_claims),
                             acis_envelope,
                         )
                         .await

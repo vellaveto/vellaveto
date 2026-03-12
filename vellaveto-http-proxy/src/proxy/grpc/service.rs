@@ -2629,6 +2629,43 @@ impl McpGrpcService {
                 .await
                 .is_err()
                 {
+                    let deny_verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    let invalid_approval_security_context =
+                        invalid_presented_approval_security_context(&action);
+                    let combined_security_context = merge_grpc_security_context(
+                        security_context.as_ref(),
+                        Some(&invalid_approval_security_context),
+                    );
+                    let effective_security_context = combined_security_context
+                        .as_ref()
+                        .unwrap_or(&invalid_approval_security_context);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &deny_verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "grpc",
+                        Some(session_id),
+                        Some(effective_security_context),
+                    );
+                    let _ = self
+                        .state
+                        .audit
+                        .log_entry_with_acis(
+                            &action,
+                            &deny_verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "event": "presented_approval_replay_denied",
+                                "approval_id": matched_approval_id,
+                                "uri": uri,
+                            }),
+                            envelope,
+                        )
+                        .await;
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
 
@@ -2682,18 +2719,18 @@ impl McpGrpcService {
                     Some(&ctx),
                     security_context.as_ref(),
                 );
+                let mut audit_metadata = json!({
+                    "source": "grpc_proxy", "session": session_id,
+                    "transport": "grpc", "uri": uri,
+                });
+                if reason == INVALID_PRESENTED_APPROVAL_REASON && presented_approval_id.is_some() {
+                    audit_metadata["event"] = json!("presented_approval_replay_denied");
+                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                }
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry_with_acis(
-                        &action,
-                        &verdict,
-                        json!({
-                            "source": "grpc_proxy", "session": session_id,
-                            "transport": "grpc", "uri": uri,
-                        }),
-                        acis_envelope,
-                    )
+                    .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC resource deny: {}", e);
@@ -3628,6 +3665,44 @@ impl McpGrpcService {
                 .await
                 .is_err()
                 {
+                    let deny_verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    let invalid_approval_security_context =
+                        invalid_presented_approval_security_context(&action);
+                    let combined_security_context = merge_grpc_security_context(
+                        security_context.as_ref(),
+                        Some(&invalid_approval_security_context),
+                    );
+                    let effective_security_context = combined_security_context
+                        .as_ref()
+                        .unwrap_or(&invalid_approval_security_context);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &deny_verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "grpc",
+                        Some(session_id),
+                        Some(effective_security_context),
+                    );
+                    let _ = self
+                        .state
+                        .audit
+                        .log_entry_with_acis(
+                            &action,
+                            &deny_verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "event": "presented_approval_replay_denied",
+                                "approval_id": matched_approval_id,
+                                "task_method": task_method,
+                                "task_id": task_id,
+                            }),
+                            envelope,
+                        )
+                        .await;
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
                 let acis_envelope = build_acis_envelope_with_security_context(
@@ -3680,20 +3755,21 @@ impl McpGrpcService {
                     Some(&ctx),
                     security_context.as_ref(),
                 );
+                let mut audit_metadata = json!({
+                    "source": "grpc_proxy",
+                    "session": session_id,
+                    "transport": "grpc",
+                    "task_method": task_method,
+                });
+                if reason == INVALID_PRESENTED_APPROVAL_REASON && presented_approval_id.is_some() {
+                    audit_metadata["event"] = json!("presented_approval_replay_denied");
+                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                    audit_metadata["task_id"] = json!(task_id);
+                }
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry_with_acis(
-                        &action,
-                        &verdict,
-                        json!({
-                            "source": "grpc_proxy",
-                            "session": session_id,
-                            "transport": "grpc",
-                            "task_method": task_method,
-                        }),
-                        acis_envelope,
-                    )
+                    .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC task deny: {}", e);
@@ -4186,6 +4262,44 @@ impl McpGrpcService {
                 .await
                 .is_err()
                 {
+                    let deny_verdict = Verdict::Deny {
+                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                    };
+                    let invalid_approval_security_context =
+                        invalid_presented_approval_security_context(&action);
+                    let combined_security_context = merge_grpc_security_context(
+                        security_context.as_ref(),
+                        Some(&invalid_approval_security_context),
+                    );
+                    let effective_security_context = combined_security_context
+                        .as_ref()
+                        .unwrap_or(&invalid_approval_security_context);
+                    let envelope = build_secondary_acis_envelope_with_security_context(
+                        &action,
+                        &deny_verdict,
+                        DecisionOrigin::ApprovalGate,
+                        "grpc",
+                        Some(session_id),
+                        Some(effective_security_context),
+                    );
+                    let _ = self
+                        .state
+                        .audit
+                        .log_entry_with_acis(
+                            &action,
+                            &deny_verdict,
+                            json!({
+                                "source": "grpc_proxy",
+                                "session": session_id,
+                                "transport": "grpc",
+                                "event": "presented_approval_replay_denied",
+                                "approval_id": matched_approval_id,
+                                "extension_id": extension_id,
+                                "method": method,
+                            }),
+                            envelope,
+                        )
+                        .await;
                     return make_proto_denial_response(proto_req, "Denied by policy");
                 }
 
@@ -4239,20 +4353,21 @@ impl McpGrpcService {
                     Some(&ctx),
                     security_context.as_ref(),
                 );
+                let mut audit_metadata = json!({
+                    "source": "grpc_proxy",
+                    "session": session_id,
+                    "transport": "grpc",
+                    "extension_id": extension_id,
+                });
+                if reason == INVALID_PRESENTED_APPROVAL_REASON && presented_approval_id.is_some() {
+                    audit_metadata["event"] = json!("presented_approval_replay_denied");
+                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                    audit_metadata["method"] = json!(method);
+                }
                 if let Err(e) = self
                     .state
                     .audit
-                    .log_entry_with_acis(
-                        &action,
-                        &verdict,
-                        json!({
-                            "source": "grpc_proxy",
-                            "session": session_id,
-                            "transport": "grpc",
-                            "extension_id": extension_id,
-                        }),
-                        acis_envelope,
-                    )
+                    .log_entry_with_acis(&action, &verdict, audit_metadata, acis_envelope)
                     .await
                 {
                     tracing::warn!("Failed to audit gRPC extension deny: {}", e);

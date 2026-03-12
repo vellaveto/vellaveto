@@ -2587,6 +2587,46 @@ async fn relay_client_to_upstream(
                                 .await
                                 .is_err()
                                 {
+                                    let deny_verdict = Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    };
+                                    let invalid_approval_security_context =
+                                        super::helpers::invalid_presented_approval_security_context(
+                                            &action,
+                                        );
+                                    let combined_security_context =
+                                        super::helpers::merge_transport_security_context(
+                                            security_context.as_ref(),
+                                            Some(&invalid_approval_security_context),
+                                        );
+                                    let effective_security_context = combined_security_context
+                                        .as_ref()
+                                        .unwrap_or(&invalid_approval_security_context);
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &deny_verdict,
+                                            DecisionOrigin::ApprovalGate,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(effective_security_context),
+                                        );
+                                    let _ = state
+                                        .audit
+                                        .log_entry_with_acis(
+                                            &action,
+                                            &deny_verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "session": session_id,
+                                                "transport": "websocket",
+                                                "event": "presented_approval_replay_denied",
+                                                "approval_id": matched_approval_id,
+                                                "uri": uri,
+                                            }),
+                                            envelope,
+                                        )
+                                        .await;
                                     let error_resp = make_ws_error_response(
                                         Some(id),
                                         -32001,
@@ -2667,6 +2707,19 @@ async fn relay_client_to_upstream(
                             // SECURITY (FIND-R116-009): Separate handling for Deny vs RequireApproval
                             // with per-verdict audit logging. Parity with gRPC (service.rs:1051-1076).
                             Verdict::Deny { ref reason } => {
+                                let mut audit_metadata = json!({
+                                    "source": "ws_proxy",
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "resource_uri": uri,
+                                });
+                                if reason == INVALID_PRESENTED_APPROVAL_REASON
+                                    && presented_approval_id.is_some()
+                                {
+                                    audit_metadata["event"] =
+                                        json!("presented_approval_replay_denied");
+                                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                                }
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -2674,12 +2727,7 @@ async fn relay_client_to_upstream(
                                         &Verdict::Deny {
                                             reason: reason.clone(),
                                         },
-                                        json!({
-                                            "source": "ws_proxy",
-                                            "session": session_id,
-                                            "transport": "websocket",
-                                            "resource_uri": uri,
-                                        }),
+                                        audit_metadata,
                                         acis_envelope,
                                     )
                                     .await
@@ -3378,6 +3426,47 @@ async fn relay_client_to_upstream(
                                 .await
                                 .is_err()
                                 {
+                                    let deny_verdict = Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    };
+                                    let invalid_approval_security_context =
+                                        super::helpers::invalid_presented_approval_security_context(
+                                            &action,
+                                        );
+                                    let combined_security_context =
+                                        super::helpers::merge_transport_security_context(
+                                            security_context.as_ref(),
+                                            Some(&invalid_approval_security_context),
+                                        );
+                                    let effective_security_context = combined_security_context
+                                        .as_ref()
+                                        .unwrap_or(&invalid_approval_security_context);
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &deny_verdict,
+                                            DecisionOrigin::ApprovalGate,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(effective_security_context),
+                                        );
+                                    let _ = state
+                                        .audit
+                                        .log_entry_with_acis(
+                                            &action,
+                                            &deny_verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "session": session_id,
+                                                "transport": "websocket",
+                                                "event": "presented_approval_replay_denied",
+                                                "approval_id": matched_approval_id,
+                                                "task_method": task_method,
+                                                "task_id": task_id,
+                                            }),
+                                            envelope,
+                                        )
+                                        .await;
                                     let error_resp = make_ws_error_response(
                                         Some(id),
                                         -32001,
@@ -3440,6 +3529,20 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
+                                let mut audit_metadata = json!({
+                                    "source": "ws_proxy",
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "task_method": task_method,
+                                });
+                                if reason == INVALID_PRESENTED_APPROVAL_REASON
+                                    && presented_approval_id.is_some()
+                                {
+                                    audit_metadata["event"] =
+                                        json!("presented_approval_replay_denied");
+                                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                                    audit_metadata["task_id"] = json!(task_id);
+                                }
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -3447,12 +3550,7 @@ async fn relay_client_to_upstream(
                                         &Verdict::Deny {
                                             reason: reason.clone(),
                                         },
-                                        json!({
-                                            "source": "ws_proxy",
-                                            "session": session_id,
-                                            "transport": "websocket",
-                                            "task_method": task_method,
-                                        }),
+                                        audit_metadata,
                                         acis_envelope,
                                     )
                                     .await
@@ -3937,6 +4035,47 @@ async fn relay_client_to_upstream(
                                 .await
                                 .is_err()
                                 {
+                                    let deny_verdict = Verdict::Deny {
+                                        reason: INVALID_PRESENTED_APPROVAL_REASON.to_string(),
+                                    };
+                                    let invalid_approval_security_context =
+                                        super::helpers::invalid_presented_approval_security_context(
+                                            &action,
+                                        );
+                                    let combined_security_context =
+                                        super::helpers::merge_transport_security_context(
+                                            security_context.as_ref(),
+                                            Some(&invalid_approval_security_context),
+                                        );
+                                    let effective_security_context = combined_security_context
+                                        .as_ref()
+                                        .unwrap_or(&invalid_approval_security_context);
+                                    let envelope =
+                                        build_secondary_acis_envelope_with_security_context(
+                                            &action,
+                                            &deny_verdict,
+                                            DecisionOrigin::ApprovalGate,
+                                            "websocket",
+                                            Some(&session_id),
+                                            Some(effective_security_context),
+                                        );
+                                    let _ = state
+                                        .audit
+                                        .log_entry_with_acis(
+                                            &action,
+                                            &deny_verdict,
+                                            json!({
+                                                "source": "ws_proxy",
+                                                "session": session_id,
+                                                "transport": "websocket",
+                                                "event": "presented_approval_replay_denied",
+                                                "approval_id": matched_approval_id,
+                                                "extension_id": extension_id,
+                                                "method": method,
+                                            }),
+                                            envelope,
+                                        )
+                                        .await;
                                     let error_resp = make_ws_error_response(
                                         Some(id),
                                         -32001,
@@ -4011,6 +4150,20 @@ async fn relay_client_to_upstream(
                                 }
                             }
                             Verdict::Deny { ref reason } => {
+                                let mut audit_metadata = json!({
+                                    "source": "ws_proxy",
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "extension_id": extension_id,
+                                });
+                                if reason == INVALID_PRESENTED_APPROVAL_REASON
+                                    && presented_approval_id.is_some()
+                                {
+                                    audit_metadata["event"] =
+                                        json!("presented_approval_replay_denied");
+                                    audit_metadata["approval_id"] = json!(presented_approval_id);
+                                    audit_metadata["method"] = json!(method);
+                                }
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
@@ -4018,12 +4171,7 @@ async fn relay_client_to_upstream(
                                         &Verdict::Deny {
                                             reason: reason.clone(),
                                         },
-                                        json!({
-                                            "source": "ws_proxy",
-                                            "session": session_id,
-                                            "transport": "websocket",
-                                            "extension_id": extension_id,
-                                        }),
+                                        audit_metadata,
                                         acis_envelope,
                                     )
                                     .await

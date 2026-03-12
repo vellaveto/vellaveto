@@ -6876,6 +6876,18 @@ async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
     };
     let tmp = TempDir::new().unwrap();
     let mut state = build_test_state(&upstream_url, &tmp);
+    let policies = vec![Policy {
+        id: "resources:read".to_string(),
+        name: "Require resource approval".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({"require_approval": true}),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = Arc::new(PolicyEngine::with_policies(false, &policies).expect("compile"));
+    state.policies = Arc::new(policies);
     let approval_store = Arc::new(ApprovalStore::new(
         tmp.path().join("approvals.jsonl"),
         Duration::from_secs(300),
@@ -7003,7 +7015,7 @@ async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
     let _ = client_ws.close(None).await;
 }
 
-async fn seed_approved_tool_approval(
+async fn seed_approved_presented_approval(
     store: &ApprovalStore,
     requested_by: &str,
     session_scope_binding: &str,
@@ -7065,7 +7077,7 @@ async fn http_presented_tool_approval_is_consumed_once_and_replay_denied() {
     }
 
     let action = extractor::extract_action("read_file", &json!({"path": "/tmp/test"}));
-    let approval_id = seed_approved_tool_approval(
+    let approval_id = seed_approved_presented_approval(
         &approval_store,
         "http-agent",
         &session_scope_binding,
@@ -7191,9 +7203,13 @@ async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
     }
 
     let action = extractor::extract_action("read_file", &json!({"path": "/tmp/test"}));
-    let approval_id =
-        seed_approved_tool_approval(&approval_store, "ws-agent", &session_scope_binding, &action)
-            .await;
+    let approval_id = seed_approved_presented_approval(
+        &approval_store,
+        "ws-agent",
+        &session_scope_binding,
+        &action,
+    )
+    .await;
 
     let signing_key = SigningKey::from_bytes(&[63u8; 32]);
     state.trusted_request_signers =
@@ -7261,6 +7277,145 @@ async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
     )
     .await;
     assert_audit_entry_has_clamped_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+
+    let _ = client_ws.close(None).await;
+}
+
+#[tokio::test]
+async fn ws_presented_extension_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream_ws().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    let policies = vec![Policy {
+        id: "x-vellaveto-audit:*".to_string(),
+        name: "Require audit extension approval".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({"require_approval": true}),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = Arc::new(PolicyEngine::with_policies(false, &policies).expect("compile"));
+    state.policies = Arc::new(policies);
+    let approval_store = Arc::new(ApprovalStore::new(
+        tmp.path().join("approvals.jsonl"),
+        Duration::from_secs(300),
+    ));
+    state.approval_store = Some(approval_store.clone());
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("ws-extension-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_extension_action(
+        "x-vellaveto-audit",
+        "x-vellaveto-audit/stats",
+        &json!({"scope": "daily"}),
+    );
+    let signing_key = SigningKey::from_bytes(&[73u8; 32]);
+    state.trusted_request_signers =
+        Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
+        return;
+    };
+    let request = WsRequest::builder()
+        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
+        .header(
+            "x-request-signature",
+            make_signed_detached_request_signature_header_with_scope(
+                &action,
+                "detached-kid",
+                &signing_key,
+                Some(session_scope_binding.as_str()),
+            ),
+        )
+        .body(())
+        .unwrap();
+    let (mut client_ws, _) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio_tungstenite::connect_async(request),
+    )
+    .await
+    .expect("websocket connect timeout")
+    .expect("websocket connect");
+
+    let message = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "x-vellaveto-audit/stats",
+        "params": {"scope": "daily"}
+    });
+    client_ws
+        .send(WsMessage::Text(message.to_string().into()))
+        .await
+        .expect("first websocket send");
+    let first = recv_ws_json(&mut client_ws).await;
+    assert_eq!(first["error"]["message"], "Approval required");
+
+    let pending = approval_store.list_pending().await;
+    assert_eq!(pending.len(), 1);
+    let approval_id = pending[0].id.clone();
+    approval_store
+        .approve(&approval_id, "reviewer")
+        .await
+        .expect("approve approval");
+
+    let approved_message = json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "_meta": {"approval_id": approval_id},
+        "method": "x-vellaveto-audit/stats",
+        "params": {"scope": "daily"}
+    });
+
+    client_ws
+        .send(WsMessage::Text(approved_message.to_string().into()))
+        .await
+        .expect("second websocket send");
+    let second = recv_ws_json(&mut client_ws).await;
+    assert!(second.get("error").is_none(), "{second}");
+    let consumed = approval_store
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(consumed.status, ApprovalStatus::Consumed);
+
+    client_ws
+        .send(WsMessage::Text(approved_message.to_string().into()))
+        .await
+        .expect("third websocket send");
+    let third = recv_ws_json(&mut client_ws).await;
+    assert_eq!(third["error"]["message"], "Denied by policy");
+
+    let audit_entry = read_presented_approval_audit_entry(
+        &tmp.path().join("audit.log"),
+        "ws_proxy",
+        &approval_id,
+    )
+    .await;
+    assert_replay_audit_entry_has_transport_provenance(
         &audit_entry,
         &session_id,
         &session_scope_binding,

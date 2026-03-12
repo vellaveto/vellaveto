@@ -3105,6 +3105,74 @@ async fn test_http_untrusted_tool_approval_persists_clamped_transport_provenance
     );
 }
 
+#[tokio::test]
+async fn test_presented_resource_approval_match_rejects_consumed_approval() {
+    let mut state = make_test_proxy_state(false);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(Arc::new(approval_store));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("http-resource-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_resource_action("file:///test");
+    let action_fingerprint = vellaveto_engine::acis::fingerprint_action(&action);
+    let approval_store = state.approval_store.as_ref().expect("approval store");
+    let approval_id = approval_store
+        .create_with_context(
+            action.clone(),
+            "Approval required".to_string(),
+            Some("http-resource-agent".to_string()),
+            Some(session_scope_binding.clone()),
+            Some(action_fingerprint.clone()),
+            None,
+        )
+        .await
+        .expect("create approval");
+    approval_store
+        .approve(&approval_id, "reviewer")
+        .await
+        .expect("approve approval");
+    assert!(
+        approval_store
+            .consume_approved(
+                &approval_id,
+                Some(session_scope_binding.as_str()),
+                Some(action_fingerprint.as_str()),
+            )
+            .await
+            .expect("consume approval"),
+        "approval should be consumed once before replay check"
+    );
+    let result = super::helpers::presented_approval_matches_action(
+        &state,
+        &session_id,
+        Some(&approval_id),
+        &action,
+    )
+    .await;
+    assert_eq!(result, Err(()));
+}
+
 #[test]
 fn test_tool_discovery_integrity_security_context_marks_enforced_tool_output() {
     let security_context = super::helpers::tool_discovery_integrity_security_context(
