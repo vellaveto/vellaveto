@@ -2720,6 +2720,243 @@ async fn test_grpc_unary_presented_task_approval_is_consumed_once_and_replay_den
     assert_eq!(audit_entry["metadata"]["task_id"], "task-abc");
 }
 
+#[tokio::test]
+async fn test_grpc_unary_presented_extension_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream().await else {
+        return;
+    };
+
+    let mut state = make_test_state();
+    state.upstream_url = upstream_url;
+    let policies = vec![vellaveto_types::Policy {
+        id: "x-vellaveto-audit:*".to_string(),
+        name: "Require extension approval".to_string(),
+        policy_type: vellaveto_types::PolicyType::Conditional {
+            conditions: json!({"require_approval": true}),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = std::sync::Arc::new(
+        vellaveto_engine::PolicyEngine::with_policies(false, &policies)
+            .expect("compile extension replay policies"),
+    );
+    state.policies = std::sync::Arc::new(policies);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let audit_path = dir.path().join("audit.log");
+    state.audit = std::sync::Arc::new(vellaveto_audit::AuditLogger::new(audit_path.clone()));
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(vellaveto_types::AgentIdentity {
+            subject: Some("grpc-extension-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = vellaveto_mcp::extractor::extract_extension_action(
+        "x-vellaveto-audit",
+        "x-vellaveto-audit/stats",
+        &json!({"scope": "daily"}),
+    );
+
+    let signing_key = SigningKey::from_bytes(&[74u8; 32]);
+    state.trusted_request_signers =
+        std::sync::Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let header = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let second_header = make_signed_detached_request_signature_header_with_binding(
+        &action,
+        "detached-kid",
+        &signing_key,
+        DetachedSignatureBinding {
+            session_scope_binding: Some(session_scope_binding.as_str()),
+            nonce: Some("detached-nonce-extension-2".to_string()),
+            created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            ..DetachedSignatureBinding::default()
+        },
+    );
+    let third_header = make_signed_detached_request_signature_header_with_binding(
+        &action,
+        "detached-kid",
+        &signing_key,
+        DetachedSignatureBinding {
+            session_scope_binding: Some(session_scope_binding.as_str()),
+            nonce: Some("detached-nonce-extension-3".to_string()),
+            created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            ..DetachedSignatureBinding::default()
+        },
+    );
+
+    let state = std::sync::Arc::new(state);
+    let svc = service::McpGrpcService::new(state.clone(), 100);
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id_oneof: Some(json_rpc_request::IdOneof::IdInt(9)),
+        method: "x-vellaveto-audit/stats".to_string(),
+        params: Some(prost_types::Struct {
+            fields: vec![(
+                "scope".to_string(),
+                prost_types::Value {
+                    kind: Some(Kind::StringValue("daily".to_string())),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        }),
+    };
+
+    let mut first_request = TonicRequest::new(req.clone());
+    first_request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    first_request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        header.parse().expect("request signature metadata"),
+    );
+    let first = <service::McpGrpcService as proto::mcp_service_server::McpService>::call(
+        &svc,
+        first_request,
+    )
+    .await
+    .expect("first grpc response")
+    .into_inner();
+    let first_error = first.error.expect("approval required error");
+    assert_eq!(first_error.message, "Approval required");
+
+    let pending = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .list_pending()
+        .await;
+    assert_eq!(pending.len(), 1);
+    let approval_id = pending[0].id.clone();
+    state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .approve(&approval_id, "reviewer")
+        .await
+        .expect("approve presented approval");
+
+    let req_with_approval = JsonRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id_oneof: Some(json_rpc_request::IdOneof::IdInt(9)),
+        method: "x-vellaveto-audit/stats".to_string(),
+        params: Some(prost_types::Struct {
+            fields: vec![
+                (
+                    "scope".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StringValue("daily".to_string())),
+                    },
+                ),
+                (
+                    "_meta".to_string(),
+                    prost_types::Value {
+                        kind: Some(Kind::StructValue(prost_types::Struct {
+                            fields: vec![(
+                                "approval_id".to_string(),
+                                prost_types::Value {
+                                    kind: Some(Kind::StringValue(approval_id.clone())),
+                                },
+                            )]
+                            .into_iter()
+                            .collect(),
+                        })),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        }),
+    };
+
+    let mut second_request = TonicRequest::new(req_with_approval.clone());
+    second_request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    second_request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        second_header.parse().expect("request signature metadata"),
+    );
+    let second = <service::McpGrpcService as proto::mcp_service_server::McpService>::call(
+        &svc,
+        second_request,
+    )
+    .await
+    .expect("second grpc response")
+    .into_inner();
+    assert!(second.error.is_none(), "{second:?}");
+    assert!(second.result.is_some(), "{second:?}");
+
+    let consumed = state
+        .approval_store
+        .as_ref()
+        .expect("approval store")
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(
+        consumed.status,
+        vellaveto_approval::ApprovalStatus::Consumed
+    );
+
+    let mut third_request = TonicRequest::new(req_with_approval);
+    third_request.metadata_mut().insert(
+        interceptors::METADATA_MCP_SESSION_ID,
+        session_id.parse().expect("metadata session id"),
+    );
+    third_request.metadata_mut().insert(
+        interceptors::METADATA_REQUEST_SIGNATURE,
+        third_header.parse().expect("request signature metadata"),
+    );
+    let third = <service::McpGrpcService as proto::mcp_service_server::McpService>::call(
+        &svc,
+        third_request,
+    )
+    .await
+    .expect("third grpc response")
+    .into_inner();
+    let error = third.error.expect("replayed approval denial");
+    assert_eq!(error.message, "Denied by policy");
+
+    let audit_entry =
+        read_presented_approval_audit_entry(&audit_path, "grpc_proxy", &approval_id).await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
+    assert_replay_audit_entry_has_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+    assert_eq!(audit_entry["metadata"]["extension_id"], "x-vellaveto-audit");
+    assert_eq!(audit_entry["metadata"]["method"], "x-vellaveto-audit/stats");
+}
+
 #[test]
 fn test_build_grpc_runtime_security_context_verifies_detached_signature_with_trusted_signer() {
     let msg = json!({
