@@ -14,6 +14,9 @@ use axum::http::HeaderMap;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
+use vellaveto_approval::{
+    fingerprint_review_client_key_id, fingerprint_review_session_scope_binding,
+};
 use vellaveto_mcp::extractor::{self, MessageType};
 use vellaveto_types::{ClientProvenance, RequestSignature};
 
@@ -533,13 +536,17 @@ fn test_ws_approval_context_uses_clamped_transport_scope() {
         "Approval required",
     )
     .expect("approval containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
 
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
-    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
     assert_eq!(
         context.replay_status,
         Some(vellaveto_types::ReplayStatus::NotChecked)
@@ -749,13 +756,17 @@ fn test_ws_approval_context_from_envelope_uses_clamped_transport_provenance() {
         "Approval required",
     )
     .expect("approval containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
 
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
-    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
     assert_eq!(
         context.replay_status,
         Some(vellaveto_types::ReplayStatus::NotChecked)
@@ -884,21 +895,29 @@ async fn test_create_pending_ws_approval_preserves_clamped_transport_provenance(
         .containment_context
         .as_ref()
         .expect("containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
+    let expected_scope = fingerprint_review_session_scope_binding(session_scope_binding.as_str());
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
-    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
     assert_eq!(
         context.replay_status,
         Some(vellaveto_types::ReplayStatus::NotChecked)
     );
     assert_eq!(
         context.session_scope_binding.as_deref(),
-        Some(session_scope_binding.as_str())
+        Some(expected_scope.as_str())
     );
-    assert!(context.canonical_request_hash.is_some());
+    assert!(context
+        .canonical_request_hash
+        .as_deref()
+        .is_some_and(|value| value.starts_with("reqfp:v1:")));
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Missing)

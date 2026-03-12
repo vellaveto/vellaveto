@@ -37,7 +37,10 @@ use std::time::{Duration, Instant};
 use tokio::io::BufReader;
 use tokio::process::{ChildStdin, ChildStdout};
 use unicode_normalization::UnicodeNormalization;
-use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
+use vellaveto_approval::{
+    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
+    fingerprint_review_session_scope_binding, ApprovalContainmentContext, ApprovalStatus,
+};
 use vellaveto_config::ToolManifest;
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_engine::deputy::DeputyValidationBinding;
@@ -287,7 +290,8 @@ fn approval_containment_context_from_envelope(
         client_key_id: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.client_key_id.clone()),
+            .and_then(|provenance| provenance.client_key_id.as_deref())
+            .map(fingerprint_review_client_key_id),
         workload_binding_status: envelope
             .client_provenance
             .as_ref()
@@ -303,11 +307,13 @@ fn approval_containment_context_from_envelope(
         session_scope_binding: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.clone()),
+            .and_then(|provenance| provenance.session_scope_binding.as_deref())
+            .map(fingerprint_review_session_scope_binding),
         canonical_request_hash: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.clone()),
+            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
+            .map(fingerprint_review_canonical_request_hash),
         execution_is_ephemeral: envelope
             .client_provenance
             .as_ref()

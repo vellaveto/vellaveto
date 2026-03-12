@@ -324,7 +324,12 @@ impl ApprovalContainmentContext {
             }
         }
         if let Some(ref expected) = self.client_key_id {
-            if provenance.client_key_id.as_deref() != Some(expected.as_str()) {
+            if !review_value_matches(
+                expected,
+                provenance.client_key_id.as_deref(),
+                REVIEW_CLIENT_KEY_PREFIX,
+                fingerprint_review_client_key_id,
+            ) {
                 return false;
             }
         }
@@ -339,7 +344,12 @@ impl ApprovalContainmentContext {
             }
         }
         if let Some(ref expected) = self.session_scope_binding {
-            if provenance.session_scope_binding.as_deref() != Some(expected.as_str()) {
+            if !review_value_matches(
+                expected,
+                provenance.session_scope_binding.as_deref(),
+                REVIEW_SCOPE_BINDING_PREFIX,
+                fingerprint_review_session_scope_binding,
+            ) {
                 return false;
             }
         }
@@ -384,6 +394,55 @@ pub const MIN_FINGERPRINT_LEN: usize = 32;
 pub const MAX_FINGERPRINT_LEN: usize = 128;
 
 const SESSION_BINDING_PREFIX: &str = "sidbind:v1:";
+const REVIEW_CLIENT_KEY_PREFIX: &str = "kidfp:v1:";
+const REVIEW_SCOPE_BINDING_PREFIX: &str = "scopefp:v1:";
+const REVIEW_CANONICAL_PREFIX: &str = "reqfp:v1:";
+
+fn fingerprint_review_value(prefix: &str, domain: &str, value: &str) -> String {
+    if value.starts_with(prefix) {
+        return value.to_string();
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"vellaveto:approval:review:v1:");
+    hasher.update(domain.as_bytes());
+    hasher.update(b":");
+    hasher.update(value.as_bytes());
+    let digest = format!("{:x}", hasher.finalize());
+    format!("{prefix}{}", &digest[..16])
+}
+
+#[must_use]
+pub fn fingerprint_review_client_key_id(value: &str) -> String {
+    fingerprint_review_value(REVIEW_CLIENT_KEY_PREFIX, "client_key_id", value)
+}
+
+#[must_use]
+pub fn fingerprint_review_session_scope_binding(value: &str) -> String {
+    fingerprint_review_value(REVIEW_SCOPE_BINDING_PREFIX, "session_scope_binding", value)
+}
+
+#[must_use]
+pub fn fingerprint_review_canonical_request_hash(value: &str) -> String {
+    fingerprint_review_value(REVIEW_CANONICAL_PREFIX, "canonical_request_hash", value)
+}
+
+fn review_value_matches(
+    expected: &str,
+    current: Option<&str>,
+    prefix: &str,
+    fingerprint: impl Fn(&str) -> String,
+) -> bool {
+    let Some(current) = current else {
+        return false;
+    };
+
+    if expected.starts_with(prefix) {
+        fingerprint(current) == expected
+    } else {
+        current == expected
+    }
+}
 
 /// Derive an opaque, deterministic session binding for persisted approval scope.
 ///
@@ -1680,12 +1739,16 @@ mod tests {
                     containment_mode: Some(ContainmentMode::RequireApproval),
                     semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
                     signature_status: Some(SignatureVerificationStatus::Verified),
-                    client_key_id: Some("key-alpha".to_string()),
+                    client_key_id: Some(fingerprint_review_client_key_id("key-alpha")),
                     workload_binding_status: Some(WorkloadBindingStatus::Bound),
                     replay_status: Some(ReplayStatus::Fresh),
                     session_key_scope: Some(SessionKeyScope::EphemeralSession),
-                    session_scope_binding: Some("sidbind:v1:approval-review".to_string()),
-                    canonical_request_hash: Some("a".repeat(64)),
+                    session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                        "sidbind:v1:approval-review",
+                    )),
+                    canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                        &"a".repeat(64),
+                    )),
                     execution_is_ephemeral: true,
                     counterfactual_review_required: true,
                 }),
@@ -1697,6 +1760,10 @@ mod tests {
         let ctx = approval
             .containment_context
             .expect("containment context should persist");
+        let expected_client_key = fingerprint_review_client_key_id("key-alpha");
+        let expected_scope_binding =
+            fingerprint_review_session_scope_binding("sidbind:v1:approval-review");
+        let expected_request_hash = fingerprint_review_canonical_request_hash(&"a".repeat(64));
         assert_eq!(ctx.effective_trust_tier, Some(TrustTier::Quarantined));
         assert_eq!(ctx.sink_class, Some(SinkClass::CodeExecution));
         assert_eq!(ctx.containment_mode, Some(ContainmentMode::RequireApproval));
@@ -1708,7 +1775,10 @@ mod tests {
             ctx.signature_status,
             Some(SignatureVerificationStatus::Verified)
         );
-        assert_eq!(ctx.client_key_id.as_deref(), Some("key-alpha"));
+        assert_eq!(
+            ctx.client_key_id.as_deref(),
+            Some(expected_client_key.as_str())
+        );
         assert_eq!(
             ctx.workload_binding_status,
             Some(WorkloadBindingStatus::Bound)
@@ -1720,11 +1790,11 @@ mod tests {
         );
         assert_eq!(
             ctx.session_scope_binding.as_deref(),
-            Some("sidbind:v1:approval-review")
+            Some(expected_scope_binding.as_str())
         );
         assert_eq!(
             ctx.canonical_request_hash.as_deref(),
-            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            Some(expected_request_hash.as_str())
         );
         assert!(ctx.execution_is_ephemeral);
         assert!(ctx.counterfactual_review_required);
@@ -1748,12 +1818,16 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 93 }),
             signature_status: Some(SignatureVerificationStatus::Verified),
-            client_key_id: Some("detached-kid".to_string()),
+            client_key_id: Some(fingerprint_review_client_key_id("detached-kid")),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
             replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::EphemeralExecution),
-            session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
-            canonical_request_hash: Some("b".repeat(64)),
+            session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                "sidbind:v1:approval-runtime",
+            )),
+            canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                &"b".repeat(64),
+            )),
             execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
@@ -1761,6 +1835,10 @@ mod tests {
         let runtime = context
             .to_runtime_security_context()
             .expect("meaningful context should convert");
+        let expected_client_key = fingerprint_review_client_key_id("detached-kid");
+        let expected_scope_binding =
+            fingerprint_review_session_scope_binding("sidbind:v1:approval-runtime");
+        let expected_request_hash = fingerprint_review_canonical_request_hash(&"b".repeat(64));
 
         assert_eq!(
             runtime.semantic_taint,
@@ -1776,7 +1854,10 @@ mod tests {
             provenance.signature_status,
             SignatureVerificationStatus::Verified
         );
-        assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
+        assert_eq!(
+            provenance.client_key_id.as_deref(),
+            Some(expected_client_key.as_str())
+        );
         assert_eq!(
             provenance.workload_binding_status,
             WorkloadBindingStatus::Bound
@@ -1788,11 +1869,11 @@ mod tests {
         );
         assert_eq!(
             provenance.session_scope_binding.as_deref(),
-            Some("sidbind:v1:approval-runtime")
+            Some(expected_scope_binding.as_str())
         );
         assert_eq!(
             provenance.canonical_request_hash.as_deref(),
-            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            Some(expected_request_hash.as_str())
         );
         assert!(provenance.execution_is_ephemeral);
         assert_eq!(
@@ -2359,22 +2440,30 @@ mod tests {
 
         let first = ApprovalContainmentContext {
             signature_status: Some(SignatureVerificationStatus::Verified),
-            client_key_id: Some("key-a".to_string()),
+            client_key_id: Some(fingerprint_review_client_key_id("key-a")),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
             replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::PersistedClient),
-            session_scope_binding: Some("sidbind:v1:first".to_string()),
-            canonical_request_hash: Some("1".repeat(64)),
+            session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                "sidbind:v1:first",
+            )),
+            canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                &"1".repeat(64),
+            )),
             ..ApprovalContainmentContext::default()
         };
         let second = ApprovalContainmentContext {
             signature_status: Some(SignatureVerificationStatus::Verified),
-            client_key_id: Some("key-b".to_string()),
+            client_key_id: Some(fingerprint_review_client_key_id("key-b")),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
             replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::PersistedClient),
-            session_scope_binding: Some("sidbind:v1:second".to_string()),
-            canonical_request_hash: Some("2".repeat(64)),
+            session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                "sidbind:v1:second",
+            )),
+            canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                &"2".repeat(64),
+            )),
             ..ApprovalContainmentContext::default()
         };
 

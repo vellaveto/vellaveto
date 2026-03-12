@@ -18,7 +18,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
-use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus};
+use vellaveto_approval::{
+    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
+    fingerprint_review_session_scope_binding, ApprovalContainmentContext, ApprovalStatus,
+};
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::{
     canonical_request_hash, canonical_request_preimage, CanonicalRequestInput,
@@ -37,7 +40,6 @@ use vellaveto_types::{
 
 use super::auth::OAuthValidationEvidence;
 use super::ProxyState;
-use crate::oauth::OAuthClaims;
 use crate::proxy::X_REQUEST_SIGNATURE;
 use crate::session::SessionStore;
 
@@ -239,9 +241,9 @@ struct DpopPayload {
 
 fn decode_dpop_request_signature(
     headers: &HeaderMap,
-    oauth_claims: Option<&OAuthClaims>,
+    client_key_id: Option<&str>,
 ) -> Option<RequestSignature> {
-    oauth_claims?;
+    client_key_id?;
 
     let proof_jwt = headers
         .get("dpop")
@@ -258,14 +260,18 @@ fn decode_dpop_request_signature(
         .map(|timestamp| timestamp.to_rfc3339());
 
     Some(RequestSignature {
-        key_id: oauth_claims
-            .and_then(|claims| claims.cnf.as_ref())
-            .and_then(|cnf| cnf.jkt.clone()),
+        key_id: client_key_id.map(str::to_string),
         algorithm: Some(format!("{:?}", header.alg)),
         nonce: (!payload.jti.trim().is_empty()).then_some(payload.jti),
         created_at,
         signature: None,
     })
+}
+
+fn oauth_client_key_id(oauth_evidence: Option<&OAuthValidationEvidence>) -> Option<String> {
+    oauth_evidence
+        .and_then(|evidence| evidence.claims.cnf.as_ref())
+        .and_then(|cnf| cnf.jkt.clone())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -526,16 +532,12 @@ fn build_client_provenance_from_transport(
         return None;
     }
 
-    let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
-    let client_key_id = oauth_claims
-        .and_then(|claims| claims.cnf.as_ref())
-        .and_then(|cnf| cnf.jkt.clone())
-        .or_else(|| {
-            detached_signature
-                .request_signature
-                .as_ref()
-                .and_then(|signature| signature.key_id.clone())
-        });
+    let client_key_id = oauth_client_key_id(oauth_evidence).or_else(|| {
+        detached_signature
+            .request_signature
+            .as_ref()
+            .and_then(|signature| signature.key_id.clone())
+    });
     let request_signature = if oauth_evidence.is_some_and(|evidence| evidence.dpop_proof_verified) {
         merge_request_signature(
             dpop_request_signature.or_else(|| {
@@ -592,12 +594,11 @@ fn build_client_provenance(
     session_id: Option<&str>,
 ) -> Option<ClientProvenance> {
     let detached_signature = decode_detached_request_signature(headers);
-    let oauth_claims = oauth_evidence.map(|evidence| &evidence.claims);
     build_client_provenance_from_transport(
         oauth_evidence,
         eval_ctx,
         transport_session_scope_binding(sessions, session_id).as_deref(),
-        decode_dpop_request_signature(headers, oauth_claims),
+        decode_dpop_request_signature(headers, oauth_client_key_id(oauth_evidence).as_deref()),
         detached_signature,
     )
 }
@@ -2197,7 +2198,8 @@ pub(super) fn approval_containment_context_from_security_context(
         client_key_id: security_context
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.client_key_id.clone()),
+            .and_then(|provenance| provenance.client_key_id.as_deref())
+            .map(fingerprint_review_client_key_id),
         workload_binding_status: security_context
             .client_provenance
             .as_ref()
@@ -2213,11 +2215,13 @@ pub(super) fn approval_containment_context_from_security_context(
         session_scope_binding: security_context
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.clone()),
+            .and_then(|provenance| provenance.session_scope_binding.as_deref())
+            .map(fingerprint_review_session_scope_binding),
         canonical_request_hash: security_context
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.clone()),
+            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
+            .map(fingerprint_review_canonical_request_hash),
         execution_is_ephemeral: security_context
             .client_provenance
             .as_ref()
@@ -2251,7 +2255,8 @@ pub(super) fn approval_containment_context_from_envelope(
         client_key_id: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.client_key_id.clone()),
+            .and_then(|provenance| provenance.client_key_id.as_deref())
+            .map(fingerprint_review_client_key_id),
         workload_binding_status: envelope
             .client_provenance
             .as_ref()
@@ -2267,11 +2272,13 @@ pub(super) fn approval_containment_context_from_envelope(
         session_scope_binding: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.clone()),
+            .and_then(|provenance| provenance.session_scope_binding.as_deref())
+            .map(fingerprint_review_session_scope_binding),
         canonical_request_hash: envelope
             .client_provenance
             .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.clone()),
+            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
+            .map(fingerprint_review_canonical_request_hash),
         execution_is_ephemeral: envelope
             .client_provenance
             .as_ref()

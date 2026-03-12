@@ -18,7 +18,11 @@ use serde_json::json;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
-use vellaveto_approval::{ApprovalContainmentContext, ApprovalStatus, ApprovalStore};
+use vellaveto_approval::{
+    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
+    fingerprint_review_session_scope_binding, ApprovalContainmentContext, ApprovalStatus,
+    ApprovalStore,
+};
 use vellaveto_audit::AuditLogger;
 use vellaveto_engine::{acis::fingerprint_action, PolicyEngine};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
@@ -1671,12 +1675,16 @@ async fn create_pending_approval_with_containment_context(state: &AppState) -> S
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 94 }),
                 signature_status: Some(SignatureVerificationStatus::Verified),
-                client_key_id: Some("detached-kid".to_string()),
+                client_key_id: Some(fingerprint_review_client_key_id("detached-kid")),
                 workload_binding_status: Some(WorkloadBindingStatus::Bound),
                 replay_status: Some(ReplayStatus::Fresh),
                 session_key_scope: Some(SessionKeyScope::EphemeralSession),
-                session_scope_binding: Some("sidbind:v1:review".to_string()),
-                canonical_request_hash: Some("c".repeat(64)),
+                session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                    "sidbind:v1:review",
+                )),
+                canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                    &"c".repeat(64),
+                )),
                 execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
@@ -2125,12 +2133,16 @@ async fn approval_list_pending_includes_containment_context() {
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
                 signature_status: Some(SignatureVerificationStatus::Verified),
-                client_key_id: Some("detached-kid".to_string()),
+                client_key_id: Some(fingerprint_review_client_key_id("detached-kid")),
                 workload_binding_status: Some(WorkloadBindingStatus::Bound),
                 replay_status: Some(ReplayStatus::Fresh),
                 session_key_scope: Some(SessionKeyScope::EphemeralSession),
-                session_scope_binding: Some("sidbind:v1:pending".to_string()),
-                canonical_request_hash: Some("d".repeat(64)),
+                session_scope_binding: Some(fingerprint_review_session_scope_binding(
+                    "sidbind:v1:pending",
+                )),
+                canonical_request_hash: Some(fingerprint_review_canonical_request_hash(
+                    &"d".repeat(64),
+                )),
                 execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
@@ -2154,6 +2166,9 @@ async fn approval_list_pending_includes_containment_context() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let approvals = json["approvals"].as_array().unwrap();
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
+    let expected_scope = fingerprint_review_session_scope_binding("sidbind:v1:pending");
+    let expected_request_hash = fingerprint_review_canonical_request_hash(&"d".repeat(64));
     assert_eq!(approvals.len(), 1);
     assert_eq!(approvals[0]["id"], approval_id);
     assert_eq!(
@@ -2178,7 +2193,7 @@ async fn approval_list_pending_includes_containment_context() {
     );
     assert_eq!(
         approvals[0]["containment_context"]["client_key_id"],
-        "detached-kid"
+        expected_key
     );
     assert_eq!(
         approvals[0]["containment_context"]["workload_binding_status"],
@@ -2194,11 +2209,11 @@ async fn approval_list_pending_includes_containment_context() {
     );
     assert_eq!(
         approvals[0]["containment_context"]["session_scope_binding"],
-        "sidbind:v1:pending"
+        expected_scope
     );
     assert_eq!(
         approvals[0]["containment_context"]["canonical_request_hash"],
-        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        expected_request_hash
     );
     assert_eq!(
         approvals[0]["containment_context"]["execution_is_ephemeral"],
@@ -3663,6 +3678,9 @@ async fn test_approve_audit_entry_preserves_containment_context() {
                 == Some("approval_approved")
         })
         .expect("Should find an audit entry with event=approval_approved");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
+    let expected_scope = fingerprint_review_session_scope_binding("sidbind:v1:review");
+    let expected_request_hash = fingerprint_review_canonical_request_hash(&"c".repeat(64));
 
     let envelope = &approval_entry["acis_envelope"];
     assert_eq!(envelope["effective_trust_tier"], "low");
@@ -3680,10 +3698,7 @@ async fn test_approve_audit_entry_preserves_containment_context() {
         envelope["client_provenance"]["signature_status"],
         "verified"
     );
-    assert_eq!(
-        envelope["client_provenance"]["client_key_id"],
-        "detached-kid"
-    );
+    assert_eq!(envelope["client_provenance"]["client_key_id"], expected_key);
     assert_eq!(
         envelope["client_provenance"]["workload_binding_status"],
         "bound"
@@ -3695,11 +3710,11 @@ async fn test_approve_audit_entry_preserves_containment_context() {
     );
     assert_eq!(
         envelope["client_provenance"]["session_scope_binding"],
-        "sidbind:v1:review"
+        expected_scope
     );
     assert_eq!(
         envelope["client_provenance"]["canonical_request_hash"],
-        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        expected_request_hash
     );
     assert_eq!(
         envelope["client_provenance"]["execution_is_ephemeral"],
@@ -3750,6 +3765,9 @@ async fn test_deny_audit_entry_preserves_containment_context() {
                 == Some("approval_denied")
         })
         .expect("Should find an audit entry with event=approval_denied");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
+    let expected_scope = fingerprint_review_session_scope_binding("sidbind:v1:review");
+    let expected_request_hash = fingerprint_review_canonical_request_hash(&"c".repeat(64));
 
     let envelope = &denial_entry["acis_envelope"];
     assert_eq!(envelope["effective_trust_tier"], "low");
@@ -3762,10 +3780,7 @@ async fn test_deny_audit_entry_preserves_containment_context() {
         envelope["client_provenance"]["signature_status"],
         "verified"
     );
-    assert_eq!(
-        envelope["client_provenance"]["client_key_id"],
-        "detached-kid"
-    );
+    assert_eq!(envelope["client_provenance"]["client_key_id"], expected_key);
     assert_eq!(
         envelope["client_provenance"]["workload_binding_status"],
         "bound"
@@ -3777,11 +3792,11 @@ async fn test_deny_audit_entry_preserves_containment_context() {
     );
     assert_eq!(
         envelope["client_provenance"]["session_scope_binding"],
-        "sidbind:v1:review"
+        expected_scope
     );
     assert_eq!(
         envelope["client_provenance"]["canonical_request_hash"],
-        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        expected_request_hash
     );
     assert_eq!(
         envelope["client_provenance"]["execution_is_ephemeral"],

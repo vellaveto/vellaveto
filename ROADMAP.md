@@ -108,6 +108,11 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `workload_binding_status = bound` when the signer-pinned workload identity is
   satisfied, so `require_workload_binding` can admit detached-signer flows on
   verified signer provenance instead of treating that metadata as audit-only.
+- Approval review and operator-facing containment summaries now preserve the
+  same clamped transport provenance across server, MCP, and HTTP proxy flows,
+  but store review-safe fingerprints for `client_key_id`,
+  `session_scope_binding`, and `canonical_request_hash` instead of raw
+  transport identifiers.
 - Verified detached signer workload mismatches now also downgrade the effective
   trust tier to `untrusted`, so privileged sink trust-floor checks can still
   gate mismatched signer provenance even when the explicit workload-binding

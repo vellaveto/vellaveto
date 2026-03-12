@@ -19,6 +19,9 @@ use ed25519_dalek::{Signer, SigningKey};
 use prost_types::value::Kind;
 use serde_json::{json, Value};
 use tonic::Request as TonicRequest;
+use vellaveto_approval::{
+    fingerprint_review_client_key_id, fingerprint_review_session_scope_binding,
+};
 use vellaveto_canonical::{canonical_request_preimage, CanonicalRequestInput};
 use vellaveto_types::{ClientProvenance, RequestSignature, SignatureVerificationStatus};
 
@@ -1644,12 +1647,17 @@ fn test_build_grpc_approval_context_uses_clamped_transport_scope() {
         "Approval required",
     )
     .expect("approval containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
 
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
 }
 
 #[test]
@@ -1851,12 +1859,17 @@ fn test_build_grpc_approval_context_from_envelope_uses_clamped_transport_provena
         "Approval required",
     )
     .expect("approval containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
 
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Missing)
@@ -1978,11 +1991,25 @@ async fn test_create_pending_grpc_approval_preserves_clamped_transport_provenanc
         .containment_context
         .as_ref()
         .expect("containment context");
+    let expected_key = fingerprint_review_client_key_id("detached-kid");
+    let expected_scope = fingerprint_review_session_scope_binding(session_scope_binding.as_str());
     assert_eq!(
         context.session_key_scope,
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(
+        context.client_key_id.as_deref(),
+        Some(expected_key.as_str())
+    );
+    assert_eq!(
+        context.session_scope_binding.as_deref(),
+        Some(expected_scope.as_str())
+    );
+    assert!(context
+        .canonical_request_hash
+        .as_deref()
+        .is_some_and(|value| value.starts_with("reqfp:v1:")));
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Missing)

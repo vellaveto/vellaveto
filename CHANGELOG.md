@@ -118,11 +118,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workload_identity`, that signer projection now upgrades the request to
   `workload_binding_status = bound` instead of leaving it as advisory-only
   metadata, so the shared `require_workload_binding` mediation guard can admit
+  detached-signer flows on verified signer provenance instead of treating that
   detached-signer requests on verified signer expectations alone.
   A verified detached signature with signer/transport workload mismatch now
   also downgrades the effective trust tier to `untrusted`, so privileged sink
   trust-floor enforcement can still gate the request even when
   `require_workload_binding` is not enabled globally.
+- **Approval provenance summaries are now review-safe (Mar 2026):**
+  Approval review payloads and approval-resolution audit rehydration now store
+  opaque fingerprints for `client_key_id`, `session_scope_binding`, and
+  `canonical_request_hash` instead of persisting raw transport identifiers.
+  Legacy approvals with raw values remain compatible during approval
+  consumption, but new approval contexts exposed through the server, MCP relay,
+  and HTTP proxy now use review fingerprints by default.
 - **HTTP proxy detached request-signature freshness (Mar 2026):**
   Verified detached request signatures now also enforce bounded `created_at`
   freshness in transport provenance. Signatures with malformed timestamps,

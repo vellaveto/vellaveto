@@ -220,7 +220,7 @@ fn render_approval_containment_summary(
     }
     if let Some(ref client_key_id) = context.client_key_id {
         pills.push(render_containment_pill(
-            &format!("Key: {}", truncate(client_key_id, 24)),
+            &format!("Key fp: {}", truncate(client_key_id, 24)),
             "pill-channel",
         ));
     }
@@ -247,13 +247,13 @@ fn render_approval_containment_summary(
     }
     if let Some(ref session_scope_binding) = context.session_scope_binding {
         pills.push(render_containment_pill(
-            &format!("Session binding: {}", truncate(session_scope_binding, 18)),
+            &format!("Session fp: {}", truncate(session_scope_binding, 18)),
             "pill-channel",
         ));
     }
     if let Some(ref canonical_request_hash) = context.canonical_request_hash {
         pills.push(render_containment_pill(
-            &format!("Canonical: {}", truncate(canonical_request_hash, 18)),
+            &format!("Request fp: {}", truncate(canonical_request_hash, 18)),
             "pill-channel",
         ));
     }
@@ -1246,28 +1246,39 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 91 }),
             signature_status: Some(SignatureVerificationStatus::Verified),
-            client_key_id: Some("detached-kid".to_string()),
+            client_key_id: Some(vellaveto_approval::fingerprint_review_client_key_id(
+                "detached-kid",
+            )),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
             replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::EphemeralSession),
-            session_scope_binding: Some("sidbind:v1:abc123".to_string()),
-            canonical_request_hash: Some("0123456789abcdef".to_string()),
+            session_scope_binding: Some(
+                vellaveto_approval::fingerprint_review_session_scope_binding("sidbind:v1:abc123"),
+            ),
+            canonical_request_hash: Some(
+                vellaveto_approval::fingerprint_review_canonical_request_hash("0123456789abcdef"),
+            ),
             execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
 
         let html = render_approval_containment_summary(Some(&context));
+        let expected_key = vellaveto_approval::fingerprint_review_client_key_id("detached-kid");
+        let expected_scope =
+            vellaveto_approval::fingerprint_review_session_scope_binding("sidbind:v1:abc123");
+        let expected_request =
+            vellaveto_approval::fingerprint_review_canonical_request_hash("0123456789abcdef");
         assert!(html.contains("Trust: low"));
         assert!(html.contains("Sink: code_execution"));
         assert!(html.contains("Mode: require_approval"));
         assert!(html.contains("Risk: 91"));
         assert!(html.contains("Signature: verified"));
-        assert!(html.contains("Key: detached-kid"));
+        assert!(html.contains(&format!("Key fp: {}", truncate(&expected_key, 24))));
         assert!(html.contains("Binding: bound"));
         assert!(html.contains("Replay: fresh"));
         assert!(html.contains("Scope: ephemeral_session"));
-        assert!(html.contains("Session binding: sidbind:v1:abc123"));
-        assert!(html.contains("Canonical: 0123456789abcdef"));
+        assert!(html.contains(&format!("Session fp: {}", truncate(&expected_scope, 18))));
+        assert!(html.contains(&format!("Request fp: {}", truncate(&expected_request, 18))));
         assert!(html.contains("Ephemeral"));
         assert!(html.contains("Taint: integrity_failed"));
         assert!(html.contains("Taint: quarantined"));
