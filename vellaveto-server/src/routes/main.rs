@@ -21,8 +21,7 @@ use std::sync::atomic::Ordering;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use vellaveto_approval::{
-    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
-    fingerprint_review_session_scope_binding, ApprovalContainmentContext, ApprovalStatus,
+    review_safe_provenance_summary, ApprovalContainmentContext, ApprovalStatus,
 };
 use vellaveto_engine::acis::fingerprint_action;
 use vellaveto_mcp::mediation::{build_acis_envelope, build_acis_envelope_with_security_context};
@@ -1765,6 +1764,7 @@ fn approval_containment_context_from_envelope(
     envelope: &AcisDecisionEnvelope,
     reason: &str,
 ) -> Option<ApprovalContainmentContext> {
+    let provenance_summary = review_safe_provenance_summary(envelope.client_provenance.as_ref());
     let context = ApprovalContainmentContext {
         semantic_taint: envelope.semantic_taint.clone(),
         lineage_channels: envelope
@@ -1776,41 +1776,14 @@ fn approval_containment_context_from_envelope(
         sink_class: envelope.sink_class,
         containment_mode: envelope.containment_mode,
         semantic_risk_score: envelope.semantic_risk_score,
-        signature_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.signature_status),
-        client_key_id: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.client_key_id.as_deref())
-            .map(fingerprint_review_client_key_id),
-        workload_binding_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.workload_binding_status),
-        replay_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.replay_status),
-        session_key_scope: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.session_key_scope),
-        session_scope_binding: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.as_deref())
-            .map(fingerprint_review_session_scope_binding),
-        canonical_request_hash: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
-            .map(fingerprint_review_canonical_request_hash),
-        execution_is_ephemeral: envelope
-            .client_provenance
-            .as_ref()
-            .is_some_and(|provenance| provenance.execution_is_ephemeral),
+        signature_status: provenance_summary.signature_status,
+        client_key_id: provenance_summary.client_key_id,
+        workload_binding_status: provenance_summary.workload_binding_status,
+        replay_status: provenance_summary.replay_status,
+        session_key_scope: provenance_summary.session_key_scope,
+        session_scope_binding: provenance_summary.session_scope_binding,
+        canonical_request_hash: provenance_summary.canonical_request_hash,
+        execution_is_ephemeral: provenance_summary.execution_is_ephemeral,
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();

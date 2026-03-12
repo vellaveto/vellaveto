@@ -137,7 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   omits raw `request_signature` and `workload_identity` details from audit
   records. The runtime still uses full provenance in memory for admission and
   replay checks, but audit JSONL and downstream approval views now retain only
-  review-safe provenance summaries.
+  review-safe provenance summaries. Approval creation paths in the HTTP proxy,
+  MCP relay, and server now all consume a shared review-safe provenance summary
+  helper instead of touching raw `client_provenance` fields at persistence
+  sites, aligning the code with the CodeQL cleartext-logging model too.
 - **gRPC approval replay audits now preserve replay metadata (Mar 2026):**
   gRPC tool approval replay denials now emit the same
   `presented_approval_replay_denied` event metadata as the other transports,

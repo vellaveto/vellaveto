@@ -191,6 +191,18 @@ pub struct ApprovalContainmentContext {
     pub counterfactual_review_required: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ReviewSafeProvenanceSummary {
+    pub signature_status: Option<SignatureVerificationStatus>,
+    pub client_key_id: Option<String>,
+    pub workload_binding_status: Option<WorkloadBindingStatus>,
+    pub replay_status: Option<ReplayStatus>,
+    pub session_key_scope: Option<SessionKeyScope>,
+    pub session_scope_binding: Option<String>,
+    pub canonical_request_hash: Option<String>,
+    pub execution_is_ephemeral: bool,
+}
+
 impl ApprovalContainmentContext {
     #[must_use]
     pub fn normalized(&self) -> Self {
@@ -425,6 +437,35 @@ pub fn fingerprint_review_session_scope_binding(value: &str) -> String {
 #[must_use]
 pub fn fingerprint_review_canonical_request_hash(value: &str) -> String {
     fingerprint_review_value(REVIEW_CANONICAL_PREFIX, "canonical_request_hash", value)
+}
+
+#[must_use]
+pub fn review_safe_provenance_summary(
+    client_provenance: Option<&ClientProvenance>,
+) -> ReviewSafeProvenanceSummary {
+    let Some(provenance) = client_provenance else {
+        return ReviewSafeProvenanceSummary::default();
+    };
+
+    ReviewSafeProvenanceSummary {
+        signature_status: Some(provenance.signature_status),
+        client_key_id: provenance
+            .client_key_id
+            .as_deref()
+            .map(fingerprint_review_client_key_id),
+        workload_binding_status: Some(provenance.workload_binding_status),
+        replay_status: Some(provenance.replay_status),
+        session_key_scope: Some(provenance.session_key_scope),
+        session_scope_binding: provenance
+            .session_scope_binding
+            .as_deref()
+            .map(fingerprint_review_session_scope_binding),
+        canonical_request_hash: provenance
+            .canonical_request_hash
+            .as_deref()
+            .map(fingerprint_review_canonical_request_hash),
+        execution_is_ephemeral: provenance.execution_is_ephemeral,
+    }
 }
 
 fn review_value_matches(
@@ -1896,6 +1937,50 @@ mod tests {
             runtime.lineage_refs[1].channel,
             ContextChannel::ApprovalPrompt
         );
+    }
+
+    #[test]
+    fn test_review_safe_provenance_summary_fingerprints_sensitive_fields() {
+        let provenance = ClientProvenance {
+            signature_status: SignatureVerificationStatus::Verified,
+            client_key_id: Some("detached-kid".to_string()),
+            workload_binding_status: WorkloadBindingStatus::Bound,
+            replay_status: ReplayStatus::Fresh,
+            session_key_scope: SessionKeyScope::PersistedClient,
+            session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+            canonical_request_hash: Some("f".repeat(64)),
+            execution_is_ephemeral: true,
+            ..ClientProvenance::default()
+        };
+
+        let summary = review_safe_provenance_summary(Some(&provenance));
+
+        assert_eq!(
+            summary.signature_status,
+            Some(SignatureVerificationStatus::Verified)
+        );
+        assert_eq!(
+            summary.client_key_id.as_deref(),
+            Some(fingerprint_review_client_key_id("detached-kid").as_str())
+        );
+        assert_eq!(
+            summary.workload_binding_status,
+            Some(WorkloadBindingStatus::Bound)
+        );
+        assert_eq!(summary.replay_status, Some(ReplayStatus::Fresh));
+        assert_eq!(
+            summary.session_key_scope,
+            Some(SessionKeyScope::PersistedClient)
+        );
+        assert_eq!(
+            summary.session_scope_binding.as_deref(),
+            Some(fingerprint_review_session_scope_binding("sidbind:v1:approval-runtime").as_str())
+        );
+        assert_eq!(
+            summary.canonical_request_hash.as_deref(),
+            Some(fingerprint_review_canonical_request_hash(&"f".repeat(64)).as_str())
+        );
+        assert!(summary.execution_is_ephemeral);
     }
 
     #[test]

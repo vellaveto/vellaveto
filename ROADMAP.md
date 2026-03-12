@@ -117,6 +117,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   provenance summaries: `client_key_id`, `session_scope_binding`, and
   `canonical_request_hash` are fingerprinted, while raw `request_signature`
   and `workload_identity` details are omitted from persisted audit records.
+  Approval creation paths now consume that data through a shared review-safe
+  provenance summary helper as well, so HTTP proxy, MCP relay, and server
+  approval persistence stay aligned with the same audit-safe contract.
 - Verified detached signer workload mismatches now also downgrade the effective
   trust tier to `untrusted`, so privileged sink trust-floor checks can still
   gate mismatched signer provenance even when the explicit workload-binding

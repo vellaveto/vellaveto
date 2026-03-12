@@ -19,8 +19,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use vellaveto_approval::{
-    fingerprint_review_canonical_request_hash, fingerprint_review_client_key_id,
-    fingerprint_review_session_scope_binding, ApprovalContainmentContext, ApprovalStatus,
+    review_safe_provenance_summary, ApprovalContainmentContext, ApprovalStatus,
 };
 use vellaveto_audit::AuditLogger;
 use vellaveto_canonical::{
@@ -2180,6 +2179,8 @@ pub(super) fn approval_containment_context_from_security_context(
     security_context: &RuntimeSecurityContext,
     reason: &str,
 ) -> Option<ApprovalContainmentContext> {
+    let provenance_summary =
+        review_safe_provenance_summary(security_context.client_provenance.as_ref());
     let context = ApprovalContainmentContext {
         semantic_taint: security_context.semantic_taint.clone(),
         lineage_channels: security_context
@@ -2191,41 +2192,14 @@ pub(super) fn approval_containment_context_from_security_context(
         sink_class: security_context.sink_class,
         containment_mode: security_context.containment_mode,
         semantic_risk_score: security_context.semantic_risk_score,
-        signature_status: security_context
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.signature_status),
-        client_key_id: security_context
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.client_key_id.as_deref())
-            .map(fingerprint_review_client_key_id),
-        workload_binding_status: security_context
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.workload_binding_status),
-        replay_status: security_context
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.replay_status),
-        session_key_scope: security_context
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.session_key_scope),
-        session_scope_binding: security_context
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.as_deref())
-            .map(fingerprint_review_session_scope_binding),
-        canonical_request_hash: security_context
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
-            .map(fingerprint_review_canonical_request_hash),
-        execution_is_ephemeral: security_context
-            .client_provenance
-            .as_ref()
-            .is_some_and(|provenance| provenance.execution_is_ephemeral),
+        signature_status: provenance_summary.signature_status,
+        client_key_id: provenance_summary.client_key_id,
+        workload_binding_status: provenance_summary.workload_binding_status,
+        replay_status: provenance_summary.replay_status,
+        session_key_scope: provenance_summary.session_key_scope,
+        session_scope_binding: provenance_summary.session_scope_binding,
+        canonical_request_hash: provenance_summary.canonical_request_hash,
+        execution_is_ephemeral: provenance_summary.execution_is_ephemeral,
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();
@@ -2237,6 +2211,7 @@ pub(super) fn approval_containment_context_from_envelope(
     envelope: &AcisDecisionEnvelope,
     reason: &str,
 ) -> Option<ApprovalContainmentContext> {
+    let provenance_summary = review_safe_provenance_summary(envelope.client_provenance.as_ref());
     let context = ApprovalContainmentContext {
         semantic_taint: envelope.semantic_taint.clone(),
         lineage_channels: envelope
@@ -2248,41 +2223,14 @@ pub(super) fn approval_containment_context_from_envelope(
         sink_class: envelope.sink_class,
         containment_mode: envelope.containment_mode,
         semantic_risk_score: envelope.semantic_risk_score,
-        signature_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.signature_status),
-        client_key_id: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.client_key_id.as_deref())
-            .map(fingerprint_review_client_key_id),
-        workload_binding_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.workload_binding_status),
-        replay_status: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.replay_status),
-        session_key_scope: envelope
-            .client_provenance
-            .as_ref()
-            .map(|provenance| provenance.session_key_scope),
-        session_scope_binding: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.session_scope_binding.as_deref())
-            .map(fingerprint_review_session_scope_binding),
-        canonical_request_hash: envelope
-            .client_provenance
-            .as_ref()
-            .and_then(|provenance| provenance.canonical_request_hash.as_deref())
-            .map(fingerprint_review_canonical_request_hash),
-        execution_is_ephemeral: envelope
-            .client_provenance
-            .as_ref()
-            .is_some_and(|provenance| provenance.execution_is_ephemeral),
+        signature_status: provenance_summary.signature_status,
+        client_key_id: provenance_summary.client_key_id,
+        workload_binding_status: provenance_summary.workload_binding_status,
+        replay_status: provenance_summary.replay_status,
+        session_key_scope: provenance_summary.session_key_scope,
+        session_scope_binding: provenance_summary.session_scope_binding,
+        canonical_request_hash: provenance_summary.canonical_request_hash,
+        execution_is_ephemeral: provenance_summary.execution_is_ephemeral,
         counterfactual_review_required: reason.contains("counterfactual review required"),
     }
     .normalized();
