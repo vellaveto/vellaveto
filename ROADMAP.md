@@ -213,6 +213,10 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   show the same signature status, detached key ID, replay summary,
   workload-binding status, session scope binding, canonical request hash, key
   scope, and ephemeral-execution state that drove the original admission gate.
+- The stdio proxy now forwards the shared
+  `require_ephemeral_client_provenance` mediation guard too, so ephemeral-only
+  provenance admission stays aligned across stdio, HTTP, WebSocket, and gRPC
+  runtimes instead of diverging on the older config shape.
 - Presented approvals now also fail closed on stable provenance drift during
   consumption, so a previously reviewed approval cannot be replayed under a
   different signer identity, workload-binding outcome, or persisted session

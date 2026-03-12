@@ -239,6 +239,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `execution_is_ephemeral`, and approval audit reconstruction restores that
   summary into `client_provenance` so reviewer-visible context matches the
   final ACIS envelope.
+- **Stdio mediation provenance parity (Mar 2026):**
+  `vellaveto-proxy` now forwards `acis.require_ephemeral_client_provenance`
+  into the shared `MediationConfig`, keeping stdio admission behavior aligned
+  with the other runtime transports and fixing the workspace/coverage build
+  path that was still initializing the older config shape.
 - **HTTP proxy presented-approval replay audits (Mar 2026):**
   Replayed presented approvals on resource, task, and extension flows now emit
   the same transport-provenance-aware deny audits as tool calls across HTTP,

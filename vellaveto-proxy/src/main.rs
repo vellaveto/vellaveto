@@ -402,6 +402,9 @@ async fn main() -> Result<()> {
         require_agent_identity: policy_config.acis.require_agent_identity,
         require_verified_signature: policy_config.acis.require_verified_signature,
         require_workload_binding: policy_config.acis.require_workload_binding,
+        require_ephemeral_client_provenance: policy_config
+            .acis
+            .require_ephemeral_client_provenance,
         deny_replay: policy_config.acis.deny_replay,
         block_tainted_privileged_sinks: policy_config.acis.block_tainted_privileged_sinks,
         require_lineage_for_privileged_sinks: policy_config
