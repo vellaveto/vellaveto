@@ -1818,6 +1818,7 @@ async fn relay_client_to_upstream(
                                     &session_id,
                                     matched_approval_id.as_deref(),
                                     &action,
+                                    security_context.as_ref(),
                                 )
                                 .await
                                 .is_err()
@@ -2583,6 +2584,7 @@ async fn relay_client_to_upstream(
                                     &session_id,
                                     matched_approval_id.as_deref(),
                                     &action,
+                                    security_context.as_ref(),
                                 )
                                 .await
                                 .is_err()
@@ -3422,6 +3424,7 @@ async fn relay_client_to_upstream(
                                     &session_id,
                                     matched_approval_id.as_deref(),
                                     &action,
+                                    security_context.as_ref(),
                                 )
                                 .await
                                 .is_err()
@@ -4031,6 +4034,7 @@ async fn relay_client_to_upstream(
                                     &session_id,
                                     matched_approval_id.as_deref(),
                                     &action,
+                                    security_context.as_ref(),
                                 )
                                 .await
                                 .is_err()

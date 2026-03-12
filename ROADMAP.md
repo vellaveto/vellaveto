@@ -200,12 +200,18 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   `approval_id`, and the action-specific metadata operators need to triage
   task and extension approval replays. gRPC now covers both task and extension
   replay on the live unary path, and WebSocket now covers both task and
-  extension replay on the live `/mcp/ws` path. HTTP now covers task replay on
-  the live `POST /mcp` path in addition to the existing tool replay case.
+  extension replay on the live `/mcp/ws` path. HTTP now covers tool, task, and
+  extension replay on the live `POST /mcp` path as well, so the presented-
+  approval replay matrix is transport-complete for these action families.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
-  show the same signature status, workload-binding status, key scope, and
-  ephemeral-execution state that drove the original admission gate.
+  show the same signature status, detached key ID, replay summary,
+  workload-binding status, session scope binding, canonical request hash, key
+  scope, and ephemeral-execution state that drove the original admission gate.
+- Presented approvals now also fail closed on stable provenance drift during
+  consumption, so a previously reviewed approval cannot be replayed under a
+  different signer identity, workload-binding outcome, or persisted session
+  scope just because the action fingerprint still matches.
 - Trusted detached signers now also fail closed on explicit transport
   key-scope conflicts, so persisted versus ephemeral session-key evidence
   cannot be silently merged into a single verified provenance record.

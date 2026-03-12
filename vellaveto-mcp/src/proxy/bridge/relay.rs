@@ -284,14 +284,30 @@ fn approval_containment_context_from_envelope(
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.signature_status),
+        client_key_id: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.client_key_id.clone()),
         workload_binding_status: envelope
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.workload_binding_status),
+        replay_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.replay_status),
         session_key_scope: envelope
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.session_key_scope),
+        session_scope_binding: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.session_scope_binding.clone()),
+        canonical_request_hash: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.canonical_request_hash.clone()),
         execution_is_ephemeral: envelope
             .client_provenance
             .as_ref()

@@ -2013,6 +2013,7 @@ impl McpGrpcService {
                     session_id,
                     matched_approval_id.as_deref(),
                     &action,
+                    security_context.as_ref(),
                 )
                 .await
                 .is_err()
@@ -2625,6 +2626,7 @@ impl McpGrpcService {
                     session_id,
                     matched_approval_id.as_deref(),
                     &action,
+                    security_context.as_ref(),
                 )
                 .await
                 .is_err()
@@ -3661,6 +3663,7 @@ impl McpGrpcService {
                     session_id,
                     matched_approval_id.as_deref(),
                     &action,
+                    security_context.as_ref(),
                 )
                 .await
                 .is_err()
@@ -4258,6 +4261,7 @@ impl McpGrpcService {
                     session_id,
                     matched_approval_id.as_deref(),
                     &action,
+                    security_context.as_ref(),
                 )
                 .await
                 .is_err()

@@ -2194,14 +2194,30 @@ pub(super) fn approval_containment_context_from_security_context(
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.signature_status),
+        client_key_id: security_context
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.client_key_id.clone()),
         workload_binding_status: security_context
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.workload_binding_status),
+        replay_status: security_context
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.replay_status),
         session_key_scope: security_context
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.session_key_scope),
+        session_scope_binding: security_context
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.session_scope_binding.clone()),
+        canonical_request_hash: security_context
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.canonical_request_hash.clone()),
         execution_is_ephemeral: security_context
             .client_provenance
             .as_ref()
@@ -2232,14 +2248,30 @@ pub(super) fn approval_containment_context_from_envelope(
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.signature_status),
+        client_key_id: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.client_key_id.clone()),
         workload_binding_status: envelope
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.workload_binding_status),
+        replay_status: envelope
+            .client_provenance
+            .as_ref()
+            .map(|provenance| provenance.replay_status),
         session_key_scope: envelope
             .client_provenance
             .as_ref()
             .map(|provenance| provenance.session_key_scope),
+        session_scope_binding: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.session_scope_binding.clone()),
+        canonical_request_hash: envelope
+            .client_provenance
+            .as_ref()
+            .and_then(|provenance| provenance.canonical_request_hash.clone()),
         execution_is_ephemeral: envelope
             .client_provenance
             .as_ref()
@@ -2336,6 +2368,7 @@ pub(super) async fn consume_presented_approval(
     session_id: &str,
     approval_id: Option<&str>,
     action: &Action,
+    security_context: Option<&RuntimeSecurityContext>,
 ) -> Result<(), ()> {
     let Some(approval_id) = approval_id else {
         return Ok(());
@@ -2355,6 +2388,27 @@ pub(super) async fn consume_presented_approval(
         .get(session_id)
         .map(|session| session.session_scope_binding.clone())
         .ok_or(())?;
+    let approval = match store.get(approval_id).await {
+        Ok(approval) => approval,
+        Err(e) => {
+            tracing::warn!(
+                approval_id = %approval_id,
+                error = ?e,
+                "Presented approval lookup failed during consume"
+            );
+            return Err(());
+        }
+    };
+    if let Some(ref containment_context) = approval.containment_context {
+        if !containment_context.stable_provenance_satisfied_by(security_context) {
+            tracing::warn!(
+                approval_id = %approval_id,
+                session_id = %session_id,
+                "Presented approval provenance summary does not match current transport provenance"
+            );
+            return Err(());
+        }
+    }
     match store
         .consume_approved(
             approval_id,

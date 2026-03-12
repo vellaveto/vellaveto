@@ -174,9 +174,17 @@ pub struct ApprovalContainmentContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signature_status: Option<SignatureVerificationStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_key_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workload_binding_status: Option<WorkloadBindingStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_status: Option<ReplayStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_key_scope: Option<SessionKeyScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_scope_binding: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_request_hash: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub execution_is_ephemeral: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -202,8 +210,12 @@ impl ApprovalContainmentContext {
             containment_mode: self.containment_mode,
             semantic_risk_score: self.semantic_risk_score,
             signature_status: self.signature_status,
+            client_key_id: self.client_key_id.clone(),
             workload_binding_status: self.workload_binding_status,
+            replay_status: self.replay_status,
             session_key_scope: self.session_key_scope,
+            session_scope_binding: self.session_scope_binding.clone(),
+            canonical_request_hash: self.canonical_request_hash.clone(),
             execution_is_ephemeral: self.execution_is_ephemeral,
             counterfactual_review_required: self.counterfactual_review_required,
         }
@@ -218,8 +230,12 @@ impl ApprovalContainmentContext {
             || self.containment_mode.is_some()
             || self.semantic_risk_score.is_some()
             || self.signature_status.is_some()
+            || self.client_key_id.is_some()
             || self.workload_binding_status.is_some()
+            || self.replay_status.is_some()
             || self.session_key_scope.is_some()
+            || self.session_scope_binding.is_some()
+            || self.canonical_request_hash.is_some()
             || self.execution_is_ephemeral
             || self.counterfactual_review_required
     }
@@ -245,15 +261,22 @@ impl ApprovalContainmentContext {
             .collect();
 
         let client_provenance = if normalized.signature_status.is_some()
+            || normalized.client_key_id.is_some()
             || normalized.workload_binding_status.is_some()
+            || normalized.replay_status.is_some()
             || normalized.session_key_scope.is_some()
+            || normalized.session_scope_binding.is_some()
+            || normalized.canonical_request_hash.is_some()
             || normalized.execution_is_ephemeral
         {
             Some(ClientProvenance {
                 signature_status: normalized.signature_status.unwrap_or_default(),
+                client_key_id: normalized.client_key_id.clone(),
                 session_key_scope: normalized.session_key_scope.unwrap_or_default(),
                 workload_binding_status: normalized.workload_binding_status.unwrap_or_default(),
-                replay_status: ReplayStatus::NotChecked,
+                replay_status: normalized.replay_status.unwrap_or_default(),
+                session_scope_binding: normalized.session_scope_binding.clone(),
+                canonical_request_hash: normalized.canonical_request_hash.clone(),
                 execution_is_ephemeral: normalized.execution_is_ephemeral,
                 ..ClientProvenance::default()
             })
@@ -270,6 +293,61 @@ impl ApprovalContainmentContext {
             containment_mode: normalized.containment_mode,
             semantic_risk_score: normalized.semantic_risk_score,
         })
+    }
+
+    /// Returns true when the stable provenance summary captured for an approval
+    /// is satisfied by the current runtime security context.
+    ///
+    /// This intentionally excludes per-request freshness fields such as replay
+    /// state or canonical request hash so approvals can be reused for the same
+    /// scoped action without depending on a specific nonce/timestamp pair.
+    #[must_use]
+    pub fn stable_provenance_satisfied_by(
+        &self,
+        security_context: Option<&RuntimeSecurityContext>,
+    ) -> bool {
+        let requires_provenance = self.signature_status.is_some()
+            || self.client_key_id.is_some()
+            || self.workload_binding_status.is_some()
+            || self.session_key_scope.is_some()
+            || self.session_scope_binding.is_some()
+            || self.execution_is_ephemeral;
+
+        let Some(provenance) = security_context.and_then(|ctx| ctx.client_provenance.as_ref())
+        else {
+            return !requires_provenance;
+        };
+
+        if let Some(expected) = self.signature_status {
+            if provenance.signature_status != expected {
+                return false;
+            }
+        }
+        if let Some(ref expected) = self.client_key_id {
+            if provenance.client_key_id.as_deref() != Some(expected.as_str()) {
+                return false;
+            }
+        }
+        if let Some(expected) = self.workload_binding_status {
+            if provenance.workload_binding_status != expected {
+                return false;
+            }
+        }
+        if let Some(expected) = self.session_key_scope {
+            if provenance.session_key_scope != expected {
+                return false;
+            }
+        }
+        if let Some(ref expected) = self.session_scope_binding {
+            if provenance.session_scope_binding.as_deref() != Some(expected.as_str()) {
+                return false;
+            }
+        }
+        if self.execution_is_ephemeral && !provenance.execution_is_ephemeral {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -1602,8 +1680,12 @@ mod tests {
                     containment_mode: Some(ContainmentMode::RequireApproval),
                     semantic_risk_score: Some(SemanticRiskScore { value: 95 }),
                     signature_status: Some(SignatureVerificationStatus::Verified),
+                    client_key_id: Some("key-alpha".to_string()),
                     workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                    replay_status: Some(ReplayStatus::Fresh),
                     session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                    session_scope_binding: Some("sidbind:v1:approval-review".to_string()),
+                    canonical_request_hash: Some("a".repeat(64)),
                     execution_is_ephemeral: true,
                     counterfactual_review_required: true,
                 }),
@@ -1626,13 +1708,23 @@ mod tests {
             ctx.signature_status,
             Some(SignatureVerificationStatus::Verified)
         );
+        assert_eq!(ctx.client_key_id.as_deref(), Some("key-alpha"));
         assert_eq!(
             ctx.workload_binding_status,
             Some(WorkloadBindingStatus::Bound)
         );
+        assert_eq!(ctx.replay_status, Some(ReplayStatus::Fresh));
         assert_eq!(
             ctx.session_key_scope,
             Some(SessionKeyScope::EphemeralSession)
+        );
+        assert_eq!(
+            ctx.session_scope_binding.as_deref(),
+            Some("sidbind:v1:approval-review")
+        );
+        assert_eq!(
+            ctx.canonical_request_hash.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(ctx.execution_is_ephemeral);
         assert!(ctx.counterfactual_review_required);
@@ -1656,8 +1748,12 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(SemanticRiskScore { value: 93 }),
             signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("detached-kid".to_string()),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::EphemeralExecution),
+            session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+            canonical_request_hash: Some("b".repeat(64)),
             execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
@@ -1680,13 +1776,23 @@ mod tests {
             provenance.signature_status,
             SignatureVerificationStatus::Verified
         );
+        assert_eq!(provenance.client_key_id.as_deref(), Some("detached-kid"));
         assert_eq!(
             provenance.workload_binding_status,
             WorkloadBindingStatus::Bound
         );
+        assert_eq!(provenance.replay_status, ReplayStatus::Fresh);
         assert_eq!(
             provenance.session_key_scope,
             SessionKeyScope::EphemeralExecution
+        );
+        assert_eq!(
+            provenance.session_scope_binding.as_deref(),
+            Some("sidbind:v1:approval-runtime")
+        );
+        assert_eq!(
+            provenance.canonical_request_hash.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         );
         assert!(provenance.execution_is_ephemeral);
         assert_eq!(
@@ -1709,6 +1815,60 @@ mod tests {
             runtime.lineage_refs[1].channel,
             ContextChannel::ApprovalPrompt
         );
+    }
+
+    #[test]
+    fn test_stable_provenance_satisfied_by_matching_runtime_security_context() {
+        let context = ApprovalContainmentContext {
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("detached-kid".to_string()),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            replay_status: Some(ReplayStatus::Fresh),
+            session_key_scope: Some(SessionKeyScope::PersistedClient),
+            session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+            canonical_request_hash: Some("e".repeat(64)),
+            ..ApprovalContainmentContext::default()
+        };
+        let runtime = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Verified,
+                client_key_id: Some("detached-kid".to_string()),
+                workload_binding_status: WorkloadBindingStatus::Bound,
+                replay_status: ReplayStatus::ReplayDetected,
+                session_key_scope: SessionKeyScope::PersistedClient,
+                session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+                canonical_request_hash: Some("f".repeat(64)),
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        assert!(context.stable_provenance_satisfied_by(Some(&runtime)));
+    }
+
+    #[test]
+    fn test_stable_provenance_satisfied_by_rejects_key_drift() {
+        let context = ApprovalContainmentContext {
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("detached-kid".to_string()),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            session_key_scope: Some(SessionKeyScope::PersistedClient),
+            session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+            ..ApprovalContainmentContext::default()
+        };
+        let runtime = RuntimeSecurityContext {
+            client_provenance: Some(ClientProvenance {
+                signature_status: SignatureVerificationStatus::Verified,
+                client_key_id: Some("other-kid".to_string()),
+                workload_binding_status: WorkloadBindingStatus::Bound,
+                session_key_scope: SessionKeyScope::PersistedClient,
+                session_scope_binding: Some("sidbind:v1:approval-runtime".to_string()),
+                ..ClientProvenance::default()
+            }),
+            ..RuntimeSecurityContext::default()
+        };
+
+        assert!(!context.stable_provenance_satisfied_by(Some(&runtime)));
     }
 
     #[tokio::test]
@@ -2186,6 +2346,64 @@ mod tests {
         assert_ne!(
             id1, id2,
             "Materially different containment context must not deduplicate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dedup_distinguishes_provenance_summary_differences() {
+        let dir = TempDir::new().unwrap();
+        let store = ApprovalStore::new(
+            dir.path().join("approvals.jsonl"),
+            std::time::Duration::from_secs(900),
+        );
+
+        let first = ApprovalContainmentContext {
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("key-a".to_string()),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            replay_status: Some(ReplayStatus::Fresh),
+            session_key_scope: Some(SessionKeyScope::PersistedClient),
+            session_scope_binding: Some("sidbind:v1:first".to_string()),
+            canonical_request_hash: Some("1".repeat(64)),
+            ..ApprovalContainmentContext::default()
+        };
+        let second = ApprovalContainmentContext {
+            signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("key-b".to_string()),
+            workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            replay_status: Some(ReplayStatus::Fresh),
+            session_key_scope: Some(SessionKeyScope::PersistedClient),
+            session_scope_binding: Some("sidbind:v1:second".to_string()),
+            canonical_request_hash: Some("2".repeat(64)),
+            ..ApprovalContainmentContext::default()
+        };
+
+        let id1 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(first),
+            )
+            .await
+            .unwrap();
+        let id2 = store
+            .create_with_context(
+                test_action(),
+                "needs review".to_string(),
+                None,
+                None,
+                None,
+                Some(second),
+            )
+            .await
+            .unwrap();
+
+        assert_ne!(
+            id1, id2,
+            "Different provenance summaries must not deduplicate"
         );
     }
 

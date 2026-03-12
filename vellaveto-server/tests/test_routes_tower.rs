@@ -23,8 +23,9 @@ use vellaveto_audit::AuditLogger;
 use vellaveto_engine::{acis::fingerprint_action, PolicyEngine};
 use vellaveto_server::{routes, AppState, Metrics, RateLimits};
 use vellaveto_types::{
-    Action, ContainmentMode, ContextChannel, Policy, PolicyType, SemanticRiskScore, SemanticTaint,
-    SessionKeyScope, SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
+    Action, ContainmentMode, ContextChannel, Policy, PolicyType, ReplayStatus, SemanticRiskScore,
+    SemanticTaint, SessionKeyScope, SignatureVerificationStatus, SinkClass, TrustTier,
+    WorkloadBindingStatus,
 };
 
 /// Attach a simulated peer connection address to a request so that
@@ -1670,8 +1671,12 @@ async fn create_pending_approval_with_containment_context(state: &AppState) -> S
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 94 }),
                 signature_status: Some(SignatureVerificationStatus::Verified),
+                client_key_id: Some("detached-kid".to_string()),
                 workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                replay_status: Some(ReplayStatus::Fresh),
                 session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                session_scope_binding: Some("sidbind:v1:review".to_string()),
+                canonical_request_hash: Some("c".repeat(64)),
                 execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
@@ -2120,8 +2125,12 @@ async fn approval_list_pending_includes_containment_context() {
                 containment_mode: Some(ContainmentMode::RequireApproval),
                 semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
                 signature_status: Some(SignatureVerificationStatus::Verified),
+                client_key_id: Some("detached-kid".to_string()),
                 workload_binding_status: Some(WorkloadBindingStatus::Bound),
+                replay_status: Some(ReplayStatus::Fresh),
                 session_key_scope: Some(SessionKeyScope::EphemeralSession),
+                session_scope_binding: Some("sidbind:v1:pending".to_string()),
+                canonical_request_hash: Some("d".repeat(64)),
                 execution_is_ephemeral: true,
                 counterfactual_review_required: true,
             }),
@@ -2168,12 +2177,28 @@ async fn approval_list_pending_includes_containment_context() {
         "verified"
     );
     assert_eq!(
+        approvals[0]["containment_context"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
         approvals[0]["containment_context"]["workload_binding_status"],
         "bound"
     );
     assert_eq!(
+        approvals[0]["containment_context"]["replay_status"],
+        "fresh"
+    );
+    assert_eq!(
         approvals[0]["containment_context"]["session_key_scope"],
         "ephemeral_session"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["session_scope_binding"],
+        "sidbind:v1:pending"
+    );
+    assert_eq!(
+        approvals[0]["containment_context"]["canonical_request_hash"],
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
     );
     assert_eq!(
         approvals[0]["containment_context"]["execution_is_ephemeral"],
@@ -3656,12 +3681,25 @@ async fn test_approve_audit_entry_preserves_containment_context() {
         "verified"
     );
     assert_eq!(
+        envelope["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
         envelope["client_provenance"]["workload_binding_status"],
         "bound"
     );
+    assert_eq!(envelope["client_provenance"]["replay_status"], "fresh");
     assert_eq!(
         envelope["client_provenance"]["session_key_scope"],
         "ephemeral_session"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["session_scope_binding"],
+        "sidbind:v1:review"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["canonical_request_hash"],
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     );
     assert_eq!(
         envelope["client_provenance"]["execution_is_ephemeral"],
@@ -3725,12 +3763,25 @@ async fn test_deny_audit_entry_preserves_containment_context() {
         "verified"
     );
     assert_eq!(
+        envelope["client_provenance"]["client_key_id"],
+        "detached-kid"
+    );
+    assert_eq!(
         envelope["client_provenance"]["workload_binding_status"],
         "bound"
     );
+    assert_eq!(envelope["client_provenance"]["replay_status"], "fresh");
     assert_eq!(
         envelope["client_provenance"]["session_key_scope"],
         "ephemeral_session"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["session_scope_binding"],
+        "sidbind:v1:review"
+    );
+    assert_eq!(
+        envelope["client_provenance"]["canonical_request_hash"],
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     );
     assert_eq!(
         envelope["client_provenance"]["execution_is_ephemeral"],

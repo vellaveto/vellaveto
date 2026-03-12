@@ -517,8 +517,12 @@ List all pending approval requests.
         "containment_mode": "require_approval",
         "semantic_risk_score": { "value": 86 },
         "signature_status": "verified",
+        "client_key_id": "detached-kid",
         "workload_binding_status": "bound",
+        "replay_status": "fresh",
         "session_key_scope": "ephemeral_session",
+        "session_scope_binding": "sidbind:v1:opaque-scope",
+        "canonical_request_hash": "3b69d6c4cc0d6e3f5d3e6e7f4f9f4c5c0b8a8a1a7f6e8d4c2b1f9e7d6c5b4a3",
         "execution_is_ephemeral": true,
         "counterfactual_review_required": true
       }
@@ -568,8 +572,12 @@ Get details for a specific approval request.
     "containment_mode": "require_approval",
     "semantic_risk_score": { "value": 86 },
     "signature_status": "verified",
+    "client_key_id": "detached-kid",
     "workload_binding_status": "bound",
+    "replay_status": "fresh",
     "session_key_scope": "ephemeral_session",
+    "session_scope_binding": "sidbind:v1:opaque-scope",
+    "canonical_request_hash": "3b69d6c4cc0d6e3f5d3e6e7f4f9f4c5c0b8a8a1a7f6e8d4c2b1f9e7d6c5b4a3",
     "execution_is_ephemeral": true,
     "counterfactual_review_required": true
   }
@@ -582,8 +590,9 @@ Get details for a specific approval request.
 `containment_context` is present when the approval was created from semantic
 containment, trust-floor, or counterfactual escalation logic.
 It can also include provenance-summary fields derived from the gated request,
-including `signature_status`, `workload_binding_status`,
-`session_key_scope`, and `execution_is_ephemeral`.
+including `signature_status`, `client_key_id`, `workload_binding_status`,
+`replay_status`, `session_key_scope`, `session_scope_binding`,
+`canonical_request_hash`, and `execution_is_ephemeral`.
 
 ---
 

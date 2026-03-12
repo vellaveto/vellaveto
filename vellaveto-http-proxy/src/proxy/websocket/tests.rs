@@ -539,6 +539,13 @@ fn test_ws_approval_context_uses_clamped_transport_scope() {
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.replay_status,
+        Some(vellaveto_types::ReplayStatus::NotChecked)
+    );
+    assert!(context.session_scope_binding.is_none());
+    assert!(context.canonical_request_hash.is_some());
 }
 
 #[test]
@@ -748,6 +755,13 @@ fn test_ws_approval_context_from_envelope_uses_clamped_transport_provenance() {
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.replay_status,
+        Some(vellaveto_types::ReplayStatus::NotChecked)
+    );
+    assert!(context.session_scope_binding.is_none());
+    assert!(context.canonical_request_hash.is_some());
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Missing)
@@ -875,6 +889,16 @@ async fn test_create_pending_ws_approval_preserves_clamped_transport_provenance(
         Some(vellaveto_types::SessionKeyScope::PersistedClient)
     );
     assert!(!context.execution_is_ephemeral);
+    assert_eq!(context.client_key_id.as_deref(), Some("detached-kid"));
+    assert_eq!(
+        context.replay_status,
+        Some(vellaveto_types::ReplayStatus::NotChecked)
+    );
+    assert_eq!(
+        context.session_scope_binding.as_deref(),
+        Some(session_scope_binding.as_str())
+    );
+    assert!(context.canonical_request_hash.is_some());
     assert_eq!(
         context.signature_status,
         Some(vellaveto_types::SignatureVerificationStatus::Missing)
@@ -1082,6 +1106,7 @@ async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
         &session_id,
         Some(&approval_id),
         &action,
+        None,
     )
     .await
     .is_ok());
@@ -1090,9 +1115,92 @@ async fn test_consume_presented_approval_accepts_once_and_rejects_replay() {
         &session_id,
         Some(&approval_id),
         &action,
+        None,
     )
     .await
     .is_err());
+}
+
+#[tokio::test]
+async fn test_consume_presented_approval_rejects_provenance_drift() {
+    let mut state = make_test_state();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let approval_store = vellaveto_approval::ApprovalStore::new(
+        dir.path().join("approvals.jsonl"),
+        std::time::Duration::from_secs(300),
+    );
+    state.approval_store = Some(std::sync::Arc::new(approval_store));
+
+    let action = vellaveto_types::Action::new("tool", "fn", json!({"path": "/tmp/test"}));
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    let approval_id = state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .create_with_context(
+            action.clone(),
+            "Approval required".to_string(),
+            Some("user-1".to_string()),
+            Some(session_scope_binding.clone()),
+            Some(vellaveto_engine::acis::fingerprint_action(&action)),
+            Some(vellaveto_approval::ApprovalContainmentContext {
+                signature_status: Some(vellaveto_types::SignatureVerificationStatus::Verified),
+                client_key_id: Some("expected-kid".to_string()),
+                workload_binding_status: Some(vellaveto_types::WorkloadBindingStatus::Bound),
+                session_key_scope: Some(vellaveto_types::SessionKeyScope::PersistedClient),
+                session_scope_binding: Some(session_scope_binding.clone()),
+                ..vellaveto_approval::ApprovalContainmentContext::default()
+            }),
+        )
+        .await
+        .unwrap();
+    state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .approve(&approval_id, "reviewer")
+        .await
+        .unwrap();
+
+    let security_context = vellaveto_types::RuntimeSecurityContext {
+        client_provenance: Some(vellaveto_types::ClientProvenance {
+            signature_status: vellaveto_types::SignatureVerificationStatus::Verified,
+            client_key_id: Some("different-kid".to_string()),
+            workload_binding_status: vellaveto_types::WorkloadBindingStatus::Bound,
+            session_key_scope: vellaveto_types::SessionKeyScope::PersistedClient,
+            session_scope_binding: Some(session_scope_binding),
+            ..vellaveto_types::ClientProvenance::default()
+        }),
+        ..vellaveto_types::RuntimeSecurityContext::default()
+    };
+
+    assert!(super::super::helpers::consume_presented_approval(
+        &state,
+        &session_id,
+        Some(&approval_id),
+        &action,
+        Some(&security_context),
+    )
+    .await
+    .is_err());
+
+    let approval = state
+        .approval_store
+        .as_ref()
+        .unwrap()
+        .get(&approval_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        approval.status,
+        vellaveto_approval::ApprovalStatus::Approved
+    );
 }
 
 // ==========================================================================

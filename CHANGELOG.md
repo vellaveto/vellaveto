@@ -199,6 +199,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operator config cannot silently shadow one trusted signer definition with
   another at startup, and it rejects duplicate trusted signer public keys so
   the same detached signer cannot be aliased under multiple local identities.
+- **Approval provenance retention and drift hardening (Mar 2026):**
+  Pending approvals, approval-resolution ACIS events, and operator review
+  surfaces now preserve the full transport-clamped provenance summary that
+  survives admission, including `client_key_id`, `replay_status`,
+  `session_scope_binding`, and `canonical_request_hash` alongside signature,
+  workload-binding, and key-scope state. Presented-approval consumption in the
+  HTTP proxy now also fails closed when the current stable transport provenance
+  no longer matches the provenance summary captured when the approval was
+  issued.
 - **HTTP proxy detached signer provenance-guard coverage (Mar 2026):**
   Unit-level mediation coverage now proves the two fail-closed deny paths for
   detached signer provenance: verified detached signatures with signer/transport
@@ -232,8 +241,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   audit metadata for task and extension denial paths, and gRPC now has a live
   extension replay case in addition to the existing task replay coverage.
   WebSocket now mirrors that live non-tool replay coverage for both task and
-  extension approval replays. HTTP now also has a live `tasks/get` replay case
-  in addition to the existing tool replay coverage.
+  extension approval replays. HTTP now has live replay coverage for tool,
+  task, and extension approval consumption too, completing the transport parity
+  matrix for presented-approval replay handling.
 - **gRPC transport identity parity (Mar 2026):**
   The gRPC transport now uses the same validated transport-identity helpers as
   HTTP/WS. Validated `x-agent-identity` JWTs preserve custom claims instead of

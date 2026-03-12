@@ -19,8 +19,8 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use std::fmt::Write;
 use vellaveto_approval::ApprovalContainmentContext;
 use vellaveto_types::{
-    ContainmentMode, ContextChannel, SemanticTaint, SessionKeyScope, SignatureVerificationStatus,
-    SinkClass, TrustTier, WorkloadBindingStatus,
+    ContainmentMode, ContextChannel, ReplayStatus, SemanticTaint, SessionKeyScope,
+    SignatureVerificationStatus, SinkClass, TrustTier, WorkloadBindingStatus,
 };
 
 use crate::AppState;
@@ -151,6 +151,14 @@ fn workload_binding_status_label(status: WorkloadBindingStatus) -> &'static str 
     }
 }
 
+fn replay_status_label(status: ReplayStatus) -> &'static str {
+    match status {
+        ReplayStatus::NotChecked => "not_checked",
+        ReplayStatus::Fresh => "fresh",
+        ReplayStatus::ReplayDetected => "replay_detected",
+    }
+}
+
 fn session_key_scope_label(scope: SessionKeyScope) -> &'static str {
     match scope {
         SessionKeyScope::Unknown => "unknown",
@@ -210,6 +218,12 @@ fn render_approval_containment_summary(
             "pill-trust",
         ));
     }
+    if let Some(ref client_key_id) = context.client_key_id {
+        pills.push(render_containment_pill(
+            &format!("Key: {}", truncate(client_key_id, 24)),
+            "pill-channel",
+        ));
+    }
     if let Some(workload_binding_status) = context.workload_binding_status {
         pills.push(render_containment_pill(
             &format!(
@@ -219,9 +233,27 @@ fn render_approval_containment_summary(
             "pill-mode",
         ));
     }
+    if let Some(replay_status) = context.replay_status {
+        pills.push(render_containment_pill(
+            &format!("Replay: {}", replay_status_label(replay_status)),
+            "pill-risk",
+        ));
+    }
     if let Some(session_key_scope) = context.session_key_scope {
         pills.push(render_containment_pill(
             &format!("Scope: {}", session_key_scope_label(session_key_scope)),
+            "pill-channel",
+        ));
+    }
+    if let Some(ref session_scope_binding) = context.session_scope_binding {
+        pills.push(render_containment_pill(
+            &format!("Session binding: {}", truncate(session_scope_binding, 18)),
+            "pill-channel",
+        ));
+    }
+    if let Some(ref canonical_request_hash) = context.canonical_request_hash {
+        pills.push(render_containment_pill(
+            &format!("Canonical: {}", truncate(canonical_request_hash, 18)),
             "pill-channel",
         ));
     }
@@ -1214,8 +1246,12 @@ mod tests {
             containment_mode: Some(ContainmentMode::RequireApproval),
             semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: 91 }),
             signature_status: Some(SignatureVerificationStatus::Verified),
+            client_key_id: Some("detached-kid".to_string()),
             workload_binding_status: Some(WorkloadBindingStatus::Bound),
+            replay_status: Some(ReplayStatus::Fresh),
             session_key_scope: Some(SessionKeyScope::EphemeralSession),
+            session_scope_binding: Some("sidbind:v1:abc123".to_string()),
+            canonical_request_hash: Some("0123456789abcdef".to_string()),
             execution_is_ephemeral: true,
             counterfactual_review_required: true,
         };
@@ -1226,8 +1262,12 @@ mod tests {
         assert!(html.contains("Mode: require_approval"));
         assert!(html.contains("Risk: 91"));
         assert!(html.contains("Signature: verified"));
+        assert!(html.contains("Key: detached-kid"));
         assert!(html.contains("Binding: bound"));
+        assert!(html.contains("Replay: fresh"));
         assert!(html.contains("Scope: ephemeral_session"));
+        assert!(html.contains("Session binding: sidbind:v1:abc123"));
+        assert!(html.contains("Canonical: 0123456789abcdef"));
         assert!(html.contains("Ephemeral"));
         assert!(html.contains("Taint: integrity_failed"));
         assert!(html.contains("Taint: quarantined"));

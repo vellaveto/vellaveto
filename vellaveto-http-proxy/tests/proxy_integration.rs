@@ -7310,6 +7310,143 @@ async fn http_presented_task_approval_is_consumed_once_and_replay_denied() {
 }
 
 #[tokio::test]
+async fn http_presented_extension_approval_is_consumed_once_and_replay_denied() {
+    let Some(upstream_url) = start_mock_upstream().await else {
+        return;
+    };
+    let tmp = TempDir::new().unwrap();
+    let mut state = build_test_state(&upstream_url, &tmp);
+    let policies = vec![Policy {
+        id: "x-vellaveto-audit:*".to_string(),
+        name: "Require audit extension approval".to_string(),
+        policy_type: PolicyType::Conditional {
+            conditions: json!({"require_approval": true}),
+        },
+        priority: 100,
+        path_rules: None,
+        network_rules: None,
+    }];
+    state.engine = Arc::new(PolicyEngine::with_policies(false, &policies).expect("compile"));
+    state.policies = Arc::new(policies);
+    let approval_store = Arc::new(ApprovalStore::new(
+        tmp.path().join("approvals.jsonl"),
+        Duration::from_secs(300),
+    ));
+    state.approval_store = Some(approval_store.clone());
+
+    let session_id = state.sessions.get_or_create(None);
+    let session_scope_binding = state
+        .sessions
+        .get(&session_id)
+        .expect("session")
+        .session_scope_binding
+        .clone();
+    {
+        let mut session = state.sessions.get_mut(&session_id).expect("session");
+        session.agent_identity = Some(AgentIdentity {
+            subject: Some("http-extension-agent".to_string()),
+            claims: std::collections::HashMap::from([
+                ("session_key_scope".to_string(), json!("persisted_client")),
+                ("execution_is_ephemeral".to_string(), json!(false)),
+            ]),
+            ..Default::default()
+        });
+    }
+
+    let action = extractor::extract_extension_action(
+        "x-vellaveto-audit",
+        "x-vellaveto-audit/stats",
+        &json!({"scope": "daily"}),
+    );
+    let approval_id = seed_approved_presented_approval(
+        &approval_store,
+        "http-extension-agent",
+        &session_scope_binding,
+        &action,
+    )
+    .await;
+
+    let signing_key = SigningKey::from_bytes(&[77u8; 32]);
+    state.trusted_request_signers =
+        Arc::new(trusted_request_signers_for("detached-kid", &signing_key));
+    let app = build_router(state);
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 22,
+        "_meta": {"approval_id": approval_id},
+        "method": "x-vellaveto-audit/stats",
+        "params": {"scope": "daily"}
+    });
+    let request_signature = make_signed_detached_request_signature_header_with_scope(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+    );
+    let second_request_signature = make_signed_detached_request_signature_header_with_scope_nonce(
+        &action,
+        "detached-kid",
+        &signing_key,
+        Some(session_scope_binding.as_str()),
+        "detached-extension-nonce-2",
+    );
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &session_id)
+                .header("x-request-signature", &request_signature)
+                .body(Body::from(serde_json::to_vec(&body).expect("json body")))
+                .unwrap(),
+        )
+        .await
+        .expect("first response");
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_json = json_body(first).await;
+    assert!(
+        first_json.get("error").is_none(),
+        "approved extension request should forward, got: {first_json}"
+    );
+    let consumed = approval_store
+        .get(&approval_id)
+        .await
+        .expect("consumed approval");
+    assert_eq!(consumed.status, ApprovalStatus::Consumed);
+
+    let second = app
+        .oneshot(
+            Request::post("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &session_id)
+                .header("x-request-signature", &second_request_signature)
+                .body(Body::from(serde_json::to_vec(&body).expect("json body")))
+                .unwrap(),
+        )
+        .await
+        .expect("second response");
+    assert_eq!(second.status(), StatusCode::OK);
+    let second_json = json_body(second).await;
+    assert_eq!(second_json["error"]["message"], "Denied by policy");
+
+    let audit_entry = read_presented_approval_audit_entry(
+        &tmp.path().join("audit.log"),
+        "http_proxy",
+        &approval_id,
+    )
+    .await;
+    assert_presented_approval_replay_metadata(&audit_entry, &approval_id);
+    assert_replay_audit_entry_has_transport_provenance(
+        &audit_entry,
+        &session_id,
+        &session_scope_binding,
+    );
+    assert_eq!(audit_entry["metadata"]["extension_id"], "x-vellaveto-audit");
+    assert_eq!(audit_entry["metadata"]["method"], "x-vellaveto-audit/stats");
+}
+
+#[tokio::test]
 async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
     let Some(upstream_url) = start_mock_upstream_ws().await else {
         return;
