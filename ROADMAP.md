@@ -199,7 +199,8 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   approval gate. Those replay tests now also lock the emitted replay `event`,
   `approval_id`, and the action-specific metadata operators need to triage
   task and extension approval replays. gRPC now covers both task and extension
-  replay on the live unary path.
+  replay on the live unary path, and WebSocket now covers both task and
+  extension replay on the live `/mcp/ws` path.
 - Approval escalation and resolution now also preserve provenance summary, so
   reviewer-facing `containment_context` and approval-resolution ACIS events can
   show the same signature status, workload-binding status, key scope, and
