@@ -65,6 +65,7 @@ jobs:
     name: Check & Lint
     needs: actionlint-checksum
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -258,6 +259,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: check
     steps:
       - name: Free disk space
@@ -288,6 +290,7 @@ jobs:
   feature-gates:
     name: Feature Gates
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: check
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -363,6 +366,7 @@ jobs:
   bench:
     name: Benchmark Regression Check
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     steps:
@@ -428,6 +432,7 @@ jobs:
   release-build:
     name: Release Build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: test
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -632,6 +637,7 @@ jobs:
   feature-matrix:
     name: "Features: ${{ matrix.name }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: check
     strategy:
       fail-fast: false
