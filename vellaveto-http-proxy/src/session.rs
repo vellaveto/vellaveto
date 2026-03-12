@@ -643,6 +643,27 @@ impl SessionStore {
         self.sessions.get_mut(session_id)
     }
 
+    /// Non-blocking read access. Returns `None` if the shard is already locked
+    /// or the session doesn't exist. Use this when the caller may already hold
+    /// a `get_mut()` lock on the same shard to avoid deadlock.
+    pub fn try_get(
+        &self,
+        session_id: &str,
+    ) -> dashmap::try_result::TryResult<dashmap::mapref::one::Ref<'_, String, SessionState>> {
+        self.sessions.try_get(session_id)
+    }
+
+    /// Non-blocking mutable access. Returns `Locked` if the shard is already
+    /// locked. Use this when the caller may already hold a `get_mut()` lock on
+    /// the same shard to avoid deadlock.
+    pub fn try_get_mut(
+        &self,
+        session_id: &str,
+    ) -> dashmap::try_result::TryResult<dashmap::mapref::one::RefMut<'_, String, SessionState>>
+    {
+        self.sessions.try_get_mut(session_id)
+    }
+
     /// Remove expired sessions.
     pub fn evict_expired(&self) {
         self.sessions

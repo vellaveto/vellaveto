@@ -1383,6 +1383,7 @@ async fn relay_client_to_upstream(
                                                         "session": session_id,
                                                         "transport": "websocket",
                                                         "registry": "unknown_tool",
+                                                        "event": "presented_approval_replay_denied",
                                                         "approval_id": presented_approval_id,
                                                     }),
                                                     envelope,
@@ -1524,6 +1525,7 @@ async fn relay_client_to_upstream(
                                                         "session": session_id,
                                                         "transport": "websocket",
                                                         "registry": "untrusted_tool",
+                                                        "event": "presented_approval_replay_denied",
                                                         "approval_id": presented_approval_id,
                                                     }),
                                                     envelope,
@@ -1553,7 +1555,41 @@ async fn relay_client_to_upstream(
                         // clone the same stale call_counts, both pass evaluation, both
                         // increment. Matches HTTP handler R19-TOCTOU pattern
                         // (handlers.rs:725-789).
-                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
+
+                        // Pre-compute security context BEFORE acquiring DashMap write lock
+                        // to avoid deadlock — build_ws_runtime_security_context internally
+                        // calls sessions.get()/get_mut() which would re-enter the lock.
+                        let pre_eval_ctx = state
+                            .sessions
+                            .get(&session_id)
+                            .map(|session| EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_chain: session.current_call_chain.clone(),
+                                ..EvaluationContext::default()
+                            })
+                            .unwrap_or_else(|| EvaluationContext {
+                                agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                                ..EvaluationContext::default()
+                            });
+                        let security_context = build_ws_runtime_security_context(
+                            &parsed,
+                            &action,
+                            &handshake_headers,
+                            super::helpers::TransportSecurityInputs {
+                                oauth_evidence: oauth_claims.as_ref(),
+                                eval_ctx: Some(&pre_eval_ctx),
+                                sessions: &state.sessions,
+                                session_id: Some(&session_id),
+                                trusted_request_signers: &state.trusted_request_signers,
+                                detached_signature_freshness: state
+                                    .detached_signature_freshness,
+                            },
+                        );
+
+                        // TOCTOU-safe evaluation + session update (write lock)
+                        let (mediation_result, ctx) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -1568,20 +1604,6 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: Some(&ctx),
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -1616,24 +1638,10 @@ async fn relay_client_to_upstream(
                                 session.action_history.push_back(tool_name.to_string());
                             }
 
-                            (result, ctx, security_context)
+                            (result, ctx)
                         } else {
                             // No session — evaluate without context (fail-closed)
                             let ctx = EvaluationContext::default();
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: None,
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -1645,7 +1653,7 @@ async fn relay_client_to_upstream(
                                 Some(&session_id),
                                 None,
                             );
-                            (result, ctx, security_context)
+                            (result, ctx)
                         };
 
                         let mut final_origin = mediation_result.origin;
@@ -1958,16 +1966,25 @@ async fn relay_client_to_upstream(
                             }
                             Verdict::Deny { ref reason } => {
                                 // Audit the denial with detailed reason
+                                let mut extra = json!({
+                                    "source": "ws_proxy",
+                                    "session": session_id,
+                                    "transport": "websocket",
+                                    "tool": tool_name,
+                                });
+                                if reason == INVALID_PRESENTED_APPROVAL_REASON
+                                    && presented_approval_id.is_some()
+                                {
+                                    extra["event"] =
+                                        json!("presented_approval_replay_denied");
+                                    extra["approval_id"] = json!(presented_approval_id);
+                                }
                                 if let Err(e) = state
                                     .audit
                                     .log_entry_with_acis(
                                         &action,
                                         &verdict,
-                                        json!({
-                                            "source": "ws_proxy",
-                                            "session": session_id,
-                                            "transport": "websocket",
-                                        }),
+                                        extra,
                                         acis_envelope,
                                     )
                                     .await
@@ -2331,7 +2348,41 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for resource reads. Matches ToolCall fix above and HTTP
                         // handler FIND-R112-002 pattern (handlers.rs:1711-1774).
-                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
+
+                        // Pre-compute security context BEFORE acquiring DashMap write lock
+                        // to avoid deadlock — build_ws_runtime_security_context internally
+                        // calls sessions.get()/get_mut() which would re-enter the lock.
+                        let pre_eval_ctx = state
+                            .sessions
+                            .get(&session_id)
+                            .map(|session| EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_chain: session.current_call_chain.clone(),
+                                ..EvaluationContext::default()
+                            })
+                            .unwrap_or_else(|| EvaluationContext {
+                                agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                                ..EvaluationContext::default()
+                            });
+                        let security_context = build_ws_runtime_security_context(
+                            &parsed,
+                            &action,
+                            &handshake_headers,
+                            super::helpers::TransportSecurityInputs {
+                                oauth_evidence: oauth_claims.as_ref(),
+                                eval_ctx: Some(&pre_eval_ctx),
+                                sessions: &state.sessions,
+                                session_id: Some(&session_id),
+                                trusted_request_signers: &state.trusted_request_signers,
+                                detached_signature_freshness: state
+                                    .detached_signature_freshness,
+                            },
+                        );
+
+                        // TOCTOU-safe evaluation + session update (write lock)
+                        let (mediation_result, ctx) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -2346,20 +2397,6 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: Some(&ctx),
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -2397,23 +2434,9 @@ async fn relay_client_to_upstream(
                                     .push_back("resources/read".to_string());
                             }
 
-                            (result, ctx, security_context)
+                            (result, ctx)
                         } else {
                             let ctx = EvaluationContext::default();
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: None,
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -2425,7 +2448,7 @@ async fn relay_client_to_upstream(
                                 Some(&session_id),
                                 None,
                             );
-                            (result, ctx, security_context)
+                            (result, ctx)
                         };
 
                         let mut final_origin = mediation_result.origin;
@@ -3177,7 +3200,41 @@ async fn relay_client_to_upstream(
                         // SECURITY (FIND-R190-006): Update session state on Allow
                         // (touch + call_counts + action_history) while still holding
                         // the shard lock, matching ToolCall/ResourceRead parity.
-                        let (mediation_result, task_eval_ctx, security_context) =
+
+                        // Pre-compute security context BEFORE acquiring DashMap write lock
+                        // to avoid deadlock — build_ws_runtime_security_context internally
+                        // calls sessions.get()/get_mut() which would re-enter the lock.
+                        let pre_eval_ctx = state
+                            .sessions
+                            .get(&session_id)
+                            .map(|session| EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_chain: session.current_call_chain.clone(),
+                                ..EvaluationContext::default()
+                            })
+                            .unwrap_or_else(|| EvaluationContext {
+                                agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                                ..EvaluationContext::default()
+                            });
+                        let security_context = build_ws_runtime_security_context(
+                            &parsed,
+                            &action,
+                            &handshake_headers,
+                            super::helpers::TransportSecurityInputs {
+                                oauth_evidence: oauth_claims.as_ref(),
+                                eval_ctx: Some(&pre_eval_ctx),
+                                sessions: &state.sessions,
+                                session_id: Some(&session_id),
+                                trusted_request_signers: &state.trusted_request_signers,
+                                detached_signature_freshness: state
+                                    .detached_signature_freshness,
+                            },
+                        );
+
+                        // TOCTOU-safe evaluation + session update (write lock)
+                        let (mediation_result, task_eval_ctx) =
                             if let Some(mut session) = state.sessions.get_mut(&session_id) {
                                 let ctx = EvaluationContext {
                                     timestamp: None,
@@ -3195,20 +3252,6 @@ async fn relay_client_to_upstream(
                                     capability_token: None,
                                     session_state: None,
                                 };
-                                let security_context = build_ws_runtime_security_context(
-                                    &parsed,
-                                    &action,
-                                    &handshake_headers,
-                                    super::helpers::TransportSecurityInputs {
-                                        oauth_evidence: oauth_claims.as_ref(),
-                                        eval_ctx: Some(&ctx),
-                                        sessions: &state.sessions,
-                                        session_id: Some(&session_id),
-                                        trusted_request_signers: &state.trusted_request_signers,
-                                        detached_signature_freshness: state
-                                            .detached_signature_freshness,
-                                    },
-                                );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
@@ -3242,23 +3285,9 @@ async fn relay_client_to_upstream(
                                     session.action_history.push_back(task_method.to_string());
                                 }
 
-                                (result, ctx, security_context)
+                                (result, ctx)
                             } else {
                                 let ctx = EvaluationContext::default();
-                                let security_context = build_ws_runtime_security_context(
-                                    &parsed,
-                                    &action,
-                                    &handshake_headers,
-                                    super::helpers::TransportSecurityInputs {
-                                        oauth_evidence: oauth_claims.as_ref(),
-                                        eval_ctx: None,
-                                        sessions: &state.sessions,
-                                        session_id: Some(&session_id),
-                                        trusted_request_signers: &state.trusted_request_signers,
-                                        detached_signature_freshness: state
-                                            .detached_signature_freshness,
-                                    },
-                                );
                                 let result = mediate_with_security_context(
                                     &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                     &action,
@@ -3270,7 +3299,7 @@ async fn relay_client_to_upstream(
                                     Some(&session_id),
                                     None,
                                 );
-                                (result, ctx, security_context)
+                                (result, ctx)
                             };
 
                         let mut final_origin = mediation_result.origin;
@@ -3786,7 +3815,41 @@ async fn relay_client_to_upstream(
 
                         // SECURITY (FIND-R130-002): TOCTOU-safe context+eval+update
                         // for extension methods. Matches ToolCall/ResourceRead fixes.
-                        let (mediation_result, ctx, security_context) = if let Some(mut session) =
+
+                        // Pre-compute security context BEFORE acquiring DashMap write lock
+                        // to avoid deadlock — build_ws_runtime_security_context internally
+                        // calls sessions.get()/get_mut() which would re-enter the lock.
+                        let pre_eval_ctx = state
+                            .sessions
+                            .get(&session_id)
+                            .map(|session| EvaluationContext {
+                                timestamp: None,
+                                agent_id: session.oauth_subject.clone(),
+                                agent_identity: session.agent_identity.clone(),
+                                call_chain: session.current_call_chain.clone(),
+                                ..EvaluationContext::default()
+                            })
+                            .unwrap_or_else(|| EvaluationContext {
+                                agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                                ..EvaluationContext::default()
+                            });
+                        let security_context = build_ws_runtime_security_context(
+                            &parsed,
+                            &action,
+                            &handshake_headers,
+                            super::helpers::TransportSecurityInputs {
+                                oauth_evidence: oauth_claims.as_ref(),
+                                eval_ctx: Some(&pre_eval_ctx),
+                                sessions: &state.sessions,
+                                session_id: Some(&session_id),
+                                trusted_request_signers: &state.trusted_request_signers,
+                                detached_signature_freshness: state
+                                    .detached_signature_freshness,
+                            },
+                        );
+
+                        // TOCTOU-safe evaluation + session update (write lock)
+                        let (mediation_result, ctx) = if let Some(mut session) =
                             state.sessions.get_mut(&session_id)
                         {
                             let ctx = EvaluationContext {
@@ -3801,20 +3864,6 @@ async fn relay_client_to_upstream(
                                 capability_token: None,
                                 session_state: None,
                             };
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: Some(&ctx),
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -3846,23 +3895,9 @@ async fn relay_client_to_upstream(
                                 session.action_history.push_back(ext_key.clone());
                             }
 
-                            (result, ctx, security_context)
+                            (result, ctx)
                         } else {
                             let ctx = EvaluationContext::default();
-                            let security_context = build_ws_runtime_security_context(
-                                &parsed,
-                                &action,
-                                &handshake_headers,
-                                super::helpers::TransportSecurityInputs {
-                                    oauth_evidence: oauth_claims.as_ref(),
-                                    eval_ctx: None,
-                                    sessions: &state.sessions,
-                                    session_id: Some(&session_id),
-                                    trusted_request_signers: &state.trusted_request_signers,
-                                    detached_signature_freshness: state
-                                        .detached_signature_freshness,
-                                },
-                            );
                             let result = mediate_with_security_context(
                                 &uuid::Uuid::new_v4().to_string().replace('-', ""),
                                 &action,
@@ -3874,7 +3909,7 @@ async fn relay_client_to_upstream(
                                 Some(&session_id),
                                 None,
                             );
-                            (result, ctx, security_context)
+                            (result, ctx)
                         };
 
                         let mut final_origin = mediation_result.origin;

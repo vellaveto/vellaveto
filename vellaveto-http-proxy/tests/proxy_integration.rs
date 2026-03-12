@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
-use tokio_tungstenite::tungstenite::http::Request as WsRequest;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tower::ServiceExt;
 use vellaveto_approval::{
@@ -82,6 +82,24 @@ fn make_signed_detached_request_signature_header_with_scope_nonce(
     session_scope_binding: Option<&str>,
     nonce: &str,
 ) -> String {
+    make_signed_detached_request_signature_header_full(
+        action,
+        key_id,
+        signing_key,
+        session_scope_binding,
+        nonce,
+        None,
+    )
+}
+
+fn make_signed_detached_request_signature_header_full(
+    action: &vellaveto_types::Action,
+    key_id: &str,
+    signing_key: &SigningKey,
+    session_scope_binding: Option<&str>,
+    nonce: &str,
+    routing_identity: Option<&str>,
+) -> String {
     let mut request_signature = RequestSignature {
         key_id: Some(key_id.to_string()),
         algorithm: Some("ed25519".to_string()),
@@ -89,14 +107,25 @@ fn make_signed_detached_request_signature_header_with_scope_nonce(
         created_at: Some(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         signature: None,
     };
+    // Build the same provenance the verifier will compute from the session's agent_identity.
+    // If routing_identity is set, the verifier will also build workload_identity from it.
+    let workload_identity = routing_identity.map(|id| vellaveto_types::WorkloadIdentity {
+        platform: Some("jwt".to_string()),
+        workload_id: id.to_string(),
+        namespace: None,
+        service_account: None,
+        process_identity: None,
+        attestation_level: Some("jwt".to_string()),
+    });
     let input = CanonicalRequestInput::from_action(
         action,
         session_scope_binding,
         Some(&ClientProvenance {
             request_signature: Some(request_signature.clone()),
+            workload_identity,
             ..ClientProvenance::default()
         }),
-        None,
+        routing_identity,
     );
     let preimage = canonical_request_preimage(&input).expect("canonical request preimage");
     request_signature.signature = Some(hex::encode(signing_key.sign(&preimage).to_bytes()));
@@ -397,7 +426,11 @@ fn build_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyState {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -599,7 +632,7 @@ async fn read_presented_approval_audit_entry(
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    panic!("matching presented-approval audit entry");
+    panic!("matching presented-approval audit entry (source={source}, approval_id={approval_id})");
 }
 
 fn assert_audit_entry_has_clamped_transport_provenance(
@@ -2323,7 +2356,11 @@ async fn rug_pull_tool_addition_blocks_tool_call() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -2740,7 +2777,11 @@ async fn trace_resource_read_denied_includes_trace() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -2852,7 +2893,11 @@ async fn trace_constraint_details_visible() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url,
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -3288,7 +3333,11 @@ fn build_oauth_test_state_full(params: OAuthTestParams<'_>) -> ProxyState {
     ];
 
     let engine = PolicyEngine::with_policies(false, &policies).expect("policies should compile");
-    let http_client = reqwest::Client::new();
+    let http_client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client");
 
     let oauth_config = OAuthConfig {
         issuer: TEST_ISSUER.to_string(),
@@ -4472,7 +4521,11 @@ fn build_api_key_test_state(
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -4992,7 +5045,11 @@ fn build_test_state_deny_tasks(upstream_url: &str, tmp: &TempDir) -> ProxyState 
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5142,7 +5199,11 @@ async fn task_get_allowed_when_no_deny_policy() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5243,7 +5304,11 @@ async fn task_request_fail_closed_no_matching_policy() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5343,7 +5408,11 @@ async fn task_request_dlp_blocks_secret_in_task_id() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5449,7 +5518,11 @@ async fn task_request_clean_params_not_dlp_blocked() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5553,7 +5626,11 @@ async fn task_request_dlp_blocks_github_token_in_params() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5661,7 +5738,11 @@ async fn extension_method_fail_closed_no_matching_policy() {
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream.clone(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -5989,7 +6070,11 @@ fn build_chain_depth_test_state(upstream_url: &str, tmp: &TempDir, max_depth: us
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -6555,7 +6640,11 @@ fn build_priv_escalation_test_state(upstream_url: &str, tmp: &TempDir) -> ProxyS
         audit: Arc::new(AuditLogger::new(tmp.path().join("audit.log"))),
         sessions: Arc::new(SessionStore::new(Duration::from_secs(300), 100)),
         upstream_url: upstream_url.to_string(),
-        http_client: reqwest::Client::new(),
+        http_client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(15))
+                .build()
+                .expect("test http client"),
         oauth: None,
         injection_scanner: None,
         injection_disabled: false,
@@ -6965,19 +7054,22 @@ async fn assert_ws_tool_approval_persists_clamped_transport_provenance(
     let Some(proxy_ws_url) = start_proxy_ws_server(state.clone()).await else {
         return;
     };
-    let request = WsRequest::builder()
-        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
-        .header(
-            "x-request-signature",
-            make_signed_detached_request_signature_header_with_scope(
-                &action,
-                "detached-kid",
-                &signing_key,
-                Some(session_scope_binding.as_str()),
-            ),
+    let mut request = format!("{proxy_ws_url}?session_id={session_id}")
+        .into_client_request()
+        .expect("ws request");
+    request.headers_mut().insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_full(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+            "detached-nonce",
+            Some("ws-agent"),
         )
-        .body(())
-        .unwrap();
+        .parse()
+        .expect("header value"),
+    );
 
     let (mut client_ws, _) = tokio::time::timeout(
         Duration::from_secs(5),
@@ -7525,19 +7617,22 @@ async fn ws_presented_tool_approval_is_consumed_once_and_replay_denied() {
     let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
         return;
     };
-    let request = WsRequest::builder()
-        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
-        .header(
-            "x-request-signature",
-            make_signed_detached_request_signature_header_with_scope(
-                &action,
-                "detached-kid",
-                &signing_key,
-                Some(session_scope_binding.as_str()),
-            ),
+    let mut request = format!("{proxy_ws_url}?session_id={session_id}")
+        .into_client_request()
+        .expect("ws request");
+    request.headers_mut().insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_full(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
+            "detached-nonce",
+            Some("ws-agent"),
         )
-        .body(())
-        .unwrap();
+        .parse()
+        .expect("header value"),
+    );
     let (mut client_ws, _) = tokio::time::timeout(
         Duration::from_secs(5),
         tokio_tungstenite::connect_async(request),
@@ -7645,19 +7740,20 @@ async fn ws_presented_task_approval_is_consumed_once_and_replay_denied() {
     let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
         return;
     };
-    let request = WsRequest::builder()
-        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
-        .header(
-            "x-request-signature",
-            make_signed_detached_request_signature_header_with_scope(
-                &action,
-                "detached-kid",
-                &signing_key,
-                Some(session_scope_binding.as_str()),
-            ),
+    let mut request = format!("{proxy_ws_url}?session_id={session_id}")
+        .into_client_request()
+        .expect("ws request");
+    request.headers_mut().insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
         )
-        .body(())
-        .unwrap();
+        .parse()
+        .expect("header value"),
+    );
     let (mut client_ws, _) = tokio::time::timeout(
         Duration::from_secs(5),
         tokio_tungstenite::connect_async(request),
@@ -7787,19 +7883,20 @@ async fn ws_presented_extension_approval_is_consumed_once_and_replay_denied() {
     let Some(proxy_ws_url) = start_proxy_ws_server(state).await else {
         return;
     };
-    let request = WsRequest::builder()
-        .uri(format!("{proxy_ws_url}?session_id={session_id}"))
-        .header(
-            "x-request-signature",
-            make_signed_detached_request_signature_header_with_scope(
-                &action,
-                "detached-kid",
-                &signing_key,
-                Some(session_scope_binding.as_str()),
-            ),
+    let mut request = format!("{proxy_ws_url}?session_id={session_id}")
+        .into_client_request()
+        .expect("ws request");
+    request.headers_mut().insert(
+        "x-request-signature",
+        make_signed_detached_request_signature_header_with_scope(
+            &action,
+            "detached-kid",
+            &signing_key,
+            Some(session_scope_binding.as_str()),
         )
-        .body(())
-        .unwrap();
+        .parse()
+        .expect("header value"),
+    );
     let (mut client_ws, _) = tokio::time::timeout(
         Duration::from_secs(5),
         tokio_tungstenite::connect_async(request),

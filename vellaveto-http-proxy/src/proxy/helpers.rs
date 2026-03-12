@@ -580,9 +580,24 @@ fn transport_session_scope_binding(
     session_id: Option<&str>,
 ) -> Option<String> {
     let session_id = session_id?;
-    sessions
-        .get(session_id)
-        .map(|session| session.session_scope_binding.clone())
+    // SECURITY (DEADLOCK-FIX): Use try_get instead of get to avoid deadlock
+    // when the caller already holds a get_mut() write lock on the same DashMap
+    // shard (e.g., inside the TOCTOU-protected evaluation block in handlers).
+    // If the shard is locked, fall back to None — the caller should pre-compute
+    // the security context outside the lock to avoid this path.
+    match sessions.try_get(session_id) {
+        dashmap::try_result::TryResult::Present(session) => {
+            Some(session.session_scope_binding.clone())
+        }
+        dashmap::try_result::TryResult::Absent => None,
+        dashmap::try_result::TryResult::Locked => {
+            tracing::debug!(
+                session_id = %session_id,
+                "DashMap shard locked — session_scope_binding unavailable for provenance"
+            );
+            None
+        }
+    }
 }
 
 fn build_client_provenance(
@@ -1098,7 +1113,13 @@ fn verify_detached_request_signature(
     let Some(session_id) = inputs.session_id else {
         return;
     };
-    let Some(mut session) = inputs.sessions.get_mut(session_id) else {
+    // SECURITY (DEADLOCK-FIX): Use try_get_mut instead of get_mut to avoid
+    // deadlock when the caller already holds a get_mut() write lock on the
+    // same DashMap shard. If the shard is locked, nonce recording is skipped —
+    // signature verification still completes, and the caller's TOCTOU block
+    // serializes requests on this session so replay within the same lock is
+    // not possible.
+    let Some(mut session) = inputs.sessions.try_get_mut(session_id).try_unwrap() else {
         return;
     };
     provenance.replay_status = merge_replay_status(

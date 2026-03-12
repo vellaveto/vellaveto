@@ -210,7 +210,6 @@ pub async fn handle_mcp_post(
             Ok(claims) => claims,
             Err(response) => return response,
         };
-
     // OWASP ASI07: Agent identity attestation via X-Agent-Identity JWT
     let agent_identity = match validate_agent_identity(&state, &headers).await {
         Ok(identity) => identity,
@@ -835,6 +834,7 @@ pub async fn handle_mcp_post(
                                         json!({
                                             "source": "http_proxy",
                                             "session": &session_id,
+                                            "event": "presented_approval_replay_denied",
                                             "registry": "unknown_tool",
                                             "approval_id": presented_approval_id,
                                         }),
@@ -955,6 +955,7 @@ pub async fn handle_mcp_post(
                                         json!({
                                             "source": "http_proxy",
                                             "session": &session_id,
+                                            "event": "presented_approval_replay_denied",
                                             "registry": "untrusted_tool",
                                             "approval_id": presented_approval_id,
                                         }),
@@ -1044,6 +1045,41 @@ pub async fn handle_mcp_post(
                 resolve_domains(&mut action).await;
             }
 
+            // SECURITY (DEADLOCK-FIX): Build security context BEFORE acquiring
+            // the DashMap shard lock. `build_runtime_security_context` internally
+            // reads from `state.sessions` for scope binding and nonce recording —
+            // doing that inside a `get_mut` block deadlocks on the same shard.
+            // Identity/chain data for provenance is read via a short-lived
+            // `sessions.get()` (read lock), which doesn't conflict.
+            let pre_eval_ctx = state
+                .sessions
+                .get(&session_id)
+                .map(|session| EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_chain: session.current_call_chain.clone(),
+                    ..EvaluationContext::default()
+                })
+                .unwrap_or_else(|| EvaluationContext {
+                    agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                    agent_identity: agent_identity.clone(),
+                    ..EvaluationContext::default()
+                });
+            let security_context = build_runtime_security_context(
+                &msg,
+                &action,
+                &headers,
+                TransportSecurityInputs {
+                    oauth_evidence: oauth_claims.as_ref(),
+                    eval_ctx: Some(&pre_eval_ctx),
+                    sessions: &state.sessions,
+                    session_id: Some(&session_id),
+                    trusted_request_signers: &state.trusted_request_signers,
+                    detached_signature_freshness: state.detached_signature_freshness,
+                },
+            );
+
             // SECURITY (R19-TOCTOU): Combine context read, evaluation, and session
             // update into a single block that holds the DashMap shard lock. Without
             // this, concurrent requests clone the same call_counts snapshot, all pass
@@ -1052,7 +1088,7 @@ pub async fn handle_mcp_post(
             // This is safe because engine evaluation is synchronous (no await) and
             // fast (<5ms). The shard lock is released when `session` drops.
             // R244-PROXY-1: Return eval_ctx from closure so ACIS envelope gets agent identity.
-            let (mediation_result, eval_ctx, security_context) =
+            let (mediation_result, eval_ctx) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -1066,19 +1102,6 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -1108,7 +1131,7 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(tool_name.clone());
                     }
 
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 } else {
                     // Fall back to the current transport-authenticated identity when
                     // the session cannot be loaded.
@@ -1117,19 +1140,6 @@ pub async fn handle_mcp_post(
                         agent_identity: agent_identity.clone(),
                         ..EvaluationContext::default()
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -1141,7 +1151,7 @@ pub async fn handle_mcp_post(
                         Some(&session_id),
                         None,
                     );
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 };
             let mut final_origin = mediation_result.origin;
             let mut acis_envelope = mediation_result.envelope.clone();
@@ -1937,17 +1947,26 @@ pub async fn handle_mcp_post(
                         reason: reason.clone(),
                     };
 
+                    let mut extra = json!({"tool": tool_name});
+                    if reason == INVALID_PRESENTED_APPROVAL_REASON
+                        && presented_approval_id.is_some()
+                    {
+                        extra["event"] = json!("presented_approval_replay_denied");
+                        extra["approval_id"] = json!(presented_approval_id);
+                    }
+                    let audit_metadata = build_audit_context_with_chain(
+                        &session_id,
+                        extra,
+                        &oauth_claims,
+                        &full_call_chain,
+                    );
+
                     if let Err(e) = state
                         .audit
                         .log_entry_with_acis(
                             &action,
                             &verdict,
-                            build_audit_context_with_chain(
-                                &session_id,
-                                json!({"tool": tool_name}),
-                                &oauth_claims,
-                                &full_call_chain,
-                            ),
+                            audit_metadata,
                             acis_envelope,
                         )
                         .await
@@ -2378,7 +2397,38 @@ pub async fn handle_mcp_post(
             // max_calls evaluation, and all increment — bypassing rate limits.
             // Mirror the ToolCall TOCTOU fix (R19-TOCTOU).
             // R244-PROXY-1: Return eval_ctx so ACIS envelope gets agent identity.
-            let (mediation_result, eval_ctx, security_context) =
+            // Deadlock fix: build pre_eval_ctx + security_context BEFORE get_mut so that
+            // build_runtime_security_context never acquires a read shard while get_mut holds
+            // the write shard on the same DashMap.
+            let pre_eval_ctx = state
+                .sessions
+                .get(&session_id)
+                .map(|session| EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_chain: session.current_call_chain.clone(),
+                    ..EvaluationContext::default()
+                })
+                .unwrap_or_else(|| EvaluationContext {
+                    agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                    agent_identity: agent_identity.clone(),
+                    ..EvaluationContext::default()
+                });
+            let security_context = build_runtime_security_context(
+                &msg,
+                &action,
+                &headers,
+                TransportSecurityInputs {
+                    oauth_evidence: oauth_claims.as_ref(),
+                    eval_ctx: Some(&pre_eval_ctx),
+                    sessions: &state.sessions,
+                    session_id: Some(&session_id),
+                    trusted_request_signers: &state.trusted_request_signers,
+                    detached_signature_freshness: state.detached_signature_freshness,
+                },
+            );
+            let (mediation_result, eval_ctx) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -2392,19 +2442,6 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -2437,26 +2474,13 @@ pub async fn handle_mcp_post(
                             .push_back("resources/read".to_string());
                     }
 
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 } else {
                     let eval_ctx = EvaluationContext {
                         agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
                         agent_identity: agent_identity.clone(),
                         ..EvaluationContext::default()
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -2468,7 +2492,7 @@ pub async fn handle_mcp_post(
                         Some(&session_id),
                         None,
                     );
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 };
             let mut final_origin = mediation_result.origin;
             let mut acis_envelope = mediation_result.envelope.clone();
@@ -3645,7 +3669,38 @@ pub async fn handle_mcp_post(
             // Read context and evaluate inside a single DashMap shard lock, matching
             // the ToolCall pattern (line 725-789). Without this, concurrent TaskRequests
             // can bypass max_calls_in_window by reading stale call_counts.
-            let (mediation_result, eval_ctx, security_context) =
+            // Deadlock fix: build pre_eval_ctx + security_context BEFORE get_mut so that
+            // build_runtime_security_context never acquires a read shard while get_mut holds
+            // the write shard on the same DashMap.
+            let pre_eval_ctx = state
+                .sessions
+                .get(&session_id)
+                .map(|session| EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_chain: session.current_call_chain.clone(),
+                    ..EvaluationContext::default()
+                })
+                .unwrap_or_else(|| EvaluationContext {
+                    agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                    agent_identity: agent_identity.clone(),
+                    ..EvaluationContext::default()
+                });
+            let security_context = build_runtime_security_context(
+                &msg,
+                &action,
+                &headers,
+                TransportSecurityInputs {
+                    oauth_evidence: oauth_claims.as_ref(),
+                    eval_ctx: Some(&pre_eval_ctx),
+                    sessions: &state.sessions,
+                    session_id: Some(&session_id),
+                    trusted_request_signers: &state.trusted_request_signers,
+                    detached_signature_freshness: state.detached_signature_freshness,
+                },
+            );
+            let (mediation_result, eval_ctx) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -3659,19 +3714,6 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -3699,26 +3741,13 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(task_method.clone());
                     }
 
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 } else {
                     let eval_ctx = EvaluationContext {
                         agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
                         agent_identity: agent_identity.clone(),
                         ..EvaluationContext::default()
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -3730,7 +3759,7 @@ pub async fn handle_mcp_post(
                         Some(&session_id),
                         None,
                     );
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 };
 
             let mut final_origin = mediation_result.origin;
@@ -4398,7 +4427,38 @@ pub async fn handle_mcp_post(
 
             let ext_key = format!("extension:{extension_id}:{method}");
 
-            let (mediation_result, eval_ctx, security_context) =
+            // Deadlock fix: build pre_eval_ctx + security_context BEFORE get_mut so that
+            // build_runtime_security_context never acquires a read shard while get_mut holds
+            // the write shard on the same DashMap.
+            let pre_eval_ctx = state
+                .sessions
+                .get(&session_id)
+                .map(|session| EvaluationContext {
+                    timestamp: None,
+                    agent_id: session.oauth_subject.clone(),
+                    agent_identity: session.agent_identity.clone(),
+                    call_chain: session.current_call_chain.clone(),
+                    ..EvaluationContext::default()
+                })
+                .unwrap_or_else(|| EvaluationContext {
+                    agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
+                    agent_identity: agent_identity.clone(),
+                    ..EvaluationContext::default()
+                });
+            let security_context = build_runtime_security_context(
+                &msg,
+                &action,
+                &headers,
+                TransportSecurityInputs {
+                    oauth_evidence: oauth_claims.as_ref(),
+                    eval_ctx: Some(&pre_eval_ctx),
+                    sessions: &state.sessions,
+                    session_id: Some(&session_id),
+                    trusted_request_signers: &state.trusted_request_signers,
+                    detached_signature_freshness: state.detached_signature_freshness,
+                },
+            );
+            let (mediation_result, eval_ctx) =
                 if let Some(mut session) = state.sessions.get_mut(&session_id) {
                     let eval_ctx = EvaluationContext {
                         timestamp: None,
@@ -4412,19 +4472,6 @@ pub async fn handle_mcp_post(
                         capability_token: None,
                         session_state: None,
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -4450,26 +4497,13 @@ pub async fn handle_mcp_post(
                         session.action_history.push_back(ext_key.clone());
                     }
 
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 } else {
                     let eval_ctx = EvaluationContext {
                         agent_id: oauth_claims.as_ref().map(|claims| claims.sub.clone()),
                         agent_identity: agent_identity.clone(),
                         ..EvaluationContext::default()
                     };
-                    let security_context = build_runtime_security_context(
-                        &msg,
-                        &action,
-                        &headers,
-                        TransportSecurityInputs {
-                            oauth_evidence: oauth_claims.as_ref(),
-                            eval_ctx: Some(&eval_ctx),
-                            sessions: &state.sessions,
-                            session_id: Some(&session_id),
-                            trusted_request_signers: &state.trusted_request_signers,
-                            detached_signature_freshness: state.detached_signature_freshness,
-                        },
-                    );
                     let result = mediate_with_security_context(
                         &uuid::Uuid::new_v4().to_string().replace('-', ""),
                         &action,
@@ -4481,7 +4515,7 @@ pub async fn handle_mcp_post(
                         Some(&session_id),
                         None,
                     );
-                    (result, eval_ctx, security_context)
+                    (result, eval_ctx)
                 };
 
             let mut final_origin = mediation_result.origin;
