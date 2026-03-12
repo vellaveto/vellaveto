@@ -141,6 +141,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MCP relay, and server now all consume a shared review-safe provenance summary
   helper instead of touching raw `client_provenance` fields at persistence
   sites, aligning the code with the CodeQL cleartext-logging model too.
+  Cluster-backed approval fixtures now also default the expanded provenance
+  summary shape so workspace `cargo check --workspace --all-targets --locked`
+  stays aligned with the new approval context contract.
 - **gRPC approval replay audits now preserve replay metadata (Mar 2026):**
   gRPC tool approval replay denials now emit the same
   `presented_approval_replay_denied` event metadata as the other transports,

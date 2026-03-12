@@ -51,6 +51,7 @@ fn make_containment_context() -> ApprovalContainmentContext {
         containment_mode: Some(ContainmentMode::RequireApproval),
         semantic_risk_score: Some(SemanticRiskScore { value: 91 }),
         counterfactual_review_required: true,
+        ..ApprovalContainmentContext::default()
     }
 }
 

@@ -1218,6 +1218,7 @@ mod tests {
             containment_mode: Some(vellaveto_types::ContainmentMode::RequireApproval),
             semantic_risk_score: Some(vellaveto_types::SemanticRiskScore { value: risk }),
             counterfactual_review_required: risk >= 90,
+            ..ApprovalContainmentContext::default()
         }
     }
 

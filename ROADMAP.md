@@ -120,6 +120,9 @@ Before opening large new tracks, the current dirty worktree should be reduced in
   Approval creation paths now consume that data through a shared review-safe
   provenance summary helper as well, so HTTP proxy, MCP relay, and server
   approval persistence stay aligned with the same audit-safe contract.
+- Cluster-backed approval tests now track that expanded provenance-summary
+  contract too, so workspace check/lint gates stay aligned with the review and
+  audit model instead of lagging the approval type shape.
 - Verified detached signer workload mismatches now also downgrade the effective
   trust tier to `untrusted`, so privileged sink trust-floor checks can still
   gate mismatched signer provenance even when the explicit workload-binding
