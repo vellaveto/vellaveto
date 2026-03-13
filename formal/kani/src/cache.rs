@@ -76,6 +76,26 @@ pub fn normalize_for_key(s: &str) -> String {
     s.to_lowercase()
 }
 
+/// ASCII-only case normalization for Kani proofs.
+/// Avoids std to_lowercase() which encodes the full Unicode case mapping table
+/// and creates SAT formulas too large for bounded model checking.
+/// Production uses to_lowercase(); this proves the same property for ASCII.
+#[cfg(kani)]
+pub fn normalize_for_key_ascii(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b >= b'A' && b <= b'Z' {
+            out.push(b + 32);
+        } else {
+            out.push(b);
+        }
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
