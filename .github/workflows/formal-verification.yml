@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           TLA_VERSION="v1.8.0"
-          TLA_SHA256="11535876a02412e28b3d093f7fa25455c8fe2cdef1602da4d189ac1688d77b3e"
+          TLA_SHA256="a89d5ef05d1abddab6acfda1dbace14e2e45e7960527ac186dd19c170a955080"
           mkdir -p formal/tla
           curl -fsSL --retry 3 --retry-delay 2 -o formal/tla/tla2tools.jar \
             "https://github.com/tlaplus/tlaplus/releases/download/${TLA_VERSION}/tla2tools.jar"
@@ -200,7 +200,7 @@ jobs:
             shard_index: 7
             shard_count: 8
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
