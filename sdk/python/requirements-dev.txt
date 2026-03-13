@@ -287,7 +287,7 @@ mypy==1.19.1 \
 mypy-extensions==1.1.0 \
     --hash=sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505 \
     --hash=sha256:52e68efc3284861e772bbcd66823fde5ae21fd2fdb51c62a211403730b916558
-orjson==3.11.7 \
+orjson==3.11.7 ; python_version >= "3.10" \
     --hash=sha256:043d3006b7d32c7e233b8cfb1f01c651013ea079e08dcef7189a29abd8befe11 \
     --hash=sha256:0527a4510c300e3b406591b0ba69b5dc50031895b0a93743526a3fc45f59d26e \
     --hash=sha256:0724e265bc548af1dedebd9cb3d24b4e1c1e685a343be43e87ba922a5c5fff2f \
