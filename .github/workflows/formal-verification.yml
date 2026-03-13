@@ -200,7 +200,7 @@ jobs:
             shard_index: 7
             shard_count: 8
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -225,7 +225,7 @@ jobs:
 
       - name: Run Kani proofs (${{ matrix.label }})
         env:
-          KANI_SOLVER: minisat
+          KANI_SOLVER: cadical
         run: bash formal/tools/run-kani-shard.sh "${{ matrix.shard_index }}" "${{ matrix.shard_count }}"
 
   verus:
