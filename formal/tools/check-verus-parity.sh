@@ -649,13 +649,13 @@ check_symbol_parity \
 check_symbol_parity \
     "relay presented approval matcher uses session-bound approval scope matching" \
     "$PROD_RELAY_WRAPPER" \
-    'scope_matches\(session_id,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    'scope_matches\(session_scope_binding,[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
     "$VERUS_APPROVAL_SCOPE" \
     'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
 check_symbol_parity \
     "http proxy presented approval matcher uses session-bound approval scope matching" \
     "$PROD_HTTP_PROXY_HELPERS" \
-    'scope_matches\(Some\(session_id\),[[:space:]]*Some\(action_fingerprint\.as_str\(\)\)\)' \
+    'Some\(session_scope_binding\.as_str\(\)\)' \
     "$VERUS_APPROVAL_SCOPE" \
     'pub[[:space:]]+fn[[:space:]]+approval_scope_binding_satisfied'
 echo ""
