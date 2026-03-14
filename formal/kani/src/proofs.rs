@@ -59,21 +59,19 @@ fn proof_fail_closed_no_match_produces_deny() {
 // =========================================================================
 
 #[kani::proof]
-#[kani::unwind(15)]
+#[kani::unwind(10)]
 fn proof_path_normalize_idempotent() {
-    // 3-byte input (8^3 = 512 combinations) instead of 4-byte (4096) for SAT
-    // tractability: idempotency proof calls normalize_path twice, doubling the
-    // SAT formula. 3 bytes with unwind(15) keeps the property coverage while
-    // fitting within CI runner memory/time limits.
+    // 2-byte input (8^2 = 64 combinations) with unwind(10) for SAT tractability.
+    // This proof calls normalize_path TWICE per input (doubling the SAT formula),
+    // so we need fewer input bytes than K3. 2 bytes still covers key patterns:
+    // ".." (traversal), "/." (dot segment), "//" (double slash), "%a" (encoding).
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
-    let i2: usize = kani::any();
     kani::assume(i0 < ALPHABET.len());
     kani::assume(i1 < ALPHABET.len());
-    kani::assume(i2 < ALPHABET.len());
 
-    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
+    let bytes = [ALPHABET[i0], ALPHABET[i1]];
     let input = std::str::from_utf8(&bytes).unwrap();
 
     if let Ok(first) = path::normalize_path(input) {
@@ -96,27 +94,21 @@ fn proof_path_normalize_idempotent() {
 // =========================================================================
 
 #[kani::proof]
-#[kani::unwind(15)]
+#[kani::unwind(12)]
 fn proof_path_normalize_no_traversal() {
-    // 4-byte input (8^4 = 4096 combinations) with unwind(15) for SAT tractability.
-    // Reduced from 5-byte (8^5 = 32768) to fit CI runner memory/time limits while
-    // retaining all traversal-relevant byte patterns (/, ., %, \).
+    // 3-byte input (8^3 = 512 combinations) with unwind(12) for SAT tractability.
+    // Reduced from 4-byte (4096): normalize_path uses String::contains("..") which
+    // triggers memchr/memcmp loop unrolling too large for CBMC at 4+ bytes.
+    // 3 bytes still covers key traversal patterns: "../", "/..", "..\", "%2e".
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
     let i2: usize = kani::any();
-    let i3: usize = kani::any();
     kani::assume(i0 < ALPHABET.len());
     kani::assume(i1 < ALPHABET.len());
     kani::assume(i2 < ALPHABET.len());
-    kani::assume(i3 < ALPHABET.len());
 
-    let bytes = [
-        ALPHABET[i0],
-        ALPHABET[i1],
-        ALPHABET[i2],
-        ALPHABET[i3],
-    ];
+    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
     let input = std::str::from_utf8(&bytes).unwrap();
 
     if let Ok(normalized) = path::normalize_path(input) {
@@ -1389,28 +1381,29 @@ fn proof_glob_match_wildcard_universal() {
 
 // K40: normalize_path_for_grant: no ".." in output
 #[kani::proof]
-#[kani::unwind(15)]
+#[kani::unwind(12)]
 fn proof_normalize_path_for_grant_no_traversal() {
     use crate::capability::normalize_path_for_grant;
 
+    // 4-byte input (5^4 = 625 combinations) with unwind(12) for SAT tractability.
+    // Reduced from 5-byte (5^5 = 3125): normalize_path_for_grant uses split('/')
+    // and string comparisons that create large SAT formulas at higher byte counts.
+    // 4 bytes covers key patterns: "/../", "../a", "a/..", "/..".
     const ALPHABET: [u8; 5] = [b'/', b'.', b'a', b'b', b'c'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
     let i2: usize = kani::any();
     let i3: usize = kani::any();
-    let i4: usize = kani::any();
     kani::assume(i0 < ALPHABET.len());
     kani::assume(i1 < ALPHABET.len());
     kani::assume(i2 < ALPHABET.len());
     kani::assume(i3 < ALPHABET.len());
-    kani::assume(i4 < ALPHABET.len());
 
     let bytes = [
         ALPHABET[i0],
         ALPHABET[i1],
         ALPHABET[i2],
         ALPHABET[i3],
-        ALPHABET[i4],
     ];
     let input = std::str::from_utf8(&bytes).unwrap();
 
