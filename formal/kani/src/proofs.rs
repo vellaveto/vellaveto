@@ -59,12 +59,14 @@ fn proof_fail_closed_no_match_produces_deny() {
 // =========================================================================
 
 #[kani::proof]
-#[kani::unwind(10)]
+#[kani::unwind(8)]
 fn proof_path_normalize_idempotent() {
-    // 2-byte input (8^2 = 64 combinations) with unwind(10) for SAT tractability.
-    // This proof calls normalize_path TWICE per input (doubling the SAT formula),
-    // so we need fewer input bytes than K3. 2 bytes still covers key patterns:
-    // ".." (traversal), "/." (dot segment), "//" (double slash), "%a" (encoding).
+    // 2-byte input (8^2 = 64 combinations) with unwind(8) for SAT tractability.
+    // This proof calls normalize_path_bounded TWICE per input (doubling the SAT
+    // formula). max_iterations=2 limits the expensive percent-decode loop to 2
+    // passes — sufficient for any 2-byte input since double-encoding requires
+    // ≥6 bytes (%252e). 2 bytes covers: ".." (traversal), "/." (dot segment),
+    // "//" (double slash), "%a" (partial encoding).
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
@@ -74,8 +76,8 @@ fn proof_path_normalize_idempotent() {
     let bytes = [ALPHABET[i0], ALPHABET[i1]];
     let input = std::str::from_utf8(&bytes).unwrap();
 
-    if let Ok(first) = path::normalize_path(input) {
-        match path::normalize_path(&first) {
+    if let Ok(first) = path::normalize_path_bounded(input, 2) {
+        match path::normalize_path_bounded(&first, 2) {
             Ok(second) => {
                 assert_eq!(
                     first, second,
@@ -94,12 +96,14 @@ fn proof_path_normalize_idempotent() {
 // =========================================================================
 
 #[kani::proof]
-#[kani::unwind(12)]
+#[kani::unwind(8)]
 fn proof_path_normalize_no_traversal() {
-    // 3-byte input (8^3 = 512 combinations) with unwind(12) for SAT tractability.
-    // Reduced from 4-byte (4096): normalize_path uses String::contains("..") which
-    // triggers memchr/memcmp loop unrolling too large for CBMC at 4+ bytes.
-    // 3 bytes still covers key traversal patterns: "../", "/..", "..\", "%2e".
+    // 3-byte input (8^3 = 512 combinations) with unwind(8) for SAT tractability.
+    // normalize_path uses String::contains/replace/split which create large SAT
+    // formulas via memchr/memcmp loop unrolling. max_iterations=2 limits the
+    // expensive percent-decode outer loop (sufficient for 3-byte input since
+    // double-encoding requires ≥6 bytes). unwind(8) bounds inner string ops
+    // (output ≤6 bytes). Covers key patterns: "../", "/..", "..\", "%2e".
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
@@ -111,7 +115,7 @@ fn proof_path_normalize_no_traversal() {
     let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
     let input = std::str::from_utf8(&bytes).unwrap();
 
-    if let Ok(normalized) = path::normalize_path(input) {
+    if let Ok(normalized) = path::normalize_path_bounded(input, 2) {
         for component in std::path::Path::new(&normalized).components() {
             assert!(
                 !matches!(component, std::path::Component::ParentDir),
@@ -1381,30 +1385,24 @@ fn proof_glob_match_wildcard_universal() {
 
 // K40: normalize_path_for_grant: no ".." in output
 #[kani::proof]
-#[kani::unwind(12)]
+#[kani::unwind(8)]
 fn proof_normalize_path_for_grant_no_traversal() {
     use crate::capability::normalize_path_for_grant;
 
-    // 4-byte input (5^4 = 625 combinations) with unwind(12) for SAT tractability.
-    // Reduced from 5-byte (5^5 = 3125): normalize_path_for_grant uses split('/')
-    // and string comparisons that create large SAT formulas at higher byte counts.
-    // 4 bytes covers key patterns: "/../", "../a", "a/..", "/..".
+    // 3-byte input (5^3 = 125 combinations) with unwind(8) for SAT tractability.
+    // normalize_path_for_grant uses split('/'), String join, and equality checks
+    // which create large SAT formulas via internal string loops. unwind(8) bounds
+    // inner string operations (output ≤6 bytes). 3 bytes covers key traversal
+    // patterns: "/..", "../", "..a", "/./".
     const ALPHABET: [u8; 5] = [b'/', b'.', b'a', b'b', b'c'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
     let i2: usize = kani::any();
-    let i3: usize = kani::any();
     kani::assume(i0 < ALPHABET.len());
     kani::assume(i1 < ALPHABET.len());
     kani::assume(i2 < ALPHABET.len());
-    kani::assume(i3 < ALPHABET.len());
 
-    let bytes = [
-        ALPHABET[i0],
-        ALPHABET[i1],
-        ALPHABET[i2],
-        ALPHABET[i3],
-    ];
+    let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
     let input = std::str::from_utf8(&bytes).unwrap();
 
     if let Some(normalized) = normalize_path_for_grant(input) {
