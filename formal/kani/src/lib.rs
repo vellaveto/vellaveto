@@ -235,6 +235,53 @@ pub fn abac_evaluate(policies: &[AbacPolicy], matches: &dyn Fn(&AbacPolicy) -> b
     }
 }
 
+/// Kani-friendly ABAC combining result using u8 IDs instead of String.
+///
+/// Avoids String heap allocations that create SAT formulas too large for CBMC.
+/// Production uses `AbacDecision` with String IDs; this proves the same
+/// forbid-override property for small fixed-size policy sets.
+/// Correspondence verified by unit tests in `abac_evaluate`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AbacDecisionKani {
+    Deny(u8),
+    Allow(u8),
+    NoMatch,
+}
+
+/// Kani-friendly ABAC forbid-override combining over fixed-size policy arrays.
+///
+/// Same algorithm as `abac_evaluate` but uses `u8` policy IDs and `[bool; N]`
+/// match arrays instead of `String` IDs and `dyn Fn` closures.
+/// Production uses `abac_evaluate`; this proves the same property for small sets.
+pub fn abac_evaluate_kani(
+    effects: &[AbacEffect],
+    matches: &[bool],
+    ids: &[u8],
+) -> AbacDecisionKani {
+    let mut best_permit: Option<u8> = None;
+    let len = effects.len().min(matches.len()).min(ids.len());
+    let mut i = 0;
+    while i < len {
+        if matches[i] {
+            match effects[i] {
+                AbacEffect::Forbid => {
+                    return AbacDecisionKani::Deny(ids[i]);
+                }
+                AbacEffect::Permit => {
+                    if best_permit.is_none() {
+                        best_permit = Some(ids[i]);
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    match best_permit {
+        Some(pid) => AbacDecisionKani::Allow(pid),
+        None => AbacDecisionKani::NoMatch,
+    }
+}
+
 // =========================================================================
 // Domain normalization (extracted from engine domain handling)
 // =========================================================================
@@ -253,4 +300,67 @@ pub fn normalize_domain(raw: &str) -> String {
         end -= 1;
     }
     raw[..end].to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify the Kani byte-level ABAC evaluator produces the same results as
+    /// the production String-based evaluator on all 64 combinations of 3 policies
+    /// with 2 effects × 2 match states.
+    #[test]
+    fn test_abac_evaluate_kani_parity() {
+        let ids_str = ["p0", "p1", "p2"];
+        let ids_u8: [u8; 3] = [0, 1, 2];
+        // Exhaustive: 2^6 = 64 combinations
+        for bits in 0u8..64 {
+            let e0 = bits & 1 != 0;
+            let e1 = bits & 2 != 0;
+            let e2 = bits & 4 != 0;
+            let m0 = bits & 8 != 0;
+            let m1 = bits & 16 != 0;
+            let m2 = bits & 32 != 0;
+
+            let effects_enum = [
+                if e0 { AbacEffect::Forbid } else { AbacEffect::Permit },
+                if e1 { AbacEffect::Forbid } else { AbacEffect::Permit },
+                if e2 { AbacEffect::Forbid } else { AbacEffect::Permit },
+            ];
+            let matches_arr = [m0, m1, m2];
+
+            // Production version
+            let policies: Vec<AbacPolicy> = ids_str
+                .iter()
+                .zip(effects_enum.iter())
+                .map(|(id, eff)| AbacPolicy {
+                    id: id.to_string(),
+                    effect: *eff,
+                })
+                .collect();
+            let prod = abac_evaluate(&policies, &|p| {
+                let idx = ids_str.iter().position(|&s| s == p.id).unwrap();
+                matches_arr[idx]
+            });
+
+            // Kani version
+            let kani = abac_evaluate_kani(&effects_enum, &matches_arr, &ids_u8);
+
+            // Compare
+            match (&prod, &kani) {
+                (AbacDecision::Deny(pid), AbacDecisionKani::Deny(kid)) => {
+                    let expected_idx = ids_str.iter().position(|&s| s == pid).unwrap();
+                    assert_eq!(expected_idx, *kid as usize, "Deny ID mismatch for bits={bits}");
+                }
+                (AbacDecision::Allow(pid), AbacDecisionKani::Allow(kid)) => {
+                    let expected_idx = ids_str.iter().position(|&s| s == pid).unwrap();
+                    assert_eq!(expected_idx, *kid as usize, "Allow ID mismatch for bits={bits}");
+                }
+                (AbacDecision::NoMatch, AbacDecisionKani::NoMatch) => {}
+                _ => panic!(
+                    "Decision kind mismatch for bits={bits}: prod={prod:?}, kani={kani:?}"
+                ),
+            }
+        }
+    }
 }

@@ -571,11 +571,16 @@ impl PolicyEngine {
             }
             CompiledConstraint::Regex { regex, .. } => {
                 if let Some(s) = value.as_str() {
+                    // SECURITY (R255-ENG-1): Match raw first, then normalized.
+                    // See constraint_eval.rs for rationale.
+                    if regex.is_match(s) {
+                        return true;
+                    }
                     // SECURITY (R237-ENG-2): Normalize path input before regex matching.
                     let normalized =
                         Self::normalize_path_bounded(s, self.max_path_decode_iterations)
                             .unwrap_or_else(|_| s.to_string());
-                    regex.is_match(&normalized)
+                    normalized != s && regex.is_match(&normalized)
                 } else {
                     true
                 }

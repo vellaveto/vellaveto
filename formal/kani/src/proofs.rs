@@ -762,7 +762,7 @@ fn proof_abac_forbid_ignores_priority_order() {
 
 #[kani::proof]
 fn proof_abac_permit_requires_no_forbid() {
-    use crate::{AbacDecision, AbacEffect, AbacPolicy};
+    use crate::{AbacDecisionKani, AbacEffect};
 
     let e0: bool = kani::any();
     let e1: bool = kani::any();
@@ -771,45 +771,22 @@ fn proof_abac_permit_requires_no_forbid() {
     let m1: bool = kani::any();
     let m2: bool = kani::any();
 
-    let policies = [
-        AbacPolicy {
-            id: "p0".to_string(),
-            effect: if e0 {
-                AbacEffect::Forbid
-            } else {
-                AbacEffect::Permit
-            },
-        },
-        AbacPolicy {
-            id: "p1".to_string(),
-            effect: if e1 {
-                AbacEffect::Forbid
-            } else {
-                AbacEffect::Permit
-            },
-        },
-        AbacPolicy {
-            id: "p2".to_string(),
-            effect: if e2 {
-                AbacEffect::Forbid
-            } else {
-                AbacEffect::Permit
-            },
-        },
+    // Use byte-level ABAC evaluator to avoid String heap allocations
+    // that create SAT formulas too large for CBMC bounded model checking.
+    // Production uses abac_evaluate with String IDs; correspondence
+    // verified by test_abac_evaluate_kani_parity in lib.rs.
+    let effects = [
+        if e0 { AbacEffect::Forbid } else { AbacEffect::Permit },
+        if e1 { AbacEffect::Forbid } else { AbacEffect::Permit },
+        if e2 { AbacEffect::Forbid } else { AbacEffect::Permit },
     ];
+    let matches = [m0, m1, m2];
+    let ids: [u8; 3] = [0, 1, 2];
 
-    let result = crate::abac_evaluate(&policies, &|p| {
-        if p.id == "p0" {
-            m0
-        } else if p.id == "p1" {
-            m1
-        } else {
-            m2
-        }
-    });
+    let result = crate::abac_evaluate_kani(&effects, &matches, &ids);
 
     // S9: Allow result → no matching Forbid policy
-    if matches!(result, AbacDecision::Allow(_)) {
+    if matches!(result, AbacDecisionKani::Allow(_)) {
         // If any Forbid matched, result would be Deny
         if e0 && m0 {
             panic!("K20 violated: Allow with matching Forbid p0");

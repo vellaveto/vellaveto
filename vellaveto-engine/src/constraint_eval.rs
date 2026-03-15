@@ -399,6 +399,23 @@ impl PolicyEngine {
                 // SECURITY (R237-ENG-2): Normalize path input before regex matching,
                 // consistent with Glob/NotGlob. Prevents percent-encoded traversal
                 // (e.g., /safe/%2e%2e/etc/passwd) from bypassing regex path patterns.
+                //
+                // SECURITY (R255-ENG-1): Match against BOTH the raw value AND the
+                // normalized value. Path normalization can mangle non-path strings
+                // (e.g., "rm -rf /" becomes "/rm -rf " because the trailing slash is
+                // consumed as a path separator). Matching the raw value first ensures
+                // shell command patterns still trigger, while normalized matching
+                // preserves the R237-ENG-2 percent-decode evasion defense.
+                if regex.is_match(raw) {
+                    return Ok(Some(Self::make_constraint_verdict(
+                        on_match,
+                        // SECURITY (R235-ENG-2): Genericize deny reason.
+                        &format!(
+                            "Parameter '{}' matches constraint (policy '{}')",
+                            param_name, policy.name
+                        ),
+                    )?));
+                }
                 let normalized =
                     match Self::normalize_path_bounded(raw, self.max_path_decode_iterations) {
                         Ok(n) => n,
@@ -408,7 +425,7 @@ impl PolicyEngine {
                             }))
                         }
                     };
-                if regex.is_match(&normalized) {
+                if normalized != raw && regex.is_match(&normalized) {
                     Ok(Some(Self::make_constraint_verdict(
                         on_match,
                         // SECURITY (R235-ENG-2): Genericize deny reason.

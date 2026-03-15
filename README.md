@@ -137,7 +137,7 @@ vellaveto-proxy --protect vault -- ./my-server
 | `vault` | **Deny** | Everything not explicitly allowed; source reads + git reads allowed, writes require approval | Maximum security |
 
 <p align="center">
-  <img src="docs/shield-demo.gif" alt="VellaVeto Shield demo — blocking credential theft, rm -rf, and curl|sh while allowing safe operations" width="880">
+  <img src="docs/shield-demo.gif" alt="VellaVeto Shield demo — blocking credential theft, data exfiltration, SANDWORM config injection, and prompt injection while allowing safe operations" width="880">
 </p>
 
 ### Setup Wizard
@@ -308,7 +308,7 @@ Lower crates never depend on higher crates. The boundary contract (`vellaveto-ty
 
 ### Internal Adversarial Auditing
 
-VellaVeto is continuously exercised by internal adversarial audit sweeps mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits: they are recurring internal red-team exercises where we attack the running system, document findings, land fixes, and add regressions. The current sweep history and methodology live in the [changelog](CHANGELOG.md) and [security review](docs/SECURITY_REVIEW.md).
+VellaVeto is continuously exercised by internal adversarial audit sweeps mapped to the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/). These are not third-party audits: they are recurring internal red-team exercises where we attack the running system, document findings, land fixes, and add regressions. The current sweep history and methodology live in the [changelog](CHANGELOG.md) and [security guarantees](docs/SECURITY_GUARANTEES.md).
 
 - **Fail-closed everywhere** — empty policy sets, missing parameters, lock poisoning, capacity exhaustion, and evaluation errors all produce `Deny`
 - **Zero `unwrap()` in library code** — all error paths return typed errors; panics reserved for tests only
@@ -329,7 +329,6 @@ We use formal methods to prove — not just test — critical security propertie
 | **Alloy** | Capability delegation cannot escalate privileges | [formal/alloy/](formal/alloy/) |
 
 Formal verification spans TLA+, Verus, Kani, Lean 4, Coq, and Alloy. The live property catalog and current counts are maintained in [formal/README.md](formal/README.md); the trust boundary and assumptions are documented in [docs/TRUSTED_COMPUTING_BASE.md](docs/TRUSTED_COMPUTING_BASE.md).
-For a paper-style overview and the arXiv-ready manuscript sources, see [formal/FORMAL_VERIFICATION_SUBMISSION.md](formal/FORMAL_VERIFICATION_SUBMISSION.md) and [formal/arxiv/README.md](formal/arxiv/README.md).
 
 ### Former Limitations (Now Resolved)
 
@@ -437,7 +436,7 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for configuration details.
 | [Audit Log](docs/AUDIT_LOG.md) | Audit system internals, verification, SIEM export |
 | [IAM](docs/IAM.md) | OIDC, SAML, RBAC, session management |
 | [Benchmarks](docs/BENCHMARKS.md) | Reproducible performance benchmarks |
-| [Evaluation Traces](docs/EVALUATION_TRACES.md) | Decision explainability and execution graphs |
+| [Evaluation Traces](docs/AUDIT_LOG.md) | Decision explainability and execution graphs |
 
 ### SDKs
 
