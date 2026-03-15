@@ -54,23 +54,20 @@ jobs:
 
       - name: Install cross-compilation tools (Linux aarch64)
         if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
-          rustup target add aarch64-unknown-linux-musl
-          mkdir -p .cargo
-          cat >> .cargo/config.toml <<EOF
-          [target.aarch64-unknown-linux-musl]
-          linker = "aarch64-linux-gnu-gcc"
-          EOF
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
         with:
           cache-on-failure: true
           key: ${{ matrix.target }}
 
-      - name: Build release binaries
+      - name: Build release binaries (native)
+        if: "!matrix.cross"
         run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Build release binaries (cross)
+        if: matrix.cross
+        run: cross build --release --locked --target ${{ matrix.target }}
 
       - name: Strip binaries (Linux)
         if: contains(matrix.target, 'linux') && !matrix.cross
@@ -82,6 +79,7 @@ jobs:
       - name: Strip binaries (Linux cross)
         if: matrix.cross
         run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
           for bin in vellaveto vellaveto-http-proxy vellaveto-proxy vellaveto-shield; do
             aarch64-linux-gnu-strip "target/${{ matrix.target }}/release/$bin" 2>/dev/null || true
           done
