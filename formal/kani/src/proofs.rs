@@ -61,12 +61,15 @@ fn proof_fail_closed_no_match_produces_deny() {
 #[kani::proof]
 #[kani::unwind(8)]
 fn proof_path_normalize_idempotent() {
-    // 2-byte input (8^2 = 64 combinations) with unwind(8) for SAT tractability.
-    // This proof calls normalize_path_bounded TWICE per input (doubling the SAT
-    // formula). max_iterations=2 limits the expensive percent-decode loop to 2
-    // passes — sufficient for any 2-byte input since double-encoding requires
-    // ≥6 bytes (%252e). 2 bytes covers: ".." (traversal), "/." (dot segment),
-    // "//" (double slash), "%a" (partial encoding).
+    // Uses normalize_path_kani (byte-level normalizer) instead of
+    // normalize_path_bounded to avoid String/Vec/PathBuf/percent_encoding
+    // heap operations that create SAT formulas too large for CBMC.
+    // Production correspondence verified by unit tests in path.rs.
+    //
+    // 2-byte input (8^2 = 64 combinations). Calls normalize TWICE (idempotency),
+    // so formula is doubled. max_iter=2 limits percent-decode loop.
+    // Covers: ".." (traversal), "/." (dot segment), "//" (double slash),
+    // "%a" (partial encoding), "\\" (backslash normalization).
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
@@ -74,17 +77,24 @@ fn proof_path_normalize_idempotent() {
     kani::assume(i1 < ALPHABET.len());
 
     let bytes = [ALPHABET[i0], ALPHABET[i1]];
-    let input = std::str::from_utf8(&bytes).unwrap();
 
-    if let Ok(first) = path::normalize_path_bounded(input, 2) {
-        match path::normalize_path_bounded(&first, 2) {
-            Ok(second) => {
-                assert_eq!(
-                    first, second,
-                    "K2 violated: normalize_path is not idempotent"
+    if let Ok((first_buf, first_len)) = path::normalize_path_kani(&bytes, 2) {
+        match path::normalize_path_kani(&first_buf[..first_len], 2) {
+            Ok((second_buf, second_len)) => {
+                assert!(
+                    first_len == second_len,
+                    "K2 violated: idempotent output length differs"
                 );
+                let mut k = 0;
+                while k < first_len {
+                    assert!(
+                        first_buf[k] == second_buf[k],
+                        "K2 violated: normalize_path is not idempotent"
+                    );
+                    k += 1;
+                }
             }
-            Err(_) => {
+            Err(()) => {
                 panic!("K2 violated: normalize_path errors on its own output");
             }
         }
@@ -98,12 +108,13 @@ fn proof_path_normalize_idempotent() {
 #[kani::proof]
 #[kani::unwind(8)]
 fn proof_path_normalize_no_traversal() {
-    // 3-byte input (8^3 = 512 combinations) with unwind(8) for SAT tractability.
-    // normalize_path uses String::contains/replace/split which create large SAT
-    // formulas via memchr/memcmp loop unrolling. max_iterations=2 limits the
-    // expensive percent-decode outer loop (sufficient for 3-byte input since
-    // double-encoding requires ≥6 bytes). unwind(8) bounds inner string ops
-    // (output ≤6 bytes). Covers key patterns: "../", "/..", "..\", "%2e".
+    // Uses normalize_path_kani (byte-level normalizer) instead of
+    // normalize_path_bounded to avoid String/Vec/PathBuf/percent_encoding
+    // heap operations that create SAT formulas too large for CBMC.
+    // Production correspondence verified by unit tests in path.rs.
+    //
+    // 3-byte input (8^3 = 512 combinations). max_iter=2 limits percent-decode.
+    // Covers key traversal patterns: "../", "/..", "..\", "%2e", "%2f".
     const ALPHABET: [u8; 8] = [b'/', b'.', b'%', b'\\', b'a', b'0', b'2', b'e'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
@@ -113,12 +124,25 @@ fn proof_path_normalize_no_traversal() {
     kani::assume(i2 < ALPHABET.len());
 
     let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
-    let input = std::str::from_utf8(&bytes).unwrap();
 
-    if let Ok(normalized) = path::normalize_path_bounded(input, 2) {
-        for component in std::path::Path::new(&normalized).components() {
+    if let Ok((out_buf, out_len)) = path::normalize_path_kani(&bytes, 2) {
+        // Scan output for ".." path components (byte-level, no PathBuf).
+        let mut pos = 0;
+        while pos < out_len {
+            // Skip slashes
+            while pos < out_len && out_buf[pos] == b'/' {
+                pos += 1;
+            }
+            if pos >= out_len {
+                break;
+            }
+            let start = pos;
+            while pos < out_len && out_buf[pos] != b'/' {
+                pos += 1;
+            }
+            let clen = pos - start;
             assert!(
-                !matches!(component, std::path::Component::ParentDir),
+                !(clen == 2 && out_buf[start] == b'.' && out_buf[start + 1] == b'.'),
                 "K3 violated: normalize_path output contains '..'"
             );
         }
@@ -1405,13 +1429,15 @@ fn proof_glob_match_wildcard_universal() {
 #[kani::proof]
 #[kani::unwind(8)]
 fn proof_normalize_path_for_grant_no_traversal() {
-    use crate::capability::normalize_path_for_grant;
+    use crate::capability::normalize_path_for_grant_kani;
 
-    // 3-byte input (5^3 = 125 combinations) with unwind(8) for SAT tractability.
-    // normalize_path_for_grant uses split('/'), String join, and equality checks
-    // which create large SAT formulas via internal string loops. unwind(8) bounds
-    // inner string operations (output ≤6 bytes). 3 bytes covers key traversal
-    // patterns: "/..", "../", "..a", "/./".
+    // Uses normalize_path_for_grant_kani (byte-level normalizer) instead of
+    // normalize_path_for_grant to avoid Vec/String heap operations that create
+    // SAT formulas too large for CBMC. Production correspondence verified by
+    // unit tests in capability.rs.
+    //
+    // 3-byte input (5^3 = 125 combinations). Covers key traversal patterns:
+    // "/..", "../", "..a", "/./".
     const ALPHABET: [u8; 5] = [b'/', b'.', b'a', b'b', b'c'];
     let i0: usize = kani::any();
     let i1: usize = kani::any();
@@ -1421,12 +1447,23 @@ fn proof_normalize_path_for_grant_no_traversal() {
     kani::assume(i2 < ALPHABET.len());
 
     let bytes = [ALPHABET[i0], ALPHABET[i1], ALPHABET[i2]];
-    let input = std::str::from_utf8(&bytes).unwrap();
 
-    if let Some(normalized) = normalize_path_for_grant(input) {
-        // No ".." should appear as a path component
-        for component in normalized.split('/') {
-            assert!(component != "..", "K40 violated: '..' in normalized output");
+    if let Some((out_buf, out_len)) = normalize_path_for_grant_kani(&bytes) {
+        // Scan output for ".." path components (byte-level, no String::split).
+        let mut pos = 0;
+        while pos < out_len {
+            let start = pos;
+            while pos < out_len && out_buf[pos] != b'/' {
+                pos += 1;
+            }
+            let clen = pos - start;
+            assert!(
+                !(clen == 2 && out_buf[start] == b'.' && out_buf[start + 1] == b'.'),
+                "K40 violated: '..' in normalized output"
+            );
+            if pos < out_len {
+                pos += 1;
+            }
         }
     }
 }

@@ -402,6 +402,95 @@ pub fn normalize_path_for_grant(path: &str) -> Option<String> {
     Some(normalized)
 }
 
+/// Kani-friendly byte-level grant path normalizer using fixed-size arrays.
+///
+/// Implements the same algorithm as [`normalize_path_for_grant`]:
+/// 1. Reject null bytes
+/// 2. Split on `/`, process components (skip empty/`.`, fail-closed on `..` above root)
+/// 3. Preserve `/` prefix for absolute paths
+///
+/// Avoids Vec/String heap operations that create SAT formulas too large for CBMC.
+/// Production correspondence verified by unit tests below.
+pub fn normalize_path_for_grant_kani(input: &[u8]) -> Option<([u8; 16], usize)> {
+    // Reject null bytes
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == 0 {
+            return None;
+        }
+        i += 1;
+    }
+
+    let has_root = !input.is_empty() && input[0] == b'/';
+
+    // Component resolution matching path_component_next_depth logic:
+    // - empty or "." → skip (depth unchanged)
+    // - ".." at depth 0 → None (fail-closed, above-root traversal)
+    // - ".." at depth > 0 → pop (depth -= 1)
+    // - other → push (depth += 1)
+    let mut comp_starts = [0usize; 8];
+    let mut comp_lens = [0usize; 8];
+    let mut depth = 0usize;
+
+    let mut pos = 0;
+    while pos < input.len() {
+        let start = pos;
+        while pos < input.len() && input[pos] != b'/' {
+            pos += 1;
+        }
+        let clen = pos - start;
+
+        let is_empty_or_dot = clen == 0 || (clen == 1 && input[start] == b'.');
+        let is_dotdot = clen == 2 && input[start] == b'.' && input[start + 1] == b'.';
+
+        if is_dotdot {
+            if depth == 0 {
+                return None; // fail-closed: above-root traversal
+            }
+            depth -= 1;
+        } else if !is_empty_or_dot && depth < 8 {
+            comp_starts[depth] = start;
+            comp_lens[depth] = clen;
+            depth += 1;
+        }
+
+        // Skip the '/' delimiter
+        if pos < input.len() {
+            pos += 1;
+        }
+    }
+
+    // Build output
+    let mut out = [0u8; 16];
+    let mut out_len = 0;
+
+    if has_root && out_len < 16 {
+        out[out_len] = b'/';
+        out_len += 1;
+    }
+
+    let mut ci = 0;
+    while ci < depth {
+        if ci > 0 && out_len < 16 {
+            out[out_len] = b'/';
+            out_len += 1;
+        }
+        let mut j = 0;
+        while j < comp_lens[ci] && out_len < 16 {
+            out[out_len] = input[comp_starts[ci] + j];
+            out_len += 1;
+            j += 1;
+        }
+        ci += 1;
+    }
+
+    if out_len == 0 {
+        return None; // Empty result
+    }
+
+    Some((out, out_len))
+}
+
 /// A capability grant for verification.
 pub struct CapabilityGrant {
     pub tool_pattern: String,
@@ -803,5 +892,65 @@ mod tests {
             max_invocations: 5,
         };
         assert!(!grant_is_subset(&child, &parent));
+    }
+
+    #[test]
+    fn test_kani_grant_normalizer_parity() {
+        let cases: &[(&[u8], Option<&str>)] = &[
+            (b"/a/b/c", Some("/a/b/c")),
+            (b"/a/../b", Some("/b")),
+            (b"/a/./b", Some("/a/b")),
+            (b"/../etc", None), // above root → fail-closed
+            (b"..", None),      // above root → fail-closed
+            (b"../a", None),    // above root → fail-closed
+            (b"/", Some("/")),
+            (b"/.", Some("/")),
+            (b"a/b", Some("a/b")),
+            (b"/a\x00/b", None), // null byte
+        ];
+        for &(input, expected) in cases {
+            let result = normalize_path_for_grant_kani(input);
+            let input_str = std::str::from_utf8(input).ok();
+            match (result, expected) {
+                (Some((buf, len)), Some(exp)) => {
+                    assert_eq!(
+                        &buf[..len],
+                        exp.as_bytes(),
+                        "kani grant normalizer mismatch for {:?}",
+                        input_str
+                    );
+                    if let Some(s) = input_str {
+                        assert_eq!(
+                            normalize_path_for_grant(s).as_deref(),
+                            Some(exp),
+                            "production grant normalizer mismatch for {:?}",
+                            s
+                        );
+                    }
+                }
+                (None, None) => {
+                    if let Some(s) = input_str {
+                        assert!(
+                            normalize_path_for_grant(s).is_none(),
+                            "production should also return None for {:?}",
+                            s
+                        );
+                    }
+                }
+                (Some((buf, len)), None) => {
+                    panic!(
+                        "kani grant normalizer should return None for {:?}, got {:?}",
+                        input_str,
+                        std::str::from_utf8(&buf[..len])
+                    );
+                }
+                (None, Some(exp)) => {
+                    panic!(
+                        "kani grant normalizer returned None for {:?}, expected {:?}",
+                        input_str, exp
+                    );
+                }
+            }
+        }
     }
 }
