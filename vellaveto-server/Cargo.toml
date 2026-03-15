@@ -1,6 +1,6 @@
 [package]
 name = "vellaveto-server"
-version = "6.0.4"
+version = "6.0.5"
 edition = "2021"
 license.workspace = true
 repository.workspace = true
@@ -31,16 +31,16 @@ opentelemetry = [
 ]
 
 [dependencies]
-vellaveto-types = { path = "../vellaveto-types", version = "6.0.4" }
-vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.4" }
-vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.4" }
-vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.4", features = ["discovery", "projector"] }
-vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.4" }
-vellaveto-config = { path = "../vellaveto-config", version = "6.0.4" }
-vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.4" }
-vellaveto-cluster = { path = "../vellaveto-cluster", version = "6.0.4" }
-vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.4" }
-vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.4" }
+vellaveto-types = { path = "../vellaveto-types", version = "6.0.5" }
+vellaveto-engine = { path = "../vellaveto-engine", version = "6.0.5" }
+vellaveto-audit = { path = "../vellaveto-audit", version = "6.0.5" }
+vellaveto-mcp = { path = "../vellaveto-mcp", version = "6.0.5", features = ["discovery", "projector"] }
+vellaveto-canonical = { path = "../vellaveto-canonical", version = "6.0.5" }
+vellaveto-config = { path = "../vellaveto-config", version = "6.0.5" }
+vellaveto-approval = { path = "../vellaveto-approval", version = "6.0.5" }
+vellaveto-cluster = { path = "../vellaveto-cluster", version = "6.0.5" }
+vellaveto-discovery = { path = "../vellaveto-discovery", version = "6.0.5" }
+vellaveto-tls = { path = "../vellaveto-tls", version = "6.0.5" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

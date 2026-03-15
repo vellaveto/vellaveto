@@ -1,7 +1,7 @@
 {
   "name": "admin-console",
   "private": true,
-  "version": "6.0.4",
+  "version": "6.0.5",
   "license": "BUSL-1.1",
   "type": "module",
   "scripts": {
